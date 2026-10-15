@@ -373,6 +373,7 @@ describe('a move into a worktree', () => {
       events: { broadcast: () => {} } as never,
       worktreeMover: new WorktreeMover(runtime as never),
       worktreeOffers: {} as never,
+      prSync: { apply: async () => {} },
     })
     const bob = actors.memberActor('bob', 'Bob')
     const ipc = { session: { sessionId: 's1', workingDirectory: repo, gitContext: null }, settings: {} } as unknown as IpcContext

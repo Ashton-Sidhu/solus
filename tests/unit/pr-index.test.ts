@@ -8,9 +8,8 @@ const repo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'repo' }
 const otherRepo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'other' }
 
 interface Calls {
-  getPullRequest: number
-  listCommits: number
-  listPullRequestsPage: number
+  getPullRequestOverview: number
+  listPullRequestPages: number
   listPullRequestFileStats: number
 }
 
@@ -26,27 +25,21 @@ function checksFor(number: number, inFlight: boolean): NumberedPrChecksSummary {
  *  account it is signed in as so two viewers can be put on one repository. */
 function fakeProvider(viewer = 'alice', gate?: Promise<void>): { provider: Provider; calls: Calls; headSha: { value: string } } {
   const calls: Calls = {
-    getPullRequest: 0,
-    listCommits: 0,
-    listPullRequestsPage: 0,
+    getPullRequestOverview: 0,
+    listPullRequestPages: 0,
     listPullRequestFileStats: 0,
   }
   const headSha = { value: 'sha-1' }
   const review = {
     getViewer: async () => viewer,
-    getPullRequest: async (_repo: RepoRef, number: number) => {
-      calls.getPullRequest += 1
+    getPullRequestOverview: async (_repo: RepoRef, number: number) => {
+      calls.getPullRequestOverview += 1
       if (gate) await gate
-      return pullRequestFor(number, headSha.value)
+      return { pullRequest: pullRequestFor(number, headSha.value), commits: [], reviewers: [] }
     },
-    listCommits: async () => {
-      calls.listCommits += 1
-      return []
-    },
-    listReviewers: async () => [],
-    listPullRequestsPage: async () => {
-      calls.listPullRequestsPage += 1
-      return { items: [], page: 1, hasMore: false }
+    listPullRequestPages: async () => {
+      calls.listPullRequestPages += 1
+      return [{ page: { items: [], page: 1, hasMore: false }, authored: null, needsReview: null }]
     },
     listPullRequestFileStats: async () => {
       calls.listPullRequestFileStats += 1
@@ -65,7 +58,7 @@ describe('PrIndex', () => {
     await index.pullRequest(repo, provider, 7).read()
     await index.pullRequest(repo, provider, 7).read()
 
-    expect(calls.getPullRequest).toBe(1)
+    expect(calls.getPullRequestOverview).toBe(1)
   })
 
   test('concurrent readers share one in-flight request', async () => {
@@ -81,7 +74,7 @@ describe('PrIndex', () => {
     release()
     const [first, second] = await both
 
-    expect(calls.getPullRequest).toBe(1)
+    expect(calls.getPullRequestOverview).toBe(1)
     expect(first).toBe(second)
   })
 
@@ -96,11 +89,11 @@ describe('PrIndex', () => {
     // exactly the case optimistic concurrency exists to catch.
     headSha.value = 'sha-2'
     expect((await pullRequest.readFresh()).headSha).toBe('sha-2')
-    expect(calls.getPullRequest).toBe(2)
+    expect(calls.getPullRequestOverview).toBe(2)
 
     // And the guard's answer replaces what was remembered.
     expect((await pullRequest.read()).headSha).toBe('sha-2')
-    expect(calls.getPullRequest).toBe(2)
+    expect(calls.getPullRequestOverview).toBe(2)
   })
 
   test('two checkouts of one repository are one pull request', async () => {
@@ -113,7 +106,7 @@ describe('PrIndex', () => {
     await index.pullRequest(repo, provider, 7).read()
 
     expect(index.size).toBe(1)
-    expect(calls.getPullRequest).toBe(1)
+    expect(calls.getPullRequestOverview).toBe(1)
   })
 
   test('the checks poll files its answer on each pull request it covered', () => {
@@ -158,9 +151,8 @@ describe('PrIndex', () => {
 
   test('an overview reuses the pull request the page was opened with', async () => {
     // WHY: opening a review reads the pull request fresh, then asks for its
-    // overview a moment later. Reading the overview as its own unit cost the
-    // host the same pull request a second time — three requests, with the
-    // branch rules and approval query each read carries.
+    // overview a moment later. The commits and reviewers came in the same
+    // answer, so the overview must cost the host nothing more.
     const index = new PrIndex()
     const { provider, calls } = fakeProvider()
 
@@ -170,8 +162,21 @@ describe('PrIndex', () => {
     await pullRequest.commits()
     await pullRequest.read()
 
-    expect(calls.getPullRequest).toBe(1)
-    expect(calls.listCommits).toBe(1)
+    expect(calls.getPullRequestOverview).toBe(1)
+  })
+
+  test('an overview of a pull request a list row seeded costs one detail read', async () => {
+    // WHY: a list row carries the pull request but not its commits or
+    // reviewers. Those two parts must share one detail read, not ask twice.
+    const index = new PrIndex()
+    const { provider, calls } = fakeProvider()
+
+    const pullRequest = index.pullRequest(repo, provider, 7)
+    pullRequest.seed(pullRequestFor(7))
+    await pullRequest.overview()
+    await pullRequest.reviewers()
+
+    expect(calls.getPullRequestOverview).toBe(1)
   })
 
   test('invalidating after a write sends the next read back to the host', async () => {
@@ -180,15 +185,15 @@ describe('PrIndex', () => {
 
     await index.pullRequest(repo, provider, 7).read()
     await index.list(repo, provider, 'alice', { state: 'open' }, 1)
-    expect(calls.getPullRequest).toBe(1)
-    expect(calls.listPullRequestsPage).toBe(1)
+    expect(calls.getPullRequestOverview).toBe(1)
+    expect(calls.listPullRequestPages).toBe(1)
 
     index.invalidate(repo)
 
     await index.pullRequest(repo, provider, 7).read()
     await index.list(repo, provider, 'alice', { state: 'open' }, 1)
-    expect(calls.getPullRequest).toBe(2)
-    expect(calls.listPullRequestsPage).toBe(2)
+    expect(calls.getPullRequestOverview).toBe(2)
+    expect(calls.listPullRequestPages).toBe(2)
   })
 
   test('invalidating one repository leaves another alone', async () => {
@@ -199,7 +204,7 @@ describe('PrIndex', () => {
     index.invalidate(repo)
     await index.pullRequest(otherRepo, provider, 7).read()
 
-    expect(calls.getPullRequest).toBe(1)
+    expect(calls.getPullRequestOverview).toBe(1)
   })
 
   test('changed-file counts are re-read when the revision they described has moved', async () => {

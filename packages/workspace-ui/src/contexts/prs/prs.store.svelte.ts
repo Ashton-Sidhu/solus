@@ -14,7 +14,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { PrFilter, PrInterest, PrSyncChange } from '@solus/contracts/providers'
+import type { PrFilter, PrInterest, PrProjectCursor, PrSyncChange } from '@solus/contracts/providers'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
 import { detached, ProjectPrs, projectPrsKey } from './project-prs.svelte'
@@ -29,6 +29,15 @@ export interface PrProject {
   label: string
   api: HostApi
   ctx: IpcContext
+}
+
+/** Which projects a list read asks the host for. `force`: a person's refresh,
+ *  so each project forgets its list here and on the host and reads again.
+ *  `changed`: the host said the lists of these projects changed, so only they
+ *  read again. With neither, a project whose list is fresh is not read. */
+export interface PrListRead {
+  force?: boolean
+  changed?: readonly ProjectPrs[]
 }
 
 /** What one project's surfaces want PR sync to keep fresh, by surface. */
@@ -84,6 +93,15 @@ export class PrsStore {
   onChange(listener: PrChangeListener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  /** Hear when the lists of these projects must be read again: an agent turn
+   *  ended or a git action ran in their repository (docs/plans/pr-sync.md §3.4). */
+  onListChanged(listener: (projects: ProjectPrs[]) => void): () => void {
+    this.listen()
+    return this.onChange((change, projects) => {
+      if (change.listChanged && projects.length) listener(projects)
+    })
   }
 
   /** Send a project's interest after the current task, so the surfaces that
@@ -152,6 +170,7 @@ export class PrsStore {
     const projects = this.projectsReading(serverId, change.repo)
     for (const project of projects) {
       for (const pullRequest of change.pullRequests) project.absorbSynced(pullRequest)
+      for (const { number, summary } of change.checks) project.prs.get(number)?.absorbChecks(summary)
     }
     for (const listener of this.listeners) listener(change, projects)
   }
@@ -238,9 +257,10 @@ export class PrsStore {
    * side and answers for all of them together, so each host's rows land in one
    * update instead of reordering the list as every project arrives. Each answer
    * is filed in that project's own entry. Projects not named here are dropped,
-   * except those a surface is watching.
+   * except those a surface is watching. `read` chooses which named projects
+   * the host is asked for.
    */
-  async listProjects(targets: PrProject[], filter: PrFilter, opts: { force?: boolean } = {}): Promise<void> {
+  async listProjects(targets: PrProject[], filter: PrFilter, read: PrListRead = {}): Promise<void> {
     const named = new Set(targets.map((target) => projectPrsKey(target.serverId, target.ctx)))
     for (const key of this.byProject.keys()) {
       if (!named.has(key) && !this.wants.has(key)) this.byProject.delete(key)
@@ -248,16 +268,25 @@ export class PrsStore {
     const byHost = new Map<string, ProjectPrs[]>()
     for (const target of targets) {
       const project = this.get(target.api, target.serverId, target.ctx)
-      // A project the host has already said has no pull requests — a plain
-      // folder, a repository with no remote — has nothing to list, and asking
-      // again on every refresh only spends a host read. An explicit refresh
-      // still retries it, so `git remote add` is one click from showing up.
-      if (!opts.force && project.error?.kind === 'unavailable') continue
+      if (!this.needsListing(project, filter, read)) continue
       const projects = byHost.get(target.serverId) ?? []
       projects.push(project)
       byHost.set(target.serverId, projects)
     }
-    await Promise.all([...byHost.values()].map((projects) => this.listHost(projects, detached(filter), !!opts.force)))
+    await Promise.all([...byHost.values()].map((projects) => this.listHost(projects, detached(filter), !!read.force)))
+  }
+
+  private needsListing(project: ProjectPrs, filter: PrFilter, read: PrListRead): boolean {
+    if (read.force) return true
+    if (read.changed) return read.changed.includes(project)
+    // A project the host has already said has no pull requests — a plain
+    // folder, a repository with no remote — has nothing to list, and asking
+    // again on every refresh only spends a host read. An explicit refresh
+    // still retries it, so `git remote add` is one click from showing up.
+    if (project.error?.kind === 'unavailable') return false
+    // A page that mounts again within the mirror's lifetime shows what it
+    // read; what changed since then arrives as `pr.changed`.
+    return !project.holdsFreshListing(filter)
   }
 
   /** One `prListProjects` for projects that share a host. The host also reads
@@ -286,8 +315,45 @@ export class PrsStore {
   }
 
   /**
+   * The next page of each of these projects that has one, in one
+   * `prListProjects` per host: the host reads them all in one search.
+   */
+  async loadMore(projects: ProjectPrs[]): Promise<void> {
+    const byHost = new Map<string, Array<{ project: ProjectPrs; from: PrProjectCursor }>>()
+    for (const project of projects) {
+      const from = project.beginMore()
+      if (!from) continue
+      const reads = byHost.get(project.serverId) ?? []
+      reads.push({ project, from })
+      byHost.set(project.serverId, reads)
+    }
+    await Promise.all([...byHost.values()].map(async (reads) => {
+      const [{ project: first }] = reads
+      const filter = detached(first.filter)
+      try {
+        const listings = await first.hostApi.prListProjects(
+          detached(first.hostContext),
+          reads.map(({ project }) => project.projectScope),
+          filter,
+          reads.map(({ from }) => from),
+        )
+        const byRoot = new Map(listings.map((listing) => [listing.projectRoot, listing]))
+        for (const { project, from } of reads) {
+          const listing = byRoot.get(project.projectScope)
+          if (listing) project.acceptMore(from, filter, listing)
+        }
+      } catch (error) {
+        for (const { project } of reads) project.failMore(error)
+      } finally {
+        for (const { project } of reads) project.endMore()
+      }
+    }))
+  }
+
+  /**
    * Read the list a page is showing: one project, or every project through
-   * `listProjects` when `targets` is given.
+   * `listProjects` when `targets` is given. `PrListRead` chooses which of
+   * them the host is asked for.
    *
    * An unsearched read first paints the list remembered from the last visit
    * under `memoryKey` into any project that has nothing yet, and remembers its
@@ -297,7 +363,7 @@ export class PrsStore {
   async readPage(
     scopes: ProjectPrs[],
     filter: PrFilter,
-    opts: { memoryKey: string; force?: boolean; targets?: PrProject[] },
+    opts: PrListRead & { memoryKey: string; targets?: PrProject[] },
   ): Promise<void> {
     if (scopes.length === 0) return
     const state = filter.state ?? 'open'
@@ -310,8 +376,8 @@ export class PrsStore {
         if (entry) scope.showCached(entry.items)
       }
     }
-    if (opts.targets) await this.listProjects(opts.targets, filter, opts.force ? { force: true } : {})
-    else await this.listHost([scopes[0]], detached(filter), !!opts.force)
+    if (opts.targets) await this.listProjects(opts.targets, filter, opts)
+    else if (this.needsListing(scopes[0], filter, opts)) await this.listHost([scopes[0]], detached(filter), !!opts.force)
     const answered = scopes.filter((scope) => scope.loaded && !scope.error && !scope.filter.query)
     if (filter.query || answered.length === 0) return
     writePrListSnapshot(opts.memoryKey, {

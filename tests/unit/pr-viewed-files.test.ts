@@ -122,7 +122,25 @@ describe('viewed files', () => {
     await marks.load()
     marks.toggle('a.ts')
     // The host still says unviewed: the write has not been sent.
-    await marks.load()
+    await marks.load({ force: true })
     expect(marks.stateFor('a.ts')).toBe('viewed')
+  })
+
+  // WHY: each read goes to the code host. The review pane read the marks again
+  // whenever its project context changed, which is every session event.
+  test('a recent read is not repeated, and reads on the wire are shared', async () => {
+    const host = hostWith([{ path: 'a.ts', state: 'viewed' }])
+    let reads = 0
+    const { PrViewedFiles } = await import('@solus/workspace-ui/contexts/prs/pr-viewed-files.svelte')
+    const marks = new PrViewedFiles({
+      read: async () => { reads++; return structuredClone(host.answer) },
+      write: async () => {},
+      debounceMs: 60_000,
+    })
+    await Promise.all([marks.load(), marks.load()])
+    await marks.load()
+    expect(reads).toBe(1)
+    await marks.load({ force: true })
+    expect(reads).toBe(2)
   })
 })

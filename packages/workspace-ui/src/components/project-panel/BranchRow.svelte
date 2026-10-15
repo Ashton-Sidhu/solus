@@ -14,11 +14,11 @@
   import { copyText, toasts } from "../../lib/toasts";
   import GitDropdown from "../GitDropdown.svelte";
   import { MiddleTruncate } from "../ui/middle-truncate";
-  import { withSelectedWorktree } from "../input/lib/worktree-destination";
   import {
     worktreeProjectRoot,
     type WorktreeEntry,
   } from "@solus/contracts/types";
+  import { checkoutPlace, chooseStart, cloneBaseBranch, pendingClone, runHost, startsWorktree, workingPlace, worktreeBaseBranch } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** The tab or draft whose run this row describes — see `ProjectPanel`. */
@@ -32,22 +32,20 @@
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
   const sectionRun = $derived(session.runFor(sourceId));
-  const canSwitch = $derived(hosts.get(sectionRun?.serverId)?.me.may("host.git.write") ?? true);
+  const canSwitch = $derived(hosts.get(runHost(sectionRun))?.me.may("host.git.write") ?? true);
   const env = $derived(environmentStore.environmentFor(sectionRun));
   const status = $derived(env.status);
   const currentBranch = $derived(
     status === undefined ? env.branch : (status?.branch ?? null),
   );
-  const pendingDispatch = $derived(
-    sectionRun?.pendingHostDispatch?.intent === "dispatch"
-      ? sectionRun.pendingHostDispatch
-      : null,
+  const pendingDispatch = $derived(pendingClone(sectionRun));
+  const selectedDispatchWorktree = $derived(
+    pendingDispatch?.start.kind === "worktree" ? pendingDispatch.start : null,
   );
-  const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
-  const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
+  const selectedDispatchBaseBranch = $derived(cloneBaseBranch(sectionRun));
   const isWorktree = $derived(env.isolated);
   // A dispatch in the target host's checkout works on the default branch.
-  const dispatchStartLabel = $derived(sectionRun?.worktree ? "New worktree" : (env.targetBranch ?? "Default branch"));
+  const dispatchStartLabel = $derived(startsWorktree(sectionRun) ? "New worktree" : (env.targetBranch ?? "Default branch"));
   const displayedBranch = $derived.by(() => {
     const branch = selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ??
       (pendingDispatch ? dispatchStartLabel : env.pending ? env.name : (currentBranch ?? "detached HEAD"));
@@ -60,12 +58,12 @@
   );
   const branchRepoRoot = $derived(
     env.checkout?.repoRoot ??
-      sectionRun?.workingDirectory ??
+      checkoutPlace(sectionRun)?.path ??
       status?.repoRoot ??
       worktreeProjectRoot(env.cwd),
   );
   const worktrees = $derived(
-    environmentStore.refsFor(sectionRun?.serverId ?? session.fallbackServerId, branchRepoRoot).worktrees,
+    environmentStore.refsFor(checkoutPlace(sectionRun)?.serverId ?? session.fallbackServerId, branchRepoRoot).worktrees,
   );
 
   // Both pickers edit a pre-flight destination. A panel on a session first
@@ -89,7 +87,6 @@
   }
 
   function selectWorktree(worktree: WorktreeEntry) {
-    const projectRoot = branchRepoRoot;
     const targetBranch = env.targetBranch;
     const draft = destinationDraft();
     if (pendingDispatch) {
@@ -97,9 +94,12 @@
       requestInputFocus();
       return;
     }
-    draft.run = withSelectedWorktree(
-      draft.run, projectRoot, worktree, targetBranch,
-    );
+    draft.run.location = chooseStart(draft.run.location, {
+      kind: "worktree",
+      path: worktree.path,
+      branch: worktree.branch,
+      targetBranch,
+    });
     settleOnDestination(draft.id);
   }
 
@@ -118,9 +118,8 @@
   }
 
   function settleOnDestination(draftId: string) {
-    const run = session.runFor(draftId) ?? session.defaultRunConfig;
-    const nextCwd = run.gitContext?.worktreePath ?? run.workingDirectory;
-    if (nextCwd) void environmentStore.refresh(run.serverId, nextCwd, { force: true });
+    const place = workingPlace(session.runFor(draftId) ?? session.defaultRunConfig);
+    if (place.path) void environmentStore.refresh(place.serverId, place.path, { force: true });
     requestInputFocus();
   }
 </script>
@@ -162,7 +161,7 @@
       side="left"
       triggerEl={branchTriggerEl}
       displayBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? dispatchStartLabel : currentBranch)}
-      selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? sectionRun?.worktree?.baseBranch ?? currentBranch}
+      selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? worktreeBaseBranch(sectionRun) ?? currentBranch}
       workingDirectory={branchRepoRoot}
       run={sectionRun}
       onSelectBranch={selectBranch}

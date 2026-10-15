@@ -16,6 +16,11 @@ export function asBackgroundWork<Result>(work: () => Promise<Result>): Promise<R
   return background.run(true, work)
 }
 
+/** Whether the work that runs now is background work. */
+export function isBackgroundWork(): boolean {
+  return background.getStore() === true
+}
+
 interface Quota {
   limit: number
   remaining: number

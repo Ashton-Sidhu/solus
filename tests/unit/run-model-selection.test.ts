@@ -8,12 +8,24 @@ import {
   resolveNewRunConfig,
   runOnModel,
 } from '@solus/workspace-ui/contexts/workspace/run-config'
+import {
+  checkoutGit,
+  checkoutPlace,
+  chooseStart,
+  dispatchTo,
+  folderLocation,
+  isDispatch,
+  openFolder,
+  pendingClone,
+  projectHome,
+  runHost,
+  startsWorktree,
+  worktreeBaseBranch,
+} from '@solus/workspace-ui/contexts/workspace/run-location'
 
 function run(provider: AgentId | null, modelId: string | null): RunConfig {
   return {
-    workingDirectory: '/repo',
-    gitContext: null,
-    worktree: null,
+    location: folderLocation({ serverId: 'local', path: '/repo' }),
     modelConfig: {
       modelId,
       reasoningEffort: 'medium',
@@ -22,11 +34,7 @@ function run(provider: AgentId | null, modelId: string | null): RunConfig {
     },
     permissionMode: 'full-access',
     provider,
-    serverId: 'local',
-    taskServerId: 'local',
-    projectGroupPath: null,
     sessionSkills: [],
-    pendingHostDispatch: null,
   }
 }
 
@@ -105,16 +113,15 @@ describe('new run resolution', () => {
     const defaults = run('codex', 'gpt-5.6-sol')
     const source = {
       ...run('claude-code', 'claude-opus-5'),
-      workingDirectory: '/source/worktree',
-      gitContext: {
-        repoRoot: '/source',
-        branch: 'feature',
-        targetBranch: 'main',
-        worktreePath: '/source/worktree',
-      },
-      serverId: 'remote',
-      taskServerId: 'remote',
-      projectGroupPath: '/source',
+      location: folderLocation({ serverId: 'remote', path: '/source/worktree' }, {
+        git: {
+          repoRoot: '/source',
+          branch: 'feature',
+          targetBranch: 'main',
+          worktreePath: '/source/worktree',
+        },
+        project: { serverId: 'remote', path: '/source' },
+      }),
     }
 
     const resolved = resolveNewRunConfig(defaults, source, {
@@ -122,9 +129,9 @@ describe('new run resolution', () => {
       workingDirectory: '/chosen',
     })
 
-    expect(resolved.workingDirectory).toBe('/chosen')
-    expect(resolved.gitContext).toBeNull()
-    expect(resolved.serverId).toBe('remote')
+    expect(checkoutPlace(resolved).path).toBe('/chosen')
+    expect(checkoutGit(resolved)).toBeNull()
+    expect(runHost(resolved)).toBe('remote')
     expect(resolved.modelConfig.modelId).toBe(defaults.modelConfig.modelId)
   })
 
@@ -134,9 +141,9 @@ describe('new run resolution', () => {
     // new session on that other host with a path it does not hold.
     const source = {
       ...run('claude-code', 'claude-opus-5'),
-      gitContext: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main', worktreePath: '/repo/wt' },
-      serverId: 'host-a',
-      taskServerId: 'host-a',
+      location: folderLocation({ serverId: 'host-a', path: '/repo' }, {
+        git: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main', worktreePath: '/repo/wt' },
+      }),
     }
 
     const resolved = resolveNewRunConfig(run('codex', 'gpt-5.6-sol'), source, {
@@ -145,10 +152,10 @@ describe('new run resolution', () => {
       taskServerId: 'host-b',
     })
 
-    expect(resolved.serverId).toBe('host-b')
-    expect(resolved.taskServerId).toBe('host-b')
-    expect(resolved.workingDirectory).toBe('/task/project')
-    expect(resolved.gitContext).toBeNull()
+    expect(runHost(resolved)).toBe('host-b')
+    expect(projectHome(resolved).serverId).toBe('host-b')
+    expect(checkoutPlace(resolved).path).toBe('/task/project')
+    expect(checkoutGit(resolved)).toBeNull()
   })
 
   test('a cloud task files in the workspace service while it runs elsewhere', () => {
@@ -159,8 +166,9 @@ describe('new run resolution', () => {
       taskServerId: 'cloud:org-1',
     })
 
-    expect(resolved.serverId).toBe('local')
-    expect(resolved.taskServerId).toBe('cloud:org-1')
+    expect(runHost(resolved)).toBe('local')
+    expect(projectHome(resolved).serverId).toBe('cloud:org-1')
+    expect(isDispatch(resolved)).toBe(true)
   })
 
   test('ordinary inheritance keeps location but resets session-only choices', () => {
@@ -168,16 +176,25 @@ describe('new run resolution', () => {
     const source = {
       ...run('claude-code', 'claude-opus-5'),
       permissionMode: 'plan' as const,
-      worktree: { baseBranch: 'main' },
-      pendingHostDispatch: { intent: 'dispatch' as const, serverId: 'remote', repoKey: 'owner/repo' },
+      location: dispatchTo(
+        folderLocation({ serverId: 'local', path: '/repo' }, { newWorktree: { baseBranch: 'main' } }),
+        'remote',
+        'owner/repo',
+      ),
     }
 
     const resolved = resolveNewRunConfig(defaults, source)
 
     expect(resolved.provider).toBe('claude-code')
     expect(resolved.permissionMode).toBe('supervised')
-    expect(resolved.worktree).toBeNull()
-    expect(resolved.pendingHostDispatch).toBeNull()
+    // A clone is a choice for one Send: the next session goes back to the
+    // checkout it would have copied, and asks for its own worktree.
+    expect(startsWorktree(resolved)).toBe(false)
+    expect(pendingClone(resolved)).toBeNull()
+    expect(checkoutPlace(resolved)).toEqual({ serverId: 'local', path: '/repo' })
+
+    const folderSource = { ...source, location: folderLocation({ serverId: 'local', path: '/repo' }, { newWorktree: { baseBranch: 'main' } }) }
+    expect(startsWorktree(resolveNewRunConfig(defaults, folderSource))).toBe(false)
   })
 
   test('an explicit Auto choice remains Auto in the next session', () => {
@@ -194,42 +211,51 @@ describe('new run resolution', () => {
   test('an explicit host owns both the run and its task', () => {
     const resolved = resolveNewRunConfig(
       run('codex', 'gpt-5.6-sol'),
-      { ...run('codex', 'gpt-5.6-sol'), projectGroupPath: '/old' },
+      { ...run('codex', 'gpt-5.6-sol'), location: folderLocation({ serverId: 'local', path: '/repo' }, { project: { serverId: 'local', path: '/old' } }) },
       { serverId: 'remote' },
     )
 
-    expect(resolved.serverId).toBe('remote')
-    expect(resolved.taskServerId).toBe('remote')
-    expect(resolved.projectGroupPath).toBeNull()
+    expect(runHost(resolved)).toBe('remote')
+    // The folder on the new host is its own project; the old project path named a folder on the old host.
+    expect(projectHome(resolved)).toEqual({ serverId: 'remote', path: '/repo' })
   })
 })
 
 describe('working in a checkout on a managed host', () => {
-  test('moving a run to a managed host keeps the checkout unless a worktree was asked for', async () => {
+  test('moving a run to a managed host keeps the checkout unless a worktree was asked for', () => {
     // WHY: each member has their own clone on a managed host, so working on a
     // branch there is as safe as on their own machine. A worktree is the
     // person's choice, never forced by the host.
-    const { withProjectHost, startsWorktree } = await import('@solus/workspace-ui/contexts/workspace/run-config')
-    const base = { ...run('codex', 'gpt-5.6-sol'), serverId: 'laptop', taskServerId: 'laptop' }
-    const moved = withProjectHost(base, 'team', { path: '/data/projects/web' })
-    expect(moved.worktree).toBeNull()
+    const base = folderLocation({ serverId: 'laptop', path: '/repo' })
+    const moved = { location: openFolder(base, { serverId: 'team', path: '/data/projects/web' }) }
+    expect(runHost(moved)).toBe('team')
     expect(startsWorktree(moved)).toBe(false)
-    const asked = withProjectHost({ ...base, worktree: { baseBranch: 'main' } }, 'team', { path: '/data/projects/web' })
-    expect(asked.worktree).toEqual({ baseBranch: null })
+    const asked = {
+      location: openFolder(
+        folderLocation({ serverId: 'laptop', path: '/repo' }, { newWorktree: { baseBranch: 'main' } }),
+        { serverId: 'team', path: '/data/projects/web' },
+      ),
+    }
+    expect(startsWorktree(asked)).toBe(true)
+    // The base branch named a branch in the old folder, so the new host names it.
+    expect(worktreeBaseBranch(asked)).toBeNull()
   })
 
-  test('a run on another host than its task home starts in the checkout unless a worktree was asked for', async () => {
+  test('a run on another host than its project home starts in the checkout unless a worktree was asked for', () => {
     // WHY: a cloud task's home is the workspace service, so every run of it is a
     // dispatch. Forcing a worktree there kept people off their default branch.
-    const { startsWorktree, withDispatchDefaultBranch, withDispatchWorktree } = await import('@solus/workspace-ui/contexts/workspace/run-config')
-    const cloudTask = { ...run('codex', 'gpt-5.6-sol'), serverId: 'managed', taskServerId: 'workspace', worktree: null }
+    const cloudTask = {
+      location: folderLocation({ serverId: 'managed', path: '/repo' }, { project: { serverId: 'workspace', path: '/repo' } }),
+    }
+    expect(isDispatch(cloudTask)).toBe(true)
     expect(startsWorktree(cloudTask)).toBe(false)
-    const pending = { ...cloudTask, pendingHostDispatch: { serverId: 'managed', intent: 'dispatch' as const, repoKey: 'github.com/acme/web' } }
-    const worktree = withDispatchWorktree(pending, null)
+    const clone = dispatchTo(cloudTask.location, 'managed', 'github.com/acme/web')
+    expect(startsWorktree({ location: clone })).toBe(false)
+    const worktree = { location: chooseStart(clone, { kind: 'new-worktree' }) }
     expect(startsWorktree(worktree)).toBe(true)
-    const checkout = withDispatchDefaultBranch(worktree)
+    const checkout = { location: chooseStart(worktree.location, { kind: 'checkout' }) }
     expect(startsWorktree(checkout)).toBe(false)
-    expect(checkout.pendingHostDispatch).toEqual({ serverId: 'managed', intent: 'dispatch', repoKey: 'github.com/acme/web' })
+    expect(pendingClone(checkout)).toMatchObject({ serverId: 'managed', repoKey: 'github.com/acme/web', start: { kind: 'default-branch' } })
   })
 
   test('a lead starts on the lead model with that model\'s own defaults', () => {
@@ -240,7 +266,7 @@ describe('working in a checkout on a managed host', () => {
 
     expect(lead.provider).toBe('claude-code')
     expect(lead.modelConfig.modelId).toBe('claude-opus-5')
-    expect(lead.workingDirectory).toBe('/repo')
+    expect(checkoutPlace(lead).path).toBe('/repo')
   })
 
   test('a lead starts at the reasoning level the lead model names', () => {

@@ -2,6 +2,7 @@ import type { Attachment, Prompt, PromptImageRef, PromptOptions, Session, Sessio
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
+import { runHost } from './run-location'
 
 /** How one turn's images are split between the two ways they can travel. */
 export interface PromptImagePayload {
@@ -76,7 +77,7 @@ export class PromptComposer {
     // Files and design selections remain text references — they carry metadata, not raw payloads.
     const textAttachments = input.attachments.filter((a) => a.type !== 'image')
     if (textAttachments.length > 0) {
-      const attachmentCtx = composeAttachmentContext(textAttachments, session.run.serverId)
+      const attachmentCtx = composeAttachmentContext(textAttachments, runHost(session.run))
       fullPrompt = `${attachmentCtx}\n\n${fullPrompt}`
     }
     return fullPrompt

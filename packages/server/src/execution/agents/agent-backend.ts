@@ -108,8 +108,9 @@ export interface AgentBackend extends EventEmitter {
   listPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult>
   /** Invalidates cached plugin/skill commands after an external install. */
   refreshPluginCommands(): Promise<void>
-  /** Incrementally refreshes durable session metadata when the provider supports it. */
-  refreshSessionIndex?(): Promise<void>
+  /** Asks for an incremental refresh of durable session metadata when the
+   *  provider supports it. Requests in a short window cost one refresh. */
+  requestSessionIndexRefresh?(): void
   /** Subscription quota windows, when the provider exposes them; for a member's seat when one is given. */
   readUsageLimits?(seat?: TurnSeat): Promise<AgentUsageLimits | null>
 

@@ -1,8 +1,8 @@
 # Run location — one owner for where a run works
 
-Status: proposed 2026-10-14. Not started. Solus has no users, so this ships with
-no compatibility layer: saved drafts and tab snapshots in the old shape are
-dropped on load.
+Status: implemented 2026-10-14 on `solus/run-location`, as one change (§9).
+Solus has no users, so this shipped with no compatibility layer: saved drafts
+and tab snapshots in the old shape are dropped on load.
 
 Related: [Project model](project-model.md) (project, checkout, repository key),
 [Host model](host-model.md) (one `Host` per host), [Run on](../run-on.md)
@@ -169,6 +169,8 @@ interface CloneCheckout {
   kind: 'clone'
   serverId: string
   repoKey: string
+  /** The default branch of the checkout it copies, when Git named one. */
+  defaultBranch: string | null
   start:
     | { kind: 'default-branch' }
     | { kind: 'worktree'; path: string; branch: string }
@@ -191,32 +193,42 @@ What this removes:
 
 ### 4.3 The module
 
-`packages/workspace-ui/src/contexts/workspace/run-location.ts`. Pure functions
-on `RunLocation`. No stores, no host API, no `$state`.
+`packages/workspace-ui/src/contexts/workspace/run-location.ts`. Pure functions.
+No stores, no host API, no `$state`.
 
-**Answers**
+**Answers** take a run (anything with a `location`), so a reader writes
+`runHost(session.run)`. The ones a reader often calls with no run also accept
+`null` and `undefined`.
 
 | Function | Returns |
 |---|---|
-| `runHost(location)` | `checkout.serverId` |
-| `projectHome(location)` | `Place \| null`: null for the `~` placeholder |
-| `projectRoot(location)` | The one project root string. Replaces the 12 forms in §2.1. |
-| `workingPlace(location)` | `Place \| null`. Folder: `git?.worktreePath ?? path` on its host. Clone: the project home, because the clone does not exist until Send and the branch list reads from the checkout it copies. |
-| `isDispatch(location)` | `checkout.serverId !== project.serverId` |
-| `startsWorktree(location)` | Folder: `!!newWorktree`. Clone: `start.kind === 'new-worktree'`. |
+| `runHost(run)` | `checkout.serverId`: where the agent runs, or will run after Send |
+| `projectHome(run)` | The project's `Place`; its path is `~` while not known |
+| `projectRoot(run)` | `projectHome(run).path`, or null for `~` |
+| `checkoutPlace(run)` | The folder the run was pointed at, before any worktree in it. A clone: its project home. |
+| `workingPlace(run)` | Where to read files and Git now: `git.worktreePath ?? path` on the folder's host. A clone: its project home, because the clone does not exist until Send and the branch list reads from the checkout it copies. |
+| `checkoutGit(run)` | The folder's last Git answer; null for a clone |
+| `pendingClone(run)` | The clone Send will make, or null |
+| `cloneBaseBranch(run)` | The origin branch a clone works from |
+| `isDispatch(run)` | `checkout.serverId !== project.serverId` |
+| `startsWorktree(run)` | Folder: `!!newWorktree`. Clone: `start.kind === 'new-worktree'`. |
+| `worktreeBaseBranch(run)` | The base branch of the requested new worktree |
+| `samePlace(a, b)` | Same host and same path |
 
-**Commands.** Each returns a new `RunLocation` and keeps every invariant.
+**Building and changing a location.** Each returns a new `RunLocation` and
+keeps every invariant.
 
 | Function | Replaces |
 |---|---|
-| `openFolder(location, place)` | `withCheckout`, `withHost`, `withProjectHost`, `withCheckoutOnHost`, `withPendingHost` (open-project), `moveToRunOnHost`, `setBaseDirectory`, the project picker paths |
+| `folderLocation(place, opts)` | The literal location fields in defaults, factories, restore, and PR checkouts |
+| `openFolder(location, place, opts)` | `withCheckout`, `withHost`, `withProjectHost`, `withCheckoutOnHost`, `withPendingHost` (open-project), `moveToRunOnHost`, `setBaseDirectory`, the project picker paths, and the stopgap `opensCheckoutNow`. `keepProject` keeps a dispatch's project home. |
 | `dispatchTo(location, serverId, repoKey)` | `withRemoteDispatch`, `withPendingHost` (dispatch) |
-| `chooseStart(location, choice)` | `switchToBranch`, `withSelectedWorktree`, `withWorktreeToggled`, `withDispatchWorktree`, `withDispatchBaseBranch`, `withDispatchDefaultBranch`. `choice` is a union: the checkout's branch, an existing worktree, or a new worktree from a base branch. |
-| `adoptGit(location, place, git)` | The writes in `refreshEnvironment` and the `git_context` event. Returns `location` unchanged when `place` is no longer the working place, host included. |
-| `landClone(location, path)` | `moveTabToHost` at Send: the clone becomes a folder checkout on the run host. The project home stays. |
-
-`inheritRunConfig` and `resolveNewRunConfig` keep their names and build a
-`location` through these commands, so they cannot build a dispatch by accident.
+| `chooseStart(location, choice)` | `switchToBranch`, `withSelectedWorktree`, `withWorktreeToggled`, `withDispatchWorktree`, `withDispatchBaseBranch`, `withDispatchDefaultBranch`, and the direct `run.worktree` writes |
+| `adoptGit(location, place, git, newWorktree?)` | The writes in `refreshEnvironment`, the `git_context` event, and resume. Returns `location` unchanged when `place` is no longer the working place, host included. |
+| `landClone(location, path)` | The field writes of `moveTabToHost` at Send |
+| `inheritedLocation(location, { freshTask })` | The location half of `inheritRunConfig` and `resolveNewRunConfig` |
+| `fileTasksOn(location, serverId)` | The direct `taskServerId` writes for a task in the workspace service |
+| `remapHosts(location, remap)` | The restore remap, now of both hosts |
 
 ### 4.4 Rules for callers
 
@@ -226,52 +238,38 @@ on `RunLocation`. No stores, no host API, no `$state`.
    the derivations that read the location, not the model or permission fields.
 3. **An async writer reads the owner again when it writes.** It passes the place
    it read to `adoptGit`, which drops a stale answer.
-4. **Location commands stop at the first send.** Only `adoptGit` and
-   `landClone` run on a started session. `ownerFor` refuses a started session
-   for every other command.
+4. **Location commands stop at the first send.** Not done: see §9.
 5. **API routing follows the answers.** `apiForRun` uses `runHost` and the
    environment store reads `workingPlace`, so Git, plugin commands and
    attachments always ask the host that holds the folder.
 
 ## 5. Migration
 
-Phase 1 changes readers only. Phase 2 changes the data. Each phase is one PR.
+Done as one change, not the two PRs first planned. Removing the seven fields
+made the compiler list every reader and writer, which was the reliable way to
+find them; doing the readers first would have touched each of them twice.
 
-**Phase 1: answers over the current fields.**
-
-1. Add `run-location.ts` with the six answers, written against today's
-   `RunConfig`. `workingPlace` honours a pending `open-project`.
-2. Move the about 200 location reads to the answers, file by file, starting with
-   the Git readers in §2.1. This fixes the reader disagreements on its own.
-3. Delete the helpers the answers replace: `projectRootOf`, `projectHostId`,
-   `runGroupKey`'s host choice, `homeGitDetails`'s root, `isDispatch`,
-   `startsWorktree` in `run-config.ts`.
-
-**Phase 2: the new shape.**
-
-1. Replace the seven fields with `location` in contracts. Let the compiler list
-   every writer and every remaining reader.
-2. Add the five commands. Move the 25 transition functions and 51 direct writes
-   onto them (§2.2 lists them).
-3. Send: remove the `open-project` branch from `prepareHostDispatchAndSend`.
-   Before any send, ensure a connection to `runHost`, and start a stopped Cloud
-   host. A clone runs `prepareHostCheckout`, then `landClone`.
-4. Persistence: drafts and tab snapshots store `location`. Drop any saved entry
-   in the old shape. Remap `checkout.serverId` and `project.serverId` by
-   installation id on restore (fixes §2.2 item 8).
-5. Delete `opensCheckoutNow`, `withCheckoutOnHost`, `moveTabToHost`'s field
-   writes, and the `with*` location functions in `run-config.ts`.
-6. `session-task-link.ts` builds `SessionExecutionHost` from `runHost` and
-   `projectHome`. The wire contract does not change.
+- Readers: about 260 reads were rewritten to the answers by a script, and the
+  rest by hand. Every Git reader now asks the host that holds the folder.
+- Writers: the transition functions and direct writes in §2.2 now call the
+  commands. A write is one assignment, `owner.run.location = next`.
+- Send (`prompt-dispatch.ts`): the `open-project` branch is gone. Send prepares
+  the run's host when the run is a clone, or when a run that has not started
+  names a remote host that is not online: it starts a stopped Cloud host,
+  connects, and for a clone makes it and calls `landClone`.
+- Persistence: tab snapshots (version 3) and session drafts (version 2) store
+  `location`. Older ones are dropped. Restore remaps both hosts by
+  installation id (fixes §2.2 item 8).
+- `environmentProjectKey(env, run)` and `environmentBranchKey(env, run)` take
+  the run; `runGroupKey(run, key)` uses `projectHome(run).serverId`.
 
 ## 6. Enforcement
 
-- After phase 2 the compiler rejects every use of the removed fields.
-- Add `solus/run-location-answers`, modelled on `explicit-host-choice.ts`: a
-  `MemberExpression` visitor that reports `.checkout` or `.project` on a
-  `location` object outside `run-location.ts`.
-- Check that oxlint reads the `<script>` block of `.svelte` files before
-  relying on the rule. Many readers are components.
+- The compiler rejects every use of the removed fields.
+- `solus/run-location-answers` (`tools/oxlint/solus/rules/run-location-answers.ts`)
+  reports `.location.checkout` and `.location.project` outside
+  `run-location.ts`, in `.ts` and `.svelte` files of workspace-ui and both
+  client shells.
 
 ## 7. Tests
 
@@ -289,17 +287,25 @@ Phase 1 changes readers only. Phase 2 changes the data. Each phase is one PR.
 Plus one Send test in `tests/unit/prompt-dispatch*`: a draft on a host that is
 not connected connects before the prompt goes out.
 
-## 8. Open questions
+## 8. Decisions on the open questions
 
-1. **Offline hosts.** With no pending choice, a draft can point at a folder on a
-   host that is offline. The branch chip then has nothing to read. Proposed: the
-   chip shows the host as unreachable, with the same state the draft pane uses
-   for a host that is not online (`draft-connect-host.md`). Send connects or
-   fails with the usual card.
-2. **Started-session edits.** §4.4 rule 4 removes the ability to re-point a
-   started run through `setBaseDirectory`, `switchToBranch` and
-   `switchToWorktree`. `continueInWorktree` stays the only way to move a
-   started session. Check that no surface depends on the old behaviour.
-3. **The dispatch default.** The `RunConfig` doc says dispatches always use a
-   worktree; `withDispatchDefaultBranch` works in the clone's checkout. The
-   `start` union allows both. Decide which one is the default and fix the doc.
+1. **Offline hosts.** A run can name a folder on a host that is offline. The
+   branch chip then finds no checkout and stays hidden, as for any folder Git
+   has not answered for; Send connects or fails with the usual card. No new
+   "unreachable" chip state was added.
+2. **Started-session edits.** Not changed. `setBaseDirectory`, `switchToBranch`
+   and `switchToWorktree` still re-point a started run when a source names it
+   on purpose, and reset its provider thread as before (§4.4 rule 4).
+3. **The dispatch default.** Unchanged: a clone works on the default branch in
+   the target's checkout unless a worktree is asked for. The `RunConfig`
+   comment that said dispatches always use a worktree was removed with the
+   field.
+
+## 9. What differs from this plan
+
+- One change instead of two PRs (§5).
+- Answers take a run, not a `RunLocation`, and the module grew the answers and
+  builders in §4.3 that the call sites needed.
+- `CloneCheckout` carries `defaultBranch`, the branch the checkout it copies
+  names, so a clone's chip can name it before Send.
+- §4.4 rule 4 is not enforced (§8.2).

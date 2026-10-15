@@ -46,7 +46,6 @@ export interface PullRequestAccess {
 }
 
 const repositorySettingsByClient = new WeakMap<GitHubClient, Map<string, Promise<RepositorySettings>>>()
-const branchMergeMethodsByClient = new WeakMap<GitHubClient, Map<string, Promise<PrMergeMethod[] | null>>>()
 
 const MERGE_METHODS_QUERY = `
   query($owner: String!, $repo: String!) {
@@ -119,14 +118,57 @@ async function mergeMethodSettings(
   }
 }
 
+/** What GraphQL says about a repository that `githubPullRequestAccessFor`
+ *  needs. A batched list read selects it beside the rows. */
+export interface GithubRepositoryFacts {
+  viewerPermission: 'ADMIN' | 'MAINTAIN' | 'WRITE' | 'TRIAGE' | 'READ' | null
+  mergeCommitAllowed: boolean
+  squashMergeAllowed: boolean
+  rebaseMergeAllowed: boolean
+  autoMergeAllowed: boolean
+  viewerDefaultMergeMethod?: string | null
+}
+
+/** The GraphQL selection for `GithubRepositoryFacts`. */
+export const GITHUB_REPOSITORY_FACTS_FIELDS =
+  'viewerPermission mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed autoMergeAllowed viewerDefaultMergeMethod'
+
+/**
+ * Keep repository facts that another read already paid for, so access for its
+ * rows costs no `repos.get` and no merge-methods query. Nothing held is
+ * replaced: a read in flight or already answered stays the answer.
+ */
+export function rememberGithubRepositoryFacts(client: GitHubClient, repo: RepoRef, facts: GithubRepositoryFacts): void {
+  let cache = repositorySettingsByClient.get(client)
+  if (!cache) {
+    cache = new Map()
+    repositorySettingsByClient.set(client, cache)
+  }
+  const key = `${repo.host}/${repo.owner}/${repo.repo}`
+  if (cache.has(key)) return
+  cache.set(key, Promise.resolve(githubRepositorySettings(facts)))
+}
+
+/** The repository settings that access is computed from, as GraphQL says them. */
+export function githubRepositorySettings(facts: GithubRepositoryFacts): RepositorySettings {
+  // REST's `permissions.triage` is true for triage and every role above it.
+  const canWrite = facts.viewerPermission === 'ADMIN' || facts.viewerPermission === 'MAINTAIN' || facts.viewerPermission === 'WRITE'
+  return {
+    canWrite,
+    canTriage: canWrite || facts.viewerPermission === 'TRIAGE',
+    allowMergeCommit: facts.mergeCommitAllowed,
+    allowSquashMerge: facts.squashMergeAllowed,
+    allowRebaseMerge: facts.rebaseMergeAllowed,
+    allowAutoMerge: facts.autoMergeAllowed,
+    defaultMergeMethod: githubAutoMergeMethod(facts.viewerDefaultMergeMethod),
+  }
+}
+
 export async function githubPullRequestAccessFor(
   client: GitHubClient,
   repo: RepoRef,
   viewer: string,
   author: string,
-  /** The pull request's base branch, whose rules can forbid merge methods the
-   *  repository allows. Absent for a repository-only question. */
-  baseRef?: string,
 ): Promise<ReturnType<typeof githubPullRequestAccess>> {
   let cache = repositorySettingsByClient.get(client)
   if (!cache) {
@@ -153,25 +195,7 @@ export async function githubPullRequestAccessFor(
       })
     cache.set(key, settings)
   }
-  const [repositorySettings, branchMergeMethods] = await Promise.all([
-    settings,
-    baseRef ? branchMergeMethodsFor(client, repo, baseRef) : null,
-  ])
-  return githubPullRequestAccess({ viewer, author, ...repositorySettings, branchMergeMethods })
-}
-
-const BRANCH_PROTECTION_QUERY = `
-  query($owner: String!, $repo: String!, $ref: String!) {
-    repository(owner: $owner, name: $repo) {
-      ref(qualifiedName: $ref) { branchProtectionRule { requiresLinearHistory } }
-    }
-  }
-`
-
-interface BranchProtectionResponse {
-  repository: {
-    ref: { branchProtectionRule: { requiresLinearHistory: boolean } | null } | null
-  } | null
+  return githubPullRequestAccess({ viewer, author, ...await settings })
 }
 
 /** One active rule on a branch, as `GET /rules/branches/{branch}` lists it. */
@@ -198,47 +222,6 @@ export function branchMergeMethods(
   }
   if (limits.length === 0) return null
   return limits.reduce((allowed, limit) => allowed.filter((method) => limit.includes(method)))
-}
-
-/**
- * Read the base branch's rules once per client. A rule that cannot be read
- * narrows nothing: the host still refuses a forbidden merge, and the refusal
- * names the reason.
- */
-function branchMergeMethodsFor(client: GitHubClient, repo: RepoRef, branch: string): Promise<PrMergeMethod[] | null> {
-  let cache = branchMergeMethodsByClient.get(client)
-  if (!cache) {
-    cache = new Map()
-    branchMergeMethodsByClient.set(client, cache)
-  }
-  const key = `${repo.host}/${repo.owner}/${repo.repo}#${branch}`
-  let methods = cache.get(key)
-  if (!methods) {
-    methods = Promise.all([
-      client.rest.paginate(client.rest.repos.getBranchRules, {
-        owner: repo.owner,
-        repo: repo.repo,
-        branch,
-        per_page: 100,
-      }).then(
-        (rules) => rules.map((rule): GithubBranchMergeRule =>
-          rule.type === 'pull_request'
-            ? { type: rule.type, parameters: { allowed_merge_methods: rule.parameters?.allowed_merge_methods } }
-            : { type: rule.type }),
-        (): GithubBranchMergeRule[] => [],
-      ),
-      client.graphql<BranchProtectionResponse>(BRANCH_PROTECTION_QUERY, {
-        owner: repo.owner,
-        repo: repo.repo,
-        ref: `refs/heads/${branch}`,
-      }).then(
-        (result) => result.repository?.ref?.branchProtectionRule?.requiresLinearHistory ?? false,
-        () => false,
-      ),
-    ]).then(([rules, linearHistory]) => branchMergeMethods(rules, linearHistory))
-    cache.set(key, methods)
-  }
-  return methods
 }
 
 export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAccess {

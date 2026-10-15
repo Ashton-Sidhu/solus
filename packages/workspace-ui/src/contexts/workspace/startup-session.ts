@@ -3,6 +3,7 @@ import { materializeSessionTranscript } from './session-transcript'
 import { markStartupTranscriptApplied } from './startup-transcript'
 import type { PersistedTabs } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
+import { checkoutGit, checkoutPlace } from './run-location'
 
 /** Seed the selected conversation during component setup, before its first
  * render. No metadata requests, live watch, or secondary store loads belong here. */
@@ -11,8 +12,8 @@ export function materializeStartupTranscript(ctx: WorkspaceContext, snapshot: Pe
   const saved = snapshot.tabs.find((tab) => tab.tabId === tabId)
   const session = ctx.sessionFor(tabId)
   if (!saved?.agentSessionId || !saved.provider || saved.pendingFork || !session) return
-  const displayCwd = session.run.workingDirectory
-  const loadPath = saved.gitContext?.worktreePath || displayCwd
+  const displayCwd = checkoutPlace(session.run).path
+  const loadPath = checkoutGit(saved)?.worktreePath || displayCwd
   const page = readPrefetchedSessionHistoryPage(ctx.apiFor(tabId), {
     sessionId: saved.sessionId || saved.agentSessionId,
     projectPath: loadPath,

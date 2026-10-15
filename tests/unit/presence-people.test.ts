@@ -4,6 +4,7 @@ import { activeTurnAuthorOf, activityWords, canFollow, composingLabel, followSte
 import { focusLabel, hostPeopleAcrossHosts, primaryPresence, rosterPeople, rosterWhere, sessionLabelIn, whereIs, type HostPerson } from '@solus/workspace-ui/components/presence/lib/host-people'
 import type { Session } from '@solus/contracts/types'
 import { parseUserKey } from '@solus/contracts/user'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 // docs/plans/multiplayer-presence.md §3: a stack shows people, not sockets; the
 // reader is never in their own stack, whichever door each of their clients came
@@ -203,7 +204,7 @@ describe('follow mode', () => {
 
 describe('roster names', () => {
   test('a session is named from a mounted tab first, then the sidebar, then admitted unknown', () => {
-    const mounted = [{ id: 's1', title: 'Fix login', messages: [], run: { serverId: 'h1' } }] as unknown as Session[]
+    const mounted = [{ id: 's1', title: 'Fix login', messages: [], run: { location: folderLocation({ serverId: 'h1', path: '/repo' }) } }] as unknown as Session[]
     const names = { mountedSessions: mounted, sidebarSessions: [{ sessionId: 's2', serverId: 'h1', label: 'Roadmap sync' }], workTitle: (id: string) => (id === 'w1' ? 'Roadmap' : undefined) }
     expect(sessionLabelIn(names, 'h1', 's1')).toBe('Fix login')
     expect(sessionLabelIn(names, 'h1', 's2')).toBe('Roadmap sync')

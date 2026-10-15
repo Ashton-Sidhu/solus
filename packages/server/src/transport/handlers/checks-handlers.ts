@@ -7,75 +7,70 @@ import { prIndex } from '../../prs/pr-index'
 import type { SolusServer } from '../server'
 
 const log = createLogger('main', 'checks-handlers')
-/** How long a read's answer is shared before the next read asks again. */
+/** How long a pull request's checks are shared before the next read asks again. */
 const STALE_MS = 30_000
+/** A number not read for this long is forgotten. */
+const FORGET_MS = 10 * STALE_MS
+/** Repositories held at once; the one read least recently goes first. */
+const CACHE_CAPACITY = 64
 
 /**
- * What the last read learned about a repository — not where the check runs are
- * kept. Those live on each `PullRequest` in `PrIndex`, because a pull request's
- * checks are a fact about that pull request.
+ * What the reads learned about a repository's pull requests — not where the
+ * check runs are kept. Those live on each `PullRequest` in `PrIndex`, because
+ * a pull request's checks are a fact about that pull request.
+ *
+ * Each pull request has its own read time, so a read asks the code host only
+ * for the numbers it names that are unknown or stale. A number that no read
+ * names again costs nothing.
  */
 interface RepoChecksCache {
   repo: RepoRef
   provider: Provider
-  loadFailed: boolean
-  lastAttemptAt: number
-  trackedPrNumbers: number[]
-  refresh?: Promise<void>
+  readAt: Map<number, number>
+  /** The read in flight for each number; true when that read failed. */
+  reading: Map<number, Promise<boolean>>
 }
 
 const caches = new Map<string, RepoChecksCache>()
 
 function ensureCache(repo: RepoRef, provider: Provider): RepoChecksCache {
   const key = repoKey(repo)
-  let cache = caches.get(key)
-  if (!cache) {
-    cache = {
-      repo,
-      provider,
-      loadFailed: false,
-      lastAttemptAt: 0,
-      trackedPrNumbers: [],
-    }
-    caches.set(key, cache)
-  }
+  const cache = caches.get(key) ?? { repo, provider, readAt: new Map(), reading: new Map() }
+  // A Map keeps insertion order: moved to the end, the oldest stays first.
+  caches.delete(key)
+  caches.set(key, cache)
+  const oldest = caches.keys().next()
+  if (caches.size > CACHE_CAPACITY && !oldest.done) caches.delete(oldest.value)
   return cache
 }
 
-async function refreshCache(
-  cache: RepoChecksCache,
-  requestedNumbers: number[] = [],
-): Promise<void> {
-  if (cache.refresh) {
-    await cache.refresh
-    if (requestedNumbers.some((number) => !cache.trackedPrNumbers.includes(number))) {
-      return refreshCache(cache, requestedNumbers)
-    }
-    return
+/** Reads the stale numbers in one call, shares a read already in flight, and
+ *  answers whether any read of these numbers failed. */
+async function readChecks(cache: RepoChecksCache, numbers: readonly number[]): Promise<boolean> {
+  const now = Date.now()
+  for (const [number, readAt] of cache.readAt) if (now - readAt >= FORGET_MS) cache.readAt.delete(number)
+  const stale = numbers.filter((number) =>
+    !cache.reading.has(number) && now - (cache.readAt.get(number) ?? 0) >= STALE_MS)
+  if (stale.length > 0) {
+    const read = (async () => {
+      try {
+        const checks = await cache.provider.review.listChecks(cache.repo, stale)
+        prIndex.absorbChecks(cache.repo, cache.provider, checks)
+        const readAt = Date.now()
+        for (const number of stale) cache.readAt.set(number, readAt)
+        return false
+      } catch (err) {
+        log.warn('checks_read_failed', { key: repoKey(cache.repo), error: err instanceof Error ? err.message : String(err) })
+        return true
+      } finally {
+        for (const number of stale) cache.reading.delete(number)
+      }
+    })()
+    for (const number of stale) cache.reading.set(number, read)
   }
-  if (cache.trackedPrNumbers.length === 0 && requestedNumbers.length === 0) {
-    cache.loadFailed = false
-    cache.lastAttemptAt = Date.now()
-    return
-  }
-  const key = repoKey(cache.repo)
-  cache.refresh = (async () => {
-    try {
-      cache.trackedPrNumbers = [...new Set([...cache.trackedPrNumbers, ...requestedNumbers])]
-      const checks = await cache.provider.review.listChecks(cache.repo, cache.trackedPrNumbers)
-      // The poll asks about a whole repository; the index is where that becomes
-      // one pull request's own check runs.
-      prIndex.absorbChecks(cache.repo, cache.provider, checks)
-      cache.loadFailed = false
-    } catch (err) {
-      cache.loadFailed = true
-      log.warn('checks_poll_failed', { key, error: err instanceof Error ? err.message : String(err) })
-    } finally {
-      cache.lastAttemptAt = Date.now()
-      cache.refresh = undefined
-    }
-  })()
-  return cache.refresh
+  const reads = new Set(numbers.flatMap((number) => cache.reading.get(number) ?? []))
+  const failed = await Promise.all(reads)
+  return failed.some(Boolean)
 }
 
 interface ChecksHandlersDeps {
@@ -83,9 +78,10 @@ interface ChecksHandlersDeps {
 }
 
 /**
- * Check runs as a read. A list asks for the rows it shows; an answer younger
- * than `STALE_MS` is shared. An open review pane's checks are kept fresh by PR
- * sync (docs/plans/pr-sync.md), not by this handler.
+ * Check runs as a read. A list asks for the rows it shows and gets the checks
+ * of those rows only; an answer younger than `STALE_MS` is shared. An open
+ * review pane's checks are kept fresh by PR sync (docs/plans/pr-sync.md), not
+ * by this handler.
  */
 export function registerChecksHandlers(server: SolusServer, deps: ChecksHandlersDeps = {}): void {
   const resolveReviewTarget = deps.resolveReviewTarget ?? reviewTargetFor
@@ -93,14 +89,11 @@ export function registerChecksHandlers(server: SolusServer, deps: ChecksHandlers
     const [ctx, numbers = []] = args
     const { repo, provider } = await resolveReviewTarget(ctx)
     const cache = ensureCache(repo, provider)
-    const isStale = Date.now() - cache.lastAttemptAt >= STALE_MS
-    if (isStale || numbers.some((number) => !cache.trackedPrNumbers.includes(number))) {
-      await refreshCache(cache, numbers)
-    }
+    const loadFailed = await readChecks(cache, numbers)
     return {
       repo: cache.repo,
-      checks: prIndex.checksFor(cache.repo, cache.trackedPrNumbers),
-      loadFailed: cache.loadFailed,
+      checks: prIndex.checksFor(cache.repo, numbers),
+      loadFailed,
     } satisfies PrChecksSnapshot
   })
 }

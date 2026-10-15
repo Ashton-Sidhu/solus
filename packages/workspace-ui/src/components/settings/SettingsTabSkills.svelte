@@ -14,6 +14,7 @@
   import { supportsSettingsSurface } from "@solus/client-core/host-capabilities";
   import { skillsForHost, ListWindow, SkillSearch } from "./skills.store.svelte";
   import { toasts } from "../../lib/toasts";
+  import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
   interface Props { serverId: string; api: HostApi; hostLabel: string }
   let { serverId, api, hostLabel }: Props = $props();
@@ -83,10 +84,10 @@
 
   function refreshCommands(targetServerId: string) {
     const activeTabId = workspace.activeTabId;
-    const activeServerId = (activeTabId ? workspace.runFor(activeTabId)?.serverId : undefined)
+    const activeServerId = (activeTabId ? runHost(workspace.runFor(activeTabId)) : undefined)
       ?? workspace.fallbackServerId;
     if (activeServerId !== targetServerId) return;
-    const cwd = (workspace.activeSession?.run ?? workspace.defaultRunConfig).workingDirectory;
+    const cwd = checkoutPlace((workspace.activeSession?.run ?? workspace.defaultRunConfig)).path;
     void workspace.lifecycle.refreshPluginCommands(cwd, activeTabId || undefined, { onlyIfStale: false });
   }
 

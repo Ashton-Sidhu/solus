@@ -19,6 +19,7 @@
     type RunConfig,
     type WorktreeEntry,
   } from "@solus/contracts/types";
+  import { checkoutPlace, cloneBaseBranch, pendingClone } from "../contexts/workspace/run-location";
 
   type View = "worktrees" | "branches";
 
@@ -85,18 +86,19 @@
   const repoCtx = $derived<IpcContext | null>(
     projectRoot ? session.ctxForDirectory(projectRoot) : null,
   );
-  // The run's host holds this repository; a path alone names no machine.
-  const gitServerId = $derived(run?.serverId ?? session.fallbackServerId);
+  // The host that holds the folder holds this repository; a path alone names
+  // no machine.
+  const gitServerId = $derived(checkoutPlace(run)?.serverId ?? session.fallbackServerId);
   const gitRefs = $derived(environmentStore.refsFor(gitServerId, projectRoot));
-  const pendingDispatch = $derived(
-    run?.pendingHostDispatch?.intent === "dispatch"
-      ? run.pendingHostDispatch
-      : null,
-  );
+  const pendingDispatch = $derived(pendingClone(run));
   // A dispatch works on an origin branch (the default branch unless one is
-  // picked), in a new worktree there, or in an existing one (`pendingDispatch.worktree`).
+  // picked), in a new worktree there, or in an existing one.
   const dispatchNewWorktree = $derived(
-    !!pendingDispatch && !!run?.worktree && !pendingDispatch.baseBranch,
+    pendingDispatch?.start.kind === "new-worktree" && !pendingDispatch.start.baseBranch,
+  );
+  const dispatchBaseBranch = $derived(cloneBaseBranch(run));
+  const dispatchWorktreePath = $derived(
+    pendingDispatch?.start.kind === "worktree" ? pendingDispatch.start.path : null,
   );
   const worktrees = $derived(
     pendingDispatch
@@ -276,12 +278,12 @@
                 <Command.Item
                   value={`${worktree.branch} ${worktree.path}`}
                   onSelect={() => selectWorktree(worktree)}
-                  data-menu-current={pendingDispatch?.worktree?.path === worktree.path || (!pendingDispatch && worktree.branch === displayBranch) ? "" : undefined}
+                  data-menu-current={dispatchWorktreePath === worktree.path || (!pendingDispatch && worktree.branch === displayBranch) ? "" : undefined}
                   class="menu-item-stagger"
                 >
                   <TreeStructureIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
                   <MiddleTruncate value={worktreeDisplayName(worktree.branch)} class="flex-1" />
-                  {#if pendingDispatch?.worktree?.path === worktree.path}
+                  {#if dispatchWorktreePath === worktree.path}
                     <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
                   {/if}
                 </Command.Item>
@@ -315,12 +317,12 @@
                   <Command.Item
                     value={`remote ${branch}`}
                     onSelect={() => selectDispatchBranch(branch)}
-                    data-menu-current={pendingDispatch.baseBranch === branch ? "" : undefined}
+                    data-menu-current={dispatchBaseBranch === branch ? "" : undefined}
                     class="menu-item-stagger"
                   >
                     <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
                     <MiddleTruncate value={branch} class="flex-1" />
-                    {#if pendingDispatch.baseBranch === branch}
+                    {#if dispatchBaseBranch === branch}
                       <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
                     {/if}
                   </Command.Item>

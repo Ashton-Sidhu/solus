@@ -17,6 +17,7 @@
 // because those are answers with a lifetime rather than the pull request itself.
 
 import type { HostApi } from '@solus/client-core/host-api'
+import { combinedChecksState, type PrChecksState, type PrChecksSummary } from '@solus/contracts/checks-types'
 import type * as Contracts from '@solus/contracts/providers'
 import type {
   DraftReview,
@@ -125,6 +126,9 @@ export class PullRequest implements Contracts.PullRequest {
   /** Where this sits in its GitHub stack; null when in none, undefined until
    *  a read that asks has answered. */
   stack = $state<Contracts.PrStackMembership | null>()
+  /** Every check on the head, combined, as the list row shows it. Undefined
+   *  until a read that asks has answered for this head. */
+  checksState = $state<PrChecksState>()
   /** The whole stack, as `loadStack` last read it. */
   fullStack = $state<PrStack | null>()
   /** The reviewers and the accounts that can be asked, as last read. Undefined
@@ -235,10 +239,18 @@ export class PullRequest implements Contracts.PullRequest {
     this.autoMergeMethod = source.autoMergeMethod
     // A direct read does not ask about stacks; only an answer replaces one.
     if (source.stack !== undefined) this.stack = source.stack
+    // Likewise checks; a new head makes the last answer someone else's.
+    if (source.checksState !== undefined) this.checksState = source.checksState
+    else if (!sameHead) this.checksState = undefined
     this.#described = true
     // A read that left the host before a write it has not yet answered would
     // otherwise put the write's outcome back the way it was.
     for (const show of this.#shownWhileWriting) show()
+  }
+
+  /** Take checks PR sync reports. Checks of another head say nothing about this one. */
+  absorbChecks(summary: PrChecksSummary): void {
+    if (summary.headSha === this.headSha) this.checksState = combinedChecksState(summary)
   }
 
   /** The host and context this project reads through. */

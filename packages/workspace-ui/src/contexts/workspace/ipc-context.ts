@@ -2,7 +2,7 @@ import type { GitCheckout, IpcContext, PrReviewContext, RunConfig, Session, Sess
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
-import { isDispatch } from './run-config'
+import { checkoutGit, checkoutPlace, isDispatch, runHost, worktreeBaseBranch } from './run-location'
 
 export interface IpcContextBuilderDeps {
   sessionFor(tabId: string): Session | undefined
@@ -83,7 +83,7 @@ export class IpcContextBuilder {
 
   /** The host a source's run is on: review warming is that host's per-project setting. */
   private serverIdOf(sourceId: string): string {
-    return (this.deps.runFor(sourceId) ?? this.deps.defaultRunConfig()).serverId
+    return runHost(this.deps.runFor(sourceId) ?? this.deps.defaultRunConfig())
   }
 
   /** The window's organization rides every prompt (R11): the host assigns an
@@ -99,8 +99,9 @@ export class IpcContextBuilder {
     // conversation and so only exists once one has started.
     const ownRun = this.deps.runFor(sourceId)
     const run = ownRun ?? this.deps.defaultRunConfig()
-    const { workingDirectory, modelConfig } = run
-    const gitContext = this.deps.checkoutForRun ? this.deps.checkoutForRun(run) : run.gitContext
+    const { modelConfig } = run
+    const workingDirectory = checkoutPlace(run).path
+    const gitContext = this.deps.checkoutForRun ? this.deps.checkoutForRun(run) : checkoutGit(run)
     const sessionExtras = session
       ? {
           forked: session.forked ?? false,
@@ -129,7 +130,7 @@ export class IpcContextBuilder {
       fastMode: modelConfig.fastMode,
       permissionMode: run.permissionMode,
       gitContext: gitContext ? { ...gitContext } : null,
-      worktreeBaseBranch: run.worktree?.baseBranch ?? null,
+      worktreeBaseBranch: worktreeBaseBranch(run),
       sessionChangedFiles: session ? [...session.sessionChangedFiles] : [],
       readOnlyReason: session ? session.readOnlyReason : null,
       title: session?.title ?? null,

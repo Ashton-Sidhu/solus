@@ -5,7 +5,6 @@ import type {
   PrDiffFileContentsRequest,
   PrDiffRequest,
   PrDiffSlice,
-  PrCommit,
   PrConversationItem,
   PrFilter,
   PrLabel,
@@ -26,6 +25,7 @@ import type {
   RepoRef,
   ReviewComment,
   ReviewThread,
+  PullRequestOverview,
 } from '@solus/contracts/providers'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
 
@@ -63,6 +63,31 @@ export interface ProviderAuth {
 export interface PullRequestWatchFingerprint {
   status: string
   remarks: string
+  /** What the watch rules read of the pull request, as `status` holds it. A
+   *  row held on the server that agrees needs no read. */
+  pullRequest: Pick<PullRequest, 'state' | 'mergeable' | 'headSha'>
+}
+
+/** One repository's place in a list read: page one has no cursor. */
+export interface PrPageRequest {
+  repo: RepoRef
+  page: number
+  /** The cursor the page before this one answered; null for page one. */
+  cursor: string | null
+}
+
+/**
+ * A page of a repository's pull requests, with the viewer's own and the ones
+ * waiting on their review where the read asked for them. A priority part is
+ * null where the read could not answer it whole; the reader then asks for that
+ * part alone.
+ */
+export interface RepositoryPage {
+  page: PrListPage
+  /** The first page of the viewer's own pull requests, as the author search pages it. */
+  authored: PrListPage | null
+  /** Every open pull request that requests or assigns the viewer. */
+  needsReview: PullRequest[] | null
 }
 
 /**
@@ -71,15 +96,27 @@ export interface PullRequestWatchFingerprint {
  * auth layer and the review feature can be built in parallel.
  */
 export interface ReviewProvider {
-  listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequest[]>
-  listPullRequestsPage(repo: RepoRef, filter?: PrFilter, page?: number, perPage?: number): Promise<PrListPage>
+  /**
+   * A page of each repository's pull requests, in the order asked, in as few
+   * requests as the host allows. `withPriority` asks for the viewer's own and
+   * review-requested rows of page one of an unsearched list too. Null for a
+   * repository the read could not answer; the reader lists that one alone.
+   */
+  listPullRequestPages(
+    requests: PrPageRequest[],
+    filter: PrFilter | undefined,
+    viewer: string,
+    withPriority: boolean,
+  ): Promise<Array<RepositoryPage | null>>
   createPullRequest(
     repo: RepoRef,
     input: { baseRef: string; headRef: string; title: string; body: string; credentialCwd?: string },
   ): Promise<PullRequest>
   /** Open PRs that currently request or assign the given viewer's attention. */
   listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequest[]>
-  getPullRequest(repo: RepoRef, number: number): Promise<PullRequest>
+  /** The pull request with its commits and reviewers, in as few requests as
+   *  the host allows. Every read of one pull request goes through this. */
+  getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview>
   updatePullRequest(repo: RepoRef, number: number, patch: PullRequestUpdate): Promise<PullRequest>
   getPullRequestDiffBase(repo: RepoRef, pullRequest: PullRequest): Promise<string>
   /** Take the pull request rather than its number, like `listReviewerCandidates`:
@@ -88,11 +125,9 @@ export interface ReviewProvider {
   getPullRequestDiff(repo: RepoRef, pullRequest: PullRequest, request: PrDiffRequest): Promise<PrDiffSlice>
   getPullRequestDiffFileContents(repo: RepoRef, pullRequest: PullRequest, request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
   listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]>
-  listCommits(repo: RepoRef, number: number): Promise<PrCommit[]>
   /** The stack `number` is in, bottom to top; null when it is in none or the
    *  host keeps no stacks. */
   getPullRequestStack(repo: RepoRef, number: number): Promise<PrStack | null>
-  listReviewers(repo: RepoRef, number: number): Promise<PrReviewer[]>
   /** Takes the pull request rather than its number: every caller has already
    *  read the detail to check that the viewer may request reviewers, and the
    *  candidate list only needs the author off it. Asking for a number here made
@@ -100,10 +135,10 @@ export interface ReviewProvider {
   listReviewerCandidates(repo: RepoRef, pullRequest: PullRequest): Promise<PrReviewerCandidate[]>
   listLabelCandidates(repo: RepoRef): Promise<PrLabel[]>
   setLabels(repo: RepoRef, number: number, names: string[]): Promise<PrLabel[]>
-  /** Pull requests in every state, most recently updated first, back to the
-   *  first one not updated after `since`. With no `since`, one page. Only PR
-   *  sync calls this (docs/plans/pr-sync.md §3.2). */
-  listRecentPullRequests(repo: RepoRef, since: string | null): Promise<PullRequest[]>
+  /** The pull requests opened from each branch, in every state, newest first,
+   *  in as few requests as the host allows. Only PR sync calls this
+   *  (docs/plans/pr-sync.md §3.2). */
+  getPullRequestsByHead(repo: RepoRef, heads: string[]): Promise<Map<string, PullRequest[]>>
   /** Pull requests by number, in as few requests as the host allows. Null for
    *  a number the repository does not have. */
   getPullRequests(repo: RepoRef, numbers: number[]): Promise<Map<number, PullRequest | null>>

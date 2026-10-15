@@ -6,6 +6,7 @@ import { actorName } from '@solus/workspace-ui/components/presence/lib/actor-nam
 import { activityLine, showsActivity } from '@solus/workspace-ui/components/activity/lib/activity-line'
 import { buildTurns, groupMessages } from '@solus/workspace-ui/components/conversation/lib/turns'
 import { parseUserKey, type User, type UserId } from '@solus/contracts/user'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 // plans/004-shared-host-collaboration.md D2, D12, F4, step 12 and
 // plans/012-user-actor-and-activity.md §5: who stopped, answered, decided,
@@ -23,7 +24,7 @@ function activity(kind: ActivityKind, by: User | null = BOB, at = 5): Activity {
 
 function roomFixture(options: { self?: string | null; plans?: Record<string, { status: string; questionId?: string }>; status?: string } = {}) {
   const session = {
-    status: options.status ?? 'running', run: { serverId: 'host-1' }, messages: [{ id: 'u1', role: 'user', content: 'go', timestamp: 1 }],
+    status: options.status ?? 'running', run: { location: folderLocation({ serverId: 'host-1', path: '/repo' }) }, messages: [{ id: 'u1', role: 'user', content: 'go', timestamp: 1 }],
     outboundPrompts: [], currentTurnStartedAt: 1, permissionQueue: [], questionQueue: [], rateLimitInfo: null,
   } as unknown as Session
   const plans = options.plans ?? {}

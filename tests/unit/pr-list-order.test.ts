@@ -71,7 +71,7 @@ describe('pull request sections', () => {
     // WHY: a search is ordered by relevance and a list narrowed to one
     // involvement would be one section anyway — both read as one flat list.
     const facts = {
-      rowContext: { checks: () => undefined, ...context },
+      rowContext: context,
       viewerLogin: () => 'sidhu',
       checksState: () => null,
       hasGuide: () => false,
@@ -103,7 +103,7 @@ describe('pull request sections', () => {
     // Once the host has answered, its matches stand even where the row does
     // not show the matching words (the host also reads bodies).
     const facts = {
-      rowContext: { checks: () => undefined, isMine: () => false },
+      rowContext: { isMine: () => false },
       viewerLogin: () => null,
       checksState: () => null,
       hasGuide: () => false,

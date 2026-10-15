@@ -42,6 +42,7 @@
   import { pauseWhenOffscreen } from "./lib/visible-animation";
   import { Minimize2 as Minimize2Icon } from "@lucide/svelte";
   import type { DocumentStackEntry } from "../work/lib/document-stack";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   let { item, skipMotion, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
     navigateToSourceSession }: {
@@ -240,7 +241,7 @@
     .map((message) => message.browserSnapshot)
     .filter((snapshot) => !!snapshot)}
   {#if captures.length > 0}
-    <BrowserSnapshots snapshots={captures} serverId={sess?.run.serverId} />
+    <BrowserSnapshots snapshots={captures} serverId={runHost(sess?.run)} />
   {/if}
 {:else if item.kind === "device-snapshot"}
   <ToolResultImages
@@ -251,7 +252,7 @@
 {:else if item.kind === "browser-recording" && item.message.browserRecording}
   <BrowserRecordingCard
     recording={item.message.browserRecording}
-    serverId={sess?.run.serverId}
+    serverId={runHost(sess?.run)}
     {skipMotion}
   />
 {:else if item.kind === "agent-conversation-group"}

@@ -30,7 +30,8 @@ const observationSchema = z.object({ pending: z.string(), observed_at: z.number(
 /**
  * Pull request assignments and review requests, recorded from the answers an
  * existing authorized refresh already read (plans/015-notifications-hub.md §5):
- * PR sync's needs-review read. Nothing here asks the code host. Polling cannot
+ * each new needs-review answer, from a pull request list read or from PR sync's
+ * read for the sidebar count. Nothing here asks the code host. Polling cannot
  * see a request made and removed between two answers, and nothing is recorded
  * while no refresh runs. The first answer for a repository is a quiet baseline.
  * The baseline is provider observation state, not a notification journal: it

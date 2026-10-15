@@ -44,6 +44,7 @@
 
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
   import { installGlobalDispatcher } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";
+  import { checkoutGit, checkoutPlace } from "../../../../packages/workspace-ui/src/contexts/workspace/run-location";
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
   const skipOnboarding = skipsOnboarding(window.location.search);
@@ -145,8 +146,8 @@
       const targetSession = session.sessionFor(targetTabId);
       const dir =
         detail?.cwd ??
-        targetSession?.run.gitContext?.repoRoot ??
-        targetSession?.run.workingDirectory;
+        checkoutGit(targetSession?.run)?.repoRoot ??
+        checkoutPlace(targetSession?.run)?.path;
       ui.paletteGitTarget = {
         tabId: targetTabId,
         ctx: detail?.cwd

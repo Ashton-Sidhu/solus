@@ -23,5 +23,7 @@ export function organizationPrSync(publish: (change: PrSyncChange) => void): PrS
       return live.map((session) => ({ projectScope: session.repositoryKey, branch: session.branch, sessionId: session.sessionId }))
     },
     repositoryReader: (repositoryKey) => ownersByRepository.get(repositoryKey) ?? null,
+    // Runners report sessions here, and no turn end is heard: interest is read on a clock.
+    pollsForInterest: true,
   })
 }

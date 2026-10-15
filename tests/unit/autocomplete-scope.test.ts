@@ -4,6 +4,7 @@ import {
   autocompleteSessionChangedFiles,
   resolveAutocompleteScope,
 } from '@solus/workspace-ui/components/editor/autocomplete-scope'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 function workspace(sessions: Record<string, Partial<Session>>) {
   return {
@@ -20,13 +21,14 @@ describe('autocomplete scope', () => {
       workspace({
         'remote-tab': {
           run: {
-            workingDirectory: '/projects/solus',
-            gitContext: {
-              repoRoot: '/projects/solus',
-              branch: 'feature',
-              targetBranch: 'main',
-              worktreePath: '/projects/solus/.git/solus/worktrees/feature',
-            },
+            location: folderLocation({ serverId: 'remote-server', path: '/projects/solus' }, {
+              git: {
+                repoRoot: '/projects/solus',
+                branch: 'feature',
+                targetBranch: 'main',
+                worktreePath: '/projects/solus/.git/solus/worktrees/feature',
+              },
+            }),
           } as Session['run'],
         },
       }),
@@ -47,14 +49,16 @@ describe('autocomplete scope', () => {
     // paths are identical, so active-tab routing can query the wrong machine.
     const scope = resolveAutocompleteScope(
       workspace({
-        'remote-tab': { run: { workingDirectory: '/projects/solus', gitContext: null } as Session['run'] },
+        'remote-tab': {
+          run: { location: folderLocation({ serverId: 'remote-server', path: '/projects/solus' }) } as Session['run'],
+        },
       }),
       '/projects/solus',
       'remote-tab',
     )
 
     expect(scope.tabId).toBe('remote-tab')
-    expect(scope.serverId).toBeUndefined()
+    expect(scope.serverId).toBe('remote-server')
     expect(scope.workingDirectory).toBe('/projects/solus')
   })
 
@@ -65,13 +69,14 @@ describe('autocomplete scope', () => {
       workspace({
         'local-tab': {
           run: {
-            workingDirectory: '/projects/other',
-            gitContext: {
-              repoRoot: '/projects/other',
-              branch: 'other',
-              targetBranch: 'main',
-              worktreePath: '/projects/other/.git/solus/worktrees/other',
-            },
+            location: folderLocation({ serverId: 'local', path: '/projects/other' }, {
+              git: {
+                repoRoot: '/projects/other',
+                branch: 'other',
+                targetBranch: 'main',
+                worktreePath: '/projects/other/.git/solus/worktrees/other',
+              },
+            }),
           } as Session['run'],
         },
       }),

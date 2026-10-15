@@ -5,6 +5,7 @@ import type { StatusBarCtx, RunConfig } from '@solus/contracts/types'
 import type { AgentContext } from './agent.context.svelte'
 import type { SettingsContext } from './settings.context.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
+import { checkoutPlace } from '../workspace/run-location'
 
 export class StatusBarContext {
   private settings: SettingsContext
@@ -47,7 +48,7 @@ export class StatusBarContext {
       : metaDefault ?? models[0]?.id ?? ''
     const profile = MODEL_PROFILES[effectiveAgent]?.[model]
     return {
-      workingDirectory: run?.workingDirectory ?? this._session?.defaultRunConfig.workingDirectory ?? '~',
+      workingDirectory: checkoutPlace(run)?.path ?? checkoutPlace(this._session?.defaultRunConfig)?.path ?? '~',
       activeAgent: effectiveAgent,
       permissionMode: run?.permissionMode ?? defaults?.permissionMode ?? 'full-access',
       model,

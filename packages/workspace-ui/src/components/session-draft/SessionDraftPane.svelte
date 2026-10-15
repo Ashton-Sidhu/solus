@@ -20,6 +20,7 @@
   import SolusTips from "../layout/SolusTips.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
   let {
     params,
@@ -101,13 +102,13 @@
   // of it, so the label reads off the repo root rather than the checkout.
   const gitHome = $derived(
     homeGitDetails(
-      draft?.run.workingDirectory ?? "~",
-      draft?.run.gitContext ?? null,
+      checkoutPlace(draft?.run)?.path ?? "~",
+      checkoutGit(draft?.run) ?? null,
       null,
     ),
   );
   const projectRoot = $derived(
-    gitHome.projectRoot ?? draft?.run.workingDirectory ?? "~",
+    gitHome.projectRoot ?? checkoutPlace(draft?.run)?.path ?? "~",
   );
   const projectName = $derived(projectDirLabel(projectRoot));
   // A chat has no project to build in; "build in ~?" names nothing either. Both
@@ -188,7 +189,7 @@
         title={projectName}
         class="group inline-flex max-w-64 items-baseline align-baseline whitespace-nowrap focus-visible:outline-none"
         ><ProjectFavicon
-          projectKey={groupKeyFor(draft?.run.serverId ?? "", projectRoot)}
+          projectKey={groupKeyFor(runHost(draft?.run) ?? "", projectRoot)}
           class="mr-[0.22em] size-[0.8em] translate-y-[0.05em]"
         /><span
           class="min-w-0 overflow-x-clip text-ellipsis underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.28em] transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium) group-hover:decoration-[color:var(--solus-text-secondary)] group-focus-visible:decoration-[color:var(--solus-accent)]"

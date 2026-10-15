@@ -35,6 +35,7 @@
   import type { Message, OutboundPromptState } from "@solus/contracts/types";
   import type { User } from "@solus/contracts/user";
   import type { Component, Snippet } from "svelte";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   // `rawtext` is the leaf: a `text` token in a tight list item carries inline
   // children (code, bold), and an override there would print them as source.
@@ -182,7 +183,7 @@
     ) ?? [],
   );
   const imageServerId = $derived(
-    session?.sessionFor(attachmentTabId)?.run.serverId ?? LOCAL_SERVER_ID,
+    runHost(session?.sessionFor(attachmentTabId)?.run) ?? LOCAL_SERVER_ID,
   );
   function imageHost(attachment: NonNullable<Message['attachments']>[number]): string {
     return attachment.hostServerId ?? imageServerId;

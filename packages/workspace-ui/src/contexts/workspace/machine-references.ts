@@ -5,8 +5,7 @@ import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import { solusApiId } from '@solus/contracts/uplink'
 import type { ProjectLocation } from '../app/settings.context.svelte'
 import { LOCAL_ORGANIZATION_ID } from '../../lib/organization-filter'
-import { withCheckout } from './run-config'
-
+import { checkoutPlace, fileTasksOn, openFolder, projectHome, runHost } from './run-location'
 /**
  * Whether a `gone` host is gone for good rather than not listed yet: a directory
  * read succeeded this load, or this client has no directory to wait for. Until
@@ -82,17 +81,17 @@ export function reconcileMachineReferences(
   }
 
   for (const session of owner.startedSessions()) {
-    if (!session.readOnlyReason && isGone(session.run.serverId)) session.readOnlyReason = GONE_MACHINE_READ_ONLY_REASON
+    if (!session.readOnlyReason && isGone(runHost(session.run))) session.readOnlyReason = GONE_MACHINE_READ_ONLY_REASON
   }
 
-  const orphaned = owner.unstartedRuns().filter((run) => isGone(run.serverId))
+  const orphaned = owner.unstartedRuns().filter((run) => isGone(runHost(run)))
   if (orphaned.length === 0 || !hasMachine()) return
   const fallback = owner.defaultRunConfig
   for (const run of orphaned) {
-    Object.assign(run, withCheckout(run, fallback.workingDirectory, null), {
-      serverId: fallback.serverId,
-      taskServerId: isGone(run.taskServerId) ? fallback.taskServerId : run.taskServerId,
-      pendingHostDispatch: null,
-    })
+    // A draft opened from a task keeps filing on the task's home unless that
+    // host is gone too; otherwise the fallback folder is its own project.
+    const home = projectHome(run)
+    run.location = openFolder(run.location, checkoutPlace(fallback))
+    if (!isGone(home.serverId)) run.location = fileTasksOn(run.location, home.serverId)
   }
 }

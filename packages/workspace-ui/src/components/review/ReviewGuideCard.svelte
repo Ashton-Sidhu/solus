@@ -8,6 +8,7 @@
   import { reviewGuideStore, type ReviewGuideIdentity } from "./review-guide.store.svelte";
   import { reviewGuideCardPresentation, reviewGuideCardSubtitle } from "./lib/review-guide-card";
   import { reviewGuideTargetLabel } from "./lib/review-guide-reference";
+  import { checkoutGit, checkoutPlace } from "../../contexts/workspace/run-location";
 
   interface Props {
     ref: ReviewGuideReference;
@@ -21,7 +22,7 @@
   const conversation = $derived(workspace.sessionFor(tabId));
   const serverId = $derived(workspace.serverIdFor(tabId));
   const identity = $derived.by((): ReviewGuideIdentity | null => {
-    const root = conversation?.run.gitContext?.repoRoot ?? conversation?.run.workingDirectory;
+    const root = checkoutGit(conversation?.run)?.repoRoot ?? checkoutPlace(conversation?.run)?.path;
     // Identified by target, not by `ref.key`: that key was computed when the
     // tool call was parsed, from whatever branch the renderer could see then —
     // nothing, for a session outside a worktree.

@@ -1,13 +1,14 @@
 import { CheckoutStore } from './checkout.store.svelte'
 import { isChat } from '@solus/contracts/chat'
 import { createAppContext } from '../app/create-app-context'
-import { gitCheckoutFromState, sameGitCheckout, worktreeProjectRoot, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
+import { gitCheckoutFromState, sameGitCheckout, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type Place, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { hosts } from '../hosts/hosts.svelte'
+import { adoptGit, checkoutGit, isDispatch, pendingClone, projectHome, projectRoot, samePlace, startsWorktree, workingPlace, worktreeBaseBranch } from '../workspace/run-location'
 
 export type GitRefreshLevel = 'status' | 'details' | 'full'
 
@@ -111,14 +112,16 @@ export interface SessionEnvironment {
   status: GitState | null | undefined
 }
 
-export function environmentProjectKey(environment: SessionEnvironment, projectGroupPath?: string | null): string {
-  return projectGroupPath ?? environment.repoRoot ?? environment.cwd ?? '~'
+/** The folder a run's project is known by. A dispatched run's project is its
+ *  home folder, not the clone it works in; any other run's is its repository. */
+export function environmentProjectKey(environment: SessionEnvironment, run?: RunConfig | null): string {
+  return (isDispatch(run) ? projectRoot(run) : null) ?? environment.repoRoot ?? environment.cwd ?? '~'
 }
 
-export function environmentBranchKey(environment: SessionEnvironment, projectGroupPath?: string | null): string {
+export function environmentBranchKey(environment: SessionEnvironment, run?: RunConfig | null): string {
   const branch = environment.branch ?? 'no branch'
   const worktreeSuffix = environment.isolated ? ' (worktree)' : ''
-  return `${environmentProjectKey(environment, projectGroupPath)}::${branch}${worktreeSuffix}`
+  return `${environmentProjectKey(environment, run)}::${branch}${worktreeSuffix}`
 }
 
 const WORKSPACE_NAME = 'Workspace'
@@ -187,14 +190,17 @@ export class SessionEnvironmentStore {
   environmentFor(run?: RunConfig | null): SessionEnvironment {
     if (!this.workspace) throw new Error('SessionEnvironmentStore must be bound to a workspace')
     const target = run ?? this.workspace.defaultRunConfig
-    const attachedCheckout = target.gitContext
+    const attachedCheckout = checkoutGit(target)
     // "Will branch" and "branches from X" are separate questions: a run can want
     // a worktree before the host has said which branch it would fork from.
-    const wantsWorktree = !!target.worktree
-    const worktreeBaseBranch = target.worktree?.baseBranch ?? null
-    const cwd = target.gitContext?.worktreePath ?? target.workingDirectory
-    const status = this.statusFor(target.serverId, cwd)
-    const checkout = this.checkouts.resolve(target.serverId, cwd, gitCheckoutFromState(status, attachedCheckout?.worktreePath, attachedCheckout?.repoRoot) ?? attachedCheckout)
+    const wantsWorktree = startsWorktree(target)
+    const baseBranch = worktreeBaseBranch(target)
+    // The host that holds the folder is the one asked. A clone reads the checkout
+    // it copies until Send makes it.
+    const place = workingPlace(target)
+    const cwd = place.path
+    const status = this.statusFor(place.serverId, cwd)
+    const checkout = this.checkouts.resolve(place.serverId, cwd, gitCheckoutFromState(status, attachedCheckout?.worktreePath, attachedCheckout?.repoRoot) ?? attachedCheckout)
     const isolated = !!checkout?.worktreePath
     const pending = wantsWorktree && !isolated
 
@@ -205,7 +211,7 @@ export class SessionEnvironmentStore {
         kind: 'workspace',
         name: pending ? PENDING_WORKTREE_NAME : WORKSPACE_NAME,
         branch: null,
-        targetBranch: worktreeBaseBranch ?? null,
+        targetBranch: baseBranch,
         isolated: false,
         pending,
         repoRoot: status?.repoRoot ?? null,
@@ -253,11 +259,13 @@ export class SessionEnvironmentStore {
   ): Promise<GitRefreshResult> {
     const sourceId = opts.sourceId ?? workspace.activeTabId
     const run = workspace.runFor(sourceId)
-    const cwd = opts.cwd
-      ?? run?.gitContext?.worktreePath
-      ?? run?.workingDirectory
-      ?? workspace.defaultRunConfig.workingDirectory
+    const target = run ?? workspace.defaultRunConfig
     const level = opts.level ?? 'status'
+    // A clone has no folder until Send. Its branch list reads the checkout it
+    // copies, which the run did not leave when it chose the clone.
+    if (pendingClone(target)) return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no folder until it is sent.' }
+    const place: Place = { serverId: workingPlace(target).serverId, path: opts.cwd ?? workingPlace(target).path }
+    const cwd = place.path
     if (!cwd || cwd === '~' || isChat(cwd)) return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no Git working directory.' }
     // The host that holds the directory is the only one that can read it, and
     // the run is what names that host. A host this client does not know (it was
@@ -271,15 +279,20 @@ export class SessionEnvironmentStore {
       return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no host binding.' }
     }
 
-    const worktreePath = run?.gitContext?.worktreePath
-    const worktreeRequested = opts.worktreeRequested
-      ?? !!run?.worktree
+    const attachedCheckout = checkoutGit(run)
+    const worktreePath = attachedCheckout?.worktreePath
+    const worktreeRequested = opts.worktreeRequested ?? startsWorktree(run)
     // The source moved to a different checkout while a read was in flight, so
     // its answer describes a directory the source has left.
     const movedAway = (): boolean => {
       const current = workspace.runFor(sourceId)
-      if (!current) return true
-      return (current.gitContext?.worktreePath ?? current.workingDirectory) !== cwd
+      return !current || !samePlace(workingPlace(current), place)
+    }
+    // A draft's run is replaced on every edit, so an answer lands on the run the
+    // source owns when it arrives, not the one it owned when the read began.
+    const land = (gitContext: GitCheckout | null, baseBranch: string | null): void => {
+      const current = workspace.runFor(sourceId)
+      if (current) current.location = adoptGit(current.location, place, gitContext, worktreeRequested ? { baseBranch } : null)
     }
 
     // On a genuinely cold load nothing can render a session's environment until
@@ -289,16 +302,13 @@ export class SessionEnvironmentStore {
     // nothing re-keys or flickers. A cold target has no checkout yet, so the
     // provisional answer is always a plain branch. With no run there is nothing
     // to land it on: the default run projects from the status cache alone.
-    if (run && run.gitContext === null && this.statusForHost(serverId, cwd) === undefined) {
+    if (run && attachedCheckout === null && this.statusForHost(serverId, cwd) === undefined) {
       const identity = await api.gitIdentity(cwd).catch(() => null)
-      if (identity && !movedAway()) {
-        run.gitContext = gitCheckoutFromState(identity)
-        run.worktree = worktreeRequested ? { baseBranch: identity.targetBranch } : null
-      }
+      if (identity && !movedAway()) land(gitCheckoutFromState(identity), identity.targetBranch)
     }
 
     const reused = opts.force === false
-      ? this.liveFacets(workspace, serverId, cwd, run?.gitContext ?? null)
+      ? this.liveFacets(workspace, serverId, cwd, attachedCheckout)
       : NO_LIVE_FACETS
 
     const needsDetails = level !== 'status' && (!reused.details || (level === 'full' && !reused.refs))
@@ -309,7 +319,7 @@ export class SessionEnvironmentStore {
       refs: level === 'full' && !reused.refs,
       worktreePath,
       worktreeRequested,
-      fallbackGitContext: run?.gitContext ?? null,
+      fallbackGitContext: checkoutGit(workspace.runFor(sourceId)),
     })
     if (!resolved.target) {
       return { status: false, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t read the working tree', resolved.error) }
@@ -327,10 +337,9 @@ export class SessionEnvironmentStore {
       if (movedAway()) {
         return { status: true, details: false, refs: false, registration: false, ok: false, error: supersededError }
       }
-      run.gitContext = gitContext
       // Keep the request even when this host named no branch to fork from, or an
       // unresolvable checkout would silently cancel the worktree.
-      run.worktree = worktreeRequested ? { baseBranch: worktreeBaseBranch } : null
+      land(gitContext, worktreeBaseBranch)
       // A draft has no session for the host to hold an environment against, and
       // nothing is running in it yet — registration waits until Send makes one.
       const session = workspace.sessionFor(sourceId)
@@ -767,8 +776,8 @@ export class SessionEnvironmentStore {
   /** Existing isolated worktrees from this device's checkout on the selected
    * host. The base checkout is absent because dispatched sessions stay isolated. */
   dispatchWorktreesFor(run: RunConfig | null | undefined): WorktreeEntry[] {
-    const pending = run?.pendingHostDispatch
-    if (pending?.intent !== 'dispatch') return []
+    const pending = pendingClone(run)
+    if (!pending) return []
     const serverId = serverConnections.resolveId(pending.serverId)
     const root = this.dispatchRootByTarget.get(hostKey(serverId, pending.repoKey))
     if (!root) return []
@@ -779,8 +788,8 @@ export class SessionEnvironmentStore {
    * branch appears once in the picker: as its existing worktree when present,
    * otherwise as the source for a new target worktree. */
   dispatchBranchesFor(run: RunConfig | null | undefined): string[] {
-    const pending = run?.pendingHostDispatch
-    if (pending?.intent !== 'dispatch') return []
+    const pending = pendingClone(run)
+    if (!pending) return []
     const serverId = serverConnections.resolveId(pending.serverId)
     const key = hostKey(serverId, pending.repoKey)
     const branches = this.dispatchBranchesByTarget.get(key) ?? []
@@ -795,8 +804,8 @@ export class SessionEnvironmentStore {
   }
 
   dispatchBranchesLoadingFor(run: RunConfig | null | undefined): boolean {
-    const pending = run?.pendingHostDispatch
-    if (pending?.intent !== 'dispatch') return false
+    const pending = pendingClone(run)
+    if (!pending) return false
     const serverId = serverConnections.resolveId(pending.serverId)
     return this.dispatchBranchesLoading.has(hostKey(serverId, pending.repoKey))
   }
@@ -806,17 +815,17 @@ export class SessionEnvironmentStore {
     run: RunConfig | null | undefined,
     ctxForDirectory: (cwd: string) => IpcContext,
   ): Promise<boolean> {
-    const pending = run?.pendingHostDispatch
-    if (pending?.intent !== 'dispatch') return false
+    const pending = pendingClone(run)
+    if (!run || !pending) return false
     const serverId = serverConnections.resolveId(pending.serverId)
     const key = hostKey(serverId, pending.repoKey)
     const existing = this.dispatchRefsInflight.get(key)
     if (existing) return existing
     const targetApi = serverConnections.apiFor(serverId)
-    const sourceServerId = serverConnections.resolveId(run.serverId)
+    // Origin branches are listed from the checkout the clone copies.
+    const sourceServerId = serverConnections.resolveId(projectHome(run).serverId)
     const sourceApi = serverConnections.apiFor(sourceServerId)
-    const sourceRoot = run.gitContext?.repoRoot
-      ?? (run.workingDirectory && run.workingDirectory !== '~' ? worktreeProjectRoot(run.workingDirectory) : null)
+    const sourceRoot = projectRoot(run)
     this.dispatchBranchesLoading.add(key)
     const branchesPromise = sourceRoot
       ? sourceApi.worktreeBranches(ctxForDirectory(sourceRoot), { remoteOnly: true })

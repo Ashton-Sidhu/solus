@@ -19,6 +19,7 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { MiddleTruncate } from "@solus/workspace-ui/components/ui/middle-truncate";
   import { comboHint } from "../../lib/keybindings/manifest";
+  import { checkoutGit, checkoutPlace, cloneBaseBranch, pendingClone, startsWorktree, workingPlace, worktreeBaseBranch } from "../../contexts/workspace/run-location";
 
   interface Props {
     active: boolean;
@@ -58,15 +59,15 @@
   const displayDir = $derived(displayDirName(ctx.workingDirectory));
   // A chat's folder is the host's business, not the reader's.
   const dirTooltip = $derived(isChat(ctx.workingDirectory) ? displayDir : ctx.workingDirectory);
-  const projectDir = $derived((run ?? session.defaultRunConfig).workingDirectory);
+  const projectDir = $derived(checkoutPlace((run ?? session.defaultRunConfig)).path);
   const defaultGitContext = $derived(session.tabCtx.gitContext);
-  const worktreePath = $derived(run?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null);
+  const worktreePath = $derived(checkoutGit(run)?.worktreePath ?? defaultGitContext?.worktreePath ?? null);
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
-  // The run's host holds this checkout; a path alone names no machine.
-  const gitServerId = $derived(run?.serverId ?? session.fallbackServerId);
+  // The host that holds the folder is the one asked; a path alone names no machine.
+  const gitServerId = $derived(checkoutPlace(run ?? session.defaultRunConfig).serverId);
   const git = $derived(environmentStore.statusFor(gitServerId, gitStatusCwd));
 
-  const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
+  const newWorktreeBase = $derived(worktreeBaseBranch(run));
   // One environment model drives the pill echo. displayBranch stays the raw
   // branch (the GitDropdown switches by exact name); pending comes from env.
   const env = $derived(environmentStore.environmentFor(run));
@@ -77,16 +78,14 @@
   const creatingWorktree = $derived(session.ui.isContinuingInWorktree(source));
   // While the worktree is being created, hold the pending label instead of the
   // live base branch so the pill doesn't read "main" and then teleport.
-  const pendingDispatch = $derived(
-    run?.pendingHostDispatch?.intent === "dispatch"
-      ? run.pendingHostDispatch
-      : null,
+  const pendingDispatch = $derived(pendingClone(run));
+  const selectedDispatchWorktree = $derived(
+    pendingDispatch?.start.kind === "worktree" ? pendingDispatch.start : null,
   );
-  const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
-  const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
+  const selectedDispatchBaseBranch = $derived(cloneBaseBranch(run));
   const displayBranch = $derived(
     selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch
-      ? run?.worktree ? "New worktree" : (env.targetBranch ?? "Default branch")
+      ? startsWorktree(run) ? "New worktree" : (env.targetBranch ?? "Default branch")
       : creatingWorktree
       ? "Creating worktree"
       : worktreeModePending
@@ -187,16 +186,15 @@
   }
 
   /** Every destination choice this row offers lands on whichever the source is:
-   *  a started session's run, or the draft's, which stays inert until Send. */
+   *  a started session's run, or the draft's, where nothing starts until Send. */
   function applyRun(next: RunConfig) {
     const target = sess ?? draft;
     if (target) target.run = next;
   }
 
   function settleOnDestination() {
-    const nextRun = session.runFor(source) ?? session.defaultRunConfig;
-    const nextCwd = nextRun.gitContext?.worktreePath ?? nextRun.workingDirectory;
-    if (nextCwd) void environmentStore.refresh(nextRun.serverId, nextCwd, { force: true });
+    const place = workingPlace(session.runFor(source) ?? session.defaultRunConfig);
+    if (place.path) void environmentStore.refresh(place.serverId, place.path, { force: true });
     requestInputFocus(focusTarget);
   }
 
@@ -253,7 +251,7 @@
     initialView={gitInitialView}
     triggerEl={gitTriggerEl}
     {displayBranch}
-    selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? worktreeBaseBranch ?? displayBranch}
+    selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? newWorktreeBase ?? displayBranch}
     workingDirectory={ctx.workingDirectory}
     {run}
     onSelectBranch={selectBranch}

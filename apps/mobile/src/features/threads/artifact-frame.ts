@@ -28,8 +28,13 @@ export function artifactThemeCss(appearance: ArtifactAppearance, canvas: string,
   return scrollable ? `${css}html{overflow:auto}` : css
 }
 
+// Without it WebKit lays the page out 980px wide and scales it down, so the
+// page reports its height in larger pixels than the frame it sits in, and the
+// frame grows on every report.
+const VIEWPORT = '<meta name="viewport" content="width=device-width,initial-scale=1">'
+
 export function artifactDocument(html: string, themeCss: string): string {
-  return wrapSandboxDocument(HEIGHT_BRIDGE + html, themeCss)
+  return VIEWPORT + wrapSandboxDocument(HEIGHT_BRIDGE + html, themeCss)
 }
 
 /** Script that replaces the page's theme without a reload. */
@@ -38,7 +43,7 @@ export function artifactThemeScript(themeCss: string): string {
 }
 
 // Zero means the page has no layout yet, not that it is empty.
-const heightMessage = z.object({ type: z.literal(HEIGHT_MESSAGE), h: z.number().positive().finite() })
+const heightMessage = z.object({ type: z.literal(HEIGHT_MESSAGE), h: z.number().positive() })
 
 /** The content height a page reported, or null for any other message. */
 export function readArtifactHeight(data: string): number | null {

@@ -65,6 +65,7 @@ import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 import type { DesktopDialogs } from "./desktop-dialogs.svelte";
+import { checkoutGit, checkoutPlace, runHost, workingPlace } from "@solus/workspace-ui/contexts/workspace/run-location";
 
 /**
  * "Switch organization…" (organization-scope §2): the window's organization is a
@@ -113,15 +114,15 @@ export function createDesktopPalette(
   const paletteGitProjectRoot = $derived.by(() => {
     if (ui.paletteGitTarget) return ui.paletteGitTarget.projectRoot;
     const dir =
-      session.activeSession?.run.gitContext?.repoRoot ??
-      session.activeSession?.run.workingDirectory;
+      checkoutGit(session.activeSession?.run)?.repoRoot ??
+      checkoutPlace(session.activeSession?.run)?.path;
     return dir && dir !== "~" ? worktreeProjectRoot(dir) : null;
   });
   // The active session's host holds that project; a path alone names no machine.
   const paletteGitServerId = $derived(
     ui.paletteGitTarget
       ? session.serverIdFor(ui.paletteGitTarget.tabId)
-      : (session.activeSession?.run.serverId ?? session.fallbackServerId),
+      : (runHost(session.activeSession?.run) ?? session.fallbackServerId),
   );
   const paletteGitRefs = $derived(
     sessionEnvironmentStore.refsFor(paletteGitServerId, paletteGitProjectRoot),
@@ -367,11 +368,10 @@ export function createDesktopPalette(
       if (worktree) {
         await session.switchToWorktree(worktree.path, undefined, "palette");
         const nextCwd =
-          session.activeSession?.run.gitContext?.worktreePath ??
-          session.activeSession?.run.workingDirectory;
+          workingPlace(session.activeSession?.run)?.path;
         if (nextCwd)
           void sessionEnvironmentStore.refresh(
-            session.activeSession?.run.serverId ?? session.fallbackServerId,
+            runHost(session.activeSession?.run) ?? session.fallbackServerId,
             nextCwd,
             { force: true },
           );
@@ -382,11 +382,10 @@ export function createDesktopPalette(
 
     const ok = await session.switchToBranch(branch, undefined, "palette");
     const nextCwd =
-      session.activeSession?.run.gitContext?.worktreePath ??
-      session.activeSession?.run.workingDirectory;
+      workingPlace(session.activeSession?.run)?.path;
     if (ok && nextCwd)
       void sessionEnvironmentStore.refresh(
-        session.activeSession?.run.serverId ?? session.fallbackServerId,
+        runHost(session.activeSession?.run) ?? session.fallbackServerId,
         nextCwd,
         { force: true },
       );
@@ -741,7 +740,7 @@ export function createDesktopPalette(
       const activeSess = session.activeSession;
       const canContinueWorktree =
         !!activeSess?.agentSessionId &&
-        !activeSess.run.gitContext?.worktreePath;
+        !checkoutGit(activeSess.run)?.worktreePath;
       const worktreeCommands: Command[] = [
         {
           id: "new-session-new-worktree",

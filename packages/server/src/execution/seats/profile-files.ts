@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto'
 import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, posix } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   AGENT_PROFILE_ENTRIES,
   AGENT_PROFILE_MAX_FILE_BYTES,
   AGENT_PROFILE_MAX_TOTAL_BYTES,
   type AgentProfileFileEntry,
   type AgentProfileSkip,
+  isAgentProfilePath,
 } from '@solus/contracts/agent-profile'
 import { SEAT_PROVIDERS, type SeatProvider } from '@solus/contracts/seats'
 
@@ -63,7 +64,7 @@ export function readProfileFiles(homesFor: (provider: SeatProvider) => string[],
         // A home after the first contributes skills alone.
         if (index > 0 && entry !== 'skills') continue
         walk(join(home, entry), entry, 0, new Set(), (path, absolutePath) => {
-          if (taken.has(path) || !isProfilePath(provider, path)) return
+          if (taken.has(path) || !isAgentProfilePath(provider, path)) return
           if (entry === 'skills' && registrySkills.has(path.split('/')[1] ?? '')) return
           taken.add(path)
           let size: number
@@ -113,10 +114,10 @@ export function planProfileFiles(options: {
     files: [],
     skipped: new Set(options.skipped.filter((skip) => skip.provider === provider).map((skip) => skip.path)),
     kept: [],
-    previous: options.previousFor(provider).filter((path) => isProfilePath(provider, path)),
+    previous: options.previousFor(provider).filter((path) => isAgentProfilePath(provider, path)),
   }))
   for (const file of options.entries) {
-    if (!isProfilePath(file.provider, file.path)) throw new Error(`"${file.path}" is not part of an agent profile.`)
+    if (!isAgentProfilePath(file.provider, file.path)) throw new Error(`"${file.path}" is not part of an agent profile.`)
     const write = writes.find((each) => each.provider === file.provider)!
     if (write.files.some((each) => each.path === file.path)) throw new Error(`"${file.path}" is in the profile twice.`)
     const content = Buffer.from(file.contentBase64, 'base64')
@@ -200,18 +201,6 @@ function walk(
     if (name.startsWith('.') || SKIPPED_DIRECTORIES.has(name)) continue
     walk(join(absolutePath, name), `${path}/${name}`, depth + 1, visited, onFile)
   }
-}
-
-/** A profile path is relative, has no hidden or parent segment, and starts at one of its provider's entries. */
-export function isProfilePath(provider: SeatProvider, path: string): boolean {
-  if (path.includes('\\') || path.includes('\0') || posix.isAbsolute(path)) return false
-  const segments = path.split('/')
-  if (segments.some((segment) => !segment || segment === '..' || segment.startsWith('.'))) return false
-  if (posix.normalize(path) !== path) return false
-  const [entry] = segments
-  const entries: readonly string[] = AGENT_PROFILE_ENTRIES[provider]
-  // A file inside one of the entries' folders, never the entry itself.
-  return entries.includes(entry) && segments.length > 1
 }
 
 /** Remove the folders a deleted file leaves empty, up to its profile entry. */

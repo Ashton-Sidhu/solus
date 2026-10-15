@@ -4,7 +4,7 @@
   import TaskIcon from "../ui/TaskIcon.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import { localApi } from "@solus/client-core/local-api";
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { comboHint } from "../../lib/keybindings/manifest";
   import {
@@ -19,7 +19,7 @@
     Search as MagnifyingGlassIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import type { PinnedSession } from "@solus/contracts/types";
+  import { projectScopeOf, type PinnedSession } from "@solus/contracts/types";
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
   import {
     getSettingsContext,
@@ -102,7 +102,15 @@
       session.ctx,
     ),
   );
-  $effect(() => pullRequests.needsReview.wantShown(session));
+  // Keyed on the host and the project alone: `session.ctx` is a new object on
+  // every session event, and the interest only changes with these two.
+  const needsReviewServerId = $derived(session.serverIdForContext(session.ctx));
+  const needsReviewScope = $derived(projectScopeOf(session.ctx.session));
+  $effect(() => {
+    void needsReviewServerId;
+    void needsReviewScope;
+    return untrack(() => pullRequests.needsReview.wantShown(session));
+  });
   // Works a teammate asked the reader to review, on every host.
   const reviewInboxCount = $derived(session.worksStore.reviews.inbox.length);
 

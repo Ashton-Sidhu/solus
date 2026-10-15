@@ -76,8 +76,8 @@ same engine and the same rules as personal settings (`client-core/document-sync.
 is the one engine; `settings-sync.ts` and `agent-profile-sync.ts` bind it to each
 document): synced when signed in, one entry per conflict unit, the same silent first
 copy at sign-in, and "Clear synced profile" as its own action on Settings → Account & sync.
-On the desktop the page fills from this computer when it is empty, and "Import from
-this computer" adds what was installed since (`docs/agent-profile.md`).
+The page never fills by itself; on the desktop, "Import from this computer" adds
+this computer's skills, files, and MCP servers (`docs/agent-profile.md`).
 The two documents stay apart: no host reads settings, every host reads the profile.
 A confirmed write makes every connected host the profile applies to pull it.
 

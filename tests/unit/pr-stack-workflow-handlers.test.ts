@@ -28,13 +28,14 @@ function facts(number: number, overrides: Partial<PullRequest> = {}): PullReques
 mock.module('@solus/server/prs/pr-index', () => ({
   repoKeyOf: (target: RepoRef) => `${target.host}/${target.owner}/${target.repo}`,
   prIndex: {
-    pullRequest: (_repo: RepoRef, _provider: Provider, number: number) => ({
-      readFresh: async () => {
+    pullRequest: (_repo: RepoRef, _provider: Provider, number: number) => {
+      const read = async (): Promise<PullRequest> => {
         const found = hostFacts.get(number)
         if (!found) throw new Error(`no facts for #${number}`)
         return found
-      },
-    }),
+      }
+      return { read, readFresh: read }
+    },
     invalidate: () => {},
   },
 }))

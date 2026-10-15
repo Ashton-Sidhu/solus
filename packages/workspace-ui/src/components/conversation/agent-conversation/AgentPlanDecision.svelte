@@ -3,6 +3,7 @@
   import { Button } from "../../ui/button";
   import { Textarea } from "../../ui/textarea";
   import { canDriveSession } from "../../../contexts/sharing/resource-roles";
+  import { runHost } from "../../../contexts/workspace/run-location";
 
   /**
    * A person's decision on a plan another session wrote, taken from the
@@ -20,7 +21,7 @@
   const api = $derived(session.apiFor(tabId));
   const sess = $derived(session.sessionFor(tabId));
   // The decision is an editor's; a member who may only read sees the plan alone.
-  const canDrive = $derived(canDriveSession(sess?.run.serverId, sess?.id));
+  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id));
 
   let revising = $state(false);
   let comment = $state("");

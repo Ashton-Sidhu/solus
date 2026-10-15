@@ -14,6 +14,7 @@
   import { formatActivityDuration } from "./lib/activity-summary";
   import { subagentTranscriptText } from "./lib/tool-trace";
   import { liveActivityClock } from "../../lib/shared-clock";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   /**
    * A sub-agent's run, read as a conversation: the brief the main agent wrote,
@@ -117,7 +118,7 @@
       <div class="mx-auto flex w-full max-w-(--solus-reading-max) flex-col px-6 pt-4 pb-8">
         <RecordTranscript
           {messages}
-          serverId={currentSession?.run.serverId ?? ""}
+          serverId={runHost(currentSession?.run) ?? ""}
           planFor={() => undefined}
           workFor={() => undefined}
         />

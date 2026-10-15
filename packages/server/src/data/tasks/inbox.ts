@@ -5,7 +5,7 @@ import type {
   InboxUpstreamResult,
   InboxUpstreamScope,
 } from '@solus/contracts/inbox-types'
-import type { PullRequest, RepoRef } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PullRequest, RepoRef } from '@solus/contracts/providers'
 import type { RecordScope } from '../../admission/principal'
 import { listProjects } from '../../project-config/projects-manifest'
 import { providerForRepo } from '../../providers/registry'
@@ -56,19 +56,13 @@ async function boundScopes(): Promise<BoundScope[]> {
   return [...scopes.values()]
 }
 
-function exactReviewRows(
-  rows: PullRequest[],
-  viewer: string,
-  involvement: InboxInvolvement,
-): PullRequest[] {
-  const login = viewer.toLowerCase()
-  if (involvement === 'assigned') {
-    return rows.filter((row) => row.assignees?.some((value) => value.toLowerCase() === login))
-  }
-  if (involvement === 'review_requested') {
-    return rows.filter((row) => row.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === login))
-  }
-  return rows
+/** The search qualifier each involvement narrows the open pull requests by.
+ *  `user-review-requested` names the viewer alone, not a team they are in. */
+function involvementQuery(involvement: Exclude<InboxInvolvement, 'mentioned'>, viewer: string): string {
+  if (involvement === 'authored') return `author:${viewer}`
+  if (involvement === 'assigned') return `assignee:${viewer}`
+  if (involvement === 'review_requested') return `user-review-requested:${viewer}`
+  return ''
 }
 
 async function listPullRequests(
@@ -85,18 +79,16 @@ async function listPullRequests(
   const provider = providerForRepo(repoRef)
   if (!provider) throw new Error('No pull request provider is available for this scope.')
   const viewer = await provider.review.getViewer(repoRef)
-  let rows: PullRequest[]
-  if (involvement === 'assigned' || involvement === 'review_requested') {
-    rows = exactReviewRows(
-      await prIndex.listNeedsReview(repoRef, provider, viewer),
-      viewer,
-      involvement,
-    )
-  } else {
-    rows = await provider.review.listPullRequests(
-      repoRef,
-      involvement === 'authored' ? { state: 'open', author: viewer } : { state: 'open' },
-    )
+  // The code host's search narrows the rows, so only the matches are paged.
+  const filter: PrFilter = { state: 'open', query: involvementQuery(involvement, viewer) }
+  const rows: PullRequest[] = []
+  let cursor: string | null = null
+  for (let page = 1; ; page++) {
+    const found: PrListPage = await prIndex.list(repoRef, provider, viewer, filter, page, cursor)
+    const known = new Set(rows.map((row) => row.number))
+    rows.push(...found.items.filter((row) => !known.has(row.number)))
+    if (!found.hasMore || !found.cursor) break
+    cursor = found.cursor
   }
   return rows.map((row) => ({ ...row, provider: 'github', externalKey: scope.externalKey }))
 }

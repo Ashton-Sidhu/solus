@@ -34,6 +34,7 @@ import type { SessionEnvironmentWorkspace } from '../git/session-environment.sto
 import type { WorkspaceContext, ForkTabOptions, CreateTabOptions } from './workspace.context.svelte'
 import type { OpenTarget } from './routing/location'
 import type { SessionDraft } from './session-draft.svelte'
+import { adoptGit, checkoutGit, checkoutPlace, chooseStart, dispatchTo, folderLocation, projectHome, runHost, workingPlace } from './run-location'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionOpeningWorkspace = Pick<WorkspaceContext,
@@ -99,14 +100,17 @@ export class SessionOpening {
    */
   async createWorktreeTab(): Promise<void> {
     const src = this.workspace.activeSession
-    const projectRoot = src?.run.gitContext?.repoRoot
-      ?? (src?.run.workingDirectory && src.run.workingDirectory !== '~' ? worktreeProjectRoot(src.run.workingDirectory) : undefined)
+    const sourceFolder = checkoutPlace(src?.run)?.path
+    const projectRoot = checkoutGit(src?.run)?.repoRoot
+      ?? (sourceFolder && sourceFolder !== '~' ? worktreeProjectRoot(sourceFolder) : undefined)
     const draft = this.workspace.drafts.openSessionDraft({ worktreeRequested: true }, projectRoot)
     // Always branch off the project root, even when the source was itself inside
     // a worktree whose checkout the draft would otherwise inherit.
-    draft.run.gitContext = null
-    draft.run.worktree = { baseBranch: null }
-    const dir = draft.run.workingDirectory
+    draft.run.location = folderLocation(checkoutPlace(draft.run), {
+      newWorktree: { baseBranch: null },
+      project: projectHome(draft.run),
+    })
+    const dir = checkoutPlace(draft.run).path
     if (!dir || dir === '~') return
     await this.workspace.config.refreshSessionStartTarget(draft.id, dir, true)
   }
@@ -152,7 +156,6 @@ export class SessionOpening {
       run: {
         ...sourceSession.run,
         modelConfig: { ...sourceSession.run.modelConfig },
-        gitContext: sourceSession.run.gitContext ? { ...sourceSession.run.gitContext } : null,
         sessionSkills: [...sourceSession.run.sessionSkills],
       },
       pluginCommands: this.workspace.pluginCommands,
@@ -206,7 +209,7 @@ export class SessionOpening {
   async continueInWorktree(tabId: string, via: Via = 'click'): Promise<void> {
     void via
     const session = this.workspace.sessionFor(tabId)
-    if (!session?.agentSessionId || session.run.gitContext?.worktreePath || this.workspace.ui.isContinuingInWorktree(tabId)) return
+    if (!session?.agentSessionId || checkoutGit(session.run)?.worktreePath || this.workspace.ui.isContinuingInWorktree(tabId)) return
 
     const firstUser = session.messages.find((m) => m.role === 'user')
     const namePrompt = firstUser?.content.slice(0, 200) ?? ''
@@ -235,8 +238,12 @@ export class SessionOpening {
 
       // Keep agentSessionId as the fork source; forked=true makes the next run resume
       // it with --fork-session in the worktree cwd (see control-plane dispatch).
-      session.run.gitContext = result.gitContext
-      session.run.worktree = null
+      session.run.location = chooseStart(session.run.location, {
+        kind: 'worktree',
+        path: result.gitContext.worktreePath ?? workingPlace(session.run).path,
+        branch: result.gitContext.branch ?? '',
+        git: result.gitContext,
+      })
       // The session moved to a different checkout after its initial environment
       // refresh. Refresh the whole session target so the new cwd, generated
       // worktree name, Git status, refs, and host registration move together.
@@ -407,12 +414,11 @@ export class SessionOpening {
       session.handoffPending = !!handoff && !activeProviderSessionId
       // Taking over an empty tab moves it to the session's host. Safe only
       // because takeover already requires a tab that has started nothing.
-      if (meta.serverId) session.run.serverId = meta.serverId
-      session.run.workingDirectory = workingDirectory
+      // The session's folder is its own project there, not the tab's old one.
+      session.run.location = folderLocation({ serverId: meta.serverId ?? runHost(session.run), path: workingDirectory })
       session.messages.splice(0, session.messages.length)
       this.workspace.eventReducer.rebuildAgentConversations(session)
       session.readOnlyReason = null
-      session.run.gitContext = null
       session.loadingHistory = true
       session.title = title
       session.titleCustom = !!meta.customTitle
@@ -475,7 +481,7 @@ export class SessionOpening {
       const identityPending = api.gitIdentity
         ? api.gitIdentity(defaultDir).catch(() => null)
         : Promise.resolve(null)
-      void this.workspace.tasksStore.ensureSessionBinding(resumedSessionId, this.workspace.runFor(tabId)?.taskServerId).catch(() => null)
+      void this.workspace.tasksStore.ensureSessionBinding(resumedSessionId, projectHome(this.workspace.runFor(tabId))?.serverId).catch(() => null)
       const transcript = await loadSessionTranscript(this.workspace, {
         sessionId: resumedSessionId,
         loadPath: meta.projectPath || defaultDir,
@@ -510,7 +516,7 @@ export class SessionOpening {
           // with the right revision instead of once empty and once again.
           this.workspace.lifecycle.recomputeChangedFiles(tabId)
           const gitContext = gitCheckoutFromState(identity, worktreePath)
-          restoredSession.run.gitContext = gitContext
+          restoredSession.run.location = adoptGit(restoredSession.run.location, workingPlace(restoredSession.run), gitContext)
           if (gitContext) restoredSession.readOnlyReason = null
           const guideIdentity = sessionGuideIdentity(restoredSession)
           if (guideIdentity && (!background || !!intoTabId)) {
@@ -526,7 +532,7 @@ export class SessionOpening {
           // The identity read above already answers whether a worktree is still
           // there: a checkout means it is, null means its branch is gone.
           if (worktreePath && !gitContext) {
-            restoredSession.run.gitContext = null
+            restoredSession.run.location = adoptGit(restoredSession.run.location, workingPlace(restoredSession.run), null)
             restoredSession.readOnlyReason = 'This session is read-only because its worktree no longer exists.'
           } else {
             environmentRefresh = this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId, level: 'full', force: false })
@@ -622,29 +628,22 @@ export class SessionOpening {
    *  run-on rule finds one. A managed host with no checkout is left to the run
    *  picker: moving there is a dispatch the person confirms on Send. */
   moveToRunOnHost(run: RunConfig): void {
-    const directory = run.gitContext?.repoRoot ?? run.workingDirectory
+    const place = checkoutPlace(run)
+    const directory = checkoutGit(run)?.repoRoot ?? place.path
     if (!directory || directory === '~') return
     // A chat has no checkout to follow: any host that is up can run it.
     if (isChat(directory)) {
       const host = this.runOnHosts.find((candidate) => candidate.online)
       if (!host) return
-      run.serverId = host.serverId
-      run.taskServerId = host.serverId
-      run.workingDirectory = NEW_CHAT_DIRECTORY
-      run.gitContext = null
-      run.projectGroupPath = null
+      run.location = folderLocation({ serverId: host.serverId, path: NEW_CHAT_DIRECTORY })
       return
     }
     const choice = chooseRunOnHost(
-      projectsStore.checkoutsOf(projectsStore.projectKeyFor(run.serverId, directory)),
+      projectsStore.checkoutsOf(projectsStore.projectKeyFor(place.serverId, directory)),
       this.runOnHosts,
     )
     if (!choice?.path) return
-    run.serverId = choice.serverId
-    run.taskServerId = choice.serverId
-    run.workingDirectory = choice.path
-    run.gitContext = null
-    run.projectGroupPath = null
+    run.location = folderLocation({ serverId: choice.serverId, path: choice.path })
   }
 
   /**
@@ -684,7 +683,7 @@ export class SessionOpening {
     if (choice?.path) return open({ ...task, serverId: choice.serverId }, choice.path)
     const draft = open({ ...task }, choice ? '~' : (projectKey ?? '~'))
     if (choice && projectKey && isRepositoryKey(projectKey)) {
-      draft.run.pendingHostDispatch = { serverId: choice.serverId, intent: 'dispatch', repoKey: projectKey }
+      draft.run.location = dispatchTo(draft.run.location, choice.serverId, projectKey)
     }
     return draft
   }

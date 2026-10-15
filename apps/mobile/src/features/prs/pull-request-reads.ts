@@ -33,8 +33,26 @@ export function connectedHost(connection: HostConnection | null): HostConnection
   return connection
 }
 
+/** How a read meets another read of the same key on the wire. `share`: the
+ *  reads of this key ask the same question, so a read joins one on the wire
+ *  and later reads may join it. `force`: a new read even so — a person's
+ *  refresh, or a read after a write that the read on the wire predates. */
+export interface ReadSharing {
+  share?: boolean
+  force?: boolean
+}
+
+/** A shared read on the wire, and the connection it reads through. */
+interface SharedRead {
+  request: number
+  connection: HostConnection
+  generation: number
+  done: Promise<void>
+}
+
 export class HostReads {
   private readonly requests = new Map<string, number>()
+  private readonly shared = new Map<string, SharedRead>()
   private nextRequest = 0
 
   constructor(
@@ -54,8 +72,41 @@ export class HostReads {
    * stays `loading` with that part as `previous`, so a screen paints what has
    * arrived and does not wait for the slowest call. Only the final answer is
    * kept on the device.
+   *
+   * With `sharing.share`, a read joins a shared read of the same key that is
+   * still current, unless `sharing.force`: screens that ask together cost
+   * one read.
    */
-  async read<T>(
+  read<T>(
+    map: Map<string, LoadState<T>>,
+    key: string,
+    hostId: string,
+    cacheKey: string,
+    run: (connection: HostConnection, previous: T | null, show: (partial: T) => void) => Promise<T>,
+    sharing: ReadSharing = {},
+  ): Promise<void> {
+    const onWire = this.shared.get(key)
+    if (sharing.share && !sharing.force && onWire && this.isCurrent(key, hostId, onWire)) return onWire.done
+    const done = this.start(map, key, hostId, cacheKey, run)
+    // `start` has named its request and connection before its first wait.
+    const connection = this.connectionFor(hostId)
+    const request = this.requests.get(key)
+    if (sharing.share && connection && request !== undefined) {
+      const entry = { request, connection, generation: connection.state.sessionGeneration, done }
+      this.shared.set(key, entry)
+      void done.finally(() => { if (this.shared.get(key) === entry) this.shared.delete(key) })
+    }
+    return done
+  }
+
+  /** Whether a shared read is still the newest read of its key, on the current server session. */
+  private isCurrent(key: string, hostId: string, read: SharedRead): boolean {
+    return this.requests.get(key) === read.request
+      && this.connectionFor(hostId) === read.connection
+      && read.connection.state.sessionGeneration === read.generation
+  }
+
+  private async start<T>(
     map: Map<string, LoadState<T>>,
     key: string,
     hostId: string,
@@ -112,6 +163,7 @@ export class HostReads {
       if (!key.startsWith(`${hostId}\u0000`)) continue
       map.delete(key)
       this.requests.delete(key)
+      this.shared.delete(key)
     }
   }
 }

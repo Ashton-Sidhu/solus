@@ -70,6 +70,7 @@
   } from "./lib/automation-machines";
 
   import { tick, untrack } from "svelte";
+  import { checkoutGit } from "../../contexts/workspace/run-location";
 
   interface Props {
     automation: Automation | null;
@@ -217,7 +218,7 @@
   let cwd = $state(
     initial?.action.cwd ??
       worktreeProjectRoot(
-        session.activeRun?.gitContext?.repoRoot ?? session.galleryProjectPath,
+        checkoutGit(session.activeRun)?.repoRoot ?? session.galleryProjectPath,
       ),
   );
   let useWorktree = $state(initial?.action.useWorktree ?? false);

@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { checkoutGit, checkoutPlace, folderLocation, projectHome, runHost, workingPlace } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const transpiler = new Bun.Transpiler({ loader: 'ts' })
 const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/startup-transcript.ts', import.meta.url), 'utf8')
@@ -12,14 +13,18 @@ function fixture(options: { fork?: boolean; goneHost?: boolean } = {}) {
   const timeouts = new Map<number, () => void>()
   let nextFrame = 0
   const tab = {
-    tabId: 'active', sessionId: 'stable-session', serverId: 'old-registry-id', serverInstallationId: 'installation',
-    agentSessionId: 'thread', provider: 'codex', workingDirectory: '/repo',
-    gitContext: { worktreePath: '/checkout' }, pendingFork: options.fork ? {} : undefined,
+    tabId: 'active', sessionId: 'stable-session', serverInstallationId: 'installation',
+    agentSessionId: 'thread', provider: 'codex',
+    location: folderLocation(
+      { serverId: 'old-registry-id', path: '/repo' },
+      { git: { repoRoot: '/repo', branch: 'feature', targetBranch: 'main', worktreePath: '/checkout' } },
+    ),
+    pendingFork: options.fork ? {} : undefined,
   }
   const create = new Function('prefetchSessionHistoryPage', 'INITIAL_HISTORY_TURNS',
     'serverConnections', 'loadServers', 'loadPersistedTabs',
     'window', 'screen', 'performance', 'requestAnimationFrame', 'cancelAnimationFrame', 'document',
-    'afterPaint', 'setTimeout', 'clearTimeout',
+    'afterPaint', 'setTimeout', 'clearTimeout', 'checkoutPlace', 'runHost', 'workingPlace',
     `${executable}\nreturn { prefetchStartupTranscript, markStartupTranscriptApplied, observeStartupTranscriptPaint, afterStartupTranscriptPaint };`)
   const api = create(
     (host: string, request: { sessionId: string; projectPath: string; deferToolInputs: boolean }) => {
@@ -36,6 +41,7 @@ function fixture(options: { fork?: boolean; goneHost?: boolean } = {}) {
     () => Promise.resolve(),
     (callback: () => void) => { timeouts.set(++nextFrame, callback); return nextFrame },
     (timer: number) => timeouts.delete(timer),
+    checkoutPlace, runHost, workingPlace,
   )
   return { api, requests, marks, expire() { for (const callback of timeouts.values()) callback() }, paint() {
     const pending = [...frames.values()]; frames.clear()
@@ -139,7 +145,8 @@ test('restored history and live attachment finish before secondary metadata, wit
     let paint!: () => void
     const paintPending = new Promise<void>((resolve) => { paint = resolve })
     const events: string[] = []
-    const session = { id: 'stable', agentSessionId: 'thread', run: { provider: 'codex' }, messages: [{ content: 'already visible' }], loadingHistory: false }
+    const location = folderLocation({ serverId: 'local', path: '/repo' })
+    const session = { id: 'stable', agentSessionId: 'thread', run: { provider: 'codex', location }, messages: [{ content: 'already visible' }], loadingHistory: false }
     let selected = session
     const context = {
       tabs: { tab: { sessionId: 'stable' } }, sessions: { byId: { stable: session } },
@@ -155,12 +162,13 @@ test('restored history and live attachment finish before secondary metadata, wit
     }
     const execute = new Function('serverConnections', 'afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
       'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',
+      'runHost', 'checkoutPlace', 'checkoutGit', 'projectHome',
       `${hydration}\nreturn hydrateTab;`)
     const hydrate = execute({ presenceOf: () => 'present' }, () => paintPending, async () => ({ messages: [] }),
       async () => { expect(session.loadingHistory).toBe(false); return { messages: [{ content: 'ready' }], planIds: [] } },
       (target: { messages: Array<{ content: string }> }, messages: Array<{ content: string }>) => { target.messages.push(...messages); events.push('history') },
-      () => {}, 200, () => false)
-    await hydrate(context, { tabId: 'tab', agentSessionId: 'thread', provider: 'codex', workingDirectory: '/repo' })
+      () => {}, 200, () => false, runHost, checkoutPlace, checkoutGit, projectHome)
+    await hydrate(context, { tabId: 'tab', agentSessionId: 'thread', provider: 'codex', location })
     expect(session.loadingHistory).toBe(false)
     expect(events).toEqual(['history', 'watch'])
     if (replaceTab) selected = { ...session, id: 'replacement' }
@@ -177,16 +185,18 @@ function loadMaterializeStartupTranscript(dependencies: {
   const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/startup-session.ts', import.meta.url), 'utf8')
   const compiled = transpiler.transformSync(source.replace(/^import .*\n/gm, '')).replaceAll('export ', '')
   return new Function('readPrefetchedSessionHistoryPage', 'INITIAL_HISTORY_TURNS',
-    'materializeSessionTranscript', 'markStartupTranscriptApplied',
+    'materializeSessionTranscript', 'markStartupTranscriptApplied', 'checkoutGit', 'checkoutPlace',
     `${compiled}\nreturn materializeStartupTranscript;`)(
       () => dependencies.page, 200, () => dependencies.transcript, (tabId: string) => dependencies.marks.push(tabId),
+      checkoutGit, checkoutPlace,
     )
 }
 
 test.each([false, true])('first render keeps the loading state unless startup history is ready (%s)', (isReady) => {
   const page = { messages: [], before: 'older' }
   const messages = [{ role: 'user', content: 'restored transcript' }]
-  const session = { run: { workingDirectory: '/repo' }, messages: [], loadingHistory: true, historyCursor: null }
+  const location = folderLocation({ serverId: 'local', path: '/repo' })
+  const session = { run: { location }, messages: [], loadingHistory: true, historyCursor: null }
   const marks: string[] = []
   const materialize = loadMaterializeStartupTranscript({
     page: isReady ? page : undefined, transcript: { messages, before: 'older', truncated: true }, marks,
@@ -195,7 +205,7 @@ test.each([false, true])('first render keeps the loading state unless startup hi
     activeTabId: 'active', sessionFor: () => session, apiFor: () => ({}), ctxFor: () => ({}),
     eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
   }
-  materialize(context, { tabs: [{ tabId: 'active', agentSessionId: 'thread', provider: 'codex' }] })
+  materialize(context, { tabs: [{ tabId: 'active', agentSessionId: 'thread', provider: 'codex', location }] })
   expect(session.messages).toEqual(isReady ? messages : [])
   expect(session.loadingHistory).toBe(!isReady)
   expect(session.historyCursor).toBe(isReady ? 'older' : null)

@@ -4,7 +4,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { isChat } from "@solus/contracts/chat";
 import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
 import type { SessionRecord } from "@solus/contracts/types";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -203,8 +203,12 @@ function ThreadRouteContent(props: {
   const headerSubtitle = [chat ? null : lastFolderName(props.projectPath), props.hostLabel]
     .filter(Boolean)
     .join(" · ");
+  // On iPad the thread is a column narrower than the window; the header's
+  // title view must fit that column, not the window.
+  const [columnWidth, setColumnWidth] = useState<number | null>(null);
   const header = useThreadHeaderOptions({
     title,
+    columnWidth: columnWidth ?? window.width,
     subtitle: headerSubtitle,
     usesNativeHeaderGlass: NATIVE_LIQUID_GLASS_SUPPORTED,
     hostId,
@@ -251,7 +255,10 @@ function ThreadRouteContent(props: {
         groupActions
         hideBottomBorder
       />
-      <View className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas">
+      <View
+        className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas"
+        onLayout={(event) => setColumnWidth(event.nativeEvent.layout.width)}
+      >
         {meta.phase.kind === "error" && !hasRows ? (
           <ThreadUnavailableScreen
             detail={`This conversation could not be opened: ${meta.phase.message}`}

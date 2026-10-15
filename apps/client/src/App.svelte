@@ -147,7 +147,7 @@
     if (session.lifecycle.hydrating) return;
     const tabs = snapshotPersistedTabs(session);
     const snapshot: PersistedTabs = {
-      version: 2,
+      version: 3,
       activeTabId: session.activeTabId,
       tabOrder: [...session.tabOrder],
       tabs,

@@ -1,8 +1,10 @@
 import { z } from 'zod'
 
 /** Answers remembered per account. A REST GET is only worth remembering when
- *  it is read again, so the oldest answer goes first. */
-const MAX_ENTRIES = 200
+ *  it is read again, so the oldest answer goes first. A pull request whose
+ *  checks are polled holds three answers (conditional-checks.ts), so this
+ *  keeps about 150 polled pull requests and the reads around them. */
+const MAX_ENTRIES = 600
 /** A larger text body, such as a big diff, is not worth holding in memory. */
 const MAX_TEXT_LENGTH = 1_000_000
 

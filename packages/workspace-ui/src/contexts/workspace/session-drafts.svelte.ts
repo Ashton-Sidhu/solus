@@ -9,6 +9,7 @@ import { SessionDraft, requestedTaskTarget } from './session-draft.svelte'
 import { alignRunProvider, resolveNewRunConfig } from './run-config'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import type { WorkspaceContext, PersistedSessionDrafts, CreateTabOptions } from './workspace.context.svelte'
+import { chooseStart, runHost } from './run-location'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionDraftsWorkspace = Pick<WorkspaceContext,
@@ -131,13 +132,11 @@ export class SessionDrafts {
     // while that host is up; when it is not, the run-on rule picks another
     // checkout of the project (docs/plans/project-model.md §6). New session in
     // task keeps everything.
-    if (options.freshTask && !options.serverId && serversStore.statusFor(run.serverId) !== 'online') {
+    if (options.freshTask && !options.serverId && serversStore.statusFor(runHost(run)) !== 'online') {
       this.workspace.opening.moveToRunOnHost(run)
     }
     const draft = new SessionDraft(this.workspace.defaultRunConfig, run, this.workspace.settings.modelOptionsByProvider)
-    if (options.worktreeRequested) {
-      draft.run.worktree = { baseBranch: draft.run.gitContext?.targetBranch ?? null }
-    }
+    if (options.worktreeRequested) draft.run.location = chooseStart(draft.run.location, { kind: 'new-worktree' })
     draft.task = requestedTaskTarget(options, this.workspace.rootTaskIdFor(sourceId))
     draft.boundWorkId = options.workId ?? null
     this.sessionDrafts.set(draft.id, draft)
@@ -224,7 +223,8 @@ export class SessionDrafts {
     // under the user between two presses.
     next.run.permissionMode = run.permissionMode
     next.run.modelConfig = { ...run.modelConfig }
-    next.run.worktree = run.worktree ? { ...run.worktree } : null
+    // Locations are replaced, never edited, so the two runs can share this one.
+    next.run.location = run.location
     next.task = task
     next.boundWorkId = boundWorkId
     this.sessionDrafts.set(next.id, next)
@@ -289,7 +289,7 @@ export class SessionDrafts {
       .filter(([, draft]) => !draft.isEmpty)
       .map(([draftId]) => draftId)
     return {
-      version: 1,
+      version: 2,
       order,
       drafts: Object.fromEntries(order.flatMap((draftId) => {
         const draft = this.sessionDrafts.get(draftId)

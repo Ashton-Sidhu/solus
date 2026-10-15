@@ -88,3 +88,22 @@ describe('changes', () => {
     expect(row).toEqual({ key: 'integration:deepwiki', label: 'MCP server deepwiki', mine: 'Removed', theirs: 'https://mcp.deepwiki.com/mcp' })
   })
 })
+
+describe('retired entries', () => {
+  test('a stored copy and a remote change drop a home\'s AGENTS.md or CLAUDE.md, and keep the rest', async () => {
+    // WHY: instruction files left the profile; a copy kept from before must not list them again on any client.
+    const { readStoredEntries, writeStoredEntries, applyChange } = await import('@solus/workspace-ui/contexts/seats/lib/agent-profile-local')
+    const items = new Map<string, string>()
+    const storage = { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => void items.set(key, value) } as Storage
+    writeStoredEntries(storage, 'anonymous', {
+      'file:codex/AGENTS.md': file('codex', 'AGENTS.md', 'old'),
+      'file:codex/prompts/plan.md': file('codex', 'prompts/plan.md', 'Plan.'),
+    })
+    expect(Object.keys(readStoredEntries(storage, 'anonymous') ?? {})).toEqual(['file:codex/prompts/plan.md'])
+
+    const local: AgentProfile = {}
+    const applied = applyChange(local, { set: { 'file:claude-code/CLAUDE.md': file('claude-code', 'CLAUDE.md', 'old'), 'file:codex/prompts/plan.md': file('codex', 'prompts/plan.md', 'Plan.') }, reset: [] })
+    expect(Object.keys(local)).toEqual(['file:codex/prompts/plan.md'])
+    expect(Object.keys(applied.set)).toEqual(['file:codex/prompts/plan.md'])
+  })
+})

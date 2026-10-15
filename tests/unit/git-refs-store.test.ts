@@ -2,7 +2,8 @@ import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { hostKey } from '@solus/client-core/host-key'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { IpcContext } from '@solus/contracts/types'
+import type { IpcContext, RunConfig } from '@solus/contracts/types'
+import { dispatchTo, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -147,16 +148,18 @@ describe('SessionEnvironmentStore refs', () => {
     )
     const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
+    // The source checkout and the clone share one registered host here; the
+    // branches are read from the project home and the worktrees from the run host.
     const run = {
-      serverId: 'dispatch-test-host',
-      workingDirectory: '/source/solus',
-      gitContext: { repoRoot: '/source/solus', branch: 'main', targetBranch: 'main' },
-      pendingHostDispatch: {
-        serverId: 'dispatch-test-host',
-        intent: 'dispatch',
-        repoKey: 'github.com/openai/solus',
-      },
-    } as never
+      location: dispatchTo(
+        folderLocation(
+          { serverId: 'dispatch-test-host', path: '/source/solus' },
+          { git: { repoRoot: '/source/solus', branch: 'main', targetBranch: 'main' } },
+        ),
+        'dispatch-test-host',
+        'github.com/openai/solus',
+      ),
+    } as RunConfig
 
     const refresh = store.refreshDispatchWorktrees(
       run,

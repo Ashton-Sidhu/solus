@@ -87,6 +87,7 @@ class FakeHost {
     return {
       status: `${this.state} ${this.headSha} ${this.checks.map((item) => item.conclusion ?? 'running').join(',')}`,
       remarks: `${this.comments.length}`,
+      pullRequest: { state: this.state, mergeable: true, headSha: this.headSha },
     }
   }
 
@@ -147,8 +148,9 @@ describe('PR watcher', () => {
     await watcher.start()
     await watcher.sweep()
     // A check is running, so the counts cannot say which one finished: each
-    // sweep reads (the start's own sweep, then this one).
-    expect(host.fullReads).toBe(2)
+    // sweep reads its checks (the start's own sweep, then this one). The row
+    // the first read left agrees with the fingerprint, so it is not read again.
+    expect(host.fullReads).toBe(1)
 
     host.checks = [check('build', 'failure')]
     await watcher.sweep()
@@ -162,6 +164,32 @@ describe('PR watcher', () => {
     expect(host.fullReads).toBe(reads)
     expect(woke).toHaveLength(1)
     watcher.stop()
+  })
+
+  test('the fingerprints of every watched repository go at once, so they can share one document', async () => {
+    // WHY: the provider gathers the reads of one account for a short window
+    // (host-batches.ts). A sweep that read one repository after another paid
+    // one document per repository.
+    const host = new FakeHost()
+    const read = host.review.readWatchFingerprints
+    let inFlight = 0
+    let mostInFlight = 0
+    host.review.readWatchFingerprints = async (repo, numbers) => {
+      mostInFlight = Math.max(mostInFlight, ++inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      inFlight -= 1
+      return read(repo, numbers)
+    }
+    for (const suffix of ['a', 'b', 'c']) {
+      const startedAt = Date.now() - 60_000
+      await watches.startPullRequestWatch(`session-${suffix}`, `${REPOSITORY}-${suffix}`, 7, rules.initialWatchState(startedAt), null, startedAt)
+    }
+    const { watcher } = setup(host)
+    await watcher.start()
+    await watcher.sweep()
+    watcher.stop()
+
+    expect(mostInFlight).toBe(3)
   })
 
   test('what a session was told survives a restart', async () => {
@@ -237,6 +265,35 @@ describe('PR watcher', () => {
     await watcher.sweep()
     watcher.stop()
     expect(woke.map(({ actorUserId }) => actorUserId)).toEqual(['member-1'])
+  })
+
+  test('a moved fingerprint costs no read of the pull request when the server holds a row that agrees with it', async () => {
+    // WHY: a watched pull request is linked to its session, so PR sync keeps
+    // its row fresh. A second read of the same pull request spent the quota
+    // twice for one answer.
+    const { prIndex } = await import('@solus/server/prs/pr-index')
+    const host = new FakeHost()
+    host.checks = [check('build', 'failure')]
+    const [hostName, owner, repo] = REPOSITORY.split('/')
+    prIndex.pullRequest({ host: hostName!, owner: owner!, repo: repo! }, { id: 'github', review: host.review } as never, 7).seed({
+      number: 7, url: `https://${REPOSITORY}/pull/7`, title: 'Fix it', state: 'open',
+      headSha: host.headSha, mergeable: true, draft: false, updatedAt: '2026-10-07T12:00:00Z',
+    } as PullRequest)
+    await watch('session-1')
+    const { watcher, woke } = setup(host)
+    await watcher.start()
+    await watcher.sweep()
+    watcher.stop()
+    expect(host.fullReads).toBe(0)
+    expect(woke.map(({ text }) => text.includes('Checks failed'))).toEqual([true])
+
+    // A new head does not agree with the held row: the pull request is read.
+    host.headSha = 'head-2'
+    const second = setup(host)
+    await second.watcher.start()
+    await second.watcher.sweep()
+    second.watcher.stop()
+    expect(host.fullReads).toBe(1)
   })
 
   test('a merge ends the watch without a wake', async () => {

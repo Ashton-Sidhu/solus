@@ -11,7 +11,9 @@ import type { PullRequestView } from './pull-request-view'
  * and whether its host is connected. The pull request is read again when the
  * host connects again, on a refresh, and when the screen gets focus after
  * `FOCUS_FRESH_MS`. While the screen has focus, PR sync on the host keeps the
- * pull request and its checks fresh and pushes their changes.
+ * pull request and its checks fresh and pushes their changes; the checks
+ * come only from there. The stacked screens of one pull request each read it
+ * when the host connects again, and those reads join into one.
  */
 export function usePullRequestView(ref: PullRequestRef) {
   const app = useApp()
@@ -22,7 +24,8 @@ export function usePullRequestView(ref: PullRequestRef) {
   const pr = detail?.overview.pullRequest ?? null
   const permissions = useMemo(() => pullRequestPermissions(pr, viewerLogin, connected), [pr, viewerLogin, connected])
   const view = useMemo<PullRequestView | null>(() => (detail && pr ? { ref, detail, pr, permissions, viewerLogin } : null), [ref, detail, pr, permissions, viewerLogin])
-  const reload = useCallback(() => { void app.pullRequests.loadDetail(ref) }, [app, ref])
+  /** A person's refresh: always a new read. */
+  const reload = useCallback(() => { void app.pullRequests.loadDetail(ref, { force: true }) }, [app, ref])
 
   useFocusEffect(useCallback(() => {
     void app.pullRequests.loadDetail(ref, { freshFor: FOCUS_FRESH_MS })
@@ -30,8 +33,8 @@ export function usePullRequestView(ref: PullRequestRef) {
   }, [app, ref]))
   const wasConnected = useRef(connected)
   useEffect(() => {
-    if (connected && !wasConnected.current) reload()
+    if (connected && !wasConnected.current) void app.pullRequests.loadDetail(ref)
     wasConnected.current = connected
-  }, [connected, reload])
+  }, [app, ref, connected])
   return { state, view, connected, reload }
 }

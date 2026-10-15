@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 import type { SessionActiveTurn } from '@solus/contracts/presence'
 import {
   callTitle,
@@ -86,7 +87,7 @@ describe('the organization refusal card', () => {
 describe('a rename', () => {
   function sessions() {
     return {
-      open: { id: 'session-1', run: { serverId: 'host-1', taskServerId: 'host-1' }, agentSessionId: 'agent-1', title: 'Old', titleCustom: false, messages: [] } as unknown as Session,
+      open: { id: 'session-1', run: { location: folderLocation({ serverId: 'host-1', path: '~' }) }, agentSessionId: 'agent-1', title: 'Old', titleCustom: false, messages: [] } as unknown as Session,
     }
   }
 

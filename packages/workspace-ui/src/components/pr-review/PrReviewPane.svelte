@@ -126,11 +126,7 @@
   const settings = getSettingsContext();
   const agentContext = getAgentContext();
 
-  let activeChatTabId = $state<string | null>(null);
   let preparingComposer = $state(false);
-  $effect(() => {
-    activeChatTabId = chatTabId;
-  });
   // Sibling pull requests live in the *project*, not in this PR's worktree, so
   // stepping to one must resolve against the project scope the review was
   // opened from — `targetCtx` — rather than the checkout it is showing.
@@ -139,37 +135,46 @@
   // but this embedded PR diff is owned by the review worktree. Keep the id
   // stable for the lifetime of the review so starting related work cannot reset the
   // diff state, refresh turn snapshots, or subscribe it to a new transcript.
-  const reviewTabId = untrack(() => activeChatTabId ?? session.activeTabId);
+  const reviewTabId = untrack(() => chatTabId ?? session.activeTabId);
   const getApi = () => api;
   let surfaceError = $state<PrSurfaceError | null>(null);
   // Read from the store rather than mirrored here: the Activity tab writes every
   // lifecycle change through `applyDetail`, so the chrome around it follows
   // without a callback threading the value back up.
+  // The project as one string. `projectCtx()` is a new object on every
+  // session event, so the reads below key on this and not on the context.
+  const projectScope = $derived(projectScopeOf(projectCtx().session));
   const reviewDetail = $derived(
-    pullRequests.projects.at(serverId, projectScopeOf(projectCtx().session))?.prFor(target.number) ?? null,
+    pullRequests.projects.at(serverId, projectScope)?.prFor(target.number) ?? null,
   );
 
   // The worktree open and the provider detail read fail through separate RPCs.
   // Probe the detail through the shared cache so every landing tab, including
   // Diff, can show the host-specific connection action when checkout cannot
-  // start because this host has no GitHub credential.
+  // start because this host has no GitHub credential. Read again only when
+  // the pull request, the host, or the project changes.
   $effect(() => {
     const number = target.number;
-    const context = projectCtx();
-    surfaceError = null;
-    // The read lands in the store's index, which `reviewDetail` above reads —
-    // this only has to notice the failure.
-    void pullRequests.projects
-      .get(api, serverId, context)
-      .get(number)
-      .loadDetail()
-      // GitHub's viewed marks have no change event, so each opening reads them.
-      .then((detail) => {
-        if (detail.capabilities.viewedFiles) void detail.viewedFiles.load();
-      })
-      .catch((error) => {
-        if (target.number === number) surfaceError = prSurfaceError(error);
-      });
+    const host = serverId;
+    const hostApi = api;
+    void projectScope;
+    untrack(() => {
+      surfaceError = null;
+      // The read lands in the store's index, which `reviewDetail` above reads —
+      // this only has to notice the failure.
+      void pullRequests.projects
+        .get(hostApi, host, projectCtx())
+        .get(number)
+        .loadDetail()
+        // GitHub's viewed marks have no change event, so an opening reads them
+        // when the last read is not recent.
+        .then((detail) => {
+          if (detail.capabilities.viewedFiles) void detail.viewedFiles.load();
+        })
+        .catch((error) => {
+          if (target.number === number) surfaceError = prSurfaceError(error);
+        });
+    });
   });
 
   // Everything about *this pull request's review* — threads, drafts, interdiff,
@@ -330,8 +335,7 @@
   // and the activity are read again.
   $effect(() => {
     const number = target.number;
-    const scope = projectScopeOf(projectCtx().session);
-    if (!scope) return;
+    if (!projectScope) return;
     return untrack(() => pullRequests.checks.wantReview(api, serverId, projectCtx(), number));
   });
   let reviewedRevision: string | null = null;

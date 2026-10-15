@@ -5,6 +5,7 @@ import type { WorkspaceContext } from './workspace.context.svelte'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
 import { expireRequest } from './session.utils'
+import { chooseStart } from './run-location'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionControlsWorkspace = Pick<WorkspaceContext,
@@ -27,7 +28,7 @@ export class SessionControls {
   recoverWorktreeSetup(tabId: string, workLocally: boolean): void {
     const session = this.workspace.sessionFor(tabId)
     if (!session || session.status !== 'failed' || session.statusCard?.recovery !== 'worktree') return
-    if (workLocally) session.run.worktree = null
+    if (workLocally) session.run.location = chooseStart(session.run.location, { kind: 'checkout' })
     session.statusCard = null
     this.workspace.dispatch.retryLastMessage(tabId, true)
     requestInputFocus({ tabId })

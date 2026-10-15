@@ -1,4 +1,4 @@
-import type { PrChecksState, PrChecksSummary } from '@solus/contracts/checks-types'
+import { combinedChecksState, type PrChecksSummary } from '@solus/contracts/checks-types'
 import type { ChangedFileStat } from '@solus/contracts/git-types'
 import type { PrConversationItem, PrFilter, PrInterest, PrPendingWorkflowRuns, PrProjectListing, PrStack, PrSyncChange, PrUnavailableReason, PrViewedFiles, PullRequest, PullRequestOverview, ReviewThread } from '@solus/contracts/providers'
 import type { NotificationPr } from '@solus/contracts/notification-hub'
@@ -19,15 +19,10 @@ import { HostReads, IDLE, settle, shownValue, type LoadState, type Settled } fro
  * pull request that cannot be read does not hide the rest.
  */
 
-/** The checks of one listed pull request, for the checks filter. */
-export interface ListedChecks {
-  number: number
-  state: PrChecksState
-  headSha: string
-}
-
 export type ProjectPullRequests =
-  | { kind: 'page'; projectPath: string; folderName: string; prs: PullRequest[]; hasMore: boolean; page: number; checks: ListedChecks[] }
+  /** `cursor` is where the next page starts; null when there is none. A
+   *  pull request's checks are its own `checksState`. */
+  | { kind: 'page'; projectPath: string; folderName: string; prs: PullRequest[]; hasMore: boolean; page: number; cursor: string | null }
   | { kind: 'unavailable'; projectPath: string; folderName: string; reason: PrUnavailableReason }
   | { kind: 'error'; projectPath: string; folderName: string; message: string }
 
@@ -65,8 +60,9 @@ export interface PullRequestDetail {
   missing: MissingDetailPart[]
   /** Parts the host is still reading, with nothing older to show. A part
    *  here is unknown, not empty. `overview` means the pull request is the
-   *  list's row, so its commits and reviewers are not read yet. Absent when
-   *  every part is read; never kept on the device. */
+   *  list's row, so its commits and reviewers are not read yet. `checks`
+   *  waits for PR sync, so a finished read can still name it. Absent when
+   *  every part is read. */
   reading?: DetailPart[]
 }
 
@@ -74,7 +70,8 @@ export type MissingDetailPart = 'comments' | 'threads' | 'files' | 'checks' | 'w
 export type DetailPart = MissingDetailPart | 'overview' | 'stack'
 
 /** A focus that comes back within this time does not read again: PR sync
- *  pushes the pull requests and checks the screen wants kept fresh. */
+ *  pushes the pull requests and checks the screen wants kept fresh, and says
+ *  when a list must be read again (`listChanged`). */
 export const FOCUS_FRESH_MS = 30_000
 
 export interface PullRequestRef {
@@ -85,6 +82,12 @@ export interface PullRequestRef {
 
 export function detailKey(ref: PullRequestRef): string {
   return `${ref.hostId}\u0000${ref.projectPath}\u0000${ref.number}`
+}
+
+/** The viewed files' own key: a read of them must not make a detail read of
+ *  the same pull request stale. */
+function viewedKey(ref: PullRequestRef): string {
+  return `${detailKey(ref)}\u0000viewed`
 }
 
 /** The repository a notification names, as a project's `repositoryKey`
@@ -195,10 +198,15 @@ export class PullRequestDirectory {
   /** The repository (`host/owner/repo`) of each project, by `projectKey`. */
   private readonly repositories = new Map<string, string>()
   private readonly interests = new Map<string, ProjectInterest>()
+  /** The checks PR sync reported for a review interest, by `detailKey`: a
+   *  detail read takes them from here, since it reads none itself. */
+  private readonly checksHeard = new Map<string, Settled<PrChecksSummary>>()
   private readonly unsent = new Set<ProjectInterest>()
   private sending = false
   /** The `pr.changed` subscription of each host's current connection. */
   private readonly listening = new Map<string, { connection: HostConnection; stop: () => void }>()
+  /** How many screens show the list now. */
+  private listsShown = 0
   private readonly reads: HostReads
 
   constructor(
@@ -225,7 +233,7 @@ export class PullRequestDirectory {
   detailOf = (ref: PullRequestRef): LoadState<PullRequestDetail> => this.details.get(detailKey(ref)) ?? IDLE
 
   /** The files the person marked viewed, as the code host keeps them. */
-  viewedOf = (ref: PullRequestRef): LoadState<PrViewedFiles> => this.viewed.get(detailKey(ref)) ?? IDLE
+  viewedOf = (ref: PullRequestRef): LoadState<PrViewedFiles> => this.viewed.get(viewedKey(ref)) ?? IDLE
 
   /** Every host the Pull Requests tab shows, read at the same time. With
    *  `freshFor`, a host read in full within that many milliseconds is skipped. */
@@ -234,8 +242,9 @@ export class PullRequestDirectory {
   }
 
   /**
-   * The first page of every project of a host, in one host call. The rows
-   * show as soon as the host lists them; their checks follow. The listing
+   * The first page of every project of a host, in one host call. Each row
+   * carries its own check state, so the rows show whole as the host lists
+   * them; the account follows. The listing
    * starts with the projects shown before while the host names its projects,
    * and is read again only when those differ.
    */
@@ -245,6 +254,7 @@ export class PullRequestDirectory {
     if (this.isFresh(key, this.hosts, options.freshFor)) return
     this.listFilters.set(key, filter)
     await this.reads.read(this.hosts, key, hostId, `list:${filter.state}:${filter.query}`, async (connection, previous, show) => {
+      this.listen(hostId, connection)
       const listFor = (paths: string[]) => connection.api.prListProjects(this.context(''), paths, hostFilter(filter))
       const viewerFor = (path: string) => connection.api.providerViewer(this.context(path)).then((answer) => answer.login, () => null)
       const knownPaths = previous?.projects.map((project) => project.projectPath) ?? []
@@ -259,21 +269,14 @@ export class PullRequestDirectory {
       const listings = reused?.ok ? reused.value : await listFor(paths)
       const viewerRead = earlyViewer ?? viewerFor(paths[0]!)
       const names = new Map(projects.map((project) => [project.path, project.folderName]))
-      const rows = listings.map((listing) => this.listedProject(listing, names, previous))
+      const rows = listings.map((listing) => this.listedProject(listing, names))
       // Every project refused for want of GitHub: that is the host's state, not a project's.
       const errors = rows.filter((project) => project.kind === 'error')
       if (errors.length > 0 && errors.length === rows.length && errors.every((project) => isGithubAuthError(project.message))) {
         throw new Error(errors[0]!.message)
       }
       show({ projects: rows, viewerLogin: previous?.viewerLogin ?? null })
-      const [read, viewer] = await Promise.all([
-        Promise.all(rows.map(async (project) => project.kind !== 'page' ? project : {
-          ...project,
-          checks: await this.listedChecks(connection, project.projectPath, project.prs),
-        })),
-        viewerRead,
-      ])
-      return { projects: read, viewerLogin: viewer }
+      return { projects: rows, viewerLogin: await viewerRead }
     })
     if (this.hosts.get(key)?.kind === 'loaded') this.readAt.set(key, Date.now())
   }
@@ -283,11 +286,11 @@ export class PullRequestDirectory {
     const filter = this.filter
     await this.reads.read(this.hosts, listKey(hostId, filter), hostId, `list:${filter.state}:${filter.query}`, async (connection, previous) => {
       const project = previous?.projects.find((candidate) => candidate.projectPath === projectPath)
-      if (!previous || project?.kind !== 'page' || !project.hasMore) throw new Error('There are no more pull requests to read.')
-      const next = await connection.api.prList(this.context(projectPath), hostFilter(filter), project.page + 1)
+      // A copy kept on the device by an older version has no cursor to continue from.
+      if (!previous || project?.kind !== 'page' || !project.hasMore || !project.cursor) throw new Error('There are no more pull requests to read.')
+      const next = await connection.api.prList(this.context(projectPath), hostFilter(filter), project.page + 1, project.cursor)
       const known = new Set(project.prs.map((pr) => pr.number))
       const added = next.items.filter((pr) => !known.has(pr.number))
-      const checks = await this.listedChecks(connection, projectPath, added)
       return {
         ...previous,
         projects: previous.projects.map((candidate) => candidate !== project ? candidate : {
@@ -295,21 +298,28 @@ export class PullRequestDirectory {
           prs: [...project.prs, ...added],
           hasMore: next.hasMore,
           page: next.page,
-          checks: [...project.checks, ...checks],
+          cursor: next.cursor ?? null,
         }),
       }
     })
   }
 
   /**
-   * One pull request with its conversation, threads, files, and checks.
-   * Only the pull request itself is required; a missing part is named. Each
-   * part shows as soon as it is read, and the list's row shows the pull
-   * request until the host answers, so no slow part holds back the rest.
-   * With `freshFor`, a detail read in full within that many milliseconds is
-   * not read again.
+   * One pull request with its conversation, threads, and files. Only the pull
+   * request itself is required; a missing part is named. Each part shows as
+   * soon as it is read, and the list's row shows the pull request until the
+   * host answers, so no slow part holds back the rest. With `freshFor`, a
+   * detail read in full within that many milliseconds is not read again.
+   *
+   * The checks are not read here: the screen's review interest makes PR sync
+   * read them, and they arrive with its answer or with `pr.changed`. Until
+   * then they are `reading`; when the interest fails, `missing`.
+   *
+   * A read joins a read of the same pull request on the wire — the stacked
+   * screens of one pull request ask together when the host connects again —
+   * unless `force`: a person's refresh, or a read after a write.
    */
-  async loadDetail(ref: PullRequestRef, options: { freshFor?: number } = {}): Promise<void> {
+  async loadDetail(ref: PullRequestRef, options: { freshFor?: number; force?: boolean } = {}): Promise<void> {
     const key = detailKey(ref)
     if (this.isFresh(key, this.details, options.freshFor)) return
     await this.reads.read(this.details, key, ref.hostId, `detail:${ref.projectPath}:${ref.number}`, async (connection, previous, show) => {
@@ -318,8 +328,9 @@ export class PullRequestDirectory {
       const answers: DetailAnswers = {}
       // What shows now: `previous`, a device copy that came after it, or this read's last part.
       const shown = () => shownValue(this.details.get(key) ?? IDLE)
+      const compose = () => composeDetail({ ...answers, checks: this.checksHeard.get(key) }, shown(), listed)
       const answered = () => {
-        const detail = composeDetail(answers, shown(), listed)
+        const detail = compose()
         if (detail) show(detail)
       }
       if (listed) answered()
@@ -329,10 +340,6 @@ export class PullRequestDirectory {
         pr.state === 'open' && pr.headRepo.isFork && pr.capabilities.actions.includes('approve-workflows')
           ? connection.api.prPendingWorkflowRuns(ctx, ref.number)
           : null)
-      const checksRead = connection.api.prChecks(ctx, [ref.number]).then((snapshot) => {
-        if (snapshot.loadFailed) throw new Error('The host could not read the checks.')
-        return snapshot.checks.find((entry) => entry.number === ref.number)?.summary ?? null
-      })
       const part = <V>(read: Promise<V>, file: (value: Settled<V>) => void) => settle(read).then((value) => {
         file(value)
         answered()
@@ -345,19 +352,18 @@ export class PullRequestDirectory {
         part(connection.api.prListComments(ctx, ref.number), (value) => { answers.comments = value }),
         part(connection.api.prListThreads(ctx, ref.number), (value) => { answers.threads = value }),
         part(connection.api.prChangedFiles(ctx, ref.number), (value) => { answers.files = value }),
-        part(checksRead, (value) => { answers.checks = value }),
         part(connection.api.prGetStack(ctx, ref.number), (value) => { answers.stack = value }),
         part(workflowRunsRead, (value) => { answers.workflowRuns = value }),
       ])
-      return composeDetail(answers, shown(), listed)!
-    })
+      return compose()!
+    }, { share: true, force: options.force })
     if (this.details.get(key)?.kind === 'loaded') this.readAt.set(key, Date.now())
   }
 
   /** The viewed state of a pull request's files on the code host. Only a host
    *  whose pull request has `capabilities.viewedFiles` answers it. */
   async loadViewed(ref: PullRequestRef): Promise<void> {
-    await this.reads.read(this.viewed, detailKey(ref), ref.hostId, `viewed-files:${ref.projectPath}:${ref.number}`, (connection) =>
+    await this.reads.read(this.viewed, viewedKey(ref), ref.hostId, `viewed-files:${ref.projectPath}:${ref.number}`, (connection) =>
       connection.api.prViewedFiles(this.context(ref.projectPath), ref.number))
   }
 
@@ -401,11 +407,27 @@ export class PullRequestDirectory {
     }
   }
 
+  /**
+   * The list is on a screen until the returned function is called. While it
+   * is, a host that says a repository's list changed is read again; after,
+   * the next focus reads it (docs/plans/pr-sync.md §3.4).
+   */
+  showList(): () => void {
+    this.listsShown += 1
+    let shown = true
+    return () => {
+      if (!shown) return
+      shown = false
+      this.listsShown -= 1
+    }
+  }
+
   forgetHost(hostId: string): void {
     this.reads.forgetHost(this.hosts, hostId)
     this.reads.forgetHost(this.details, hostId)
     this.reads.forgetHost(this.viewed, hostId)
     for (const key of Array.from(this.readAt.keys())) if (key.startsWith(`${hostId}\u0000`)) this.readAt.delete(key)
+    for (const key of Array.from(this.checksHeard.keys())) if (key.startsWith(`${hostId}\u0000`)) this.checksHeard.delete(key)
     for (const [key, interest] of Array.from(this.interests)) if (interest.hostId === hostId) this.interests.delete(key)
     this.listening.get(hostId)?.stop()
     this.listening.delete(hostId)
@@ -423,14 +445,13 @@ export class PullRequestDirectory {
     return readAt !== undefined && map.get(key)?.kind === 'loaded' && Date.now() - readAt < freshFor
   }
 
-  /** One project of a listing, with the checks it showed before until its own are read. */
-  private listedProject(listing: PrProjectListing, names: Map<string, string>, previous: HostPullRequests | null): ProjectPullRequests {
+  /** One project of a listing. */
+  private listedProject(listing: PrProjectListing, names: Map<string, string>): ProjectPullRequests {
     const projectPath = listing.projectRoot
     const folderName = names.get(projectPath) ?? projectPath
     if ('page' in listing) {
-      const { items, hasMore, page } = listing.page
-      const shown = previous?.projects.find((project) => project.projectPath === projectPath)
-      return { kind: 'page', projectPath, folderName, prs: items, hasMore, page, checks: shown?.kind === 'page' ? shown.checks : [] }
+      const { items, hasMore, page, cursor } = listing.page
+      return { kind: 'page', projectPath, folderName, prs: items, hasMore, page, cursor: cursor ?? null }
     }
     if ('unavailable' in listing) return { kind: 'unavailable', projectPath, folderName, reason: listing.unavailable }
     return { kind: 'error', projectPath, folderName, message: listing.error }
@@ -475,14 +496,32 @@ export class PullRequestDirectory {
     if (interest.sent === signature) return
     interest.sent = signature
     if (interest.byScreen.size === 0) this.interests.delete(key)
+    const reviewKeys = Array.from(byJson.values()).flatMap((entry) =>
+      entry.kind === 'review' ? [detailKey({ hostId: interest.hostId, projectPath: interest.projectPath, number: entry.number })] : [])
     try {
       const known = await connection.api.prSetInterest(this.context(interest.projectPath), Array.from(byJson.values()))
       this.repositories.set(key, known.repo)
+      // A failure heard before is not the answer now; PR sync reads the checks.
+      for (const detail of reviewKeys) if (this.checksHeard.get(detail)?.ok === false) this.checksHeard.delete(detail)
       this.applyChange(interest.hostId, known)
     } catch {
       // A project with no repository has nothing to keep fresh; a lost
       // connection sends again when it is accepted.
       interest.sent = undefined
+      // No checks come for these pull requests, so a detail that waits for
+      // them names them missing. Checks heard before still show.
+      let changed = false
+      for (const detail of reviewKeys) {
+        if (this.checksHeard.get(detail)?.ok) continue
+        this.checksHeard.set(detail, { ok: false })
+        const state = this.details.get(detail)
+        const next = state ? patchShown(state, checksMissing) : state
+        if (state && next !== state) {
+          this.details.set(detail, next!)
+          changed = true
+        }
+      }
+      if (changed) this.changes.notify()
     }
   }
 
@@ -510,9 +549,15 @@ export class PullRequestDirectory {
    * pull request its state filter shows. Nothing is read again.
    */
   private applyChange(hostId: string, change: PrSyncChange): void {
+    if (change.listChanged) this.listChanged(hostId, change.repo)
     if (change.pullRequests.length === 0 && change.checks.length === 0) return
     const pushed = new Map(change.pullRequests.map((pr) => [pr.number, pr]))
     const checks = new Map(change.checks.map((entry) => [entry.number, entry.summary]))
+    // Kept for a detail read that has nothing on screen yet to patch.
+    for (const [key, repo] of this.repositories) {
+      if (!key.startsWith(`${hostId}\u0000`) || repo !== change.repo) continue
+      for (const [number, summary] of checks) this.checksHeard.set(`${key}\u0000${number}`, { ok: true, value: summary })
+    }
     let changed = false
     for (const [key, state] of this.hosts) {
       if (!key.startsWith(`${hostId}\u0000`)) continue
@@ -524,15 +569,14 @@ export class PullRequestDirectory {
           touched = true
           const known = new Set(project.prs.map((pr) => pr.number))
           const added = !filter || filter.query.trim() ? [] : change.pullRequests.filter((pr) => !known.has(pr.number) && stateShows(filter.state, pr))
-          const prs = [...added, ...project.prs.map((pr) => {
+          const prs = [...added, ...project.prs].map((pr) => {
             const next = pushed.get(pr.number)
-            return next && isNotOlder(next, pr) ? next : pr
-          })]
-          const listedChecks = [
-            ...project.checks.filter((entry) => !checks.has(entry.number)),
-            ...change.checks.map((entry) => ({ number: entry.number, state: entry.summary.state, headSha: entry.summary.headSha })),
-          ]
-          return { ...project, prs, checks: listedChecks }
+            const shown = next && isNotOlder(next, pr) ? next : pr
+            // Checks of another head say nothing about this one.
+            const summary = checks.get(shown.number)
+            return summary && summary.headSha === shown.headSha ? { ...shown, checksState: combinedChecksState(summary) } : shown
+          })
+          return { ...project, prs }
         })
         return touched ? { ...listing, projects } : listing
       })
@@ -555,6 +599,9 @@ export class PullRequestDirectory {
         if (summary) {
           next.checks = summary
           next.missing = detail.missing.filter((part) => part !== 'checks')
+          const reading = detail.reading?.filter((part) => part !== 'checks')
+          if (reading?.length) next.reading = reading
+          else delete next.reading
         }
         return next
       })
@@ -566,13 +613,54 @@ export class PullRequestDirectory {
     if (changed) this.changes.notify()
   }
 
-  /** The checks of listed pull requests; a failed read only leaves them unknown. */
-  private async listedChecks(connection: HostConnection, projectPath: string, prs: readonly PullRequest[]): Promise<ListedChecks[]> {
-    if (prs.length === 0) return []
-    const snapshot = await settle(connection.api.prChecks(this.context(projectPath), prs.map((pr) => pr.number)))
-    if (!snapshot.ok || snapshot.value.loadFailed) return []
-    return snapshot.value.checks.map((entry) => ({ number: entry.number, state: entry.summary.state, headSha: entry.summary.headSha }))
+  /** Each listing of this host that shows the repository is no longer fresh.
+   *  In the one on screen, the projects of that repository are read again now. */
+  private listChanged(hostId: string, repo: string): void {
+    let isShownStale = false
+    for (const [key, state] of this.hosts) {
+      if (!key.startsWith(`${hostId}\u0000`)) continue
+      const showsRepository = shownValue(state)?.projects.some((project) =>
+        project.kind === 'page' && this.repositories.get(projectKey(hostId, project.projectPath)) === repo) ?? false
+      if (!showsRepository) continue
+      this.readAt.delete(key)
+      if (key === listKey(hostId, this.filter)) isShownStale = true
+    }
+    if (isShownStale && this.listsShown > 0) void this.reloadRepository(hostId, repo)
   }
+
+  /**
+   * Read again only the projects of the shown listing that read this
+   * repository, in one `prListProjects` for their folders. The host's other
+   * projects, its project list, and its account stay as they are.
+   */
+  private async reloadRepository(hostId: string, repo: string): Promise<void> {
+    const filter = this.filter
+    const key = listKey(hostId, filter)
+    const shown = shownValue(this.hosts.get(key) ?? IDLE)
+    if (!shown) return this.loadHost(hostId)
+    await this.reads.read(this.hosts, key, hostId, `list:${filter.state}:${filter.query}`, async (connection, previous) => {
+      const listing = previous ?? shown
+      const paths = listing.projects
+        .filter((project) => this.repositories.get(projectKey(hostId, project.projectPath)) === repo)
+        .map((project) => project.projectPath)
+      if (paths.length === 0) return listing
+      const names = new Map(listing.projects.map((project) => [project.projectPath, project.folderName]))
+      const listings = await connection.api.prListProjects(this.context(''), paths, hostFilter(filter))
+      const read = new Map(listings.map((entry) => [entry.projectRoot, this.listedProject(entry, names)]))
+      return { ...listing, projects: listing.projects.map((project) => read.get(project.projectPath) ?? project) }
+    })
+    if (this.hosts.get(key)?.kind === 'loaded') this.readAt.set(key, Date.now())
+  }
+}
+
+/** A detail that still waits for its checks, with them named missing instead. */
+function checksMissing(detail: PullRequestDetail): PullRequestDetail {
+  if (!detail.reading?.includes('checks')) return detail
+  const next: PullRequestDetail = { ...detail, missing: [...detail.missing, 'checks'] }
+  const reading = detail.reading.filter((part) => part !== 'checks')
+  if (reading.length) next.reading = reading
+  else delete next.reading
+  return next
 }
 
 /** The state with what it shows replaced; the same state when nothing changed. */

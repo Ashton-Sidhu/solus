@@ -6,6 +6,8 @@ import { activeSurface, makePane, type PaneEntry } from '@solus/workspace-ui/con
 import type { RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 import { RouterStore } from '@solus/workspace-ui/contexts/workspace/routing/router.store.svelte'
 import type { ClientShellContext } from '@solus/workspace-ui/contexts/app/client-shell.svelte'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
+import type { RunConfig } from '@solus/contracts/types'
 
 // Run the production methods with a small mounted-workspace fixture. The full
 // constructor starts host subscriptions, which are unrelated to visibility.
@@ -24,7 +26,7 @@ const fixtureCode = new Bun.Transpiler({ loader: 'ts' }).transformSync(`class Vi
 interface VisibilityFixture {
   shell: Pick<ClientShellContext, 'visible' | 'hasCompanionPanes'>
   tabs: Record<string, { sessionId: string }>
-  sessions: { byId: Record<string, { agentSessionId: string; run: { serverId: string } }> }
+  sessions: { byId: Record<string, { agentSessionId: string; run: Pick<RunConfig, 'location'> }> }
   tabOrder: string[]
   activeTabId: string
   router: {
@@ -46,8 +48,8 @@ function fixture(hasCompanionPanes = false): VisibilityFixture {
   view.shell = { visible: true, hasCompanionPanes }
   view.tabs = { primary: { sessionId: 'first' }, companion: { sessionId: 'second' } }
   view.sessions = { byId: {
-    first: { agentSessionId: 'provider-first', run: { serverId: 'host-a' } },
-    second: { agentSessionId: 'provider-second', run: { serverId: 'host-b' } },
+    first: { agentSessionId: 'provider-first', run: { location: folderLocation({ serverId: 'host-a', path: '/repo' }) } },
+    second: { agentSessionId: 'provider-second', run: { location: folderLocation({ serverId: 'host-b', path: '/repo' }) } },
   } }
   view.tabOrder = ['primary', 'companion']
   view.activeTabId = 'primary'

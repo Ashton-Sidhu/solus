@@ -716,10 +716,10 @@ export class SessionRuntime extends EventEmitter {
     return Array.from(this.backends.keys())
   }
 
-  async refreshSessionIndexes(): Promise<void> {
-    await Promise.all(
-      [...this.backends.values()].map((backend) => backend.refreshSessionIndex?.()),
-    )
+  /** A client connected, came to the front, or read its session list: each
+   *  provider brings its index of sessions started outside Solus up to date. */
+  requestSessionIndexRefresh(): void {
+    for (const backend of this.backends.values()) backend.requestSessionIndexRefresh?.()
   }
 
   backendFor(id: AgentId): AgentBackend {

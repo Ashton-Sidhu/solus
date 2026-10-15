@@ -546,6 +546,7 @@ export class TranscriptModel {
     if (this.status === status) return
     this.status = status
     if (status === 'idle') this.clearRequests()
+    if (status === 'interrupted') this.settleInterruptedSubagents()
     // A running divider must not stay after the work stops.
     if (status !== 'running' && status !== 'connecting') this.dropRunningCompaction()
     // A new turn: cards closed before it have said why; they leave.
@@ -750,6 +751,15 @@ export class TranscriptModel {
       || questions.some((question, index) => question !== this.questions[index])) this.metaChanged = true
     this.permissions = permissions
     this.questions = questions
+  }
+
+  /** Stop ends every subagent the turn started, and none sends a result after it
+   *  (the desktop reducer's `settleInterruptedSubagents`). */
+  private settleInterruptedSubagents(): void {
+    for (const [id, item] of this.items) {
+      if (item.kind !== 'tool' || !item.subagent || item.status !== 'running') continue
+      this.replace({ ...item, status: 'error', report: item.report ?? 'Interrupted' }, id)
+    }
   }
 
   private clearRequests(): void {

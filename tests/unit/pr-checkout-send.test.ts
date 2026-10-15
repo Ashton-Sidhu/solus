@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { PrReviewContext, RunConfig, StatusCardState } from '@solus/contracts/types'
+import { folderLocation, workingPlace } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 /**
  * A session started from a pull request's page opens before the PR's worktree
@@ -47,14 +48,14 @@ function harness() {
     statusCard: null as StatusCardState | null,
     prompt: { text: '' },
     prReview: null as PrReviewContext | null,
-    run: { workingDirectory: '/code/solus', gitContext: null, serverId: 'local', worktree: null, permissionMode: 'default' } as unknown as RunConfig,
+    run: { location: folderLocation({ serverId: 'local', path: '/code/solus' }), permissionMode: 'default' } as unknown as RunConfig,
   }
   const sent: Array<{ prompt: string; cwd: string }> = []
   const workspace = {
     sessionFor: (tabId: string) => (tabId === 'tab-1' ? session : undefined),
     dispatch: {
       sendMessage: (prompt: string) => {
-        sent.push({ prompt, cwd: session.run.workingDirectory })
+        sent.push({ prompt, cwd: workingPlace(session.run).path })
         return true
       },
     },

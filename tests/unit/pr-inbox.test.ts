@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { PrFilter, PrListPage, PrProjectListing, PullRequest } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing, PullRequest } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { IpcContext } from '@solus/contracts/types'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
@@ -39,7 +39,7 @@ function pr(number: number, overrides: Partial<PullRequest> = {}): PullRequest {
 }
 
 function page(items: PullRequest[], hasMore = false): PrListPage {
-  return { items, page: 1, hasMore }
+  return hasMore ? { items, page: 1, hasMore, cursor: 'after-1' } : { items, page: 1, hasMore }
 }
 
 /** A host that answers the every-project read from a page per project root. */
@@ -150,7 +150,8 @@ describe('PrsStore every-project read', () => {
     await store.listProjects(projects, { state: 'open' })
     expect(store.at('h', '/workspace')?.error?.kind).toBe('unavailable')
 
-    await store.listProjects(projects, { state: 'open' })
+    // Another state, so the repository's own list is not fresh.
+    await store.listProjects(projects, { state: 'closed' })
     await store.listProjects(projects, { state: 'open' }, { force: true })
 
     expect(calls.map((call) => call.roots)).toEqual([
@@ -158,6 +159,45 @@ describe('PrsStore every-project read', () => {
       ['/repos/a'],
       ['/workspace', '/repos/a'],
     ])
+  })
+
+  // WHY: the page reads its list on every mount and every scope change. A
+  // list read moments ago is still what the host would say, and what changed
+  // since arrives as `pr.changed`.
+  test('a fresh list is not read again when the page mounts again; a refresh still reads', async () => {
+    const store = await newStore()
+    const calls: { roots: string[] }[] = []
+    const api = asHostApi({ ...hostServing({ '/repos/a': page([pr(1)]), '/repos/b': page([pr(2)]) }, calls), prRefresh: async () => {} })
+    const projects = [target('h', '/repos/a', api), target('h', '/repos/b', api)]
+
+    await store.listProjects(projects, { state: 'open' })
+    await store.listProjects(projects, { state: 'open' })
+    expect(calls).toHaveLength(1)
+
+    await store.listProjects(projects, { state: 'open' }, { force: true })
+    expect(calls.map((call) => call.roots)).toEqual([['/repos/a', '/repos/b'], ['/repos/a', '/repos/b']])
+  })
+
+  // WHY: the host says which repository's list changed when an agent turn
+  // ends there. Reading every project of every host for it cost one read per
+  // project on each turn.
+  test('a changed list reads again only the projects named, even when fresh', async () => {
+    const store = await newStore()
+    const calls: { roots: string[] }[] = []
+    let refreshes = 0
+    const api = asHostApi({
+      ...hostServing({ '/repos/a': page([pr(1)]), '/repos/b': page([pr(2)]) }, calls),
+      prRefresh: async () => { refreshes++ },
+    })
+    const projects = [target('h', '/repos/a', api), target('h', '/repos/b', api)]
+    await store.listProjects(projects, { state: 'open' })
+
+    const changed = store.at('h', '/repos/b')!
+    await store.readPage([store.at('h', '/repos/a')!, changed], { state: 'open' }, { memoryKey: 'changed-test', targets: projects, changed: [changed] })
+
+    expect(calls.map((call) => call.roots)).toEqual([['/repos/a', '/repos/b'], ['/repos/b']])
+    // Not a person's refresh: the host keeps what it remembers of the others.
+    expect(refreshes).toBe(0)
   })
 
   // WHY: a refresh is a person asking for the code host again. The host shares
@@ -209,8 +249,11 @@ describe('PrsStore every-project read', () => {
     const store = await newStore()
     const apiA = asHostApi({
       ...hostServing({ '/repos/a': page([pr(1)], true) }),
-      prList: async (_ctx: IpcContext, _filter: PrFilter, pageNumber = 1): Promise<PrListPage> =>
-        ({ items: [pr(2)], page: pageNumber, hasMore: false }),
+      prList: async (_ctx: IpcContext, _filter: PrFilter, pageNumber = 1, cursor?: string): Promise<PrListPage> => {
+        // The next page continues from where the first page said it ends.
+        expect(cursor).toBe('after-1')
+        return { items: [pr(2)], page: pageNumber, hasMore: false }
+      },
     })
     const apiB = asHostApi(hostServing({ '/repos/b': page([pr(1)]) }))
 
@@ -222,6 +265,34 @@ describe('PrsStore every-project read', () => {
     expect(projectA.hasMore).toBe(false)
     expect(store.at('host-b', '/repos/b')?.items.map((item) => item.number)).toEqual([1])
   })
+})
+
+// WHY: the every-project list asks each project with more rows for its next
+// page at once. One read per host answers them all, so a scroll to the end of
+// many projects costs one search, not one per project.
+test('loading more of several projects is one read per host, from each cursor', async () => {
+  const store = await newStore()
+  const reads: Array<{ roots: string[]; after: PrProjectCursor[] | undefined }> = []
+  const api = asHostApi({
+    prListProjects: async (_ctx: IpcContext, roots: string[], _filter?: PrFilter, after?: PrProjectCursor[]): Promise<PrProjectListing[]> => {
+      reads.push({ roots, after })
+      return roots.map((projectRoot) => ({
+        projectRoot,
+        page: after ? { items: [pr(projectRoot === '/repos/a' ? 2 : 3)], page: 2, hasMore: false } : page([pr(1)], true),
+      }))
+    },
+  })
+  await store.listProjects([target('h', '/repos/a', api), target('h', '/repos/b', api)], { state: 'open' })
+  const projects = [store.at('h', '/repos/a')!, store.at('h', '/repos/b')!]
+
+  await store.loadMore(projects)
+
+  expect(reads.at(-1)).toEqual({
+    roots: ['/repos/a', '/repos/b'],
+    after: [{ projectRoot: '/repos/a', page: 2, cursor: 'after-1' }, { projectRoot: '/repos/b', page: 2, cursor: 'after-1' }],
+  })
+  expect(projects.map((project) => project.items.map((item) => item.number))).toEqual([[1, 2], [1, 3]])
+  expect(projects.every((project) => !project.hasMore && !project.loadingMore)).toBe(true)
 })
 
 describe('PrsStore one-project page read', () => {

@@ -1,6 +1,7 @@
 import { installWorkspaceToolOperations, type RemoteToolOperations } from './data/workspace/tool-context'
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
+import { refreshingSessionIndexOnList } from './transport/solus-api/session-index-refresh'
 import { AccountReads, useAccountReads } from './vault/account-reads'
 import { useVault, Vault } from './vault/vault'
 import { ANY_ORGANIZATION, principalFor, recordScopeOf, scopeAdmits } from './admission/principal'
@@ -256,9 +257,6 @@ export const WEB_UI_PORT = parseInt(process.env.SOLUS_PORT ?? '') || DEFAULT_SER
  * a trusted requester. Override with SOLUS_TUNNEL_PORT.
  */
 export const DEFAULT_TUNNEL_LISTENER_PORT = parseInt(process.env.SOLUS_TUNNEL_PORT ?? '') || 34118
-const SESSION_INDEX_POLL_MS = 60_000
-const SESSION_INDEX_POLL_JITTER_MS = 5_000
-const SESSION_INDEX_POLL_MAX_BACKOFF_MS = 5 * 60_000
 
 interface LockFileBody {
   pid: number
@@ -617,7 +615,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // sync asks on the workspace's behalf and turns what it finds into the same
   // event an in-Solus write sends (docs/plans/pr-sync.md).
   // Pull request assignments and review requests reach the host user's hub from
-  // PR sync's own needs-review read; no second poller asks the code host.
+  // every needs-review answer the server reads: a list read's review-requested
+  // search, or PR sync's read for the sidebar count. No poller asks the code host.
   const prObserver = hostPrObserver()
   const prSync = new PrSync({
     publish: (change) => events.broadcast('pr.changed', change),
@@ -680,7 +679,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
     if (!to) worktreeOffers.observe(sessionId, event)
   })
-  registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, worktreeMover, worktreeOffers })
+  registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, worktreeMover, worktreeOffers, prSync })
   registerGitPublishHandlers(server)
   // Browsing a host's filesystem must work headless — that is the whole point
   // of pairing a server that has no window.
@@ -1079,6 +1078,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A settled turn is mirrored at once, so the cloud copy is whole when the session goes quiet.
     touchTranscript(event.sessionId)
     if (event.agentSessionId && !isSessionBusyStatus(event.status)) void transcriptMirror.flushNow(event.sessionId)
+    // A turn that ended may have pushed a branch or opened a pull request (docs/plans/pr-sync.md §3.4).
+    if (event.status === 'completed' || event.status === 'background' || event.status === 'failed' || event.status === 'interrupted') {
+      void prSync.turnEnded(event.sessionId).catch((error) => log.warn('pr_sync_turn_end_failed', { sessionId: event.sessionId, error: String(error) }))
+    }
   })
   opts.sessionRuntime.on('watchers-changed', (sessionId: string) => publishSessionPresence(sessionId))
 
@@ -1166,6 +1169,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     statusOf: (sessionId) => opts.sessionRuntime.statuses.liveSessionStatus(sessionId),
     registration: () => registrar.current(),
     credential: () => registrar.credential(),
+    savePath: join(dataDir(), 'live-activities.json'),
   })
   registerLiveActivityHandlers(server, liveActivityRelay)
   opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => liveActivityRelay.sessionStatusChanged(event))
@@ -1286,7 +1290,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
 
   const { server: http, requestListener } = buildHttpServer({
-    solusApi: { operations: workspaceOperations, ...apiSettings },
+    solusApi: { operations: refreshingSessionIndexOnList(workspaceOperations, () => opts.sessionRuntime.requestSessionIndexRefresh()), ...apiSettings },
     isVerifyingUpdate: () => server.isVerifyingUpdate,
     host,
     port,
@@ -1377,6 +1381,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     responseBudget: responseReceiptBudget,
     onClientConnected: ({ clientId }) => {
       handlePresenceConnected(clientId)
+      // A client that connects may list sessions started outside Solus.
+      opts.sessionRuntime.requestSessionIndexRefresh()
     },
     onClientDisconnected: ({ clientId }) => {
       prSync.dropConnection(clientId)
@@ -1421,41 +1427,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (left.composingSessionId) rooms.add(left.composingSessionId)
     for (const sessionId of rooms) publishSessionPresence(sessionId)
   }
-  let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
-  let sessionIndexPollFailures = 0
-
-  function scheduleSessionIndexPoll(delay = SESSION_INDEX_POLL_MS): void {
-    if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
-    const jitter = Math.floor(Math.random() * SESSION_INDEX_POLL_JITTER_MS)
-    sessionIndexPollTimer = setTimeout(() => {
-      sessionIndexPollTimer = null
-      void pollSessionIndexes()
-    }, delay + jitter)
-    sessionIndexPollTimer.unref()
-  }
-
-  async function pollSessionIndexes(): Promise<void> {
-    if (ws.sessions.size === 0) {
-      scheduleSessionIndexPoll()
-      return
-    }
-    try {
-      await opts.sessionRuntime.refreshSessionIndexes()
-      sessionIndexPollFailures = 0
-      scheduleSessionIndexPoll()
-    } catch (err) {
-      sessionIndexPollFailures++
-      const backoff = Math.min(
-        SESSION_INDEX_POLL_MAX_BACKOFF_MS,
-        SESSION_INDEX_POLL_MS * 2 ** sessionIndexPollFailures,
-      )
-      log.warn('session_index_poll_failed', { error: err instanceof Error ? err.message : String(err) })
-      scheduleSessionIndexPoll(backoff)
-    }
-  }
-
-  scheduleSessionIndexPoll()
-
   // Walk forward from the requested port if it's taken — keeps the picked port
   // close to the deterministic default so the chance a saved web-client URL
   // still works stays high. EADDRINUSE on a contiguous range is common when
@@ -1569,6 +1540,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       responseBudget: responseReceiptBudget,
       onClientConnected: ({ clientId }) => {
         handlePresenceConnected(clientId)
+        opts.sessionRuntime.requestSessionIndexRefresh()
       },
       onClientDisconnected: ({ clientId }) => {
         prSync.dropConnection(clientId)
@@ -1658,8 +1630,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await devices.manager.dispose()
         await devices.bridge.stop()
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
-        if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
-        sessionIndexPollTimer = null
         clearInterval(seatSweepTimer)
         await seatConnector.stopAll()
         await integrationGateway.close()

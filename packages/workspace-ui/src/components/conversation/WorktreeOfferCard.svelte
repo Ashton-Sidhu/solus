@@ -5,6 +5,7 @@
   import AttentionCard from "./AttentionCard.svelte";
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { worktreeOfferView, type WorktreeOffer } from "./lib/worktree-offer";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   /**
    * The agent works in a worktree this session is not bound to
@@ -20,7 +21,7 @@
   const sess = $derived(session.sessionFor(tabId));
   const view = $derived(worktreeOfferView(offer));
   // The answer is an editor's; a member who may only read sees the offer.
-  const canDrive = $derived(canDriveSession(sess?.run.serverId, sess?.id));
+  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id));
   let isDeciding = $state(false);
 
   async function decide(decision: "switch" | "keep") {

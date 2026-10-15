@@ -6,6 +6,7 @@ import { formatInlineComments } from './session.utils'
 import { track } from '../../lib/analytics'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { SessionUnavailableError } from './session-errors'
+import { checkoutGit, checkoutPlace, chooseStart, runHost } from './run-location'
 
 // ─── Active plan waiting state ───
 
@@ -53,7 +54,7 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
   )
   const sessionId = plan?.sessionId ?? descriptor?.sessionId ?? referencedSessionId
   const planToolUseId = plan?.planToolUseId ?? referencedPlanToolUseId
-  const cwd = plan?.cwd ?? descriptor?.cwd ?? (ctx.activeSession?.run ?? ctx.defaultRunConfig).workingDirectory
+  const cwd = plan?.cwd ?? descriptor?.cwd ?? checkoutPlace(ctx.activeSession?.run ?? ctx.defaultRunConfig).path
   const projectPath = plan?.projectPath ?? descriptor?.projectPath ?? encodePathAsFolder(cwd)
   if (!sessionId || !planToolUseId || !cwd) return
 
@@ -64,7 +65,7 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
 
   try {
     await ctx.planStore.loadFromDisk({
-      serverId: ctx.planStore.hostFor?.(targetPlanId) ?? descriptor?.serverId ?? ctx.activeSession?.run.serverId,
+      serverId: ctx.planStore.hostFor?.(targetPlanId) ?? descriptor?.serverId ?? runHost(ctx.activeSession?.run),
       sessionId,
       planToolUseId,
       projectPath,
@@ -191,12 +192,12 @@ export async function approvePlanWithModel(
   }
   session.run.permissionMode = implementationMode(mode, ctx.settings.defaultPermissionMode)
 
-  if (wasPreview && opts.useWorktree && !session.run.gitContext) {
+  if (wasPreview && opts.useWorktree && !checkoutGit(session.run)) {
     await ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, cwd: plan.cwd })
   }
 
   if (opts.useWorktree !== undefined) {
-    session.run.worktree = opts.useWorktree ? { baseBranch: session.run.gitContext?.targetBranch ?? null } : null
+    session.run.location = chooseStart(session.run.location, opts.useWorktree ? { kind: 'new-worktree' } : { kind: 'checkout' })
   }
 
   const params = new URLSearchParams({

@@ -4,6 +4,7 @@ import type { Prompt, Session, Tab } from '@solus/contracts/types'
 import { branchKeyFor } from '../../lib/sessionUtils'
 import { makePrompt } from './session.factories'
 import type { SessionRecords } from './session-records.svelte'
+import { runHost } from './run-location'
 
 /**
  * The mounted tab strip: which tabs exist, their order, and which is active.
@@ -52,7 +53,7 @@ export class TabRegistry {
     for (const tabId of this.tabOrder) {
       const session = this.sessionFor(tabId)
       if (!session) continue
-      const key = hostKey(session.run.serverId, session.id)
+      const key = hostKey(runHost(session.run), session.id)
       const listening = index.get(key)
       if (listening) listening.push(tabId)
       else index.set(key, [tabId])

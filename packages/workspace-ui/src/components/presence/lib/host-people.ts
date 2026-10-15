@@ -2,6 +2,7 @@ import type { PresenceFocus, SessionActivity } from '@solus/contracts/presence'
 import type { Session } from '@solus/contracts/types'
 import { sessionTitle } from '../../../lib/sessionUtils'
 import { activityWords, type PresencePerson } from './presence-people'
+import { runHost } from '../../../contexts/workspace/run-location'
 
 /** A person on one host, for the roster that spans every connected host. */
 export interface HostPerson extends PresencePerson {
@@ -108,7 +109,7 @@ export interface RosterNames {
 /** A session's name as this client knows it: a mounted tab first, then the sidebar's rows. */
 export function sessionLabelIn(names: RosterNames, serverId: string, sessionId: string): string | null {
   for (const current of names.mountedSessions) {
-    if (current.id === sessionId && current.run.serverId === serverId) return sessionTitle(current)
+    if (current.id === sessionId && runHost(current.run) === serverId) return sessionTitle(current)
   }
   for (const row of names.sidebarSessions) {
     if (row.sessionId === sessionId && row.serverId === serverId) return row.label

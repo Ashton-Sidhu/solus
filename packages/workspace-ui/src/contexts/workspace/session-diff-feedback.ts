@@ -1,6 +1,7 @@
 import type { AgentId, GitCheckout, ReasoningEffort, Session } from '@solus/contracts/types'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { formatDiffInlineComments } from './session.utils'
+import { checkoutGit, checkoutPlace, folderLocation, projectHome, runHost } from './run-location'
 
 /** The conversation a diff surface is reviewing. Callers name the tab they are
  *  looking at; the queued feedback belongs to the session behind it. */
@@ -58,11 +59,11 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
   const inlineComments = session?.diffComments ?? []
   if (!generalComment && inlineComments.length === 0) return false
 
-  const workingDirectory = opts.sessionTarget?.workingDirectory ?? session?.run.workingDirectory
+  const workingDirectory = opts.sessionTarget?.workingDirectory ?? checkoutPlace(session?.run)?.path
   const gitContext = opts.sessionTarget
     ? opts.sessionTarget.gitContext
-    : session?.run.gitContext ?? null
-  const serverId = opts.sessionTarget?.serverId ?? session?.run.serverId
+    : checkoutGit(session?.run) ?? null
+  const serverId = opts.sessionTarget?.serverId ?? runHost(session?.run)
   const newTabId = await ctx.createTab(workingDirectory, {
     gitContext,
     serverId,
@@ -70,12 +71,15 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
   })
   const newSession = ctx.sessionFor(newTabId)
   if (newSession) {
-    if (workingDirectory) newSession.run.workingDirectory = workingDirectory
-    newSession.run.gitContext = gitContext ? { ...gitContext } : null
-  }
-  if (session && newSession && !opts.sessionTarget) {
-    newSession.run.taskServerId = session.run.taskServerId
-    newSession.run.projectGroupPath = session.run.projectGroupPath
+    newSession.run.location = folderLocation(
+      { serverId: runHost(newSession.run), path: workingDirectory ?? checkoutPlace(newSession.run).path },
+      {
+        git: gitContext ? { ...gitContext } : null,
+        // Feedback on a dispatched session keeps its project, and its tasks, home.
+        project: session && !opts.sessionTarget ? projectHome(session.run) : undefined,
+        newWorktree: opts.useWorktree ? { baseBranch: checkoutGit(session?.run)?.targetBranch ?? null } : null,
+      },
+    )
   }
   if (newSession) newSession.task = { kind: 'none' }
   if (newSession && opts.provider) newSession.run.provider = opts.provider
@@ -83,9 +87,6 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
     newSession.run.modelConfig.modelId = opts.modelConfig.modelId
     newSession.run.modelConfig.reasoningEffort = opts.modelConfig.reasoningEffort
     newSession.run.modelConfig.fastMode = opts.modelConfig.fastMode
-  }
-  if (newSession && opts.useWorktree) {
-    newSession.run.worktree = { baseBranch: session?.run.gitContext?.targetBranch ?? null }
   }
 
   const parts: string[] = []

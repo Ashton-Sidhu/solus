@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import type { IpcContext, RunConfig } from '@solus/contracts/types'
 import { draftPluginCommandScope } from '@solus/workspace-ui/components/session-draft/lib/plugin-command-scope'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 function run(provider: RunConfig['provider'], modelId: string): RunConfig {
   return {
     provider,
-    workingDirectory: '/repo',
-    gitContext: null,
+    location: folderLocation({ serverId: 'local', path: '/repo' }),
     modelConfig: {
       modelId,
       reasoningEffort: 'high',

@@ -18,6 +18,7 @@ import { readSessionRecordPage } from '../sessions/session-record-transcript'
 import { GONE_MACHINE_NO_RECORD_REASON, GONE_MACHINE_READ_ONLY_REASON, recordHomeOf, savedHostsAreAuthoritative } from './machine-references'
 import { z } from 'zod'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { checkoutGit, checkoutPlace, folderLocation, projectHome, remapHosts, runHost } from './run-location'
 
 const permissionModeSchema = z.enum(PERMISSION_MODES).catch('full-access')
 
@@ -227,7 +228,7 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
  * clearing client state. Used by the network-gap recovery path.
  */
 export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): Promise<void> {
-    const tabIds = ctx.tabOrder.filter((tabId) => !serverId || ctx.sessionFor(tabId)?.run.serverId === serverId)
+    const tabIds = ctx.tabOrder.filter((tabId) => !serverId || runHost(ctx.sessionFor(tabId)?.run) === serverId)
     // Clear only the affected host's in-flight activity before replay without
     // churning healthy tabs on other connections.
     for (const tabId of tabIds) {
@@ -331,20 +332,23 @@ function _materializeTabs(
     const draftText = drafts?.tabs[snapTab.tabId] ?? ''
 
     if (!tab || !session) {
-      const serverId = snapTab.serverInstallationId
-        ? savedServers.find((server) => server.installationId === snapTab.serverInstallationId)?.id
-          ?? snapTab.serverId
-        : snapTab.serverId
+      // A host's registry id can change when it is paired again; its
+      // installation id does not.
+      const reidentify = (serverId: string, installationId: string | undefined): string =>
+        installationId
+          ? savedServers.find((server) => server.installationId === installationId)?.id ?? serverId
+          : serverId
+      const saved = snapTab.location
+      const location = remapHosts(saved, (serverId) =>
+        serverId === runHost(snapTab)
+          ? reidentify(serverId, snapTab.serverInstallationId)
+          : reidentify(serverId, snapTab.projectInstallationId))
+      const serverId = runHost({ location })
       const run: Partial<RunConfig> = {
-        serverId,
+        location: checkoutPlace({ location }).path
+          ? location
+          : folderLocation({ serverId, path: machineProjectPath(serverId) || NEW_CHAT_DIRECTORY }),
         provider: snapTab.provider,
-        workingDirectory: snapTab.workingDirectory || machineProjectPath(serverId) || NEW_CHAT_DIRECTORY,
-        gitContext: snapTab.gitContext,
-        worktree: snapTab.worktreeRequested
-          ? { baseBranch: snapTab.worktreeBaseBranch }
-          : null,
-        taskServerId: snapTab.taskServerId,
-        projectGroupPath: snapTab.projectGroupPath ?? null,
         permissionMode: permissionModeSchema.parse(snapTab.permissionMode),
       }
       if (snapTab.modelConfig) run.modelConfig = restoredModelConfig(snapTab)
@@ -423,8 +427,7 @@ function startRestoredMetadataReads(
   // replay in-flight events before the persisted transcript has loaded.
   for (const snapTab of persistedTabs) {
     if (!snapTab.agentSessionId || snapTab.pendingFork) continue
-    const sourceServerId = ctx.sessionFor(snapTab.tabId)?.run.serverId
-      ?? snapTab.serverId
+    const sourceServerId = runHost(ctx.sessionFor(snapTab.tabId)?.run) ?? runHost(snapTab)
     const serverId = serverConnections.resolveId(sourceServerId)
     void readSessionMeta(serverId, snapTab.agentSessionId)
       .then((meta) => {
@@ -490,15 +493,15 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   const tab = ctx.tabs[snapTab.tabId]
   const session = tab ? ctx.sessions.byId[tab.sessionId] : undefined
   if (!tab || !session || session.forked || snapTab.pendingFork) return true
-  if (serverConnections.presenceOf(session.run.serverId) === 'gone') return hydrateTabOnGoneMachine(ctx, snapTab, session)
+  if (serverConnections.presenceOf(runHost(session.run)) === 'gone') return hydrateTabOnGoneMachine(ctx, snapTab, session)
 
   const api = ctx.apiFor(snapTab.tabId)
   const snapshotProvider = snapTab.provider ?? ctx.settings.activeAgent
-  const displayCwd = snapTab.workingDirectory || machineProjectPath(session.run.serverId) || NEW_CHAT_DIRECTORY
+  const displayCwd = checkoutPlace(snapTab).path || machineProjectPath(runHost(session.run)) || NEW_CHAT_DIRECTORY
   // The host reads the session's whole lineage from its session id. Read the
   // bytes alongside the lineage, but build cards using the lineage below. A
   // worktree transcript lives under its checkout, not the repo root.
-  const loadPath = snapTab.gitContext?.worktreePath || displayCwd
+  const loadPath = checkoutGit(snapTab)?.worktreePath || displayCwd
   const history = snapTab.agentSessionId
     ? requestSessionHistoryPage(api, {
         sessionId: session.id, projectPath: loadPath, provider: snapshotProvider,
@@ -587,7 +590,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   void afterPaint().then(async () => {
     if (ctx.sessionFor(snapTab.tabId) !== session) return
     const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId, level: 'details', force: false }).catch(() => null)
-    const taskHydration = ctx.tasksStore.ensureSessionBinding(session.id, snapTab.taskServerId).catch(() => null)
+    const taskHydration = ctx.tasksStore.ensureSessionBinding(session.id, projectHome(snapTab).serverId).catch(() => null)
     await Promise.all([environmentRefresh, taskHydration])
   })
 

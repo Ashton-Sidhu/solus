@@ -14,6 +14,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostPolicy } from '@solus/client-core/host-policy'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { PrsStore } from '../contexts/prs/prs.store.svelte'
+import { runHost } from '../contexts/workspace/run-location'
 
 /** Opening title of the progress toast, before the server reports a phase. */
 function startingLabel(action: GitAction, createFeatureBranch: boolean): string {
@@ -237,7 +238,7 @@ export class GitActions {
   }
 
   openTerminal(): void {
-    if (!hosts.device?.hasDesktopHandlers || !hostPolicy.isClientMachine(this.session.runFor(this.sourceId)?.serverId)) return
+    if (!hosts.device?.hasDesktopHandlers || !hostPolicy.isClientMachine(runHost(this.session.runFor(this.sourceId)))) return
     const ctx = this.target().ctx
     // Opening one attaches a terminal to the shared session, so what "Open in
     // terminal" resolves to has just changed for every surface that shows it.

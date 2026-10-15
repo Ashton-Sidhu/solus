@@ -26,6 +26,19 @@ export const AGENT_PROFILE_ENTRIES = {
   codex: ['skills', 'prompts'],
 } as const satisfies Record<SeatProvider, readonly string[]>
 
+/**
+ * A profile path is relative, has no hidden or parent segment, and is a file
+ * inside one of its provider's entries, never the entry itself. A home's
+ * `CLAUDE.md` or `AGENTS.md` is not one.
+ */
+export function isAgentProfilePath(provider: SeatProvider, path: string): boolean {
+  if (path.includes('\\') || path.includes('\0') || path.startsWith('/')) return false
+  const segments = path.split('/')
+  if (segments.some((segment) => !segment || segment === '..' || segment.startsWith('.'))) return false
+  const entries: readonly string[] = AGENT_PROFILE_ENTRIES[provider]
+  return entries.includes(segments[0]) && segments.length > 1
+}
+
 /** A file larger than this is left out and reported. */
 export const AGENT_PROFILE_MAX_FILE_BYTES = 1024 * 1024
 /** Files past this total are left out and reported. */
@@ -97,6 +110,29 @@ export function agentProfileFrom(entries: Iterable<AgentProfileEntry>): AgentPro
   const profile: AgentProfile = {}
   for (const entry of entries) profile[agentProfileKeyOf(entry)] = entry
   return profile
+}
+
+/**
+ * A home's instruction file, kept by a client or the account from before
+ * instruction files left the profile (plans/020 §10). Every reader drops it,
+ * and a host's pull removes it from the account. Any other path outside the
+ * profile is still refused: it may come from anyone over the network.
+ */
+export function isRetiredAgentProfileEntry(entry: AgentProfileEntry): boolean {
+  return entry.kind === 'file' && (entry.path === 'CLAUDE.md' || entry.path === 'AGENTS.md')
+}
+
+export function retiredAgentProfileKeys(profile: AgentProfile): AgentProfileKey[] {
+  return Object.values(profile).flatMap((entry) => (isRetiredAgentProfileEntry(entry) ? [agentProfileKeyOf(entry)] : []))
+}
+
+/** The profile without its retired entries; the same object when it has none. */
+export function withoutRetiredEntries(profile: AgentProfile): AgentProfile {
+  const retired = retiredAgentProfileKeys(profile)
+  if (retired.length === 0) return profile
+  const kept = { ...profile }
+  for (const key of retired) delete kept[key]
+  return kept
 }
 
 export function agentProfileByteLength(profile: AgentProfile): number {

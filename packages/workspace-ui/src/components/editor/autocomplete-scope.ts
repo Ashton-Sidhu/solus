@@ -1,4 +1,5 @@
 import type { Session } from '@solus/contracts/types'
+import { checkoutGit, checkoutPlace, runHost } from '../../contexts/workspace/run-location'
 
 interface AutocompleteWorkspace {
   activeTabId: string
@@ -37,10 +38,10 @@ export function resolveAutocompleteScope(
   const session = ownerTabId ? workspace.sessionFor(ownerTabId) : undefined
   return {
     tabId,
-    serverId: ownerServerId ?? session?.run.serverId,
+    serverId: ownerServerId ?? runHost(session?.run),
     workingDirectory:
-      session?.run.gitContext?.worktreePath ??
+      checkoutGit(session?.run)?.worktreePath ??
       workingDirectory ??
-      session?.run.workingDirectory,
+      checkoutPlace(session?.run)?.path,
   }
 }

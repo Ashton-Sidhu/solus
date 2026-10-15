@@ -28,6 +28,7 @@
     type AttentionState,
   } from "../../../lib/sessionUtils";
   import { orderTaskSessions, taskSessionRow, type TaskSessionHost } from "./lib/task-page";
+  import { runHost } from "../../../contexts/workspace/run-location";
 
   interface Props {
     sessions: TaskSessionLink[];
@@ -89,7 +90,7 @@
       const open = session.sessionForHostSession(link.sessionId, linkServerId ?? undefined);
       const serverId = attemptServerId({
         link,
-        liveServerId: open?.run.serverId,
+        liveServerId: runHost(open?.run),
         taskServerId,
       });
       const host = serversStore.hostFor(serverId);

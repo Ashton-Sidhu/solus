@@ -6,6 +6,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { ConnectionStatus } from '@solus/client-core/ws-transport'
+import { checkoutGit } from '../../contexts/workspace/run-location'
 
 type SolusApi = HostApi
 type ReviewScope = 'branch' | 'session'
@@ -75,7 +76,7 @@ export function branchGuideIdentity(environment: {
 export function sessionGuideIdentity(
   session: Session | undefined,
 ): ReviewGuideIdentity | null {
-  const repoRoot = session?.run.gitContext?.repoRoot
+  const repoRoot = checkoutGit(session?.run)?.repoRoot
   // A session's review is keyed by its session id, once it has run.
   const sessionId = session?.agentSessionId ? session.id : null
   return repoRoot && sessionId

@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { Message, Session } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 import { SessionEventReducer, type SessionEventReducerDeps } from '@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte'
 
 function fixture(messages: Message[] = []) {
   const session = {
-    status: 'running', messages, outboundPrompts: [], currentTurnStartedAt: 1, run: { serverId: 'host-1' },
+    status: 'running', messages, outboundPrompts: [], currentTurnStartedAt: 1, run: { location: folderLocation({ serverId: 'host-1', path: '~' }) },
   } as unknown as Session
   const reducer = new SessionEventReducer({
     registry: {},

@@ -23,6 +23,7 @@
   import { liveActivityClock } from '../../lib/shared-clock'
   import { conversationIsVisible } from './lib/conversation-visibility'
   import { z } from 'zod'
+  import { runHost } from '../../contexts/workspace/run-location'
 
   const editStringDetailsSchema = z.object({
     old_string: z.string().optional(),
@@ -48,7 +49,7 @@
   const session = getWorkspaceContext()
   const sess = $derived(session.sessionFor(tabId))
   // A member who may only read the session sees the request, not the answers.
-  const canDrive = $derived(canDriveSession(sess?.run.serverId, sess?.id))
+  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id))
   let responded = $state(false)
   // The host closed it unanswered (its run ended), or this click was sent.
   const closed = $derived(responded || !!permission.expired)
@@ -86,7 +87,7 @@
   const argv = $derived(permissionArgv(permission))
   const kicker = $derived(permissionKicker(permission))
   // Anyone may answer (D2); a teammate's turn says whose it is.
-  const title = $derived(othersTurnTitle(kicker.title, othersTurnLabel(permission.turnAuthor, sess ? presenceStore.currentUserId(sess.run.serverId) : null)))
+  const title = $derived(othersTurnTitle(kicker.title, othersTurnLabel(permission.turnAuthor, sess ? presenceStore.currentUserId(runHost(sess.run)) : null)))
   const cwd = $derived(runCwd || permissionCwd(permission, sess))
   // The head can lose its middle; the worktree name never can.
   const cwdParts = $derived.by(() => {

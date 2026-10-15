@@ -18,9 +18,9 @@ describe('pull request URL resolution', () => {
       mock.module('./packages/server/src/providers/registry', () => ({
         providerForRepo: () => ({
           review: {
-            getPullRequest: async (repo, number) => {
+            getPullRequestOverview: async (repo, number) => {
               calls.push({ repo, number })
-              return { url: 'https://github.com/solus-sh/solus/pull/135' }
+              return { pullRequest: { url: 'https://github.com/solus-sh/solus/pull/135' }, commits: [], reviewers: [] }
             },
           },
         }),

@@ -10,6 +10,7 @@ import type { ClientShellContext } from '../app/client-shell.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
+import { runHost } from '../workspace/run-location'
 
 /** Every pending host update, and every update `hostUpdater` runs, share this one toast. */
 const UPDATES_TOAST_ID = 'host-updates'
@@ -75,7 +76,7 @@ export function installHostUpdateNotices(session: ReturnType<typeof createAppCor
     // shows once the switch is turned on.
     const updateNoticesWanted = notificationsStore.wants('update_available')
     // A host with work running is not interrupted; its updates join the notice once it is idle.
-    const busyHosts = new Set(Object.values(session.sessions.byId).filter((item) => isSessionBusyStatus(item.status)).map((item) => serverConnections.resolveId(item.run.serverId)))
+    const busyHosts = new Set(Object.values(session.sessions.byId).filter((item) => isSessionBusyStatus(item.status)).map((item) => serverConnections.resolveId(runHost(item.run))))
     const items = hostUpdatesStore.installableUpdates.filter((item) => !busyHosts.has(item.serverId))
     const key = updatesKey(items)
     untrack(() => {

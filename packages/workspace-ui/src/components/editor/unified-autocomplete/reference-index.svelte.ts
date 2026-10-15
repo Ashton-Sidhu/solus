@@ -26,6 +26,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { stampSessionMetas } from '@solus/client-core/session-meta'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { stripInjectedContext } from '@solus/contracts/injected-context'
+import { runHost } from '../../../contexts/workspace/run-location'
 
 export function timestamp(value: string | number | undefined | null): number {
   if (value === undefined || value === null) return 0
@@ -419,7 +420,7 @@ export class ReferenceIndex {
         .sessionRecordList({ projectPath: workingDirectory, includeWorktrees: true, scope: 'all' })
       if (requestId !== this.#sessionLoadId) return
       this.sessionsIndexing = indexing
-      const sourceServerId = this.deps.session.runFor(tabId)?.serverId
+      const sourceServerId = runHost(this.deps.session.runFor(tabId))
       if (!sourceServerId) return
       const serverId = serverConnections.resolveId(sourceServerId)
       // Records arrive newest activity first.

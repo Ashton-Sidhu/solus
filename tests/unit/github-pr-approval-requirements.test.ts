@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { requiredApprovalCount } from '@solus/server/providers/github/provider'
+import { requiredApprovalCount } from '@solus/server/providers/github/pull-request-detail'
 
 describe('GitHub pull request approval requirements', () => {
   test('uses the strongest active pull request rule', () => {

@@ -384,8 +384,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // Foreground evidence gates watch-fired freshness work (dispatch-client
     // step 7); a returning lease flushes whatever went stale in the dark.
     const hadLease = activityLeases.hasForegroundLease()
-    activityLeases.report(handlerCtx.clientId ?? 'unknown-client', foreground === true)
+    const cameToFront = activityLeases.report(handlerCtx.clientId ?? 'unknown-client', foreground === true)
     if (!hadLease && foreground === true) sessionRuntime.checkouts.flushDeferred()
+    // A client that comes to the front may list sessions started outside Solus.
+    if (cameToFront) sessionRuntime.requestSessionIndexRefresh()
     return { ok: true }
   })
 

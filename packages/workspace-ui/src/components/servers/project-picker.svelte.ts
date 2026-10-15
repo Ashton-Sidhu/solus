@@ -1,9 +1,8 @@
 import { onMount } from 'svelte'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { RunConfig } from '@solus/contracts/types'
+import type { RunLocation } from '@solus/contracts/types'
 import type { WorkspaceContext } from '../../contexts/workspace/workspace.context.svelte'
-import { withCheckout, withHost, withProjectHost } from '../../contexts/workspace/run-config'
 import { projectsStore, serversStore } from '../../contexts'
 import type { ProjectRef } from '../../contexts/projects/project-catalog'
 import { requestInputFocus } from '../../lib/inputFocus'
@@ -12,6 +11,7 @@ import { hostOnboardingStore } from './host-onboarding.store.svelte'
 import type { HostOption, ProjectSource } from './lib/open-project-flow'
 import { openProjectStore } from './open-project.store.svelte'
 import { isRunOnHostLocked, moveTabToHost } from './run-on'
+import { checkoutPlace, openFolder, runHost } from '../../contexts/workspace/run-location'
 
 type PickerIntent = 'dispatch' | 'open-project'
 
@@ -74,8 +74,8 @@ export function createProjectPicker(session: WorkspaceContext) {
   const directoryPickerServerId = $derived(
     directoryPickerServerIdOverride ??
       (directoryPickerTargetTabId
-        ? session.sessionFor(directoryPickerTargetTabId)?.run.serverId
-        : session.activeSession?.run.serverId) ??
+        ? runHost(session.sessionFor(directoryPickerTargetTabId)?.run)
+        : runHost(session.activeSession?.run)) ??
       serverConnections.runOnHostId() ??
       LOCAL_SERVER_ID,
   )
@@ -97,9 +97,8 @@ export function createProjectPicker(session: WorkspaceContext) {
   const directoryPickerInitialPath = $derived.by(() => {
     const targetSession = directoryPickerTargetTabId ? session.sessionFor(directoryPickerTargetTabId) : null
     // `~` is a folder not chosen yet, so it starts in the projects root too.
-    if (targetSession?.run.serverId === directoryPickerServerId && targetSession.run.workingDirectory !== '~') {
-      return targetSession.run.workingDirectory
-    }
+    const folder = checkoutPlace(targetSession?.run)
+    if (folder?.serverId === directoryPickerServerId && folder.path !== '~') return folder.path
     return undefined
   })
 
@@ -171,12 +170,12 @@ export function createProjectPicker(session: WorkspaceContext) {
       if (draft) {
         // A browse that started from a host row carries that host with it —
         // the picked folder is a path on that machine, not this one.
-        draft.run =
-          draftHostOverride && draft.run.serverId !== draftHostOverride
-            ? applyHostIntent(draft.run, draftHostOverride, dir, draftIntent)
-            : withCheckout(draft.run, dir, null)
+        draft.run.location =
+          draftHostOverride && runHost(draft.run) !== draftHostOverride
+            ? applyHostIntent(draft.run.location, draftHostOverride, dir, draftIntent)
+            : openFolder(draft.run.location, { serverId: checkoutPlace(draft.run).serverId, path: dir })
         if (draftIntent === 'open-project') draft.task = { kind: 'none' }
-        void session.environment.refresh(draft.run.serverId, dir)
+        void session.environment.refresh(runHost(draft.run), dir)
       }
       requestInputFocus()
       return
@@ -192,11 +191,11 @@ export function createProjectPicker(session: WorkspaceContext) {
       // draft beside it. Choosing a host is part of that draft's run config —
       // there is no tab to move, because nothing has started.
       const draft = session.drafts.openSessionDraft({ freshTask: intent === 'open-project' }, dir)
-      if (overrideServerId) draft.run = applyHostIntent(draft.run, overrideServerId, dir, intent)
+      if (overrideServerId) draft.run.location = applyHostIntent(draft.run.location, overrideServerId, dir, intent)
     } else if (
       targetTabId &&
       overrideServerId &&
-      session.sessionFor(targetTabId)?.run.serverId !== overrideServerId
+      runHost(session.sessionFor(targetTabId)?.run) !== overrideServerId
     ) {
       // The folder lives on another host, so the tab has to move there too —
       // setBaseDirectory alone would point the current host at a missing path.
@@ -229,21 +228,16 @@ export function createProjectPicker(session: WorkspaceContext) {
 
   /** The tab moves; no session does — nothing has started on it yet. */
   function placeTabOnHost(tabId: string, serverId: string, path: string, intent: PickerIntent = 'open-project') {
-    moveTabToHost({
-      workspace: session,
-      tabId,
-      serverId,
-      // A browser is not a machine that can host, so this is never true on web.
-      isLocalHost: serverId === serverConnections.localServerId(),
-      path,
-      intent,
-    })
+    const tabSession = session.sessionFor(tabId)
+    if (!tabSession) return
+    moveTabToHost({ workspace: session, tabId, location: applyHostIntent(tabSession.run.location, serverId, path, intent) })
+    if (intent === 'open-project') tabSession.task = { kind: 'none' }
   }
 
-  /** The draft equivalent of `placeTabOnHost`: a folder chosen on a host is
-   *  that host's project, while a dispatch leaves the project where it is. */
-  function applyHostIntent(run: RunConfig, serverId: string, path: string, intent: PickerIntent): RunConfig {
-    return intent === 'dispatch' ? withHost(run, serverId, { path }) : withProjectHost(run, serverId, { path })
+  /** A folder chosen on a host is that host's project, while a dispatch leaves
+   *  the project where it is. */
+  function applyHostIntent(location: RunLocation, serverId: string, path: string, intent: PickerIntent): RunLocation {
+    return openFolder(location, { serverId, path }, { keepProject: intent === 'dispatch' })
   }
 
   /**
@@ -263,7 +257,7 @@ export function createProjectPicker(session: WorkspaceContext) {
       (session.projectPageScope.kind === 'project'
         ? session.projectPageScope.checkout?.serverId
         : options.sourceId
-          ? session.runFor(options.sourceId)?.serverId
+          ? runHost(session.runFor(options.sourceId))
           : undefined)
     openProjectStore.open(hosts, {
       tabId: options.sourceId,
@@ -306,7 +300,7 @@ export function createProjectPicker(session: WorkspaceContext) {
     if (onProjectOpened && project) {
       onProjectOpened(project)
     } else if (requesterDraft) {
-      requesterDraft.run = withProjectHost(withCheckout(requesterDraft.run, path, null), serverId, { path })
+      requesterDraft.run.location = openFolder(requesterDraft.run.location, { serverId, path })
       requesterDraft.task = { kind: 'none' }
       void session.environment.refresh(serverId, path)
       requestInputFocus()
@@ -315,7 +309,7 @@ export function createProjectPicker(session: WorkspaceContext) {
       requestInputFocus({ tabId: reusableTabId })
     } else {
       const draft = session.drafts.openSessionDraft({ freshTask: true }, path)
-      draft.run = withProjectHost(draft.run, serverId, { path })
+      draft.run.location = openFolder(draft.run.location, { serverId, path })
       requestInputFocus()
     }
 

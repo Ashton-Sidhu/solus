@@ -4,7 +4,7 @@ import { pullRequestFixture } from './__fixtures__/pull-request'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { PrFilter, PrListPage, PrProjectListing, PullRequest, RepoRef } from '@solus/contracts/providers'
 import type { IpcContext } from '@solus/contracts/types'
-import type { Provider } from '@solus/server/providers/types'
+import type { PrPageRequest, Provider } from '@solus/server/providers/types'
 import { SolusServer } from '@solus/server/transport/server'
 import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
 import type { AgentDispatcher } from '@solus/server/execution/agents/agent-runner'
@@ -27,6 +27,10 @@ const listed: { repo: string; filter: PrFilter | undefined; page: number }[] = [
 let authoredRows: PullRequest[] = []
 let reviewRows: PullRequest[] | Error = []
 const priorityReads: string[] = []
+const batchReads: Array<{ repos: string[]; viewer: string; pages: number[]; cursors: Array<string | null>; query?: string }> = []
+/** Whether the many-project read answers. Off, every project is left to its
+ *  own read, which is how a repository the read could not see is listed. */
+let batching = false
 mock.module('@solus/server/prs/pr-index', () => ({
   repoKeyOf: (target: RepoRef) => `${target.host}/${target.owner}/${target.repo}`,
   prIndex: {
@@ -43,6 +47,23 @@ mock.module('@solus/server/prs/pr-index', () => ({
       listed.push({ repo: repo.repo, filter, page })
       return { items: [pullRequestFixture(1, { title: repo.repo })], page, hasMore: false }
     },
+    // Answers every repository but `unseen`, which the read could not see.
+    listPages: async (_provider: Provider, requests: PrPageRequest[], viewer: string, filter: PrFilter | undefined) => {
+      if (!batching) return new Map()
+      batchReads.push({
+        repos: requests.map((request) => request.repo.repo),
+        viewer,
+        pages: requests.map((request) => request.page),
+        cursors: requests.map((request) => request.cursor),
+        query: filter?.query,
+      })
+      const sectioned = !filter?.query
+      return new Map(requests.filter((request) => request.repo.repo !== 'unseen').map((request) => [`github.com/acme/${request.repo.repo}`, {
+        page: Promise.resolve({ items: [pullRequestFixture(9, { title: `batched ${request.repo.repo}` })], page: request.page, hasMore: false }),
+        authored: sectioned && request.page === 1 ? Promise.resolve({ items: [pullRequestFixture(40)], page: 1, hasMore: false }) : null,
+        needsReview: sectioned && request.page === 1 ? Promise.resolve([pullRequestFixture(9)]) : null,
+      }]))
+    },
     listNeedsReview: async (): Promise<PullRequest[]> => {
       priorityReads.push('review requested')
       if (reviewRows instanceof Error) throw reviewRows
@@ -58,6 +79,7 @@ mock.module('@solus/server/git/git-helpers', () => ({
   // list read that answers.
   resolveRepoRoot: async (scope: string) => (scope === '/unpushed' ? scope : null),
   computeGitState: async () => null,
+  resolveRepositoryKey: async () => null,
 }))
 const provider = { review: { getViewer: async () => 'octocat' } } as unknown as Provider
 mock.module('@solus/server/providers/registry', () => ({
@@ -192,6 +214,62 @@ describe('the viewer\'s own pull requests in an every-project read', () => {
     const page = await server().handle('prList', [ctx, { state: 'open' }, 1], TEST_HANDLER_CTX)
 
     expect(page.items.map((item) => item.number)).toEqual([1])
+    expect(priorityReads).toEqual([])
+  })
+})
+
+// WHY: every project cost six to nine GitHub requests, one REST search each
+// against a limit of thirty a minute. One search answers every project on a
+// host and account together, and the answer keeps its shape.
+describe('an every-project read in one search', () => {
+  async function withBatching<T>(run: () => Promise<T>): Promise<T> {
+    batching = true
+    listed.length = 0
+    batchReads.length = 0
+    try {
+      return await run()
+    } finally {
+      batching = false
+    }
+  }
+
+  test('reads every project in one read and lists only the ones it could not see', async () => {
+    const listings = await withBatching(() => server().handle(
+      'prListProjects',
+      [ctx, ['/repos/a', '/repos/unseen', '/plain-folder', '/repos/b'], { state: 'open' }],
+      TEST_HANDLER_CTX,
+    ))
+
+    expect(batchReads).toEqual([{ repos: ['a', 'unseen', 'b'], viewer: 'octocat', pages: [1, 1, 1], cursors: [null, null, null], query: undefined }])
+    expect(listings).toEqual([
+      { projectRoot: '/repos/a', page: { items: [expect.objectContaining({ number: 9, title: 'batched a' }), expect.objectContaining({ number: 40 })], page: 1, hasMore: false } },
+      { projectRoot: '/repos/unseen', page: expect.objectContaining({ items: [expect.objectContaining({ number: 1, title: 'unseen' })] }) },
+      { projectRoot: '/plain-folder', unavailable: 'not-a-repository' },
+      { projectRoot: '/repos/b', page: expect.objectContaining({ items: [expect.objectContaining({ title: 'batched b' }), expect.objectContaining({ number: 40 })] }) },
+    ])
+    expect(listed.map((read) => read.repo)).toEqual(['unseen'])
+  })
+
+  test('a search is one read for every project too, with no sections', async () => {
+    const listings = await withBatching(() => server().handle('prListProjects', [ctx, ['/repos/a', '/repos/b'], { state: 'open', query: 'fix' }], TEST_HANDLER_CTX))
+
+    expect(batchReads.map((read) => [read.repos, read.query])).toEqual([[['a', 'b'], 'fix']])
+    expect(listed).toEqual([])
+    expect(rowsOf(listings)).toEqual([9])
+  })
+
+  test('the next page of several projects is one read, each from its own cursor', async () => {
+    const listings = await withBatching(() => server().handle('prListProjects', [
+      ctx,
+      ['/repos/a', '/repos/b'],
+      { state: 'open' },
+      [{ projectRoot: '/repos/a', page: 2, cursor: 'search:A' }, { projectRoot: '/repos/b', page: 3, cursor: 'search:B' }],
+    ], TEST_HANDLER_CTX))
+
+    expect(batchReads.map((read) => [read.pages, read.cursors])).toEqual([[[2, 3], ['search:A', 'search:B']]])
+    // A later page is the page alone: the sections came with page one.
+    expect(listings.map((listing) => 'page' in listing ? [listing.page.page, listing.page.items.map((item) => item.number)] : null))
+      .toEqual([[2, [9]], [3, [9]]])
     expect(priorityReads).toEqual([])
   })
 })

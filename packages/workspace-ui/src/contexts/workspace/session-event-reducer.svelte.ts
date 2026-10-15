@@ -23,6 +23,7 @@ import { showsActivity } from '../../components/activity/lib/activity-line'
 import { restoredModelConfig } from './model-options'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
 import { canDriveSession } from '../sharing/resource-roles'
+import { adoptGit, checkoutGit, checkoutPlace, projectHome, projectRoot, runHost, workingPlace } from './run-location'
 
 type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
 
@@ -97,7 +98,7 @@ export class SessionEventReducer {
   }
 
   private reader(session: Session): UserId | null {
-    return this.deps.currentUserId?.(session.run.serverId) ?? null
+    return this.deps.currentUserId?.(runHost(session.run)) ?? null
   }
 
   /**
@@ -360,26 +361,26 @@ export class SessionEventReducer {
         // dispatch it is a different machine entirely. Keep the provisional
         // binding until the link is in the renderer store, so the sidebar never
         // projects this session as loose between the two states.
-        const taskServerId = session.run.taskServerId
+        const taskServerId = projectHome(session.run).serverId
         const pendingTaskId = existingTaskId(session.task)
         if (
           pendingTaskId
           && session.currentTurnStart === 'fresh'
-          && session.run.serverId !== taskServerId
-          && canDriveSession(session.run.serverId, session.id)
+          && runHost(session.run) !== taskServerId
+          && canDriveSession(runHost(session.run), session.id)
         ) {
           this.deps.tasksStore.get(pendingTaskId).trackSessionStart(taskSessionId)
           // On a dispatch this client is the only party that can name the
           // execution host, so it says so once and the task's host records the
           // session. The group path travels with it because the agent's own
           // checkout is a path on the borrowed machine.
-          const branch = session.run.gitContext?.branch
+          const branch = checkoutGit(session.run)?.branch
           void this.deps.tasksStore.get(pendingTaskId).linkSession(
             taskSessionId,
             {
-              serverId: session.run.serverId,
+              serverId: runHost(session.run),
               provider: session.run.provider ?? undefined,
-              projectRoot: session.run.projectGroupPath,
+              projectRoot: projectRoot(session.run),
             },
             taskServerId,
             taskRoleOf(session.task),
@@ -482,7 +483,7 @@ export class SessionEventReducer {
           // Incremental union from just this message — the full rescan runs at
           // task_complete to reconcile. Avoids re-parsing every historical body.
           this.deps.addChangedFilesFromMessage(sessionId, completedFileMsg)
-          this.deps.onTurnSettled(sessionId, session.run.workingDirectory)
+          this.deps.onTurnSettled(sessionId, checkoutPlace(session.run).path)
         }
         session.currentActivity = 'Thinking...'
         break
@@ -523,7 +524,7 @@ export class SessionEventReducer {
         const next = event.paths.join('\n')
         if (prev !== next) {
           session.sessionChangedFiles.splice(0, session.sessionChangedFiles.length, ...event.paths)
-          this.deps.onTurnSettled(sessionId, session.run.workingDirectory)
+          this.deps.onTurnSettled(sessionId, checkoutPlace(session.run).path)
         }
         break
       }
@@ -619,7 +620,7 @@ export class SessionEventReducer {
         if (this.settledTurnIds.get(session) === event.turnId) break
         this.settledTurnIds.set(session, event.turnId)
         session.currentTurnStartedAt = null
-        this.deps.onTurnSettled(sessionId, session.run.workingDirectory)
+        this.deps.onTurnSettled(sessionId, checkoutPlace(session.run).path)
         this.deps.refreshTurnSnapshots(sessionId)
         this.deps.workStreamTracker.sweep(session)
         if (event.outcome === 'completed' || event.outcome === 'failed') {
@@ -728,10 +729,10 @@ export class SessionEventReducer {
         removeAssistantPlanDuplicate(session.messages, event.planContent)
 
         const toolUseId = event.planToolUseId || uuid()
-        const cwd = session.run.workingDirectory
+        const cwd = checkoutPlace(session.run).path
         const projectPath = encodePathAsFolder(cwd)
         const planId = this.deps.planStore.upsertFromStream({
-          serverId: session.run.serverId,
+          serverId: runHost(session.run),
           sessionId: session.id,
           planToolUseId: toolUseId,
           projectPath,
@@ -762,19 +763,20 @@ export class SessionEventReducer {
         break
 
       case 'git_context':
-        session.run.gitContext = event.gitContext
-        if (event.gitContext.worktreePath) session.run.worktree = null
+        // A worktree the host made is where the session works now, so it no
+        // longer asks for one.
+        session.run.location = adoptGit(session.run.location, workingPlace(session.run), event.gitContext, event.gitContext.worktreePath ? null : undefined)
         // A dispatched host can create its worktree after session_init. Copy
         // that session-owned fact to the task host's session stub. This does
         // not write or recreate any task relationship.
         if (session.agentSessionId && event.gitContext.branch) {
           const taskSessionId = session.id
-          const taskServerId = session.run.taskServerId
+          const taskServerId = projectHome(session.run).serverId
           // Only a driver of the session copies it; the host refuses a viewer.
           if (
             taskServerId
             && taskSessionId
-            && canDriveSession(session.run.serverId, session.id)
+            && canDriveSession(runHost(session.run), session.id)
           ) {
             void serverConnections.apiFor(taskServerId)
               .setSessionBranch(taskSessionId, event.gitContext.branch)
@@ -787,7 +789,7 @@ export class SessionEventReducer {
       case 'git_status':
         // Pushed live from the main-process git watcher — lands in the same
         // store the environment views already read by cwd.
-        this.deps.setGitStatus(session.run.serverId, event.cwd, event.state)
+        this.deps.setGitStatus(runHost(session.run), event.cwd, event.state)
         break
 
       case 'user_message': {
@@ -840,7 +842,7 @@ export class SessionEventReducer {
         }
         // A prompt this client did not compose (another agent's send_session)
         // carries its files as the composer's `[Attached file: …]` lines.
-        const attached = outbound ? null : splitAttachedFiles(event.text, session.run.serverId)
+        const attached = outbound ? null : splitAttachedFiles(event.text, runHost(session.run))
         if (attached?.attachments.length) message.content = attached.text
         if (outbound?.attachments?.length) {
           message.attachments = outbound.attachments
@@ -1009,6 +1011,7 @@ export class SessionEventReducer {
           // Stop keeps the host's queue (plan 004 D12): held prompts leave only on
           // `prompt_dequeued`. Who stopped it arrives as a `stopped` activity.
           this.deps.closePlanModal()
+          this.settleInterruptedSubagents(session)
         }
         if (event.status === 'idle') {
           session.isStreamingText = false
@@ -1027,7 +1030,7 @@ export class SessionEventReducer {
       }
 
       case 'work_updated': {
-        void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.content, event.updatedAt, session.run.serverId)
+        void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.content, event.updatedAt, runHost(session.run))
         this.deps.workStreamTracker.updateWork(session, event)
         break
       }
@@ -1218,6 +1221,24 @@ export class SessionEventReducer {
     target.toolStatus = event.isError ? 'error' : 'completed'
     target.toolCompletedAt = Date.now()
     session.currentActivity = 'Thinking...'
+  }
+
+  /**
+   * Stop cancels the provider query, which ends every sub-agent it started,
+   * blocking or backgrounded. None of them sends a result after that, so their
+   * cards settle here, with the word a reload of a stopped child shows.
+   */
+  private settleInterruptedSubagents(session: Session): void {
+    const now = Date.now()
+    for (const message of session.messages) {
+      if (message.role !== 'tool' || !message.subMessages || message.toolStatus !== 'running') continue
+      message.toolStatus = 'error'
+      message.report ??= 'Interrupted'
+      message.toolCompletedAt = now
+      for (const child of message.subMessages) {
+        if (child.role === 'tool' && child.toolStatus === 'running') child.toolStatus = 'error'
+      }
+    }
   }
 
   /**

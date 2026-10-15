@@ -6,6 +6,7 @@ import { updatesStore } from "@solus/workspace-ui/contexts";
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
+import { runHost } from "@solus/workspace-ui/contexts/workspace/run-location";
 
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 
@@ -24,7 +25,7 @@ export function installDesktopUpdates(core: DesktopAppCore): void {
 
   const isLocalHostBusy = $derived(
     Object.values(session.sessions.byId).some(
-      (item) => item.run.serverId === LOCAL_SERVER_ID && isSessionBusyStatus(item.status),
+      (item) => runHost(item.run) === LOCAL_SERVER_ID && isSessionBusyStatus(item.status),
     ),
   );
 

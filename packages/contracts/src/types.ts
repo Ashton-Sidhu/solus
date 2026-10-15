@@ -2,7 +2,7 @@ import type { QueueEntryDetails, QueueAttachment } from './session-queue'
 import type { WireSessionLoadMessage } from './session-history'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
-import type { GitIdentity, GitState, WorktreeEntry } from './git-types'
+import type { GitIdentity, GitState } from './git-types'
 import type { TaskProviderId, TaskSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
@@ -840,53 +840,82 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number]
  * and this is no longer the thing being edited.
  */
 export interface RunConfig {
-  workingDirectory: string
-  /** The checkout the session adopts before its own Git refresh answers. Null
-   *  when nothing is inherited, which is not the same as "not a repo". */
-  gitContext: GitCheckout | null
-  /**
-   * How this run will branch, or null when it works directly in its checkout.
-   *
-   * One field rather than a request flag beside a base branch, because the two
-   * always move together and a pair can express the contradiction "not branching,
-   * from `main`" — which is exactly how a toggle bug hid. `baseBranch` is null
-   * while the branch to fork from is still unresolved: the decision is made
-   * before the answer is known, since choosing a project drops the old checkout
-   * and the new host has yet to reply.
-   *
-   * Says nothing about *where* the run happens; `serverId`/`taskServerId` own
-   * that. A dispatch can clear this by selecting an existing target worktree.
-   */
-  worktree: { baseBranch: string | null } | null
+  /** Where the run works. Read it through `run-location.ts` in workspace-ui. */
+  location: RunLocation
   modelConfig: ModelConfig
   permissionMode: PermissionMode
   /** null = "use the default", resolved at dispatch. */
   provider: AgentId | null
-  /** The host that runs the agent. */
-  serverId: string
-  /**
-   * The host that owns this run's task record — the machine where the *project*
-   * was opened, which is not always the machine the agent runs on.
-   *
-   * Dispatch carries the repository, not the project (ADR-0002): sending a
-   * session to another host gives that host a clone, so the task stays with the
-   * host you opened the project from. Opening a folder on a host makes that host
-   * the project's own, so its tasks are minted there. `serverId !== taskServerId`
-   * is therefore the definition of a dispatch. Dispatches always operate in a
-   * worktree, either one created for the session or one selected on the target.
-   */
-  taskServerId: string
-  /**
-   * Stable sidebar grouping path when this checkout runs on another host: the
-   * project root as the *user* knows it, not the borrowed machine's clone path.
-   * Part of the run — not the session — so a draft opened from a dispatched
-   * session inherits its grouping the same way it inherits the hosts.
-   */
-  projectGroupPath: string | null
   sessionSkills: string[]
-  /** Inert until Send; then connection and repo preparation begin. */
-  pendingHostDispatch: PendingHostDispatch | null
 }
+
+/**
+ * A path together with the host it is on. A path alone names no folder: the
+ * same string is a different folder, or none, on another host.
+ */
+export interface Place {
+  serverId: string
+  path: string
+}
+
+/**
+ * Where a run works, as one value (docs/plans/run-location.md).
+ *
+ * Every path travels with its host, so a run cannot name a folder on one host
+ * while it runs on another. The rules that read and change it live in
+ * `packages/workspace-ui/src/contexts/workspace/run-location.ts`.
+ */
+export interface RunLocation {
+  checkout: FolderCheckout | CloneCheckout
+  /**
+   * Where the project lives: its tasks are filed on this host, and the sidebar
+   * groups the session under this folder. Not the checkout's host for a
+   * dispatch: sending a session to another host gives that host a
+   * clone, so the project and its tasks stay where they were opened.
+   */
+  project: Place
+}
+
+/** A folder that exists on `serverId`. The agent runs on that host. */
+export interface FolderCheckout {
+  kind: 'folder'
+  serverId: string
+  /** `~` while the folder is not known yet. A selected worktree is `git.worktreePath`. */
+  path: string
+  /** What Git last said about `path`. Null until it answers, which is not the
+   *  same as "not a repository". */
+  git: GitCheckout | null
+  /**
+   * Branch into a new worktree on start. Null works in the folder itself.
+   * `baseBranch` is null while the branch to fork from is unresolved: the choice
+   * is made before the host answers, because choosing a project drops the old
+   * checkout.
+   */
+  newWorktree: { baseBranch: string | null } | null
+}
+
+/**
+ * A copy of a repository that Send makes on `serverId`. Nothing exists there
+ * yet, so nothing on that host can be read before Send. The host's display name
+ * and locality are not stored: they are registry lookups.
+ */
+export interface CloneCheckout {
+  kind: 'clone'
+  serverId: string
+  repoKey: string
+  /** The default branch of the checkout it copies, when Git named one. The
+   *  target host resolves it on Send when null. */
+  defaultBranch: string | null
+  start: CloneStart
+}
+
+/** How a clone starts: on the repository's default branch, in a worktree that
+ *  already exists on the target host (an exact path there), or in a new
+ *  worktree from an origin branch. */
+export type CloneStart =
+  | { kind: 'default-branch' }
+  | { kind: 'worktree'; path: string; branch: string }
+  | { kind: 'new-worktree'; baseBranch: string | null }
 
 /**
  * Where the session a composer starts will be filed: under a task that exists,
@@ -964,31 +993,6 @@ export interface SessionDescription {
 }
 
 export type TurnStartKind = 'fresh' | 'follow_up' | 'steer'
-
-/**
- * A picker choice waiting for the first prompt to prepare and enter its host.
- *
- * A union rather than one shape with an `intent` beside a repo key only half of
- * it uses: a dispatch cannot exist without a repository to clone, and an opened
- * project has none to name. The host's display name and locality are not stored
- * — they are registry lookups, and a copy taken at pick time goes stale the
- * moment that host is renamed or forgotten.
- */
-export type PendingHostDispatch =
-  /** Send this session to another machine, which is first given a clone of
-   *  `repoKey`. The project — and every task it files — stays behind. A selected
-   *  worktree is an exact path on the target host, never a local checkout. */
-  | {
-      serverId: string
-      intent: 'dispatch'
-      repoKey: string
-      worktree?: Pick<WorktreeEntry, 'path' | 'branch'>
-      /** Origin branch used to create a new isolated worktree on the target. */
-      baseBranch?: string
-    }
-  /** Work in a directory that host already has, which makes it that host's
-   *  project outright. Nothing to prepare. */
-  | { serverId: string; intent: 'open-project' }
 
 /**
  * Backend-driven session state. Shared across tabs watching the same session.

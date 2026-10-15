@@ -36,7 +36,6 @@
   } from "../../lib/sessionUtils";
   import { homeGitDetails } from "../../lib/git-context";
   import { projectDirLabel } from "../../lib/paths";
-  import { withCheckout } from "../../contexts/workspace/run-config";
   import {
     existingTaskId,
     type SessionDraft,
@@ -73,6 +72,7 @@
     type BreadcrumbDraftMode,
     type CompletedSectionOverride,
   } from "./lib/session-breadcrumb";
+  import { checkoutGit, checkoutPlace, openFolder, projectHome, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** The session on screen — the last crumb. Empty for a draft, which has no
@@ -159,18 +159,18 @@
   const projectKey = $derived(
     draft
       ? (homeGitDetails(
-          draft.run.workingDirectory ?? "~",
-          draft.run.gitContext ?? null,
+          checkoutPlace(draft.run).path ?? "~",
+          checkoutGit(draft.run) ?? null,
           null,
         ).projectRoot ??
-          draft.run.workingDirectory ??
+          checkoutPlace(draft.run).path ??
           "~")
       : (task?.projectKey ?? "~"),
   );
   // The project the crumb names, grouped as the column groups it: every
   // checkout of one repository is one project.
   const projectGroupKey = $derived(
-    draft ? groupKeyFor(draft.run.serverId, projectKey) : (task?.groupKey ?? "~"),
+    draft ? groupKeyFor(runHost(draft.run), projectKey) : (task?.groupKey ?? "~"),
   );
   const projectOption = $derived(
     sidebarStore.projectSummaries.find((summary) => summary.project.key === projectGroupKey)?.project ?? null,
@@ -408,10 +408,11 @@
     menu = null;
     // A draft moves to the project's checkout on its own host; with none
     // there, it lands on the project's task like any other crumb.
-    const nextPath = draft ? projectsStore.checkoutPathOn(draft.run.serverId, nextGroupKey) : null;
-    if (draft && nextPath) {
-      draft.run = withCheckout(draft.run, nextPath, null);
-      void session.environment.refresh(draft.run.serverId, nextPath);
+    const host = draft ? checkoutPlace(draft.run).serverId : null;
+    const nextPath = draft && host ? projectsStore.checkoutPathOn(host, nextGroupKey) : null;
+    if (draft && host && nextPath) {
+      draft.run.location = openFolder(draft.run.location, { serverId: host, path: nextPath });
+      void session.environment.refresh(host, nextPath);
     } else {
       const lead = sidebarStore.allTasks.find(
         (item) => item.key === leadTaskKey,
@@ -989,7 +990,7 @@
       <TaskPicker
         task={draft.task}
         {projectKey}
-        serverId={draft.run.taskServerId ?? draft.run.serverId}
+        serverId={projectHome(draft.run).serverId ?? runHost(draft.run)}
         onSelect={(next) => {
           if (draft) draft.task = next;
         }}

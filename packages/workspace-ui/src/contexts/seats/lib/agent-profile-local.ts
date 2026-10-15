@@ -1,4 +1,4 @@
-import { agentProfileSchema, type AgentProfile } from '@solus/contracts/agent-profile'
+import { agentProfileSchema, isRetiredAgentProfileEntry, withoutRetiredEntries, type AgentProfile } from '@solus/contracts/agent-profile'
 import type { AgentProfileChange } from '@solus/client-core/agent-profile-sync'
 
 /**
@@ -14,13 +14,13 @@ export function agentProfileStorageKey(accountKey: string): string {
   return `solus.agent-profile.v1:${accountKey}`
 }
 
-/** The stored copy, or null when none. A copy that fails the schema reads as empty, never as an error. */
+/** The stored copy, or null when none. A copy that fails the schema reads as empty, never as an error. A retired entry is dropped. */
 export function readStoredEntries(storage: Storage, accountKey: string): AgentProfile | null {
   const stored = storage.getItem(agentProfileStorageKey(accountKey))
   if (stored === null) return null
   try {
     const parsed = agentProfileSchema.safeParse(JSON.parse(stored))
-    return parsed.success ? parsed.data : {}
+    return parsed.success ? withoutRetiredEntries(parsed.data) : {}
   } catch {
     return {}
   }
@@ -46,6 +46,8 @@ export function removeStoredEntries(storage: Storage, accountKey: string): void 
 export function applyChange(entries: AgentProfile, change: AgentProfileChange): AgentProfileChange {
   const applied: AgentProfileChange = { set: {}, reset: [] }
   for (const [key, entry] of Object.entries(change.set)) {
+    // A retired entry from another device or the account never lands here.
+    if (isRetiredAgentProfileEntry(entry)) continue
     if (JSON.stringify(entries[key]) === JSON.stringify(entry)) continue
     entries[key] = structuredClone(entry)
     applied.set[key] = structuredClone(entry)

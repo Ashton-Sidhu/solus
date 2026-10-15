@@ -5,22 +5,6 @@ import { GitHubProvider } from '@solus/server/providers/github/provider'
 
 const repo: RepoRef = { host: 'github.com', owner: 'acme', repo: 'app' }
 
-const restPullRequest = {
-  node_id: 'PR_2',
-  number: 66,
-  html_url: 'https://github.com/acme/app/pull/66',
-  title: 'Second layer',
-  user: { login: 'sidhu', avatar_url: '' },
-  state: 'open',
-  merged_at: null,
-  created_at: '2026-08-01T00:00:00Z',
-  updated_at: '2026-08-02T00:00:00Z',
-  draft: false,
-  labels: [],
-  base: { ref: 'layer-1', sha: 'base-sha', repo: { full_name: 'acme/app' } },
-  head: { ref: 'layer-2', sha: 'head-sha', repo: { full_name: 'acme/app', name: 'app', owner: { login: 'acme' } } },
-}
-
 class StubProvider extends GitHubProvider {
   constructor(private readonly client: GitHubClient) {
     super()
@@ -41,22 +25,40 @@ const users = {
   getAuthenticated: async () => ({ data: { login: 'sidhu', avatar_url: '' } }),
 }
 
+/** GitHub answering one list search with a single row, and its repository. */
 function listingClient(stack: object | null): GitHubClient {
+  const row = {
+    number: 2,
+    url: 'https://github.com/acme/app/pull/2',
+    title: 'Second layer',
+    headRefOid: 'head-2',
+    author: { login: 'sidhu', avatarUrl: '' },
+    state: 'OPEN',
+    createdAt: '2026-08-01T00:00:00Z',
+    updatedAt: '2026-08-02T00:00:00Z',
+    isDraft: false,
+    labels: { nodes: [] },
+    additions: 1,
+    deletions: 1,
+    reviewRequests: { nodes: [] },
+    assignees: { nodes: [] },
+    body: '',
+    baseRefName: 'main',
+    baseRefOid: 'base',
+    headRefName: 'layer-2',
+    changedFiles: 1,
+    mergeable: 'MERGEABLE',
+    reviewDecision: null,
+    reviews: { totalCount: 0 },
+    baseRepository: { nameWithOwner: 'acme/app' },
+    headRepository: { nameWithOwner: 'acme/app', name: 'app', owner: { login: 'acme' } },
+    ...stack,
+  }
   return {
-    rest: { pulls: { list: async () => ({ data: [restPullRequest] }) }, users, repos, paginate },
+    rest: { users, repos, paginate },
     graphql: async () => ({
-      repository: {
-        pullRequests: {
-          nodes: [{
-            id: 'PR_2',
-            reviewDecision: null,
-            reviews: { totalCount: 0 },
-            additions: 1,
-            deletions: 1,
-            ...stack,
-          }],
-        },
-      },
+      p0: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [row] },
+      p1: { nameWithOwner: 'acme/app', viewerPermission: 'WRITE', mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, autoMergeAllowed: false, pullRequests: { totalCount: 1 } },
     }),
     credential: { source: 'host', token: 'test-token' },
   } as unknown as GitHubClient
@@ -93,21 +95,21 @@ describe('GitHub stacked pull requests', () => {
   test('a listed row says where it sits in its stack without a request of its own', async () => {
     // WHY: the list badge must come from the facts query already on the wire,
     // so stacked pull requests cost the list nothing extra.
-    const page = await new StubProvider(listingClient({
+    const [page] = await new StubProvider(listingClient({
       stack: { number: 4, size: 3, baseRefName: 'main' },
       stackEntry: { position: 2 },
-    })).listPullRequestsPage(repo, { state: 'open' }, 1)
+    })).listPullRequestPages([{ repo, page: 1, cursor: null }], { state: 'open' }, 'sidhu', false)
 
-    expect(page.items[0]?.stack).toEqual({ number: 4, position: 2, size: 3, base: 'main' })
+    expect(page?.page.items[0]?.stack).toEqual({ number: 4, position: 2, size: 3, base: 'main' })
   })
 
   test('a row GitHub places in no stack says so, rather than leaving it unknown', async () => {
     // WHY: absent means "not asked" and keeps an earlier answer on the client;
     // a row that left a stack must clear its badge.
-    const page = await new StubProvider(listingClient({ stack: null, stackEntry: null }))
-      .listPullRequestsPage(repo, { state: 'open' }, 1)
+    const [page] = await new StubProvider(listingClient({ stack: null, stackEntry: null }))
+      .listPullRequestPages([{ repo, page: 1, cursor: null }], { state: 'open' }, 'sidhu', false)
 
-    expect(page.items[0]?.stack).toBeNull()
+    expect(page?.page.items[0]?.stack).toBeNull()
   })
 
   test('the stack is read whole, bottom to top, with each layer in its own state', async () => {

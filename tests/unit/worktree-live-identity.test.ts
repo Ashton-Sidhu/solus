@@ -3,6 +3,7 @@ import type { GitCheckout, GitIdentity } from '@solus/contracts/types'
 import { gitCheckoutFromState } from '@solus/contracts/types'
 import { prReviewGitCheckout } from '@solus/workspace-ui/contexts/workspace/pr-review-checkout'
 import { inheritRunConfig } from '@solus/workspace-ui/contexts/workspace/run-config'
+import { checkoutGit, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const liveIdentity: GitIdentity = {
   repoRoot: '/projects/solus/.git/solus/worktrees/fix',
@@ -67,28 +68,23 @@ describe('PR review Git context', () => {
 describe('draft Git context', () => {
   test('every draft constructor inherits a complete worktree context', () => {
     const defaults = {
-      workingDirectory: '/repo',
-      gitContext: null,
-      worktree: null,
+      location: folderLocation({ serverId: 'local', path: '/repo' }),
       modelConfig: { modelId: null, reasoningEffort: 'high' as const, contextWindow: null, fastMode: false },
       permissionMode: 'supervised' as const,
       provider: 'codex' as const,
-      serverId: 'local',
-      taskServerId: 'local',
-      projectGroupPath: null,
       sessionSkills: [],
-      pendingHostDispatch: null,
+    }
+    const git: GitCheckout = {
+      repoRoot: '/repo',
+      branch: 'feature',
+      targetBranch: 'main',
+      worktreePath: '/repo/.git/solus/worktrees/feature',
     }
     const source = {
       ...defaults,
-      gitContext: {
-        repoRoot: '/repo',
-        branch: 'feature',
-        targetBranch: 'main',
-        worktreePath: '/repo/.git/solus/worktrees/feature',
-      },
+      location: folderLocation({ serverId: 'local', path: '/repo' }, { git }),
     }
 
-    expect(inheritRunConfig(defaults, source).gitContext).toEqual(source.gitContext)
+    expect(checkoutGit(inheritRunConfig(defaults, source))).toEqual(git)
   })
 })

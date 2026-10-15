@@ -6,6 +6,7 @@ import {
   type AgentProfile,
   type AgentProfileEntry,
   type AgentProfileKey,
+  withoutRetiredEntries,
 } from '@solus/contracts/agent-profile'
 import {
   syncAccountKey,
@@ -111,7 +112,8 @@ export class AgentProfileLocalStore {
 
   /** A change confirmed by the cloud. Not reported back to sync. */
   applyRemote(change: AgentProfileChange): void {
-    const next = { ...this.stored, ...structuredClone(change.set) }
+    // A retired entry from another device or the account never lands here.
+    const next = { ...this.stored, ...withoutRetiredEntries(structuredClone(change.set)) }
     for (const key of change.reset) delete next[key]
     this.stored = next
     this.save()
@@ -124,7 +126,7 @@ export class AgentProfileLocalStore {
     const raw = this.storage.getItem(profileKey(accountKey))
     if (!raw) return {}
     const parsed = storedJsonSchema.safeParse(raw)
-    return parsed.success ? parsed.data.entries : {}
+    return parsed.success ? withoutRetiredEntries(parsed.data.entries) : {}
   }
 
   private save(): void {

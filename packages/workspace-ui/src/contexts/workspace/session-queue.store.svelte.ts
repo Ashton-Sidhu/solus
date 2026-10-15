@@ -6,6 +6,7 @@ import { reconcileQueuedPromptsForSession } from './session-transcript'
 import { readFileDataUrl } from '../../components/input/lib/attachment-upload'
 import { composeAttachmentContext } from './prompt-composer'
 import { uuid } from '@solus/contracts/uuid'
+import { runHost } from './run-location'
 
 type QueueWorkspace = Pick<WorkspaceContext, 'apiFor' | 'ctxFor' | 'sessionFor'>
 
@@ -61,7 +62,7 @@ export class SessionQueueController {
 
   async edit(tabId: string, prompt: OutboundPrompt, text: string, attachments: QueueAttachment[] | undefined): Promise<void> {
     if (!prompt.queueId) throw new Error('The prompt is no longer queued.')
-    const serverId = this.workspace.sessionFor(tabId)?.run.serverId ?? ''
+    const serverId = runHost(this.workspace.sessionFor(tabId)?.run) ?? ''
     const files: Attachment[] = attachments?.filter((item) => item.type !== 'image').map((item) => ({ ...item, path: item.hostPath ?? '' })) ?? []
     await this.change(tabId, { kind: 'edit', queueId: prompt.queueId, revision: prompt.revision ?? 0, text,
       attachments, attachmentContext: attachments === undefined ? undefined : files.map((file) =>

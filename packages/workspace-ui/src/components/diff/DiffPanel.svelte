@@ -74,6 +74,7 @@
   import { symbolAvailability } from "../code-intel/lib/symbol-card";
   import type { CodeSymbolHit } from "../code-intel/lib/hit-test";
   import type { CodeSymbolAvailability, CodeSymbolLookup } from "../code-intel/lib/symbol-card";
+  import { checkoutGit } from "../../contexts/workspace/run-location";
 
   type ExternalDiffCommentSave = {
     id?: string;
@@ -536,7 +537,7 @@
       ? "Working tree"
       : isWorktree
         ? displayedWorktreeBranch
-        : (sess?.run.gitContext?.branch ?? worktreeBranch),
+        : (checkoutGit(sess?.run)?.branch ?? worktreeBranch),
   );
   const reviewChangedFiles = $derived(toChangedFileSummaries(treeFiles));
 
@@ -1172,7 +1173,7 @@
     {isWorktree}
     {worktreeBranch}
     {targetBranch}
-    fallbackBranch={sess?.run.gitContext?.branch ?? null}
+    fallbackBranch={checkoutGit(sess?.run)?.branch ?? null}
     {headerStats}
     diffStyle={effectiveDiffStyle}
     onSetStyle={(style) => diffViewPreferences.setDiffStyle(style)}

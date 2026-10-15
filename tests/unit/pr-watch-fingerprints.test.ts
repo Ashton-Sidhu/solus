@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { buildWatchFingerprintsQuery, decodeWatchFingerprints } from '@solus/server/providers/github/watch-fingerprints'
+import { aliasedDocument, pullRequestByNumber } from '@solus/server/providers/github/host-batches'
+import { decodeWatchFingerprints } from '@solus/server/providers/github/watch-fingerprints'
 
 function pullRequest(overrides: { headRefOid?: string; checkRuns?: Array<{ state: string; count: number }>; commentEdit?: string | null; comments?: number } = {}) {
   return {
@@ -17,20 +18,25 @@ function pullRequest(overrides: { headRefOid?: string; checkRuns?: Array<{ state
 }
 
 describe('PR watch fingerprints', () => {
-  test('one query reads every number of a repository by alias', () => {
-    const query = buildWatchFingerprintsQuery([7, 12])
+  test('one document reads every number of several repositories by alias', () => {
+    const kind = { operation: 'PrWatchFingerprints', perDocument: 25, field: pullRequestByNumber(() => 'state') }
+    const query = aliasedDocument(kind, [{ items: [7, 12] }, { items: [3] }])
+    expect(query).toContain('r0: repository(owner: $o0, name: $n0)')
+    expect(query).toContain('r1: repository(owner: $o1, name: $n1)')
     expect(query).toContain('p7: pullRequest(number: 7)')
     expect(query).toContain('p12: pullRequest(number: 12)')
-    expect(() => buildWatchFingerprintsQuery([0])).toThrow()
+    expect(query).toContain('p3: pullRequest(number: 3)')
+    // Numbers are written into the document, so only safe integers go in.
+    expect(() => aliasedDocument(kind, [{ items: [0] }])).toThrow()
   })
 
   test('status moves with the head and the checks; remarks move with comments and edits', () => {
-    const base = decodeWatchFingerprints({ repository: { p7: pullRequest() } }, [7]).get(7)
-    const sameCountsReordered = decodeWatchFingerprints({ repository: { p7: pullRequest({ checkRuns: [{ state: 'SUCCESS', count: 2 }, { state: 'IN_PROGRESS', count: 1 }] }) } }, [7]).get(7)
-    const finished = decodeWatchFingerprints({ repository: { p7: pullRequest({ checkRuns: [{ state: 'SUCCESS', count: 3 }] }) } }, [7]).get(7)
-    const pushed = decodeWatchFingerprints({ repository: { p7: pullRequest({ headRefOid: 'head-2' }) } }, [7]).get(7)
-    const edited = decodeWatchFingerprints({ repository: { p7: pullRequest({ commentEdit: '2026-10-07T12:00:00Z' }) } }, [7]).get(7)
-    const commented = decodeWatchFingerprints({ repository: { p7: pullRequest({ comments: 3 }) } }, [7]).get(7)
+    const base = decodeWatchFingerprints({ p7: pullRequest() }, [7]).get(7)
+    const sameCountsReordered = decodeWatchFingerprints({ p7: pullRequest({ checkRuns: [{ state: 'SUCCESS', count: 2 }, { state: 'IN_PROGRESS', count: 1 }] }) }, [7]).get(7)
+    const finished = decodeWatchFingerprints({ p7: pullRequest({ checkRuns: [{ state: 'SUCCESS', count: 3 }] }) }, [7]).get(7)
+    const pushed = decodeWatchFingerprints({ p7: pullRequest({ headRefOid: 'head-2' }) }, [7]).get(7)
+    const edited = decodeWatchFingerprints({ p7: pullRequest({ commentEdit: '2026-10-07T12:00:00Z' }) }, [7]).get(7)
+    const commented = decodeWatchFingerprints({ p7: pullRequest({ comments: 3 }) }, [7]).get(7)
 
     expect(sameCountsReordered).toEqual(base)
     expect(finished?.status).not.toBe(base?.status)
@@ -41,7 +47,7 @@ describe('PR watch fingerprints', () => {
   })
 
   test('a number GitHub did not answer, or answered in an unknown shape, is absent', () => {
-    const fingerprints = decodeWatchFingerprints({ repository: { p7: pullRequest(), p8: null, p9: { state: 'OPEN' } } }, [7, 8, 9])
+    const fingerprints = decodeWatchFingerprints({ p7: pullRequest(), p8: null, p9: { state: 'OPEN' } }, [7, 8, 9])
     expect([...fingerprints.keys()]).toEqual([7])
   })
 })

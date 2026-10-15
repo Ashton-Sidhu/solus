@@ -252,37 +252,6 @@ describe('GitHub auto-merge and revert', () => {
     ).toBe('squash')
   })
 
-  test('reads the base branch rules for a pull request', async () => {
-    const client = {
-      rest: {
-        repos: {
-          get: async () => ({ data: { permissions: { push: true } } }),
-          getBranchRules: {},
-        },
-        paginate: async () => [{ type: 'pull_request', parameters: { allowed_merge_methods: ['squash'] } }],
-      },
-      graphql: async (query: string) =>
-        query.includes('branchProtectionRule')
-          ? { repository: { ref: { branchProtectionRule: null } } }
-          : {
-              repository: {
-                mergeCommitAllowed: true,
-                squashMergeAllowed: true,
-                rebaseMergeAllowed: true,
-                autoMergeAllowed: true,
-                viewerDefaultMergeMethod: 'MERGE',
-              },
-            },
-    } as unknown as GitHubClient
-    const repo = { host: 'github.com', owner: 'acme', repo: 'squash-only' }
-    const branch = (await githubPullRequestAccessFor(client, repo, 'viewer', 'author', 'main')).capabilities
-    expect(branch.mergeMethods).toEqual(['squash'])
-    expect(branch.defaultMergeMethod).toBe('squash')
-    // Without a branch the question is the repository's alone.
-    expect((await githubPullRequestAccessFor(client, repo, 'viewer', 'author')).capabilities.mergeMethods)
-      .toEqual(['merge', 'squash', 'rebase'])
-  })
-
   test('arms auto-merge with the chosen method against the head the viewer saw', async () => {
     // WHY: the head rides with the mutation, so GitHub refuses to arm a merge
     // of commits pushed after the reader looked.

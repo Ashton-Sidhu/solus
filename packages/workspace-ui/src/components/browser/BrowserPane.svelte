@@ -49,6 +49,7 @@
   import BrowserStage from "./BrowserStage.svelte";
   import BrowserToolbar from "./BrowserToolbar.svelte";
   import BrowserTargetPicker from "./BrowserTargetPicker.svelte";
+  import { checkoutGit } from "../../contexts/workspace/run-location";
 
   /**
    * The browser pane: one page at a time, at whatever viewport the user picked.
@@ -92,7 +93,7 @@
    * any page exists — the session's own, which is where a typed address lands.
    */
   const projectRoot = $derived(
-    entry ? projectRootOf(entry.page) : session.activeRun?.gitContext?.repoRoot,
+    entry ? projectRootOf(entry.page) : checkoutGit(session.activeRun)?.repoRoot,
   );
   const profileHostId = $derived(entry?.serverId ?? serverId);
   const profileSet = $derived(

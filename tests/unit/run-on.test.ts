@@ -3,21 +3,32 @@ import type { Session } from '@solus/contracts/types'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import {
   isRunOnHostLocked,
-  opensCheckoutNow,
-  projectHostId,
   repoKeyForPath,
-  returnsToProjectHome,
   shouldShowRunOnPicker,
-  withCheckoutOnHost,
-  withRemoteDispatch,
 } from '@solus/workspace-ui/components/servers/run-on'
-import type { RunConfig } from '@solus/contracts/types'
+import type { RunConfig, RunLocation } from '@solus/contracts/types'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { listRunOnHosts, runHasProject, runOnHostAction } from '@solus/workspace-ui/components/servers/lib/run-on-hosts'
 import { projectChipOptions } from '@solus/workspace-ui/components/input/lib/project-chip-options'
 import { canRunOnHost, managedHostStateLabel } from '@solus/workspace-ui/components/servers/lib/managed-host'
 import { hostRowLabel } from '@solus/workspace-ui/contexts/connections/host-label'
-import { withDispatchBaseBranch, withDispatchWorktree } from '@solus/workspace-ui/contexts/workspace/run-config'
+import {
+  checkoutPlace,
+  chooseStart,
+  cloneBaseBranch,
+  dispatchTo,
+  folderLocation,
+  isDispatch,
+  openFolder,
+  pendingClone,
+  projectHome,
+  projectRoot,
+  runHost,
+  startsWorktree,
+  worktreeBaseBranch,
+} from '@solus/workspace-ui/contexts/workspace/run-location'
+
+const located = (location: RunLocation) => ({ location }) as RunConfig
 
 type VisibilityInput = Parameters<typeof shouldShowRunOnPicker>[0]
 
@@ -117,13 +128,7 @@ describe('run-on picker visibility', () => {
 describe('what each Run on row does for the project', () => {
   // WHY: one click on a host used to do one of four things chosen by state the
   // person could not see. Each row now says what it will do, and does it.
-  const run = {
-    serverId: 'local',
-    taskServerId: 'local',
-    projectGroupPath: null,
-    workingDirectory: '/home/dev/solus',
-    pendingHostDispatch: null,
-  } as RunConfig
+  const run = located(folderLocation({ serverId: 'local', path: '/home/dev/solus' }))
   const checkouts = [
     { serverId: 'studio', projectRoot: '/srv/solus' },
     { serverId: 'local', projectRoot: '/home/dev/solus' },
@@ -154,7 +159,10 @@ describe('what each Run on row does for the project', () => {
   })
 
   test('a dispatched run offers its home checkout, which the catalog does not list', () => {
-    const dispatched = { ...run, serverId: 'mini', taskServerId: 'home', projectGroupPath: '/Users/me/solus' } as RunConfig
+    const dispatched = located(folderLocation(
+      { serverId: 'mini', path: '/srv/projects/solus' },
+      { project: { serverId: 'home', path: '/Users/me/solus' } },
+    ))
     expect(runOnHostAction({ hostId: 'home', selectedHostId: 'mini', run: dispatched, checkouts: [], cloneRepoKey: 'k' }))
       .toEqual({ kind: 'checkout', path: '/Users/me/solus' })
   })
@@ -189,8 +197,8 @@ describe('what each Run on row does for the project', () => {
   test('a chat is no project: every host can run it, in a new chat there', () => {
     // WHY: a chat has no checkout to find or copy. Asking for a folder, or hiding
     // hosts, would turn a plain chat back into a project choice.
-    const chat = { ...run, workingDirectory: '/home/dev/projects/.solus-chats/abc', projectGroupPath: null } as RunConfig
-    expect(runHasProject(chat.workingDirectory, true)).toBe(false)
+    const chat = located(folderLocation({ serverId: 'local', path: '/home/dev/projects/.solus-chats/abc' }))
+    expect(runHasProject(checkoutPlace(chat).path, true)).toBe(false)
     expect(runHasProject(NEW_CHAT_DIRECTORY, true)).toBe(false)
     expect(action('studio', { run: chat })).toEqual({ kind: 'chat' })
     expect(action('local', { run: chat })).toEqual({ kind: 'current' })
@@ -198,64 +206,26 @@ describe('what each Run on row does for the project', () => {
 })
 
 describe('moving a run into an existing checkout', () => {
-  const run = {
-    serverId: 'local',
-    taskServerId: 'local',
-    projectGroupPath: '/home/dev/solus',
-    workingDirectory: '/home/dev/solus',
-    gitContext: null,
-    worktree: null,
-    pendingHostDispatch: { serverId: 'studio', intent: 'dispatch', repoKey: 'github.com/openai/solus' },
-  } as RunConfig
+  const home = folderLocation({ serverId: 'local', path: '/home/dev/solus' })
+  const queuedClone = dispatchTo(home, 'studio', 'github.com/openai/solus')
 
-  test('another host is recorded as intent, with the checkout to open there', () => {
-    // WHY: nothing connects before Send. The checkout path is the host's own.
-    const next = withCheckoutOnHost(run, 'studio', '/srv/solus', { immediate: false })
-    expect(next.pendingHostDispatch).toEqual({ serverId: 'studio', intent: 'open-project' })
-    expect(next.workingDirectory).toBe('/srv/solus')
-    expect(next.serverId).toBe('local')
+  test('another host takes the run at once, into the checkout there', () => {
+    // WHY: the folder exists on that host, so the path and its host are written
+    // together; nothing waits for Send except connecting. The checkout path is
+    // the host's own, and the folder becomes the project, so no clone is queued.
+    const next = located(openFolder(queuedClone, { serverId: 'studio', path: '/srv/solus' }))
+    expect(runHost(next)).toBe('studio')
+    expect(checkoutPlace(next)).toEqual({ serverId: 'studio', path: '/srv/solus' })
+    expect(projectHome(next)).toEqual({ serverId: 'studio', path: '/srv/solus' })
+    expect(pendingClone(next)).toBeNull()
   })
 
-  test('your own machine switches at once and drops a queued dispatch', () => {
-    const next = withCheckoutOnHost({ ...run, serverId: 'studio' }, 'local', '/home/dev/solus', { immediate: true })
-    expect(next.serverId).toBe('local')
-    expect(next.pendingHostDispatch).toBeNull()
-    expect(next.projectGroupPath).toBeNull()
-    expect(next.workingDirectory).toBe('/home/dev/solus')
-  })
-})
-
-describe('opening a checkout on another host', () => {
-  const run = {
-    serverId: 'local',
-    taskServerId: 'local',
-    projectGroupPath: null,
-    workingDirectory: '/home/dev/solus',
-    gitContext: null,
-    worktree: null,
-    pendingHostDispatch: null,
-  } as RunConfig
-
-  test('an online host takes the run at once, so its checkout can be read before Send', () => {
-    // WHY: a pending choice leaves the run on this machine with a path that
-    // exists only on the other one. Git is read on the run's host, so the
-    // branch chip found no repository and disappeared until Send.
-    const next = withCheckoutOnHost(run, 'studio', '/srv/solus', {
-      immediate: opensCheckoutNow(run, { id: 'studio', local: false, online: true }),
-    })
-    expect(next.serverId).toBe('studio')
-    expect(next.pendingHostDispatch).toBeNull()
-    expect(next.workingDirectory).toBe('/srv/solus')
-  })
-
-  test('a host that is not online stays a choice that Send connects to', () => {
-    // WHY: a stopped Cloud host must be started, and an offline one dialled,
-    // before anything can run there. Send owns that work.
-    expect(opensCheckoutNow(run, { id: 'studio', local: false, online: false })).toBe(false)
-  })
-
-  test('your own machine opens at once even before it reports online', () => {
-    expect(opensCheckoutNow(run, { id: 'local', local: true, online: false })).toBe(true)
+  test('your own machine switches at once and drops a queued clone', () => {
+    const next = located(openFolder(queuedClone, { serverId: 'local', path: '/home/dev/solus' }))
+    expect(runHost(next)).toBe('local')
+    expect(pendingClone(next)).toBeNull()
+    expect(isDispatch(next)).toBe(false)
+    expect(checkoutPlace(next).path).toBe('/home/dev/solus')
   })
 })
 
@@ -332,173 +302,130 @@ describe('the project chip lists projects, not checkouts', () => {
 })
 
 describe('returning a dispatched run to its project home', () => {
-  function run(overrides: Partial<RunConfig> = {}): RunConfig {
-    return {
-      serverId: 'studio',
-      taskServerId: 'local',
-      projectGroupPath: '/home/dev/solus',
-      workingDirectory: '/srv/projects/solus',
-      ...overrides,
-    } as RunConfig
-  }
+  const dispatched = (project: { serverId: string; path: string } = { serverId: 'local', path: '/home/dev/solus' }) =>
+    located(folderLocation({ serverId: 'studio', path: '/srv/projects/solus' }, { project }))
+  const action = (run: RunConfig, hostId: string) =>
+    runOnHostAction({ hostId, selectedHostId: runHost(run), run, checkouts: [], cloneRepoKey: 'github.com/openai/solus' })
 
   test('picking the host the project lives on is a return home, not a dispatch', () => {
-    // WHY: the whole bug. A dispatch runs on `studio` while the checkout stays
-    // on `local`; choosing `local` again must re-home the run, never drill into
-    // a "which project on local" chooser for a project that is already there.
-    expect(returnsToProjectHome(run(), 'local')).toBe(true)
+    // WHY: the whole bug. A dispatch runs on `studio` while the project home
+    // stays on `local`; choosing `local` again must re-home the run into its
+    // checkout, never drill into a "which project on local" chooser, and never
+    // copy a repository that is already there.
+    const run = dispatched()
+    expect(action(run, 'local')).toEqual({ kind: 'checkout', path: '/home/dev/solus' })
+    const back = located(openFolder(run.location, { serverId: 'local', path: '/home/dev/solus' }))
+    expect(runHost(back)).toBe('local')
+    expect(isDispatch(back)).toBe(false)
   })
 
   test('picking a different remote is a real move, not a return home', () => {
     // WHY: another host has no copy of the project, so selecting it is a genuine
-    // dispatch/open — the home shortcut must not swallow it.
-    expect(returnsToProjectHome(run(), 'other')).toBe(false)
+    // clone — the home shortcut must not swallow it.
+    expect(action(dispatched(), 'other')).toEqual({ kind: 'clone' })
   })
 
   test('a run already on its own home host has nowhere to return to', () => {
-    // WHY: not a dispatch. `serverId === serverId` would otherwise read as a
-    // spurious re-home of a run that never left.
-    expect(returnsToProjectHome(run({ serverId: 'local' }), 'local')).toBe(false)
+    // WHY: not a dispatch. The run host is the current row, never a spurious
+    // re-home of a run that never left.
+    const run = located(folderLocation({ serverId: 'local', path: '/home/dev/solus' }))
+    expect(action(run, 'local')).toEqual({ kind: 'current' })
   })
 
   test('without a remembered home path there is no checkout to return to', () => {
-    // WHY: the re-home points the run at `projectGroupPath`. With none — a
-    // remote project never cloned from here — the picker must fall back to the
-    // normal chooser rather than re-home onto nothing.
-    expect(returnsToProjectHome(run({ projectGroupPath: null }), 'local')).toBe(false)
+    // WHY: the re-home opens the project home's folder. With none — a remote
+    // project never cloned from here — the row must fall back to a clone rather
+    // than re-home onto nothing.
+    expect(action(dispatched({ serverId: 'local', path: '~' }), 'local')).toEqual({ kind: 'clone' })
   })
 })
 
 describe('choosing a remote host', () => {
+  const checkout = folderLocation(
+    { serverId: 'local', path: '/home/dev/solus' },
+    { git: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' } },
+  )
+
   test('puts a checkout run on the default branch, not in a new worktree', () => {
     // WHY: choosing a cloud host is a choice of where to run, not of
     // isolation. The target host's clone may hold any branch, so the run
     // names the default branch: the chip shows it, and the host works on it
     // in its checkout instead of a new worktree.
-    const next = withRemoteDispatch(
-      {
-        serverId: 'local',
-        taskServerId: 'local',
-        workingDirectory: '/home/dev/solus',
-        gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
-        worktree: null,
-        pendingHostDispatch: null,
-      } as RunConfig,
-      { serverId: 'studio', intent: 'dispatch', repoKey: 'github.com/openai/solus' },
-    )
+    const next = located(dispatchTo(checkout, 'studio', 'github.com/openai/solus'))
 
-    expect(next.pendingHostDispatch).toEqual({
-      serverId: 'studio',
-      intent: 'dispatch',
-      repoKey: 'github.com/openai/solus',
-      baseBranch: 'main',
-    })
-    expect(next.worktree).toBeNull()
+    expect(runHost(next)).toBe('studio')
+    expect(pendingClone(next)).toMatchObject({ repoKey: 'github.com/openai/solus', start: { kind: 'default-branch' } })
+    expect(cloneBaseBranch(next)).toBe('main')
+    expect(startsWorktree(next)).toBe(false)
   })
 
   test('keeps a worktree request but drops the old host\'s base branch', () => {
     // WHY: the user asked for isolation, so the move must not undo it. The
     // base branch named a branch on the old host and means nothing there.
-    const next = withRemoteDispatch(
-      {
-        serverId: 'local',
-        taskServerId: 'local',
-        workingDirectory: '/home/dev/solus',
-        gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
-        worktree: { baseBranch: 'feature' },
-        pendingHostDispatch: null,
-      } as RunConfig,
-      { serverId: 'studio', intent: 'dispatch', repoKey: 'github.com/openai/solus' },
-    )
+    const next = located(dispatchTo(chooseStart(checkout, { kind: 'new-worktree', baseBranch: 'feature' }), 'studio', 'github.com/openai/solus'))
 
-    expect(next.worktree).toEqual({ baseBranch: null })
+    expect(startsWorktree(next)).toBe(true)
+    expect(worktreeBaseBranch(next)).toBeNull()
   })
 
   test('records an exact remote worktree without changing the local checkout', () => {
-    const run = {
-      serverId: 'local',
-      taskServerId: 'local',
-      workingDirectory: '/home/dev/solus',
-      gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
-      worktree: { baseBranch: 'main' },
-      pendingHostDispatch: {
-        serverId: 'studio',
-        intent: 'dispatch',
-        repoKey: 'github.com/openai/solus',
-      },
-    } as RunConfig
+    const clone = dispatchTo(chooseStart(checkout, { kind: 'new-worktree', baseBranch: 'main' }), 'studio', 'github.com/openai/solus')
 
-    const next = withDispatchWorktree(run, {
+    const next = located(chooseStart(clone, {
+      kind: 'worktree',
       path: '/srv/projects/solus/.git/solus/worktrees/release',
       branch: 'release',
-    })
+    }))
 
-    // WHY: a target worktree path belongs to the target host. The source
-    // checkout must not move before the dispatch is sent.
-    expect(next.gitContext).toEqual(run.gitContext)
-    expect(next.workingDirectory).toBe(run.workingDirectory)
-    expect(next.worktree).toBeNull()
-    expect(next.pendingHostDispatch).toEqual({
+    // WHY: a target worktree path belongs to the target host. The project home
+    // checkout must not move before the clone is sent.
+    expect(projectHome(next)).toEqual(checkout.project)
+    expect(checkoutPlace(next)).toEqual(checkout.project)
+    expect(startsWorktree(next)).toBe(false)
+    expect(pendingClone(next)).toMatchObject({
       serverId: 'studio',
-      intent: 'dispatch',
       repoKey: 'github.com/openai/solus',
-      worktree: {
-        path: '/srv/projects/solus/.git/solus/worktrees/release',
-        branch: 'release',
-      },
+      start: { kind: 'worktree', path: '/srv/projects/solus/.git/solus/worktrees/release', branch: 'release' },
     })
-    expect(withDispatchWorktree(next, null).worktree).toEqual({ baseBranch: null })
+    const cleared = located(chooseStart(next.location, { kind: 'new-worktree' }))
+    expect(startsWorktree(cleared)).toBe(true)
+    expect(worktreeBaseBranch(cleared)).toBeNull()
   })
 
   test('records an origin branch as a new target worktree without switching locally', () => {
-    const run = {
-      serverId: 'local',
-      taskServerId: 'local',
-      workingDirectory: '/home/dev/solus',
-      gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
-      worktree: { baseBranch: null },
-      pendingHostDispatch: {
-        serverId: 'studio',
-        intent: 'dispatch',
-        repoKey: 'github.com/openai/solus',
-      },
-    } as RunConfig
+    const clone = dispatchTo(chooseStart(checkout, { kind: 'new-worktree' }), 'studio', 'github.com/openai/solus')
 
-    const next = withDispatchBaseBranch(run, 'release')
+    const next = located(chooseStart(clone, { kind: 'new-worktree', baseBranch: 'release' }))
 
     // WHY: an origin branch is only the start point for an isolated target-host
-    // worktree. The source checkout must remain on its current branch.
-    expect(next.gitContext).toEqual(run.gitContext)
-    expect(next.workingDirectory).toBe(run.workingDirectory)
-    expect(next.worktree).toEqual({ baseBranch: 'release' })
-    expect(next.pendingHostDispatch).toEqual({
-      serverId: 'studio',
-      intent: 'dispatch',
-      repoKey: 'github.com/openai/solus',
-      baseBranch: 'release',
-    })
+    // worktree. The project home checkout must remain on its current branch.
+    expect(projectHome(next)).toEqual(checkout.project)
+    expect(startsWorktree(next)).toBe(true)
+    expect(worktreeBaseBranch(next)).toBe('release')
+    expect(cloneBaseBranch(next)).toBe('release')
+    expect(pendingClone(next)).toMatchObject({ serverId: 'studio', repoKey: 'github.com/openai/solus' })
   })
 })
 
 describe('which host the project chip lists', () => {
-  function run(overrides: Partial<RunConfig> = {}): RunConfig {
-    return { serverId: 'local', taskServerId: 'local', pendingHostDispatch: null, ...overrides } as RunConfig
-  }
+  // The chip lists the project home's host while the run names a project, and
+  // the run host while it names none.
+  const local = folderLocation({ serverId: 'local', path: '/Users/me/solus' })
 
   test('a plain local run lists its own machine', () => {
-    expect(projectHostId(run())).toBe('local')
+    const run = located(local)
+    expect(projectRoot(run)).toBe('/Users/me/solus')
+    expect(projectHome(run).serverId).toBe('local')
   })
 
   test('a dispatch lists the project’s home, not where the agent runs', () => {
     // WHY: a dispatch runs on `studio` but the project (and the checkout the chip
-    // offers) stays on `taskServerId`. Listing studio's projects would offer
-    // folders that have nothing to do with the work being dispatched.
-    expect(
-      projectHostId(run({
-        workingDirectory: '/Users/me/solus',
-        pendingHostDispatch: { serverId: 'studio', intent: 'dispatch', repoKey: 'k' },
-      })),
-    ).toBe('local')
+    // offers) stays home. Listing studio's projects would offer folders that
+    // have nothing to do with the work being dispatched.
+    const run = located(dispatchTo(local, 'studio', 'k'))
+    expect(runHost(run)).toBe('studio')
+    expect(projectRoot(run)).toBe('/Users/me/solus')
+    expect(projectHome(run).serverId).toBe('local')
   })
 
   test('a dispatch with no checkout at home lists the host that will clone it', () => {
@@ -506,23 +433,20 @@ describe('which host the project chip lists', () => {
     // task) starts at `~` and is cloned on the target. There is no home checkout
     // to keep offering, so listing the home machine shows unrelated projects
     // while Run on names the cloud host.
-    expect(
-      projectHostId(run({
-        workingDirectory: '~',
-        pendingHostDispatch: { serverId: 'cloud', intent: 'dispatch', repoKey: 'github.com/me/solus' },
-      })),
-    ).toBe('cloud')
+    const run = located(dispatchTo(folderLocation({ serverId: 'local', path: '~' }), 'cloud', 'github.com/me/solus'))
+    expect(projectRoot(run)).toBeNull()
+    expect(runHost(run)).toBe('cloud')
   })
 
-  test('opening a project elsewhere lists that host, before Send moves the ids', () => {
-    // WHY: a checkout chosen on another host is pending until Send. The
-    // pending target names that host while the run's own ids still read local.
-    expect(
-      projectHostId(run({ pendingHostDispatch: { serverId: 'studio', intent: 'open-project' } })),
-    ).toBe('studio')
+  test('opening a project elsewhere lists that host at once', () => {
+    // WHY: a checkout chosen on another host moves the run there at once, so
+    // the project home and the run host name that host before Send.
+    const run = located(openFolder(local, { serverId: 'studio', path: '/srv/solus' }))
+    expect(projectHome(run).serverId).toBe('studio')
+    expect(runHost(run)).toBe('studio')
   })
 
   test('a project that already lives on a remote lists that remote', () => {
-    expect(projectHostId(run({ serverId: 'studio', taskServerId: 'studio' }))).toBe('studio')
+    expect(projectHome(located(folderLocation({ serverId: 'studio', path: '/srv/solus' }))).serverId).toBe('studio')
   })
 })

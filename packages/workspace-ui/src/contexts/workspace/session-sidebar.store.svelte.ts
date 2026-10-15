@@ -87,6 +87,7 @@ import {
   prLinkDiscoveryAttempts,
   type PrLinkDiscoveryAttempt,
 } from './pr-link-discovery'
+import { projectHome, runHost, workingPlace } from './run-location'
 
 function restoredSessionActivityAt(
   liveActivityAt: number,
@@ -143,10 +144,10 @@ function projectLabel(projectKey: string): string {
 }
 
 /** The project a run works in. A dispatched run keeps its project's path on
- *  the host it was opened from (`projectGroupPath`, on `taskServerId`), so the
- *  path is read on that host, not on the host its agent runs on. */
-export function runGroupKey(run: Pick<RunConfig, 'serverId' | 'taskServerId' | 'projectGroupPath'>, projectKey: string): string {
-  return groupKeyFor(run.projectGroupPath ? run.taskServerId : run.serverId, projectKey)
+ *  the host it was opened from, so the path is read on that host, not on the
+ *  host its agent runs on. */
+export function runGroupKey(run: Pick<RunConfig, 'location'>, projectKey: string): string {
+  return groupKeyFor(projectHome(run).serverId, projectKey)
 }
 
 /** Every mounted conversation the sidebar must project. `tabOrder` gives the
@@ -206,7 +207,7 @@ export class SessionSidebarStore {
       const session = this.session.sessionFor(tabId)
       if (!tab) continue
       bySessionId.set(tab.sessionId, tabId)
-      if (session?.run.serverId) bySessionId.set(hostKey(session.run.serverId, tab.sessionId), tabId)
+      if (session) bySessionId.set(hostKey(runHost(session.run), tab.sessionId), tabId)
     }
     return bySessionId
   })
@@ -316,7 +317,7 @@ export class SessionSidebarStore {
       const session = this.session.sessionFor(tabId)
       if (!tab || !session) continue
       createdAt = Math.min(createdAt, firstActivityAt(session))
-      serverId ??= session.run.serverId ?? null
+      serverId ??= runHost(session.run) ?? null
       const nextAttention = getAttentionState(session, tab, this.planStore.plans)
       attention = maxTaskAttention(attention, link.role === 'lead' || nextAttention !== 'unread' ? nextAttention : null)
       if (link.role === 'lead') unread ||= tab.hasUnread
@@ -337,7 +338,7 @@ export class SessionSidebarStore {
       const session = this.session.sessionFor(pendingTabId)
       if (!tab || !session) continue
       createdAt = Math.min(createdAt, firstActivityAt(session))
-      serverId ??= session.run.serverId ?? null
+      serverId ??= runHost(session.run) ?? null
       const nextAttention = getAttentionState(session, tab, this.planStore.plans)
       const isLead = taskRoleOf(session.task) === 'lead' && (!leadSessionId || tab.sessionId === leadSessionId)
       attention = maxTaskAttention(attention, isLead || nextAttention !== 'unread' ? nextAttention : null)
@@ -428,7 +429,7 @@ export class SessionSidebarStore {
     linkedTask: SidebarLinkedTask | undefined,
   ): SidebarTask {
     const environment = this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run)
-    const projectKey = environmentProjectKey(environment, session.run.projectGroupPath)
+    const projectKey = environmentProjectKey(environment, session.run)
     const attention = getAttentionState(session, tab, this.planStore.plans)
     const state = sessionListStore.stateFor(session.id)
     const isSettled = !!state?.settledAt
@@ -441,7 +442,7 @@ export class SessionSidebarStore {
       projectLabel: projectLabel(projectKey),
       groupKey: runGroupKey(session.run, projectKey),
       branchName: environment.branch,
-      serverId: session.run.serverId ?? null,
+      serverId: runHost(session.run) ?? null,
       prNumber: null,
       status: taskStatusFor(attention, isSettled),
       attention,
@@ -616,10 +617,7 @@ export class SessionSidebarStore {
     const draft = sourceId ? this.session.drafts.sessionDrafts.get(sourceId) : undefined
     const run = draft?.run ?? (sourceId ? this.session.sessionFor(sourceId)?.run : undefined)
     if (!run) return null
-    const projectKey = environmentProjectKey(
-      this.session.environment.environmentFor(run),
-      run.projectGroupPath,
-    )
+    const projectKey = environmentProjectKey(this.session.environment.environmentFor(run), run)
     if (!projectKey || projectKey === '~' || isChat(projectKey)) return null
     return runGroupKey(run, projectKey)
   })
@@ -824,10 +822,7 @@ export class SessionSidebarStore {
     const rows: DraftRow[] = []
     for (const draft of this.session.drafts.sessionDrafts.values()) {
       if (draft.isEmpty || composing.has(draft.id)) continue
-      const projectKey = environmentProjectKey(
-        this.session.environment.environmentFor(draft.run),
-        draft.run.projectGroupPath,
-      )
+      const projectKey = environmentProjectKey(this.session.environment.environmentFor(draft.run), draft.run)
       const groupKey = runGroupKey(draft.run, projectKey)
       // A draft with no repo behind it belongs to nothing yet, so no project
       // scope can exclude it.
@@ -838,17 +833,14 @@ export class SessionSidebarStore {
         projectKey,
         projectLabel: projectLabel(projectKey),
         groupKey,
-        serverId: draft.run.serverId,
+        serverId: runHost(draft.run),
         hasAttachments: draft.prompt.attachments.length > 0,
       })
     }
     for (const tabId of this.parkedSessionTabIds) {
       const session = this.session.sessionFor(tabId)
       if (!session) continue
-      const projectKey = environmentProjectKey(
-        this.session.environment.environmentFor(session.run),
-        session.run.projectGroupPath,
-      )
+      const projectKey = environmentProjectKey(this.session.environment.environmentFor(session.run), session.run)
       const groupKey = runGroupKey(session.run, projectKey)
       if (filter && projectKey !== '~' && groupKey !== filter) continue
       rows.push({
@@ -858,7 +850,7 @@ export class SessionSidebarStore {
         projectKey,
         projectLabel: projectLabel(projectKey),
         groupKey,
-        serverId: session.run.serverId,
+        serverId: runHost(session.run),
         hasAttachments: session.prompt.attachments.length > 0,
       })
     }
@@ -1130,12 +1122,12 @@ export class SessionSidebarStore {
 
   activeBranchKey: string = $derived.by(() => environmentBranchKey(
     this.session.environment.environmentFor(this.session.activeSession?.run),
-    this.session.sessionFor(this.session.activeTabId)?.run.projectGroupPath,
+    this.session.sessionFor(this.session.activeTabId)?.run,
   ))
 
   activeProjectKey: string = $derived.by(() => environmentProjectKey(
     this.session.environment.environmentFor(this.session.activeSession?.run),
-    this.session.sessionFor(this.session.activeTabId)?.run.projectGroupPath,
+    this.session.sessionFor(this.session.activeTabId)?.run,
   ))
 
   constructor(
@@ -1226,7 +1218,7 @@ export class SessionSidebarStore {
     }
     const session = this.session.sessionFor(tabId)
     if (!session) return
-    this.sessionStatusFeed().clear(serverConnections.resolveId(session.run.serverId), session.id)
+    this.sessionStatusFeed().clear(serverConnections.resolveId(runHost(session.run)), session.id)
   }
 
   /** Hydrate the pinned list by fanning out over every connected host: pins
@@ -1311,7 +1303,7 @@ export class SessionSidebarStore {
       label: sess ? sessionTitle(sess) : tabId,
       attention,
       unread: tab?.hasUnread ?? false,
-      serverId: sess?.run.serverId ?? null,
+      serverId: runHost(sess?.run) ?? null,
       provider: sess?.run.provider ?? null,
       modelId: sess ? (sess.sessionModel ?? sess.run.modelConfig.modelId) : null,
       // The mounted tab's environment is live, so it outranks whatever branch
@@ -1390,7 +1382,7 @@ export class SessionSidebarStore {
       const session = this.session.sessionFor(tabId)
       if (!tab || !session) return false
       if (lead) return tab.sessionId === lead.sessionId
-        && (!leadServerId || session.run.serverId === leadServerId)
+        && (!leadServerId || runHost(session.run) === leadServerId)
       return taskRoleOf(session.task) === 'lead'
     })
     if (!lead && leadTabIds.length === 0) return
@@ -1408,7 +1400,7 @@ export class SessionSidebarStore {
       // A row can name a session the workspace no longer holds — a tab closing
       // while its task row is still on screen. The flag above is still correct
       // for that tab; there is just no host left to tell.
-      const serverId = this.session.sessions.byId[tab.sessionId]?.run.serverId
+      const serverId = runHost(this.session.sessions.byId[tab.sessionId]?.run)
       if (!serverId) continue
       void serverConnections.apiFor(serverId).setSessionReadState(tab.sessionId, null).catch(() => {})
     }
@@ -1877,7 +1869,7 @@ export class SessionSidebarStore {
     const session = this.session.sessionFor(tabId)
     if (!tab || !session?.agentSessionId) return
 
-    const pinServerId = serverConnections.resolveId(session.run.serverId)
+    const pinServerId = serverConnections.resolveId(runHost(session.run))
     // Captured before the toggle: the list orders by `pinnedAt`, so restoring a
     // pin with a fresh timestamp would put it back at the top rather than where
     // the user had it. Undo has to return the row to its own place.
@@ -1889,7 +1881,7 @@ export class SessionSidebarStore {
       serverId: pinServerId,
       provider: session.run.provider ?? this.settings.activeAgent,
       title: sessionTitle(session),
-      cwd: session.run.gitContext?.worktreePath ?? session.run.workingDirectory,
+      cwd: workingPlace(session.run).path,
       pinnedAt: existing?.pinnedAt ?? Date.now(),
     }
     // The pin lives on the session's own host; the host's answer is only that
@@ -1930,7 +1922,7 @@ export class SessionSidebarStore {
   async renameSession(tabId: string, title: string): Promise<void> {
     const sessionId = this.session.sessionFor(tabId)?.id
     await this.session.metadata.renameTab(tabId, title)
-    const serverId = this.session.sessionFor(tabId)?.run.serverId
+    const serverId = runHost(this.session.sessionFor(tabId)?.run)
     if (sessionId && this.isPinned(sessionId, serverId)) await this.loadPinnedSessions()
   }
 

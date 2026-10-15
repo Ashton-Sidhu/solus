@@ -31,35 +31,33 @@ Your computer is never overwritten. The account document is the place the
 profile is sent from, not a copy that replaces `~/.claude`. When your computer
 and the account differ on one entry, Settings shows both and you pick.
 
-## Your computer fills the profile
+## Import from your computer
 
-On the desktop, Settings → Agent profile starts from this computer: the first
-time the page opens with an empty profile, the skills installed with the
-skills CLI, the subagents, commands, and prompts in the provider homes, and the
-MCP servers of Settings → MCP join the profile by themselves. "Import from
-this computer" adds what you installed since. An import never removes an entry:
-the profile is your list, and the computer only fills it. The same join happens at sign-in, when your account
-has no profile yet, and after "Clear synced profile".
+The profile never fills by itself. On the desktop, "Import from this computer"
+on Settings → Agent profile adds the skills installed with the skills CLI, the
+subagents, commands, and prompts in the provider homes, and the MCP servers of
+Settings → MCP. Import again to add what you installed since. An import never
+removes an entry: the profile is your list, and the computer only fills it.
+Sign-in and "Clear synced profile" do not read the computer.
 
 What the desktop pushes to a host, signed out, is this list, so an entry you
-removed on the page stays off every host. Web and mobile have no
-computer to read; they add from skills.sh and by address.
+removed on the page stays off every host. An empty profile is not pushed. Web
+and mobile have no computer to read; they add from skills.sh and by address.
 
 ## Sync
 
 Signed in to Solus Cloud, your agent profile always syncs through your
 account, the same as your settings. There is no switch per device. The first
 time a client of yours signs in, it reads the account: an account with a
-profile is used as it is, and an empty one starts from this computer's profile
-on the desktop, or from this device's copy elsewhere. Settings → Account & sync shows
+profile is used as it is, and an empty one starts from this device's copy. Settings → Account & sync shows
 the sync status, the conflicts, and each host with its account link and what it
 holds of the profile; the Agent profile tab holds the content. Edits apply at
 once and are sent after a short pause.
 Two clients that change different entries merge; one entry both changed is a
 conflict with "Keep mine" and "Take theirs". "Clear synced profile" resets the
 profile: the account copy and its MCP connections go, and the device you clear
-on starts the profile again from its own copy (with this computer's profile
-joined to it, on the desktop). Your other devices then take that new copy.
+on starts the profile again from its own copy. Your other devices then take
+that new copy.
 
 Your account is the one list. A server you add, rename, or remove in Settings →
 MCP, on a host you own or as your own server on a shared host, changes your
@@ -134,6 +132,8 @@ connections. Your logins and anything else in your seats stay.
   revision, and every entry it owns. A pull applies only when the account
   revision moved, then asks `IntegrationConnections.reconcile` to move the
   person's host-local MCP connections into their account.
+- A home's `CLAUDE.md` or `AGENTS.md` in an older copy is dropped by every
+  client, left out by the host, and removed from the account on the next pull.
 - The host refuses the whole copy before it changes anything when a path is
   outside the profile, a file is too large, a path goes through a link in the
   seat, or a registry skill and a hand-written skill share one name.

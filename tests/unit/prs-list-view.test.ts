@@ -9,6 +9,7 @@ import {
   prRow,
   prStatusGlyph,
   prStatusOf,
+  prTimeLabelsMoved,
   shortBranch,
   type PrRowContext,
 } from '@solus/workspace-ui/components/prs/lib/prs-list-view'
@@ -38,7 +39,6 @@ const pullRequest = pullRequestFixture(42, {
 })
 
 const context: PrRowContext = {
-  checks: () => undefined,
   isMine: () => true,
 }
 
@@ -65,10 +65,7 @@ describe('PR status filter', () => {
 })
 
 describe('PR row slots', () => {
-  const checksContext = (state: 'passing' | 'failing' | 'pending', headSha = 'abc123'): PrRowContext => ({
-    checks: () => ({ state, headSha, required: [], optional: [], inFlight: state === 'pending' }),
-    isMine: () => true,
-  })
+  const withChecks = (checksState: 'passing' | 'failing' | 'pending' | 'none'): PullRequest => ({ ...pullRequest, checksState })
 
   test('the branch is a hover reveal, not a chip that costs every row width', () => {
     // WHY: agent-authored branches are long and near-identical. Spending that
@@ -240,14 +237,11 @@ describe('PR row slots', () => {
     expect(short.endsWith('-f-7jgnb')).toBe(true)
   })
 
-  test('a stale summary says nothing but still holds the slot', () => {
-    // WHY: a summary for a previous head is not this PR's result — but the slot
-    // has to keep its width, or the row shifts under the pointer the moment the
-    // fresh result lands.
-    expect(prRow(pullRequest, checksContext('passing', 'stale-sha'), NOW).checks).toEqual({
-      state: 'none',
-      label: '',
-    })
+  test('unknown or absent checks say nothing but still hold the slot', () => {
+    // WHY: a row whose checks are not known, or that has none configured, has
+    // no result to state — but the slot has to keep its width, or the row
+    // shifts under the pointer the moment a result lands.
+    expect(prRow(withChecks('none'), context, NOW).checks).toEqual({ state: 'none', label: '' })
     expect(prRow(pullRequest, context, NOW).checks).toEqual({ state: 'none', label: '' })
   })
 
@@ -255,15 +249,15 @@ describe('PR row slots', () => {
     // WHY: whether the checks pass is the first thing a reader wants from a
     // row, and a bare glyph was easy to miss. Running is worth saying too — it
     // tells the reader the silence is temporary rather than "no checks".
-    expect(prRow(pullRequest, checksContext('passing'), NOW).checks).toEqual({
+    expect(prRow(withChecks('passing'), context, NOW).checks).toEqual({
       state: 'passing',
       label: 'Checks passing',
     })
-    expect(prRow(pullRequest, checksContext('pending'), NOW).checks).toEqual({
+    expect(prRow(withChecks('pending'), context, NOW).checks).toEqual({
       state: 'pending',
       label: 'Checks running',
     })
-    expect(prRow(pullRequest, checksContext('failing'), NOW).checks).toMatchObject({
+    expect(prRow(withChecks('failing'), context, NOW).checks).toMatchObject({
       state: 'failing',
       label: 'Checks failing',
     })
@@ -341,5 +335,19 @@ describe('PR list author avatars', () => {
       id: 'hubot',
       initials: 'HU',
     })
+  })
+})
+
+// WHY: the page's clock fed every row, so each tick built every row again even
+// when no label changed. It moves only when a row would read differently.
+describe('prTimeLabelsMoved', () => {
+  test('a tick that changes no row time does not move the clock', () => {
+    const daysOld = pullRequestFixture(1, { updatedAt: '2026-08-01T13:00:00Z' })
+    expect(prTimeLabelsMoved([daysOld], NOW, NOW + 30_000)).toBe(false)
+  })
+
+  test('a row whose minutes changed moves the clock', () => {
+    const recent = pullRequestFixture(2, { updatedAt: new Date(NOW - 5 * 60_000).toISOString() })
+    expect(prTimeLabelsMoved([recent], NOW, NOW + 60_000)).toBe(true)
   })
 })

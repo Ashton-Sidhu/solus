@@ -12,6 +12,7 @@ import { localApi } from "@solus/client-core/local-api";
 import { uploadLocalAttachments } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
 
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
+import { runHost } from "@solus/workspace-ui/contexts/workspace/run-location";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 
 /** Resolve the destination once before native file selection or upload begins.
@@ -25,7 +26,7 @@ export function attachmentTarget(
     ? session.runFor(targetTabId)
     : session.activeSession?.run;
   const serverId =
-    run?.serverId ?? serverConnections.runOnHostId() ?? LOCAL_SERVER_ID;
+    runHost(run) ?? serverConnections.runOnHostId() ?? LOCAL_SERVER_ID;
   const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
   return { targetTabId, serverId, ctx };
 }

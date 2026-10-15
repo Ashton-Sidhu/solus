@@ -1,5 +1,6 @@
 import type { PermissionOption, PermissionRequest, Session } from '@solus/contracts/types'
 import { z } from 'zod'
+import { checkoutGit, checkoutPlace } from '../../../contexts/workspace/run-location'
 
 const permissionCommandSchema = z.object({ command: z.string().optional() })
 const permissionCwdSchema = z.object({ cwd: z.string().optional() })
@@ -82,7 +83,7 @@ export function permissionCwd(
 ): string {
   const parsed = permissionCwdSchema.safeParse(permission.toolInput)
   if (parsed.success && parsed.data.cwd) return parsed.data.cwd
-  return session?.run.gitContext?.worktreePath || session?.run.workingDirectory || ''
+  return checkoutGit(session?.run)?.worktreePath || checkoutPlace(session?.run)?.path || ''
 }
 
 /**

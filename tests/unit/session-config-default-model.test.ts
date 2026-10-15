@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { IpcContext, Session, SessionProviderSwitchResult } from '@solus/contracts/types'
 import type { ModelOptionsByProvider } from '@solus/contracts/settings'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -40,7 +41,7 @@ function makeDraft() {
     run: {
       provider: 'claude-code',
       permissionMode: 'full-access',
-      workingDirectory: '/repo',
+      location: folderLocation({ serverId: 'local', path: '/repo' }),
       modelConfig: {
         modelId: 'claude-opus-5',
         reasoningEffort: 'high',
@@ -76,7 +77,7 @@ async function makeController(
     setPluginCommands: () => {},
     openSessionDraft: worktreeHarness?.openSessionDraft ?? (() => {}),
     draftFor: (sourceId: string) => (draft && sourceId === draft.id ? draft : undefined),
-    defaultRunConfig: () => ({ workingDirectory: '/repo', gitContext: null }) as any,
+    defaultRunConfig: () => ({ location: folderLocation({ serverId: 'local', path: '/repo' }) }) as any,
     ctx: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
     ctxForDirectory: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
     apiFor: () => new Proxy({}, {
@@ -99,12 +100,13 @@ describe('worktree selection', () => {
       id: 'stable-session',
       agentSessionId: 'provider-session',
       run: {
-        workingDirectory: '/projects/solus',
-        gitContext: {
-          repoRoot: '/projects/solus',
-          branch: 'main',
-          targetBranch: 'main',
-        },
+        location: folderLocation({ serverId: 'local', path: '/projects/solus' }, {
+          git: {
+            repoRoot: '/projects/solus',
+            branch: 'main',
+            targetBranch: 'main',
+          },
+        }),
       },
     } as Session
     let openedDraft: { cwd?: string; gitContext?: unknown } | null = null
@@ -219,7 +221,7 @@ function threadSession(): Session {
         contextWindow: 1_000_000,
         fastMode: false,
       },
-      workingDirectory: '/repo',
+      location: folderLocation({ serverId: 'local', path: '/repo' }),
     },
   } as unknown as Session
 }

@@ -8,6 +8,7 @@
   import InputBarHeader from "./InputBarHeader.svelte";
   import InputToolbar from "./InputToolbar.svelte";
   import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
+  import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     active: boolean;
@@ -47,7 +48,7 @@
   // host refuses an attachment, a screenshot, or a run change from them.
   const effectiveReadOnlyReason = $derived(
     readOnlyReason ??
-      (sess && !canDriveSession(sess.run.serverId, sess.id) ? VIEW_ONLY_REASON : null),
+      (sess && !canDriveSession(runHost(sess.run), sess.id) ? VIEW_ONLY_REASON : null),
   );
   let prompt = $derived(session.inputFor(targetTabId));
 
@@ -119,7 +120,7 @@
           {onAttachFile}
           {onScreenshot}
           {trailingActions}
-          chatSourceId={!started && isChat(sess?.run.workingDirectory) ? targetTabId : null}
+          chatSourceId={!started && isChat(checkoutPlace(sess?.run)?.path) ? targetTabId : null}
         />
       {/snippet}
     </InputBar>

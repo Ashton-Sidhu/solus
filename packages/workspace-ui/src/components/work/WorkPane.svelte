@@ -30,6 +30,7 @@
   import { isLiveEditable, type WorkLiveLease } from "../../contexts/works/work-live.store.svelte";
   import { liveCaretUser, type LiveEditorBinding } from "../editor/lib/live-editor";
   import { diagramReadOnlyReason } from "../diagram/lib/reader-mode";
+  import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
   let { params, paneId, onAttachFile, onScreenshot }: RouteSurfaceProps<"work"> = $props();
 
@@ -177,13 +178,13 @@
 
   /** Where the save picker opens: the work's own project, when it has one. */
   const exportStartPath = $derived(
-    sess?.run.gitContext?.worktreePath ?? sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? "",
+    checkoutGit(sess?.run)?.worktreePath ?? checkoutGit(sess?.run)?.repoRoot ?? checkoutPlace(sess?.run)?.path ?? "",
   );
   // Saving writes to the host's filesystem. When that host is this very machine
   // there is nothing a browser download would add; when it is not, or there is
   // no project to save into (a share link), downloading is the only way to get
   // the file onto the device the user is holding.
-  const hostIsRemote = $derived(!exportStartPath || (!!sess && !hostPolicy.isClientMachine(sess.run.serverId)));
+  const hostIsRemote = $derived(!exportStartPath || (!!sess && !hostPolicy.isClientMachine(runHost(sess.run))));
 
   // The crumb's way back: leave this pane, then show the page the work is a
   // row on — the same two steps the automation builder takes.
@@ -470,8 +471,8 @@
       exportDraft = null;
       requestInputFocus();
     }}
-    api={serverConnections.apiFor(sess.run.serverId)}
-    serverId={sess.run.serverId}
+    api={serverConnections.apiFor(runHost(sess.run))}
+    serverId={runHost(sess.run)}
     ctx={session.ctxForDirectory(exportStartPath)}
     initialPath={exportStartPath}
     fileName={exportDraft.fileName}

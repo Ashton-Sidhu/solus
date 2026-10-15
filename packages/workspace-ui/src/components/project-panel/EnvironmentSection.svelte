@@ -32,6 +32,7 @@
   import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import { worktreeProjectRoot } from "@solus/contracts/types";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -52,7 +53,7 @@
   const actions = $derived(gitActionsFor(sourceId, session, environmentStore, pullRequests.projects));
   const projectRoot = $derived(
     env.checkout?.repoRoot ??
-      sectionRun?.workingDirectory ??
+      checkoutPlace(sectionRun)?.path ??
       env.status?.repoRoot ??
       worktreeProjectRoot(env.cwd),
   );
@@ -60,15 +61,15 @@
   // The host this session was dispatched to, or a draft will dispatch to. It
   // governs which actions can run — local is the unmarked case, so the
   // affinity glyph is null for it.
-  const host = $derived(serversStore.hostFor(sectionRun?.serverId));
-  const hostAffinity = $derived(serversStore.affinityFor(sectionRun?.serverId));
+  const host = $derived(serversStore.hostFor(runHost(sectionRun)));
+  const hostAffinity = $derived(serversStore.affinityFor(runHost(sectionRun)));
   /** What this client may do on the host: a guest opens no terminal, browser, or device here (permissions.md). */
   const me = $derived(hosts.get(detailServerId)?.me);
   // The project row marks the machine the work runs on: a laptop glyph for
   // this machine, the name for a remote one. A run with no recorded host runs
   // on the host this tab talks to.
-  const runHost = $derived(host ?? serversStore.hostFor(detailServerId));
-  const runHostLabel = $derived(runHost?.label);
+  const runServer = $derived(host ?? serversStore.hostFor(detailServerId));
+  const runHostLabel = $derived(runServer?.label);
 
   // The project row opens a menu of the places that can show the folder: the
   // files pane here, and the host's file manager. The file manager opens on
@@ -155,8 +156,8 @@
         key: "project",
         label: projectDirLabel(projectRoot),
         icon: FolderIcon,
-        badge: runHost?.local ? undefined : runHostLabel,
-        badgeIcon: runHost?.local ? LaptopIcon : undefined,
+        badge: runServer?.local ? undefined : runHostLabel,
+        badgeIcon: runServer?.local ? LaptopIcon : undefined,
         phase: "idle",
         // A new chat has no folder until its first prompt, so no files yet.
         disabled: projectRoot === NEW_CHAT_DIRECTORY || !mayReadFiles || (!onOpenFiles && !fileManager),

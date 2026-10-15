@@ -513,8 +513,8 @@ export async function deleteAutomation(id: string): Promise<boolean> {
  * their next occurrence from `now`.
  *
  * `isRunning` lets the scheduler skip automations with a run still in flight:
- * a skipped automation keeps its past-due `nextRunAt`, so it's re-claimed on
- * the first tick after the run finishes rather than stacking overlapping runs.
+ * a skipped automation keeps its past-due `nextRunAt`, so it's re-claimed when
+ * the run ends rather than stacking overlapping runs.
  */
 export async function claimDueAutomations(
   now = new Date(),
@@ -549,17 +549,22 @@ export async function claimDueAutomations(
   return due
 }
 
-const nextDueRowSchema = z.object({ due: z.number().nullable() })
+const nextDueRowSchema = z.object({ id: z.string(), next_run_at: z.number() })
 
 /**
  * When the next scheduled automation is due (epoch ms), or null when none is: what a
- * paused managed machine must be woken for (plan 004 item 3). A due time in the past
- * is still the answer; the scheduler fires it on its next tick.
+ * paused managed machine must be woken for (plan 004 item 3), and when the scheduler
+ * sets its timer. A due time in the past is still the answer; the scheduler fires it
+ * at once. `isRunning` skips automations the scheduler cannot claim until their run ends.
+ * Manual automations are never claimed, so they are never due.
  */
-export function nextAutomationDueAt(): number | null {
-  return nextDueRowSchema.parse(database().prepare(`
-    SELECT MIN(next_run_at) AS due FROM automations WHERE enabled = 1 AND next_run_at IS NOT NULL
-  `).get()).due
+export function nextAutomationDueAt(isRunning?: (automationId: string) => boolean): number | null {
+  const rows = nextDueRowSchema.array().parse(database().prepare(`
+    SELECT id, next_run_at FROM automations
+    WHERE enabled = 1 AND next_run_at IS NOT NULL AND json_extract(trigger_config, '$.type') <> 'manual'
+    ORDER BY next_run_at
+  `).all())
+  return rows.find((row) => !isRunning?.(row.id))?.next_run_at ?? null
 }
 
 // ─── Runs ───

@@ -56,3 +56,19 @@ export interface PrChecksSummary {
    *  never re-scans the arrays to decide its own interval. */
   inFlight: boolean
 }
+
+const PASSING_CONCLUSIONS = new Set<CheckConclusion>(['success', 'neutral', 'skipped'])
+
+/**
+ * The combined state of every check in a summary, required and optional, as
+ * `PullRequest.checksState` states it. A list row takes a pushed summary
+ * through this, so a push and a list read say the same thing about one head.
+ * One failure is enough to fail, as on the host.
+ */
+export function combinedChecksState(summary: PrChecksSummary): PrChecksState {
+  const checks = [...summary.required, ...summary.optional]
+  if (checks.length === 0) return 'none'
+  if (checks.some((check) => !check.inFlight && (!check.conclusion || !PASSING_CONCLUSIONS.has(check.conclusion)))) return 'failing'
+  if (checks.some((check) => check.inFlight)) return 'pending'
+  return 'passing'
+}

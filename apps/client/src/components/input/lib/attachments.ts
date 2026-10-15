@@ -5,12 +5,13 @@ import { unsupportedOnHost } from '@solus/client-core/host-capabilities'
 import { pickFiles } from '@solus/client-core/file-picker'
 import { toasts } from '@solus/workspace-ui/lib/toasts'
 import { uploadFileObjects } from '@solus/workspace-ui/components/input/lib/attachment-uploads.svelte'
+import { runHost } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 export function createWebAttachments(session: WorkspaceContext) {
   async function attach(sourceId: string | undefined, files?: File[]) {
     const targetId = sourceId ?? session.focusedSourceId ?? session.activeTabId;
     const draft = targetId ? session.drafts.sessionDrafts.get(targetId) : undefined;
-    const serverId = (targetId ? session.runFor(targetId)?.serverId : undefined)
+    const serverId = (targetId ? runHost(session.runFor(targetId)) : undefined)
       ?? serverConnections.runOnHostId();
     if (!serverId) return;
     // Capture the host and prompt before a picker or upload can yield to navigation.

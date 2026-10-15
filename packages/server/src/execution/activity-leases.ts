@@ -12,13 +12,17 @@ export class ActivityLeases {
   private foregroundByClient = new Map<string, number>()
   private lastForeground: number | null = null
 
-  report(clientId: string, foreground: boolean, now = Date.now()): void {
+  /** True when this client came to the front: it had no live lease before. */
+  report(clientId: string, foreground: boolean, now = Date.now()): boolean {
+    const leasedAt = this.foregroundByClient.get(clientId)
+    const wasForeground = leasedAt !== undefined && now - leasedAt <= LEASE_TTL_MS
     if (foreground) {
       this.foregroundByClient.set(clientId, now)
       this.lastForeground = now
     } else {
       this.foregroundByClient.delete(clientId)
     }
+    return foreground && !wasForeground
   }
 
   /** When any client last said it was foregrounded; null until one has. */

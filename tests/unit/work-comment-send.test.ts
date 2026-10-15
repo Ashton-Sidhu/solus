@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import type { RunLocation } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 mock.module('@solus/workspace-ui/lib/analytics', () => ({
   identifyInstallation: () => {},
@@ -20,7 +22,7 @@ const previousWindow = globalThis.window
 interface WorkCommentSendContext {
   activeTabId: string
   sendMessage(prompt: string, projectPath?: string, tabId?: string): boolean
-  sessionFor(tabId: string): { run: { workingDirectory: string } } | undefined
+  sessionFor(tabId: string): { run: { location: RunLocation } } | undefined
   openWork(workId: string, target: 'focused' | 'aside'): void
   worksStore: {
     get(workId: string): { cwd: string } | undefined
@@ -43,7 +45,7 @@ interface WorkCommentSendContext {
   }
   createSessionDraft(options: { taskId?: string; withoutTask?: boolean; workId: string }, cwd?: string): {
     id: string
-    run: { taskServerId: string }
+    run: { location: RunLocation }
   }
   startSessionDraft(draftId: string, options: { via: string }): string | null
 }
@@ -132,7 +134,7 @@ function contextWith(events: string[], owningTaskId: string | null = 'task-1'): 
       events.push(`send:${tabId}:${prompt}`)
       return true
     },
-    sessionFor: () => ({ run: { workingDirectory: '/source' } }),
+    sessionFor: () => ({ run: { location: folderLocation({ serverId: 'local', path: '/source' }) } }),
     openWork: (workId, target) => events.push(`work:${workId}:${target}`),
     worksStore: {
       get: () => ({ cwd: '/repo' }),
@@ -153,7 +155,7 @@ function contextWith(events: string[], owningTaskId: string | null = 'task-1'): 
     createSessionDraft: (options, cwd) => {
       const taskTarget = options.taskId ?? (options.withoutTask ? 'none' : 'new')
       events.push(`create:${taskTarget}:${options.workId}:${cwd}`)
-      return { id: 'work-draft', run: { taskServerId: 'old-host' } }
+      return { id: 'work-draft', run: { location: folderLocation({ serverId: 'old-host', path: cwd ?? '~' }) } }
     },
     startSessionDraft: (draftId) => {
       events.push(`start:${draftId}`)

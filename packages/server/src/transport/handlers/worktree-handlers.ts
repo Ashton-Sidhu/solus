@@ -27,6 +27,7 @@ import { contextPreferences } from '../../execution/agents/run-input'
 import { writingBackendFor, type WritingBackend } from '../../execution/agents/writing-backend'
 import type { WorktreeMover } from '../../execution/sessions/worktree-move'
 import type { WorktreeOffers } from '../../execution/sessions/worktree-offers'
+import type { PrSync } from '../../prs/pr-sync'
 
 const log = createLogger('main', 'worktree-handlers')
 
@@ -35,6 +36,7 @@ export interface WorktreeDeps {
   events: HostEventPublisher
   worktreeMover: WorktreeMover
   worktreeOffers: WorktreeOffers
+  prSync: Pick<PrSync, 'apply'>
 }
 
 /**
@@ -200,6 +202,8 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
             credentialCwd: cwd,
           })
           prIndex.invalidate(githubRepo)
+          // Open lists of the repository show it now, not at their next read.
+          await deps.prSync.apply({ repo: githubRepo, provider: githubProvider }, pullRequest)
           return pullRequest
         }
         : undefined,

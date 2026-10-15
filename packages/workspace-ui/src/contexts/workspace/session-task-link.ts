@@ -1,6 +1,7 @@
 import type { Task } from '@solus/contracts/task-types'
 import { existingTaskId } from './session-draft.svelte'
 import type { WorkspaceContext } from './workspace.context.svelte'
+import { projectHome, projectRoot, runHost } from './run-location'
 
 /** The workspace members these commands read or call, and no others. */
 type SessionTaskLinkWorkspace = Pick<WorkspaceContext, 'sessionFor' | 'tasksStore'>
@@ -29,14 +30,14 @@ export async function linkTabToTask(workspace: SessionTaskLinkWorkspace, tabId: 
   const model = workspace.tasksStore.get(task.id)
   const sessionId = session.id
   if (session.agentSessionId) {
-    const taskServerId = model.serverId ?? session.run.taskServerId
+    const taskServerId = model.serverId ?? projectHome(session.run).serverId
     // Where the agent ran, when that is not the task's own host.
-    const execution = session.run.serverId === taskServerId
+    const execution = runHost(session.run) === taskServerId
       ? null
       : {
-          serverId: session.run.serverId,
+          serverId: runHost(session.run),
           provider: session.run.provider ?? undefined,
-          projectRoot: session.run.projectGroupPath,
+          projectRoot: projectRoot(session.run),
         }
     await model.linkSession(sessionId, execution, taskServerId)
   }

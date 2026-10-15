@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { Session, Tab } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -23,7 +24,7 @@ describe('tab registry selection', () => {
     sessions.byId['session-a'] = {
       id: 'session-a',
       run: {
-        workingDirectory: '/repo',
+        location: folderLocation({ serverId: 'host', path: '/repo' }),
       } as Session['run'],
     } as Session
 

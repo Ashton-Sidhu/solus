@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { GitState, Session, Tab } from '@solus/contracts/types'
+import { checkoutGit, folderLocation, runHost } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const branchWrites: unknown[][] = []
@@ -29,8 +30,10 @@ describe('SessionEventReducer Git events', () => {
     const session = {
       status: 'interrupted',
       run: {
-        gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-        worktree: null,
+        location: folderLocation(
+          { serverId: 'local', path: '/repo' },
+          { git: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' } },
+        ),
       } as Session['run'],
     } as Session
     const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
@@ -63,9 +66,9 @@ describe('SessionEventReducer Git events', () => {
     }
     reducer.apply('session-1', { type: 'git_status', cwd: '/repo', state: status })
 
-    expect(session.run.gitContext?.branch).toBe('feature')
+    expect(checkoutGit(session.run)?.branch).toBe('feature')
     expect(pushedStatus).toBe(status)
-    expect(pushedServerId).toBe(session.run.serverId)
+    expect(pushedServerId).toBe(runHost(session.run))
   })
 
   test('writes a late dispatched worktree branch back to the task host', async () => {
@@ -79,10 +82,10 @@ describe('SessionEventReducer Git events', () => {
       agentSessionId: 'provider-session',
       status: 'idle',
       run: {
-        serverId: 'run-host',
-        taskServerId: 'task-host',
-        gitContext: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' },
-        worktree: null,
+        location: folderLocation(
+          { serverId: 'run-host', path: '/repo' },
+          { git: { repoRoot: '/repo', branch: 'main', targetBranch: 'main' }, project: { serverId: 'task-host', path: '/home/repo' } },
+        ),
       } as Session['run'],
     } as Session
     const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab

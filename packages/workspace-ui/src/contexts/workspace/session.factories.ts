@@ -3,6 +3,7 @@ import { uuid } from '@solus/contracts/uuid'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { folderLocation } from './run-location'
 
 export function makePrompt(overrides?: Partial<Prompt>): Prompt {
   return { text: '', attachments: [], planRefs: [], workRefs: [], sessionRefs: [], ...overrides }
@@ -11,18 +12,11 @@ export function makePrompt(overrides?: Partial<Prompt>): Prompt {
 export function makeRunConfig(overrides?: Partial<RunConfig>): RunConfig {
   return {
     // No folder named: a new chat, never the home folder by accident.
-    workingDirectory: NEW_CHAT_DIRECTORY,
-    gitContext: null,
-    worktree: null,
+    location: folderLocation({ serverId: LOCAL_SERVER_ID, path: NEW_CHAT_DIRECTORY }),
     modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
     permissionMode: 'full-access',
     provider: null,
-    serverId: LOCAL_SERVER_ID,
-    // A run starts owning its own tasks. Only a dispatch separates the two.
-    taskServerId: LOCAL_SERVER_ID,
-    projectGroupPath: null,
     sessionSkills: [],
-    pendingHostDispatch: null,
     ...overrides,
   }
 }

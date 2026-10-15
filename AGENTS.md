@@ -564,8 +564,13 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
   - `workspace.context.svelte.ts` — core tab/session workspace state; large and
     performance-sensitive.
   - `session-*` — session lifecycle, transcript, and events.
+  - `workspace/run-location.ts` — the one owner of where a run works: its
+    folder or clone and the host that holds it, and its project home. Read a
+    run's location through its answers (`runHost`, `workingPlace`,
+    `projectHome`) and change it with its commands (`solus/run-location-answers`;
+    `docs/plans/run-location.md`).
   - `hosts/` — one reactive `Host` per host. A reader names the owner of the host
-    it means: `hosts.get(run.serverId)` for a tab, `hosts.device` for this
+    it means: `hosts.get(runHost(run))` for a tab, `hosts.device` for this
     device, `hosts.runOn` for the Run on picker. Never keep one copy of a host
     fact that follows "the" host (`solus/explicit-host-choice`). An id this
     client does not know gives a `Host` whose `presence` is `gone`; its calls

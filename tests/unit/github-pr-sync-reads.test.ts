@@ -50,7 +50,7 @@ class SyncProvider extends GitHubProvider {
   }
 }
 
-function client(graphql: (query: string, variables: { after?: string | null }) => Promise<unknown>) {
+function client(graphql: (query: string, variables: Partial<Record<string, string>>) => Promise<unknown>) {
   return {
     rest: {
       users: { getAuthenticated: async () => ({ data: { login: 'sidhu', avatar_url: '' } }) },
@@ -69,10 +69,10 @@ describe('PR sync reads', () => {
       if (query.includes('PrSyncByNumber')) {
         // GitHub's answer when some aliases name no pull request.
         throw Object.assign(new Error('Could not resolve to a PullRequest'), {
-          data: { repository: { pr7: row(7, '2026-08-02T00:00:00Z'), pr60: null, pr65: null } },
+          data: { r0: { p7: row(7, '2026-08-02T00:00:00Z'), p60: null, p65: null } },
           errors: [
-            { type: 'NOT_FOUND', path: ['repository', 'pr60'] },
-            { type: 'NOT_FOUND', path: ['repository', 'pr65'] },
+            { type: 'NOT_FOUND', path: ['r0', 'p60'] },
+            { type: 'NOT_FOUND', path: ['r0', 'p65'] },
           ],
         })
       }
@@ -90,31 +90,26 @@ describe('PR sync reads', () => {
   test('a repository this credential cannot see is a failure, not a missing pull request', async () => {
     const provider = new SyncProvider(client(async () => {
       throw Object.assign(new Error('Could not resolve to a Repository'), {
-        data: { repository: null },
-        errors: [{ type: 'NOT_FOUND', path: ['repository'] }],
+        data: { r0: null },
+        errors: [{ type: 'NOT_FOUND', path: ['r0'] }],
       })
     }))
 
     await expect(provider.getPullRequests(repo, [7])).rejects.toThrow()
   })
 
-  test('the recent list stops at the first pull request not updated since the last tick', async () => {
-    const pages: Array<string | null | undefined> = []
-    const provider = new SyncProvider(client(async (_query, variables) => {
-      pages.push(variables.after)
-      return {
-        repository: {
-          pullRequests: {
-            pageInfo: { hasNextPage: true, endCursor: 'next' },
-            nodes: [row(3, '2026-08-05T00:00:00Z'), row(2, '2026-08-01T00:00:00Z')],
-          },
-        },
-      }
+  test('the branches of one lookup are one request, and a branch with no pull request answers an empty list', async () => {
+    const queries: string[] = []
+    const provider = new SyncProvider(client(async (query) => {
+      if (!query.includes('PrSyncByHead')) return { repository: null }
+      queries.push(query)
+      return { r0: { h0: { nodes: [row(8, '2026-08-05T00:00:00Z'), row(3, '2026-08-01T00:00:00Z')] }, h1: { nodes: [] } } }
     }))
 
-    const recent = await provider.listRecentPullRequests(repo, '2026-08-02T00:00:00Z')
+    const found = await provider.getPullRequestsByHead(repo, ['feature/8', 'idle'])
 
-    expect(recent.map((pullRequest) => pullRequest.number)).toEqual([3])
-    expect(pages).toEqual([null])
+    expect(queries).toHaveLength(1)
+    expect(found.get('feature/8')?.map((pullRequest) => pullRequest.number)).toEqual([8, 3])
+    expect(found.get('idle')).toEqual([])
   })
 })

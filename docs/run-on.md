@@ -1,8 +1,10 @@
 # Where a session runs
 
 The strip above the composer of a new session reads left to right: **project**,
-**Run on**, **branch**, **task**. Each chip answers one question. Nothing moves
-or connects until you send the first prompt.
+**Run on**, **branch**, **task**. Each chip answers one question. Choosing a
+folder on another host points the session there at once, so the branch chip
+shows that host's branches. Nothing is cloned, and no host that is offline is
+connected, until you send the first prompt.
 
 ## Project
 
@@ -32,7 +34,7 @@ what that host will use for the project:
 | Row note | What Send does |
 |---|---|
 | none, with a check | The session runs on this host. |
-| **Uses its checkout** | The session runs in the checkout that host already has. |
+| **Uses its checkout** | The session runs in the checkout that host already has. The session points there when you select the row; Send connects to the host first if it is not online. |
 | **Copies the repository** | The host makes a partial clone of the repository (every branch and its full history; file contents are fetched when a checkout or diff first needs them), then runs the session in a new worktree by default. A checkout that an earlier version cloned without history gets its full history once, the next time work is sent to it; its files, commits, and HEAD stay as they are. The copy belongs to the device that sent the work; it never shows as a project. |
 | **Choose a folder** | The project has no Git remote, so you pick a folder on that host. |
 

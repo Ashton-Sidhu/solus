@@ -34,12 +34,20 @@ merges them.
    uses too). Then it sends `PUT /v1/hosts/:hostId/live-activities` with its control
    token: the card, its generation, and its own rows. A burst of statuses in 300 ms is
    one report. If the phone's card shows a status that is out of date, the host
-   corrects it at registration.
+   corrects it at registration. Every 5 minutes the host also reports each card on which
+   one of its sessions is still live, so a long turn with no new status does not go stale.
 3. The relay keeps the newest card of each push token. It replaces the rows that the
    host reported, counts the live rows again, and sends the card to APNs if the content
    changed. While a session is live it sends `update` with a 10-minute stale date. When
-   no session is live it sends `end`, and stops sending for that card.
-4. When the card ends on the phone, or the token changes, the phone calls
+   no session is live it sends `end`, and stops sending for that card. A live card that
+   did not change is sent again when its last push is 4 minutes old or more, to move the
+   stale date.
+4. When a row changes to a phase that needs the person, the push has an `alert` with a
+   sound and priority 10: "Needs approval", "Needs input", "Failed", or "Done", with the
+   session title as the body. The most urgent change gives the alert. The `end` push also
+   has priority 10. All other pushes (Working, Background, Rate limited, stale-date
+   refreshes) have priority 5, because iOS limits priority-10 Live Activity pushes.
+5. When the card ends on the phone, or the token changes, the phone calls
    `liveActivityUnregister`.
 
 The phone continues to update the card while the app runs. A push and a local update can
@@ -53,9 +61,11 @@ both arrive; they carry the same content.
 - **A host does not add rows.** A session that starts while the phone is suspended does
   not appear on the card until the app runs. The card counts it if the phone counted
   it (`activeCount` above the live rows), so the card does not end early.
-- **State is in memory, on the host and in the relay.** A card lives at most eight
-  hours. Each report carries the card, so a restarted relay learns it again. A restarted
-  host forgets registrations until the phone sends its next card.
+- **The host saves its registrations; the relay keeps cards in memory.** A card lives at
+  most eight hours. A suspended phone cannot register again, so the host writes its
+  registrations to `live-activities.json` in its data directory (mode 600: it holds push
+  tokens). Each report carries the card, so a restarted relay learns it again from the
+  next report.
 - **APNs environment.** A debug build reports `sandbox`, a release build `production`.
   If APNs answers `BadDeviceToken`, the relay tries the other gateway once and keeps the
   one that worked. A token that APNs refuses with `410` or `BadDeviceToken` gets no more

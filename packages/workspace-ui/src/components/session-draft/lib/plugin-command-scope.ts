@@ -4,6 +4,7 @@ import type {
   IpcContext,
   RunConfig,
 } from '@solus/contracts/types'
+import { checkoutGit, checkoutPlace } from '../../../contexts/workspace/run-location'
 
 export interface DraftPluginCommandScope {
   workingDirectory: string
@@ -25,14 +26,14 @@ export function draftPluginCommandScope(
 ): DraftPluginCommandScope {
   const provider = run.provider ?? fallbackProvider
   const context = contextForEnvironment(
-    run.workingDirectory,
-    run.gitContext,
+    checkoutPlace(run).path,
+    checkoutGit(run),
     draftId,
   )
   context.session.provider = provider
   context.session.preferredModel = run.modelConfig.modelId
   return {
-    workingDirectory: run.workingDirectory,
+    workingDirectory: checkoutPlace(run).path,
     provider,
     modelId: run.modelConfig.modelId,
     context,

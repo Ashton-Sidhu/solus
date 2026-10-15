@@ -4,7 +4,8 @@ import {
   submitDiffFeedbackToNewSession,
 } from '@solus/workspace-ui/contexts/workspace/session-diff-feedback'
 import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/workspace.context.svelte'
-import type { DiffComment } from '@solus/contracts/types'
+import type { DiffComment, GitCheckout, Place } from '@solus/contracts/types'
+import { checkoutGit, checkoutPlace, folderLocation, projectHome } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 function comment(filePath: string): DiffComment {
   return {
@@ -22,11 +23,10 @@ function comment(filePath: string): DiffComment {
 function session(overrides: Partial<{
   diffComments: DiffComment[]
   diffGeneralComment: string
-  workingDirectory: string
-  gitContext: { branch: string | null; targetBranch: string; repoRoot?: string } | null
+  path: string
+  git: GitCheckout | null
   serverId: string
-  taskServerId: string
-  projectGroupPath: string | null
+  project: Place
 }> = {}) {
   return {
     diffComments: overrides.diffComments ?? [],
@@ -34,11 +34,10 @@ function session(overrides: Partial<{
     diffGeneralComment: overrides.diffGeneralComment ?? '',
     task: { kind: 'none' as const },
     run: {
-      workingDirectory: overrides.workingDirectory ?? '',
-      gitContext: overrides.gitContext ?? null,
-      serverId: overrides.serverId ?? 'host',
-      taskServerId: overrides.taskServerId ?? 'task-host',
-      projectGroupPath: overrides.projectGroupPath ?? null,
+      location: folderLocation(
+        { serverId: overrides.serverId ?? 'host', path: overrides.path ?? '~' },
+        { git: overrides.git ?? null, project: overrides.project ?? { serverId: 'task-host', path: '~' } },
+      ),
     },
   }
 }
@@ -68,11 +67,10 @@ describe('diff feedback tab targeting', () => {
       active: session(),
       source: session({
         diffComments: [sourceComment],
-        workingDirectory: '/repo/worktree',
-        gitContext: sourceGitContext,
+        path: '/repo/worktree',
+        git: sourceGitContext,
         serverId: 'source-host',
-        taskServerId: 'project-host',
-        projectGroupPath: '/repo',
+        project: { serverId: 'project-host', path: '/repo' },
       }),
       fresh: session(),
     }
@@ -81,8 +79,10 @@ describe('diff feedback tab targeting', () => {
         creates.push({ cwd, options })
         return 'fresh'
       },
-      sendMessage(prompt: string, _cwd?: string, tabId?: string) {
-        sends.push({ prompt, tabId })
+      dispatch: {
+        sendMessage(prompt: string, _cwd?: string, tabId?: string) {
+          sends.push({ prompt, tabId })
+        },
       },
     })
 
@@ -97,14 +97,14 @@ describe('diff feedback tab targeting', () => {
       options: {
         gitContext: sourceGitContext,
         serverId: 'source-host',
-        sourceTabId: 'source',
+        sourceId: 'source',
       },
     }])
-    expect(sessions.fresh.run.workingDirectory).toBe('/repo/worktree')
-    expect(sessions.fresh.run.gitContext).toEqual(sourceGitContext)
-    expect(sessions.fresh.run.gitContext).not.toBe(sourceGitContext)
-    expect(sessions.fresh.run.taskServerId).toBe('project-host')
-    expect(sessions.fresh.run.projectGroupPath).toBe('/repo')
+    expect(checkoutPlace(sessions.fresh.run).path).toBe('/repo/worktree')
+    expect(checkoutGit(sessions.fresh.run)).toEqual(sourceGitContext)
+    expect(checkoutGit(sessions.fresh.run)).not.toBe(sourceGitContext)
+    // Feedback on a dispatched session keeps its project home, and its tasks there.
+    expect(projectHome(sessions.fresh.run)).toEqual({ serverId: 'project-host', path: '/repo' })
     expect(sessions.fresh.task).toEqual({ kind: 'none' })
     expect(sends[0]?.tabId).toBe('fresh')
     expect(sends[0]?.prompt).toContain('source.ts')
@@ -119,7 +119,7 @@ describe('diff feedback tab targeting', () => {
       active: session(),
       source: session({
         diffComments: [sourceComment],
-        workingDirectory: '/unrelated/source',
+        path: '/unrelated/source',
         serverId: 'source-host',
       }),
       fresh: session(),
@@ -136,8 +136,10 @@ describe('diff feedback tab targeting', () => {
         creates.push({ cwd, options })
         return 'fresh'
       },
-      sendMessage(prompt: string, _cwd?: string, tabId?: string) {
-        sends.push({ prompt, tabId })
+      dispatch: {
+        sendMessage(prompt: string, _cwd?: string, tabId?: string) {
+          sends.push({ prompt, tabId })
+        },
       },
     })
 
@@ -157,12 +159,12 @@ describe('diff feedback tab targeting', () => {
       options: {
         gitContext: reviewedCheckout,
         serverId: 'review-host',
-        sourceTabId: 'source',
+        sourceId: 'source',
       },
     }])
-    expect(sessions.fresh.run.workingDirectory).toBe('/managed/pr')
-    expect(sessions.fresh.run.gitContext).toEqual(reviewedCheckout)
-    expect(sessions.fresh.run.gitContext).not.toBe(reviewedCheckout)
+    expect(checkoutPlace(sessions.fresh.run).path).toBe('/managed/pr')
+    expect(checkoutGit(sessions.fresh.run)).toEqual(reviewedCheckout)
+    expect(checkoutGit(sessions.fresh.run)).not.toBe(reviewedCheckout)
     expect(sends[0]?.tabId).toBe('fresh')
   })
 
@@ -174,8 +176,10 @@ describe('diff feedback tab targeting', () => {
       source: session({ diffComments: [sourceComment] }),
     }
     const ctx = workspace(sessions, {
-      sendMessage(prompt: string, _cwd?: string, tabId?: string) {
-        sends.push({ prompt, tabId })
+      dispatch: {
+        sendMessage(prompt: string, _cwd?: string, tabId?: string) {
+          sends.push({ prompt, tabId })
+        },
       },
     })
 

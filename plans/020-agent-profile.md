@@ -190,8 +190,8 @@ Every surface implements the same capability (CLAUDE.md "Multi-surface").
   account, the client calls `agentProfilePull` on every connected host where
   `profileAppliesTo` is true. That is the nudge of decision 8.
 - **First copy**: at sign-in, an account document with content is adopted; an
-  absent or empty one is created from this computer's profile (desktop) or
-  this device's copy, with no prompt. The same rule personal settings follow
+  absent or empty one is created from this device's copy, with no prompt
+  (§10, "The profile fills only on import"). The same rule personal settings follow
   (plan 018 decision 9).
 
 ## 4. The pull
@@ -604,6 +604,31 @@ nothing a host received. Now:
   local copy (the engine applies the confirmed copy whole).
 - "In your profile" on a skills.sh result also names a hand-written skill of
   that name, which a host would refuse beside a registry one.
+
+### The profile fills only on import (2026-10-14, later)
+
+Maintainer decision: no prepopulation by default. The page's fill on open is
+gone, and so is every other read of the computer that the person did not ask
+for:
+
+- `importComputer` runs only on "Import from this computer".
+- The signed-out push sends the local copy and never reads the computer. The
+  automatic push skips an empty copy, and an explicit one is refused with a
+  reason, because an empty push would remove an earlier copy from the host.
+- The seed at sign-in and after a clear is this device's copy on every client
+  (`readComputer` went). Nothing on either side sends nothing.
+
+### Retired instruction files leave old copies (2026-10-14, later)
+
+A copy made before instruction files left the profile could still hold a
+home's `CLAUDE.md` or `AGENTS.md`: the page listed it under "Codex files", and
+a host refused the whole profile because the path is outside it. The path rule
+is now one function in the contract (`isAgentProfilePath`), and those two
+files are retired entries (`isRetiredAgentProfileEntry`): every client drops
+them when it reads its stored copy or a remote change, a host's apply leaves
+them out instead of refusing, and a host's pull removes them from the account
+in the same write that adopts servers. Any other path outside the profile is
+still refused.
 
 ### Remove only; paged lists (2026-10-14)
 

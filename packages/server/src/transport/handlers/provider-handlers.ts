@@ -13,8 +13,8 @@ import { readPrGuidePatch, readPrGuideFileContents } from '../../review/pr-guide
 import { PlaneDisabledError } from '../../host/roles'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
 import type { ReviewGuideJobs } from '../../review/guide-jobs'
-import type { Provider } from '../../providers/types'
-import type { PrFilter, PrListPage, PrProjectListing, PrReviewTarget, PrStackMergeResult, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate, RepoRef } from '@solus/contracts/providers'
+import type { PrPageRequest, Provider } from '../../providers/types'
+import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing, PrReviewTarget, PrStackMergeResult, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate, RepoRef } from '@solus/contracts/providers'
 import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
 import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
 import { recordScopeOf, type Principal } from '../../admission/principal'
@@ -28,8 +28,8 @@ import type { ResourceAccess } from '../../admission/access-policy'
 import { completeTasksForMergedPullRequest } from '../../data/tasks/sync-engine'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
 import { emitPullRequestTasksChanged } from '../../data/tasks/task-links'
-import { prIndex, repoKeyOf } from '../../prs/pr-index'
-import { noRemoteError, PrUnavailableError, repoForScope } from '../../prs/code-host'
+import { prIndex, repoKeyOf, type PageReads } from '../../prs/pr-index'
+import { noRemoteError, PrUnavailableError, repoForScope, type CodeHost } from '../../prs/code-host'
 import { createGithubMediaUrl } from '../../providers/github/media'
 import type { PullRequest } from '../../prs/pull-request'
 import type { PrSync } from '../../prs/pr-sync'
@@ -125,7 +125,14 @@ export async function openPrReview(ctx: IpcContext, number: number): Promise<PrR
   const { repo, provider } = await reviewTargetFor(ctx)
   // Fresh, not remembered: the `headSha` on the target this returns becomes the
   // revision every later write is checked against, so it has to be the host's.
-  const detail = await prIndex.pullRequest(repo, provider, number).readFresh()
+  const pullRequest = prIndex.pullRequest(repo, provider, number)
+  // The diff base only depends on the two revisions. Where a list row already
+  // named them, ask for it beside the fresh read: an unchanged pull request
+  // then gets its base from that answer, and only a moved one waits for a
+  // second compare after the read.
+  const known = pullRequest.lastRead()
+  if (known) void provider.review.getPullRequestDiffBase(repo, known).catch(() => {})
+  const detail = await pullRequest.readFresh()
   const baseSha = await provider.review.getPullRequestDiffBase(repo, detail)
   const target = buildPrReviewTarget(repo, detail, baseSha)
   log.info('pr_review_opened_host_only', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: number, headSha: detail.headSha })
@@ -189,12 +196,14 @@ async function priorityPullRequests(
   provider: Provider,
   viewer: string,
   filter: PrFilter | undefined,
+  batched?: PageReads,
 ): Promise<PullRequestDetail[]> {
   if (filter?.query?.trim() || filter?.author || filter?.head) return []
   const state = filter?.state ?? 'open'
-  const reads = [prIndex.list(repo, provider, viewer, { state, query: `author:${viewer}` }, 1).then((page) => page.items)]
+  const authored = batched?.authored ?? prIndex.list(repo, provider, viewer, { state, query: `author:${viewer}` }, 1)
+  const reads = [authored.then((page) => page.items)]
   // A review request only stands on an open pull request.
-  if (state !== 'closed') reads.push(prIndex.listNeedsReview(repo, provider, viewer))
+  if (state !== 'closed') reads.push(batched?.needsReview ?? prIndex.listNeedsReview(repo, provider, viewer))
   const settled = await Promise.allSettled(reads)
   return settled.flatMap((read) => {
     if (read.status === 'fulfilled') return read.value
@@ -206,6 +215,55 @@ async function priorityPullRequests(
     })
     return []
   })
+}
+
+/** A project's page as a read of many projects answers it, with the account
+ *  it was read as. */
+interface BatchedPage extends PageReads {
+  viewer: string
+}
+
+/**
+ * A page of every project, keyed by `repoKeyOf`: page one, or the next page
+ * where `cursorOf` names one, with the priority rows on page one of the
+ * sectioned list. Projects on one code host and account are read together, so
+ * many projects cost one search. A branch lookup is read per project, as is a
+ * project whose repository the read could not see. With no viewer there is no
+ * batch: each project then reads alone and says why it failed.
+ */
+async function batchedPages(
+  targets: ReadonlyArray<CodeHost | undefined>,
+  filter: PrFilter | undefined,
+  cursorOf: (index: number) => PrProjectCursor | undefined,
+): Promise<Map<string, BatchedPage>> {
+  const found = new Map<string, BatchedPage>()
+  if (filter?.head) return found
+  const groups = new Map<string, { provider: Provider; requests: PrPageRequest[] }>()
+  targets.forEach((target, index) => {
+    if (!target) return
+    const key = `${target.provider.id}:${target.repo.host}`
+    const group = groups.get(key) ?? { provider: target.provider, requests: [] }
+    const after = cursorOf(index)
+    group.requests.push({ repo: target.repo, page: after?.page ?? 1, cursor: after?.cursor ?? null })
+    groups.set(key, group)
+  })
+  await Promise.all([...groups.values()].map(async ({ provider, requests }) => {
+    const viewer = await provider.review.getViewer().catch(() => null)
+    if (!viewer) return
+    for (const [key, reads] of await prIndex.listPages(provider, requests, viewer, filter)) {
+      found.set(key, { ...reads, viewer })
+    }
+  }))
+  return found
+}
+
+/** Run `run` for every index below `count`, at most `limit` at a time. */
+async function inPool(count: number, limit: number, run: (index: number) => Promise<void>): Promise<void> {
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < count) await run(next++)
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, count) }, worker))
 }
 
 /** The page's rows, then each priority row the page does not already hold. */
@@ -346,14 +404,21 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     ctx: IpcContext,
     filter: PrFilter | undefined,
     page: number,
+    cursor: string | null,
     handlerCtx: HandlerCtx,
-    options: { withPriority?: boolean } = {},
+    options: {
+      withPriority?: boolean
+      /** The project's code host, when the caller already resolved it. */
+      target?: CodeHost
+      /** The page as a read of many projects answers it. */
+      batched?: BatchedPage
+    } = {},
   ): Promise<PrListPage> {
-    const { repo, provider } = await reviewTargetFor(ctx)
-    const viewer = await provider.review.getViewer(repo)
+    const { repo, provider } = options.target ?? await reviewTargetFor(ctx)
+    const viewer = options.batched?.viewer ?? await provider.review.getViewer(repo)
     const [page1, priority] = await Promise.all([
-      prIndex.list(repo, provider, viewer, filter, page),
-      options.withPriority ? priorityPullRequests(repo, provider, viewer, filter) : [],
+      options.batched?.page ?? prIndex.list(repo, provider, viewer, filter, page, cursor),
+      options.withPriority && page === 1 ? priorityPullRequests(repo, provider, viewer, filter, options.batched) : [],
     ])
     // Copied rather than assigned into: `page1` is the index's own object, and
     // decorating it in place would write this viewer's attention flags onto the
@@ -407,41 +472,58 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   }
 
   server.register('prList', async (args, handlerCtx) => {
-    const [ctx, filter, page = 1] = args
-    return listPullRequests(ctx, filter, page, handlerCtx)
+    const [ctx, filter, page = 1, cursor] = args
+    return listPullRequests(ctx, filter, page, cursor ?? null, handlerCtx)
   })
 
   // The every-project list asks once per host. The host reads its projects
   // side by side and answers with all of them, so the client lays the rows out
-  // once instead of reordering them as each project arrives.
+  // once instead of reordering them as each project arrives. Where the code
+  // host can, one search answers a page of many projects (`batchedPages`);
+  // each project still gets its own listing, and continues from its cursor.
   server.register('prListProjects', async (args, handlerCtx) => {
-    const [ctx, projectRoots, filter] = args
+    const [ctx, projectRoots, filter, after = []] = args
+    const cursors = new Map(after.map((entry) => [entry.projectRoot, entry]))
     // Filled by index, so the answer keeps the order the projects were named in.
     const listings: PrProjectListing[] = []
-    let next = 0
-    const worker = async (): Promise<void> => {
-      while (next < projectRoots.length) {
-        const index = next++
+    const targets: Array<CodeHost | undefined> = []
+    // The project's own scope, with no checkout of its own: a list read is
+    // an observation of the repository, not of any one session's branch.
+    const projectCtxOf = (projectRoot: string): IpcContext => ({
+      ...ctx,
+      session: { ...ctx.session, projectPath: projectRoot, workingDirectory: projectRoot, gitContext: null },
+    })
+
+    await inPool(projectRoots.length, PROJECT_LIST_CONCURRENCY, async (index) => {
+      try {
+        targets[index] = await reviewTargetFor(projectCtxOf(projectRoots[index]))
+      } catch (error) {
         const projectRoot = projectRoots[index]
-        // The project's own scope, with no checkout of its own: a list read is
-        // an observation of the repository, not of any one session's branch.
-        const projectCtx: IpcContext = {
-          ...ctx,
-          session: { ...ctx.session, projectPath: projectRoot, workingDirectory: projectRoot, gitContext: null },
-        }
-        try {
-          listings[index] = {
-            projectRoot,
-            page: await listPullRequests(projectCtx, filter, 1, handlerCtx, { withPriority: true }),
-          }
-        } catch (error) {
-          listings[index] = error instanceof PrUnavailableError
-            ? { projectRoot, unavailable: error.reason }
-            : { projectRoot, error: error instanceof Error ? error.message : String(error) }
-        }
+        listings[index] = error instanceof PrUnavailableError
+          ? { projectRoot, unavailable: error.reason }
+          : { projectRoot, error: error instanceof Error ? error.message : String(error) }
       }
-    }
-    await Promise.all(Array.from({ length: Math.min(PROJECT_LIST_CONCURRENCY, projectRoots.length) }, worker))
+    })
+    const batched = await batchedPages(targets, filter, (index) => cursors.get(projectRoots[index]))
+    await inPool(projectRoots.length, PROJECT_LIST_CONCURRENCY, async (index) => {
+      const projectRoot = projectRoots[index]
+      const target = targets[index]
+      if (!target) return
+      try {
+        listings[index] = {
+          projectRoot,
+          page: await listPullRequests(projectCtxOf(projectRoot), filter, cursors.get(projectRoot)?.page ?? 1, cursors.get(projectRoot)?.cursor ?? null, handlerCtx, {
+            withPriority: true,
+            target,
+            batched: batched.get(repoKeyOf(target.repo)),
+          }),
+        }
+      } catch (error) {
+        listings[index] = error instanceof PrUnavailableError
+          ? { projectRoot, unavailable: error.reason }
+          : { projectRoot, error: error instanceof Error ? error.message : String(error) }
+      }
+    })
     return listings
   })
 
@@ -844,7 +926,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prPendingWorkflowRuns', async (args) => {
     const [ctx, number] = args
     const { repo, provider } = await reviewTargetFor(ctx)
-    const detail = await prIndex.pullRequest(repo, provider, number).readFresh()
+    // Remembered, not fresh: the answer names the head it describes, and the
+    // approval reads the pull request fresh and refuses a head that moved.
+    const detail = await prIndex.pullRequest(repo, provider, number).read()
     // Only a fork's runs wait for a maintainer.
     if (!detail.capabilities.actions.includes('approve-workflows') || detail.state !== 'open' || !detail.headRepo.isFork) {
       return { headSha: detail.headSha, runs: [] }

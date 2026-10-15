@@ -3,6 +3,7 @@ import type { SessionMeta, SessionLineageResolution } from '@solus/contracts/typ
 import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { readSessionMeta, stampSessionMeta } from '@solus/client-core/session-meta'
+import { checkoutGit, checkoutPlace, folderLocation, projectHome, runHost } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 interface SessionOpenFixtureOwner {
   settings: { activeAgent: string }
@@ -28,19 +29,19 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
   const tabs = Array.from({ length: tabCount }, (_, index) => ({
     sessionId: options.lineage?.sessionId ?? `session-${index}`,
     tabId: `tab-${index}`, agentSessionId: `provider-${index}`, provider: 'codex' as const,
-    serverId: index % 2 ? 'remote' : 'local', workingDirectory: '/fixture',
+    location: folderLocation({ serverId: index % 2 ? 'remote' : 'local', path: '/fixture' }),
   }))
   type FixtureMessage = { id: string; role: string; content: string; timestamp: number }
   const sessions = tabs.map((tab) => ({
     id: tab.sessionId, agentSessionId: tab.agentSessionId,
-    run: { serverId: tab.serverId, provider: 'codex' },
+    run: { location: tab.location, provider: 'codex' },
     messages: new Array<FixtureMessage>(),
     status: 'idle', loadingHistory: false,
   }))
   function rpc<T>(method: string, keys: string[], value: T): Promise<T> {
     return new Promise((resolve, reject) => reads.push({ method, keys, resolve: () => resolve(value), reject }))
   }
-  const apis = new Map(tabs.map((tab) => [tab.serverId, {
+  const apis = new Map(tabs.map((tab) => [runHost(tab), {
     getSessionInfo: (key: string) => rpc<SessionMeta | null>('getSessionInfo', [key], null),
     getSessionInfos: (keys: string[]) => rpc<Array<SessionMeta | null>>('getSessionInfos', keys, keys.map(() => null)),
     describeSession: (key: string) => rpc('describeSession', [key], { lineage: options.lineage ?? null }),
@@ -55,7 +56,7 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
     tabs: Object.fromEntries(tabs.map((tab, index) => [tab.tabId, { sessionId: sessions[index].id }])),
     sessions: { byId: Object.fromEntries(sessions.map((session) => [session.id, session])) },
     sessionFor: (tabId: string) => sessions[tabs.findIndex((tab) => tab.tabId === tabId)],
-    apiFor: (tabId: string) => apis.get(tabs.find((tab) => tab.tabId === tabId)!.serverId)!,
+    apiFor: (tabId: string) => apis.get(runHost(tabs.find((tab) => tab.tabId === tabId)!))!,
     settings: { activeAgent: 'codex' },
     environment: { refreshEnvironment: async (_workspace: SessionOpenFixtureOwner, options: { sourceId: string; level?: string; force: boolean }) => { environmentReads.push(options); return null } },
     tasksStore: { ensureSessionBinding: async () => null },
@@ -69,6 +70,10 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
   }
   const dependencies = {
     serverConnections: hosts,
+    runHost,
+    checkoutPlace,
+    checkoutGit,
+    projectHome,
     stampSessionMeta,
     readSessionMeta: (serverId: string, sessionId: string) => readSessionMeta(serverId, sessionId, hosts),
     applyRestoredSessionMeta: () => {},
@@ -77,7 +82,7 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
     loadRestoredSessionTranscript: async (_workspace: typeof workspace, args: { sessionId: string; history?: Promise<{ messages: FixtureMessage[] }> }) => {
       transcriptIdentities.push(args.sessionId)
       return {
-        messages: (await (args.history ?? apis.get(tabs[0].serverId)!.loadSessionPage({ sessionId: args.sessionId }))).messages,
+        messages: (await (args.history ?? apis.get(runHost(tabs[0]))!.loadSessionPage({ sessionId: args.sessionId }))).messages,
         progress: null, truncated: false, planIds: [],
       }
     },
@@ -100,8 +105,8 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
   }
   return {
     reads, historyRequests, transcriptIdentities, environmentReads, session: sessions[0],
-    prefetch: () => prefetchSessionHistoryPage(apis.get(tabs[0].serverId)!, {
-      sessionId: tabs[0].sessionId, projectPath: tabs[0].workingDirectory,
+    prefetch: () => prefetchSessionHistoryPage(apis.get(runHost(tabs[0]))!, {
+      sessionId: tabs[0].sessionId, projectPath: checkoutPlace(tabs[0]).path,
       provider: tabs[0].provider, turnLimit: INITIAL_HISTORY_TURNS,
     }),
     close: () => { delete workspace.tabs[tabs[0].tabId]; sessions.splice(0, 1) },

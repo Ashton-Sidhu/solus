@@ -23,6 +23,7 @@ import {
 } from './attachment-upload';
 import { videoMimeType } from '@solus/contracts/media-types';
 import { attachmentUploads, uploadFileObjects } from './attachment-uploads.svelte';
+import { checkoutPlace, runHost } from '../../../contexts/workspace/run-location';
 
 interface ComposerCommandOptions {
   isReadOnly: boolean;
@@ -95,7 +96,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     void cmd.run?.({
       api: session.apiForRun(run),
       argument,
-      serverId: run?.serverId,
+      serverId: runHost(run),
       sessionId,
       provider: run?.provider ?? null,
       // A command run from a draft's composer has no conversation to clear or
@@ -417,11 +418,11 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
    */
   async function foldPasteIntoAttachment(text: string): Promise<void> {
     const { run, prompt, targetTabId, draftId, editor: composerEl } = getOptions();
-    const serverId = run?.serverId ?? LOCAL_SERVER_ID;
+    const serverId = runHost(run) ?? LOCAL_SERVER_ID;
     const composerSourceId = targetTabId ?? draftId;
     const ctx = composerSourceId
       ? session.ctxFor(composerSourceId)
-      : session.ctxForDirectory(run?.workingDirectory ?? session.ctx.session.workingDirectory);
+      : session.ctxForDirectory(checkoutPlace(run)?.path ?? session.ctx.session.workingDirectory);
     try {
       const capabilities = await serverConnections.capabilitiesFor(serverId);
       if (capabilities.attachUpload !== true) {
@@ -467,8 +468,8 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     const composerSourceId = targetTabId ?? draftId;
     const ctx = composerSourceId
       ? session.ctxFor(composerSourceId)
-      : session.ctxForDirectory(run?.workingDirectory ?? session.ctx.session.workingDirectory);
-    const serverId = run?.serverId ?? LOCAL_SERVER_ID;
+      : session.ctxForDirectory(checkoutPlace(run)?.path ?? session.ctx.session.workingDirectory);
+    const serverId = runHost(run) ?? LOCAL_SERVER_ID;
     // One image failing — too large, say — must not drop the rest of the paste,
     // so each is attached on its own and reports its own error.
     for (const blob of blobs) {

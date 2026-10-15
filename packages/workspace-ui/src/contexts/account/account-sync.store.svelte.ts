@@ -16,13 +16,12 @@ import { localApi } from '@solus/client-core/local-api'
 import { webSettingsRequests, type SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import { SettingsSync, type SettingsSyncPorts, type SettingsSyncStatus } from '@solus/client-core/settings-sync'
 import type { AccountState } from '@solus/contracts/account-types'
-import type { AgentProfile, AgentProfileKey } from '@solus/contracts/agent-profile'
+import type { AgentProfileKey } from '@solus/contracts/agent-profile'
 import type { PersonalSettingKey } from '@solus/contracts/settings'
 import { untrack } from 'svelte'
 import type { PersonalSettingsStore } from '../app/personal-settings.store.svelte'
 import type { AgentProfileLocalStore } from '../seats/agent-profile-local.store.svelte'
 import { agentProfileStore, type AgentProfileStore } from '../seats/agent-profile.store.svelte'
-import { mergeComputerProfile } from '../seats/lib/agent-profile-local'
 import { browserSyncBroadcast, browserSyncClock, browserSyncEnvironment } from './lib/browser-sync-ports'
 
 /**
@@ -182,7 +181,7 @@ export class AccountSyncStore {
       }))
     }
     if (profileRequests) {
-      const engine = new AgentProfileSync({ ...shared, requests: profileRequests, broadcast: broadcast('solus.agent-profile-sync'), localCopy: (purpose) => (purpose === 'seed' ? this.profileSeed(local) : local.storedEntries) })
+      const engine = new AgentProfileSync({ ...shared, requests: profileRequests, broadcast: broadcast('solus.agent-profile-sync'), localCopy: () => local.storedEntries })
       this.profileEngine = engine
       this.noteProfileStatus(engine.current)
       this.stops.push(engine.subscribe((status) => this.noteProfileStatus(status)))
@@ -272,21 +271,6 @@ export class AccountSyncStore {
       } else if (outcome.kind !== 'cancelled') this.noteUnavailable(document, outcome)
     } finally {
       this.busy = false
-    }
-  }
-
-  /**
-   * The account's first copy of the profile: this device's copy, with this
-   * computer's profile joined to it on the desktop. The local copy is not
-   * written here: the engine applies the confirmed copy whole.
-   */
-  private async profileSeed(local: AgentProfileLocalStore): Promise<AgentProfile> {
-    try {
-      const computer = await this.hosts.readComputer()
-      return computer ? mergeComputerProfile(local.storedEntries, computer) : local.storedEntries
-    } catch (error) {
-      this.notice = { document: 'profile', kind: 'error', message: `Solus could not read this computer's profile: ${error instanceof Error ? error.message : String(error)}` }
-      return local.storedEntries
     }
   }
 

@@ -68,7 +68,7 @@ export const explicitHostChoiceRule = defineRule({
       description: 'Require readers to get a host from its owner through hosts, not from serverConnections.',
     },
     messages: {
-      implicitHost: 'Do not pick a host with serverConnections.{{method}}(). Name its owner: hosts.get(run.serverId) for a tab, hosts.device for this device, or hosts.runOn for the Run on picker.',
+      implicitHost: 'Do not pick a host with serverConnections.{{method}}(). Name its owner: hosts.get(runHost(run)) for a tab, hosts.device for this device, or hosts.runOn for the Run on picker.',
     },
   },
   create(context) {

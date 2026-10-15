@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { Session } from '@solus/contracts/types'
+import type { RunLocation, Session } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connectionCalls: string[] = []
@@ -17,22 +17,45 @@ const {
   moveTabToHost,
   worktreeBlockedReason,
 } = await import('@solus/workspace-ui/components/servers/run-on')
-const { isDispatch, startsWorktree, withPendingHost } = await import('@solus/workspace-ui/contexts/workspace/run-config')
+const {
+  checkoutGit,
+  checkoutPlace,
+  chooseStart,
+  dispatchTo,
+  folderLocation,
+  isDispatch,
+  landClone,
+  openFolder,
+  pendingClone,
+  projectHome,
+  runHost,
+  startsWorktree,
+  worktreeBaseBranch,
+  workingPlace,
+} = await import('@solus/workspace-ui/contexts/workspace/run-location')
 
-function workspaceWith(run: Partial<Session['run']>) {
+const HOME = { serverId: 'local', path: '/home/dev/solus' }
+const MAIN = { branch: 'main', targetBranch: 'main', repoRoot: '/home/dev/solus' }
+
+function workspaceWith(location: RunLocation = folderLocation(HOME)) {
   const built = {
-    run: { serverId: 'local', taskServerId: 'local', worktree: null, workingDirectory: '/home/dev/solus', ...run },
+    id: 'session-1',
+    run: { location },
     task: { kind: 'existing', taskId: 'old-project-task' },
   } as Session
+  const refreshRequests: [string, string, boolean][] = []
   return {
     workspace: {
       tabOrder: ['tab-1'],
       sessionFor: () => built,
       ctxFor: () => ({}) as never,
       apiFor: () => ({ unwatchSession: async () => {} }),
-      refreshStartTarget: () => {},
+      refreshStartTarget: (tabId: string, path: string, createWorktree: boolean) => {
+        refreshRequests.push([tabId, path, createWorktree])
+      },
     },
     session: built,
+    refreshRequests,
   }
 }
 
@@ -44,99 +67,89 @@ describe('choosing which host a tab will run on', () => {
   test('picker selection only records intent and does not connect or move the tab', () => {
     // WHY: host preparation belongs to Send. Merely inspecting or changing the
     // picker must not touch the network, filesystem, or conversation surface.
-    const { session } = workspaceWith({ pendingHostDispatch: null })
-    session.run = withPendingHost(session.run, {
-      serverId: 'studio',
-      intent: 'dispatch',
-      repoKey: 'github.com/solus-sh/solus',
-    })
+    const { session } = workspaceWith()
+    session.run.location = dispatchTo(session.run.location, 'studio', 'github.com/solus-sh/solus')
 
-    expect(session.run.serverId).toBe('local')
-    expect(session.run.workingDirectory).toBe('/home/dev/solus')
+    expect(pendingClone(session.run)?.serverId).toBe('studio')
+    expect(checkoutPlace(session.run)).toEqual(HOME)
     expect(session.statusCard).toBeUndefined()
-    expect(session.run.pendingHostDispatch?.serverId).toBe('studio')
     expect(connectionCalls).toEqual([])
   })
 
-  test('a move with no directory on the target is refused, not silently kept local', () => {
+  test('a dispatch with no folder on the target is a clone, not the old path on the new host', () => {
     // WHY: the session's directory is a path on the host it is leaving. Carrying
     // it across starts the agent in a directory that does not exist there — the
-    // failure surfaces as a confusing agent error minutes later, not here.
-    const { workspace, session } = workspaceWith({})
-    const result = moveTabToHost({
-      workspace,
-      tabId: 'tab-1',
-      serverId: 'studio',
-      isLocalHost: false,
-      intent: 'dispatch',
-    })
+    // failure surfaces as a confusing agent error minutes later, not here. Until
+    // Send lands the clone, every path the run names stays on the run's project home.
+    const { session } = workspaceWith()
+    session.run.location = dispatchTo(session.run.location, 'studio', 'github.com/solus-sh/solus')
 
-    expect(result).toEqual({ ok: false, reason: 'no-path-on-host' })
-    expect(session.run.serverId).toBe('local')
-    expect(session.run.workingDirectory).toBe('/home/dev/solus')
-    expect(connectionCalls).toEqual([])
+    expect(runHost(session.run)).toBe('studio')
+    expect(pendingClone(session.run)?.repoKey).toBe('github.com/solus-sh/solus')
+    expect(workingPlace(session.run)).toEqual(HOME)
+    expect(checkoutGit(session.run)).toBeNull()
   })
 
   test('a move that carries a directory lands on the new host', () => {
-    const { workspace, session } = workspaceWith({
-      gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/home/dev/solus' },
-    })
+    const { workspace, session } = workspaceWith(folderLocation(HOME, { git: MAIN }))
     const result = moveTabToHost({
       workspace,
       tabId: 'tab-1',
-      serverId: 'studio',
-      isLocalHost: false,
-      path: '/srv/projects/solus',
-      repoKey: 'github.com/solus-sh/solus',
-      intent: 'dispatch',
+      location: openFolder(session.run.location, { serverId: 'studio', path: '/srv/projects/solus' }, { keepProject: true }),
     })
 
     expect(result).toEqual({ ok: true })
-    expect(session.run.serverId).toBe('studio')
-    expect(session.run.workingDirectory).toBe('/srv/projects/solus')
+    expect(runHost(session.run)).toBe('studio')
+    expect(checkoutPlace(session.run).path).toBe('/srv/projects/solus')
     // WHY: paths are host-local. The logical project must keep the source
     // project's sidebar key or a remote clone appears as a second project.
-    expect(session.run.projectGroupPath).toBe('/home/dev/solus')
+    expect(projectHome(session.run)).toEqual(HOME)
   })
 
-  test('dispatch leaves the task on this host; opening a project moves it', () => {
+  test('a landed clone keeps the project home', () => {
+    // WHY: the same rule for a clone Send made: the folder over there is the
+    // checkout, while the project and its sidebar key stay home.
+    const { session } = workspaceWith(folderLocation(HOME, { git: MAIN }))
+    session.run.location = landClone(
+      dispatchTo(session.run.location, 'studio', 'github.com/solus-sh/solus'),
+      '/srv/projects/solus',
+    )
+
+    expect(runHost(session.run)).toBe('studio')
+    expect(checkoutPlace(session.run).path).toBe('/srv/projects/solus')
+    expect(projectHome(session.run)).toEqual(HOME)
+    expect(isDispatch(session.run)).toBe(true)
+  })
+
+  test('dispatch leaves the project on this host; opening a project moves it', () => {
     // WHY: this is the whole difference between the two remote flows. A dispatch
-    // hands another machine a clone, so the project — and every task it files —
-    // stays here. Opening a folder on a host makes it that host's project
-    // outright. `serverId !== taskServerId` is what later reads back as
-    // "dispatched"; checkout shape remains an independent choice.
-    const dispatched = workspaceWith({ worktree: { baseBranch: 'main' } })
+    // hands another machine a checkout, so the project — and every task it
+    // files — stays home. Opening a folder on a host makes it that host's
+    // project outright, at once. A run host that differs from the project home
+    // is what later reads back as "dispatched"; checkout shape remains an
+    // independent choice.
+    const dispatched = workspaceWith(folderLocation(HOME, { newWorktree: { baseBranch: 'main' } }))
     moveTabToHost({
       workspace: dispatched.workspace,
       tabId: 'tab-1',
-      serverId: 'studio',
-      isLocalHost: false,
-      path: '/srv/projects/solus',
-      intent: 'dispatch',
+      location: openFolder(dispatched.session.run.location, { serverId: 'studio', path: '/srv/projects/solus' }, { keepProject: true }),
     })
 
-    const openedThere = workspaceWith({})
+    const openedThere = workspaceWith()
     moveTabToHost({
       workspace: openedThere.workspace,
       tabId: 'tab-1',
-      serverId: 'studio',
-      isLocalHost: false,
-      path: '/srv/projects/solus',
-      intent: 'open-project',
+      location: openFolder(openedThere.session.run.location, { serverId: 'studio', path: '/srv/projects/solus' }),
     })
 
-    expect(dispatched.session.run.serverId).toBe('studio')
-    expect(dispatched.session.run.taskServerId).toBe('local')
+    expect(runHost(dispatched.session.run)).toBe('studio')
+    expect(projectHome(dispatched.session.run).serverId).toBe('local')
     expect(dispatched.session.task).toEqual({ kind: 'existing', taskId: 'old-project-task' })
     expect(isDispatch(dispatched.session.run)).toBe(true)
     expect(startsWorktree(dispatched.session.run)).toBe(true)
 
-    expect(openedThere.session.run.serverId).toBe('studio')
-    expect(openedThere.session.run.taskServerId).toBe('studio')
-    // WHY: tasks are project-scoped. A tab moved to another project must not
-    // send its first prompt into the task selected in the project it left, and
-    // a session makes no task of its own.
-    expect(openedThere.session.task).toEqual({ kind: 'none' })
+    expect(runHost(openedThere.session.run)).toBe('studio')
+    expect(projectHome(openedThere.session.run)).toEqual({ serverId: 'studio', path: '/srv/projects/solus' })
     expect(isDispatch(openedThere.session.run)).toBe(false)
     // WHY: a project that merely lives elsewhere is no different from a local
     // one, so worktree mode stays the user's choice rather than being forced.
@@ -144,123 +157,81 @@ describe('choosing which host a tab will run on', () => {
   })
 
   test('the old host’s checkout does not travel to the new machine', () => {
-    // WHY: gitContext describes a filesystem the session no longer runs on.
+    // WHY: Git's answer describes a filesystem the session no longer runs on.
     // Kept, it would be re-read as truth — wrong branch, wrong worktree path.
-    const { workspace, session } = workspaceWith({
-      gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/home/dev/solus' },
-      worktree: { baseBranch: 'main' },
-    })
+    // The wish for a worktree survives; its base branch named the old folder's branch.
+    const { workspace, session } = workspaceWith(folderLocation(HOME, { git: MAIN, newWorktree: { baseBranch: 'main' } }))
     moveTabToHost({
       workspace,
       tabId: 'tab-1',
-      serverId: 'studio',
-      isLocalHost: false,
-      path: '/srv/projects/solus',
-      intent: 'dispatch',
+      location: openFolder(session.run.location, { serverId: 'studio', path: '/srv/projects/solus' }, { keepProject: true }),
     })
 
-    expect(session.run.gitContext).toBeNull()
-    expect(session.run.worktree).toEqual({ baseBranch: null })
+    expect(checkoutGit(session.run)).toBeNull()
+    expect(startsWorktree(session.run)).toBe(true)
+    expect(worktreeBaseBranch(session.run)).toBeNull()
   })
 
   test('a materialized origin branch moves as an exact target worktree', () => {
-    let refreshRequest: [string, string, boolean] | null = null
-    const { workspace, session } = workspaceWith({
-      gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/home/dev/solus' },
-      worktree: { baseBranch: 'release' },
-      pendingHostDispatch: {
-        serverId: 'studio',
-        intent: 'dispatch',
-        repoKey: 'github.com/solus-sh/solus',
-        baseBranch: 'release',
-      },
-    })
-    workspace.refreshStartTarget = (tabId, path, createWorktree) => {
-      refreshRequest = [tabId, path, createWorktree]
-    }
-
-    moveTabToHost({
-      workspace,
-      tabId: 'tab-1',
-      serverId: 'studio',
-      isLocalHost: false,
-      path: '/srv/projects/solus/.git/solus/worktrees/release',
-      intent: 'dispatch',
-    })
+    const releasePath = '/srv/projects/solus/.git/solus/worktrees/release'
+    const { session } = workspaceWith(folderLocation(HOME, { git: MAIN, newWorktree: { baseBranch: 'release' } }))
+    const clone = chooseStart(
+      dispatchTo(session.run.location, 'studio', 'github.com/solus-sh/solus'),
+      { kind: 'new-worktree', baseBranch: 'release' },
+    )
+    session.run.location = landClone(clone, releasePath)
 
     // WHY: host preparation has already materialized origin/release as the
     // release worktree. Session start must use it rather than branch again.
-    expect(refreshRequest).toEqual([
-      'tab-1',
-      '/srv/projects/solus/.git/solus/worktrees/release',
-      false,
-    ])
-    expect(session.run.worktree).toBeNull()
-    expect(session.run.gitContext).toEqual({
+    expect(workingPlace(session.run)).toEqual({ serverId: 'studio', path: releasePath })
+    expect(startsWorktree(session.run)).toBe(false)
+    expect(checkoutGit(session.run)).toEqual({
       repoRoot: '/srv/projects/solus',
       branch: 'release',
       targetBranch: 'release',
-      worktreePath: '/srv/projects/solus/.git/solus/worktrees/release',
+      worktreePath: releasePath,
     })
   })
 
   test('an existing remote worktree stays an exact worktree after the host move', () => {
     const selectedPath = '/srv/projects/solus/.git/solus/worktrees/release'
-    let refreshRequest: [string, string, boolean] | null = null
-    const { workspace, session } = workspaceWith({
-      gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/home/dev/solus' },
-      worktree: null,
-      pendingHostDispatch: {
-        serverId: 'studio',
-        intent: 'dispatch',
-        repoKey: 'github.com/solus-sh/solus',
-        worktree: { path: selectedPath, branch: 'release' },
-      },
-    })
-    workspace.refreshStartTarget = (tabId, path, createWorktree) => {
-      refreshRequest = [tabId, path, createWorktree]
-    }
-
-    moveTabToHost({
-      workspace,
-      tabId: 'tab-1',
-      serverId: 'studio',
-      isLocalHost: false,
-      path: selectedPath,
-      intent: 'dispatch',
-    })
+    const { session } = workspaceWith(folderLocation(HOME, { git: MAIN }))
+    const clone = chooseStart(
+      dispatchTo(session.run.location, 'studio', 'github.com/solus-sh/solus'),
+      { kind: 'worktree', path: selectedPath, branch: 'release' },
+    )
+    session.run.location = landClone(clone, selectedPath)
 
     // WHY: reusing an existing worktree must not create another one, and the Git
     // environment must retain the selected target-host worktree path.
-    expect(refreshRequest).toEqual(['tab-1', selectedPath, false])
-    expect(session.run.workingDirectory).toBe(selectedPath)
-    expect(session.run.gitContext?.worktreePath).toBe(selectedPath)
+    expect(workingPlace(session.run)).toEqual({ serverId: 'studio', path: selectedPath })
+    expect(startsWorktree(session.run)).toBe(false)
+    expect(checkoutPlace(session.run).path).toBe(selectedPath)
+    expect(checkoutGit(session.run)?.worktreePath).toBe(selectedPath)
   })
 
   test('staying on the same host is not a dispatch', () => {
     // WHY: choosing the host you are already using must not force a worktree or
     // discard the checkout the session is sitting in.
-    const { workspace, session } = workspaceWith({
-      serverId: 'studio',
-      gitContext: { branch: 'main', targetBranch: 'main', repoRoot: '/srv/projects/solus' },
-    })
-    const result = moveTabToHost({
-      workspace,
-      tabId: 'tab-1',
-      serverId: 'studio',
-      isLocalHost: false,
-      intent: 'dispatch',
-    })
+    const { workspace, session, refreshRequests } = workspaceWith(
+      folderLocation({ serverId: 'studio', path: '/srv/projects/solus' }, {
+        git: { branch: 'main', targetBranch: 'main', repoRoot: '/srv/projects/solus' },
+      }),
+    )
+    const result = moveTabToHost({ workspace, tabId: 'tab-1', location: session.run.location })
 
     expect(result).toEqual({ ok: true })
-    expect(session.run.gitContext).not.toBeNull()
+    expect(checkoutGit(session.run)).not.toBeNull()
+    expect(isDispatch(session.run)).toBe(false)
+    expect(startsWorktree(session.run)).toBe(false)
+    expect(refreshRequests).toEqual([])
   })
 
   test('the old host is released only after its last tab moves away', () => {
     // WHY: a shared host socket belongs to all tabs on it. Releasing it while a
     // sibling remains would sever that session when another tab changes hosts.
-    const first = workspaceWith({})
-    const second = { ...first.session, run: { ...first.session.run, serverId: 'local' } } as Session
+    const first = workspaceWith()
+    const second = { ...first.session, run: { location: folderLocation(HOME) } } as Session
     const workspace = {
       ...first.workspace,
       tabOrder: ['tab-1', 'tab-2'],
@@ -270,21 +241,15 @@ describe('choosing which host a tab will run on', () => {
     moveTabToHost({
       workspace,
       tabId: 'tab-1',
-      serverId: 'studio',
-      isLocalHost: false,
-      path: '/srv/projects/solus',
-      intent: 'dispatch',
+      location: openFolder(first.session.run.location, { serverId: 'studio', path: '/srv/projects/solus' }, { keepProject: true }),
     })
 
     expect(connectionCalls).not.toContain('release:local')
-    second.run.serverId = 'other'
+    second.run.location = folderLocation({ serverId: 'other', path: '/home/dev/solus' })
     moveTabToHost({
       workspace,
       tabId: 'tab-1',
-      serverId: 'local',
-      isLocalHost: true,
-      path: '/home/dev/solus',
-      intent: 'dispatch',
+      location: openFolder(first.session.run.location, HOME, { keepProject: true }),
     })
 
     expect(connectionCalls).toContain('release:studio')

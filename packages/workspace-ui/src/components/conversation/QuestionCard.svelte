@@ -27,6 +27,7 @@
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { callTitle } from "../presence/lib/actor-name";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     tabId: string;
@@ -50,9 +51,9 @@
   const session = getWorkspaceContext();
   const sess = $derived(session.sessionFor(tabId));
   // Addressed to the turn's author (plan 004 F2): "Waiting on Alice" to everyone else.
-  const self = $derived(sess ? presenceStore.currentUserId(sess.run.serverId) : null);
+  const self = $derived(sess ? presenceStore.currentUserId(runHost(sess.run)) : null);
   // A member who may only read the session reads the question but cannot answer it.
-  const canDrive = $derived(canDriveSession(sess?.run.serverId, sess?.id));
+  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id));
 
   type QState = { selections: string[]; comment: string };
 
