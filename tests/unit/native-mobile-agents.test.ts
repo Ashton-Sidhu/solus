@@ -131,6 +131,20 @@ describe('native agent cards: provider subagents live', () => {
     expect(tool).toMatchObject({ subagent: 'codex', report: 'Docs say X.', status: 'running' })
     expect(subagentPresentation(tool)).toMatchObject({ live: true, tone: 'working', provider: 'codex', sessionId: null })
   })
+
+  test('stopping the session settles a running subagent, which never reports after the stop', () => {
+    // WHY: Stop cancels the provider query and every subagent with it; without
+    // this the card said "working" for good.
+    const model = new TranscriptModel('parent')
+    model.apply({ type: 'status_change', status: 'running' } as WireNormalizedEvent)
+    model.apply({ type: 'tool_call', toolName: 'Agent', toolId: 'sa-1', index: 0, toolInput: '{"description":"Read the docs"}', isSubagent: true, subagentType: 'claude' })
+    model.apply({ type: 'tool_call', toolName: 'Bash', toolId: 'bash-1', index: 1, toolInput: 'ls' })
+    model.apply({ type: 'status_change', status: 'interrupted' } as WireNormalizedEvent)
+    const [subagent, bash] = model.order.map((id) => model.items.get(id)) as Array<Extract<TranscriptItem, { kind: 'tool' }>>
+    expect(subagent).toMatchObject({ status: 'error', report: 'Interrupted' })
+    expect(subagentPresentation(subagent!)).toMatchObject({ live: false })
+    expect(bash!.status).toBe('running')
+  })
 })
 
 describe('native agent rows', () => {

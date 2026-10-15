@@ -848,6 +848,180 @@ test('a write reaches clients and the task links without a read', async () => {
   expect(host.branchLookups).toEqual([])
 })
 
+describe('turn ends', () => {
+  const repoOf = (name: string) => ({ host: 'github.com', owner: 'owner', repo: name })
+  /** A code host that also answers list and detail reads, and counts them. */
+  function listedHost(name: string) {
+    const made = codeHost(name)
+    const reads = { list: 0, detail: 0 }
+    Object.assign(providers.get(name)!.review, {
+      listPullRequestPages: async (requests: unknown[]) => {
+        reads.list += 1
+        return requests.map(() => ({ page: { items: [], page: 1, hasMore: false } }))
+      },
+      getPullRequestOverview: async (_repo: RepoRef, number: number) => {
+        reads.detail += 1
+        return { pullRequest: made.pullRequest(number, { requiredApprovingReviewCount: 0 }), commits: [], reviewers: [] }
+      },
+    })
+    return { ...made, reads, repo: repoOf(name), provider: providers.get(name)! }
+  }
+
+  test('a turn that changed nothing in Git publishes nothing and costs no list read; a push forgets the lists only', async () => {
+    // WHY: every turn end made every open list on every client read GitHub
+    // again, also when the turn only answered a question.
+    const { prIndex } = await import('@solus/server/prs/pr-index')
+    const { scope, host, pullRequest, reads, repo, provider } = listedHost('quiet-turn')
+    await worktreeSession('quiet-turn-session', 'quiet', scope)
+    host.known.set(1, pullRequest(1, { headRef: 'quiet' }))
+    let gitState = 'before'
+    const published: PrSyncChange[] = []
+    const sync = new PrSync({ publish: (change) => { published.push(change) }, sessionCheckout: () => scope, checkoutState: async () => gitState })
+    await sync.tick()
+    // The first turn end this server sees has nothing to compare with.
+    await sync.turnEnded('quiet-turn-session')
+    await sync.tick()
+    await prIndex.list(repo, provider, 'me', undefined, 1)
+    await prIndex.pullRequest(repo, provider, 1).read()
+    published.length = 0
+
+    await sync.turnEnded('quiet-turn-session')
+    await sync.tick()
+    expect(published).toEqual([])
+    await prIndex.list(repo, provider, 'me', undefined, 1)
+    expect(reads.list).toBe(1)
+    // Its branch has its open pull request, so no lookup either.
+    expect(host.branchLookups).toHaveLength(1)
+
+    gitState = 'pushed'
+    await sync.turnEnded('quiet-turn-session')
+    await sync.tick()
+    expect(published.filter((change) => change.listChanged)).toEqual([expect.objectContaining({ repo: scope, pullRequests: [] })])
+    await prIndex.list(repo, provider, 'me', undefined, 1)
+    expect(reads.list).toBe(2)
+    // The pull requests the server holds are kept.
+    await prIndex.pullRequest(repo, provider, 1).read()
+    expect(reads.detail).toBe(1)
+  })
+
+  test('a lookup that finds a new pull request for the branch tells the lists, also with no Git change here', async () => {
+    // WHY: an agent can open a pull request for a branch it pushed in an
+    // earlier turn; the list does not show it until it reads again.
+    const { scope, host, pullRequest } = listedHost('new-on-branch')
+    await worktreeSession('new-on-branch-session', 'later', scope)
+    const published: PrSyncChange[] = []
+    const sync = new PrSync({ publish: (change) => { published.push(change) }, sessionCheckout: () => scope, checkoutState: async () => 'same' })
+    await sync.tick()
+    await sync.turnEnded('new-on-branch-session')
+    await sync.tick()
+    published.length = 0
+
+    host.known.set(6, pullRequest(6, { headRef: 'later' }))
+    await sync.turnEnded('new-on-branch-session')
+    await sync.tick()
+
+    expect(published).toEqual([expect.objectContaining({ repo: scope, listChanged: true })])
+  })
+
+  test('a tick that a turn end or another read started is background work; one a person waits on is not', async () => {
+    // WHY: background work stops before it spends the reserve GitHub leaves
+    // for the requests a person waits on.
+    const { prIndex } = await import('@solus/server/prs/pr-index')
+    const { isBackgroundWork } = await import('@solus/server/providers/github/request-budget')
+    const { scope, host, pullRequest, repo, provider } = listedHost('background-ticks')
+    await worktreeSession('background-session', 'bg', scope)
+    const asBackground: Array<[string, boolean]> = []
+    const review = provider.review as unknown as {
+      getPullRequestsByHead: (repo: RepoRef, heads: string[]) => Promise<Map<string, PullRequest[]>>
+      getPullRequests: (repo: RepoRef, numbers: number[]) => Promise<Map<number, PullRequest | null>>
+    }
+    const lookUp = review.getPullRequestsByHead
+    const readNumbers = review.getPullRequests
+    review.getPullRequestsByHead = (target, heads) => {
+      asBackground.push(['lookup', isBackgroundWork()])
+      return lookUp(target, heads)
+    }
+    review.getPullRequests = (target, numbers) => {
+      asBackground.push(['numbers', isBackgroundWork()])
+      return readNumbers(target, numbers)
+    }
+    const sync = new PrSync({ publish: () => {}, sessionCheckout: () => scope, checkoutState: async () => 'same' })
+    sync.start()
+    try {
+      // A client opens a pane on a branch: a person waits.
+      sync.setInterest('client', { repo, provider }, [{ kind: 'branch', head: 'pane' }])
+      await sync.tick()
+      host.known.set(2, pullRequest(2, { headRef: 'bg' }))
+      await sync.turnEnded('background-session')
+      await sync.tick()
+      // Another read path sees a new state.
+      ;(review as unknown as { getPullRequestOverview: () => Promise<PullRequestOverview> }).getPullRequestOverview = async () =>
+        ({ pullRequest: pullRequest(2, { headRef: 'bg', state: 'closed', updatedAt: later(1) }), commits: [], reviewers: [] })
+      await prIndex.pullRequest(repo, provider, 2).readFresh()
+      await sync.tick()
+    } finally {
+      sync.stop()
+    }
+
+    expect(asBackground).toEqual([['lookup', false], ['lookup', true], ['numbers', true]])
+  })
+})
+
+describe('a detail read and PR sync', () => {
+  test('a pane that opens a pull request and keeps it fresh costs one read of it, in either order', async () => {
+    // WHY: the pane read the detail, and PR sync read the same pull request
+    // by number a moment later, because it had no record of it yet.
+    const { prIndex } = await import('@solus/server/prs/pr-index')
+    for (const [name, detailFirst] of [['detail-first', true], ['interest-first', false]] as const) {
+      const { host, pullRequest } = codeHost(name)
+      const repo = { host: 'github.com', owner: 'owner', repo: name }
+      const provider = providers.get(name)!
+      let detailReads = 0
+      Object.assign(provider.review, {
+        getPullRequestOverview: async () => {
+          detailReads += 1
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          return { pullRequest: pullRequest(3, { requiredApprovingReviewCount: 1 }), commits: [], reviewers: [] }
+        },
+        listChecks: async (_repo: RepoRef, numbers: number[]) =>
+          numbers.map((number) => ({ number, summary: { state: 'passing', required: [], optional: [], headSha: 'head', inFlight: false } })),
+      })
+      const published: number[] = []
+      const sync = new PrSync({ publish: (change) => { published.push(...change.pullRequests.map(({ number }) => number)) } })
+
+      const open = () => prIndex.pullRequest(repo, provider, 3).read()
+      const want = () => { sync.setInterest('pane', { repo, provider }, [{ kind: 'review', number: 3 }]) }
+      let detail: Promise<PullRequest>
+      if (detailFirst) {
+        detail = open()
+        want()
+      } else {
+        want()
+        detail = open()
+      }
+      await Promise.all([detail, sync.tick()])
+
+      expect([name, detailReads, host.numberReads]).toEqual([name, 1, []])
+      expect(published).toContain(3)
+    }
+  })
+})
+
+test('one read of interest reads the sessions of live tasks once', async () => {
+  // WHY: the live task sessions were read twice per read of interest, once
+  // for the checkouts and once for the session links.
+  const { spyOn } = await import('bun:test')
+  const taskSessionsModule = await import('@solus/server/data/tasks/task-sessions')
+  const spy = spyOn(taskSessionsModule, 'taskSessions')
+  try {
+    // With no code host, the tick reads interest and nothing else.
+    await new PrSync({ publish: () => {}, codeHost: async () => null }).tick()
+    expect(spy).toHaveBeenCalledTimes(1)
+  } finally {
+    spy.mockRestore()
+  }
+})
+
 test('a turn end in a session outside a repository publishes nothing', async () => {
   const published: PrSyncChange[] = []
   const sync = new PrSync({ publish: (change) => { published.push(change) }, sessionCheckout: () => null })

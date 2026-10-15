@@ -1,31 +1,33 @@
+import { createHash } from 'node:crypto'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
 import type { PrInterest, PrSyncChange, PullRequest, RepoRef } from '@solus/contracts/providers'
 import { getDatabase } from '../db/database'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { completeTasksForMergedPullRequest } from '../data/tasks/sync-engine'
-import { settledSessionIds, settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
-import { sessionIdOfThread } from '../data/sessions/session-lineage'
-import { readPrLinkInterests, recordPullRequestObservation, type PrLinkInterest } from '../data/tasks/task-links'
-import { unfinishedTaskProjects } from '../data/tasks/task-store'
-import { taskSessions } from '../data/tasks/task-sessions'
-import { recentWorktreeSessions, sessionRecordsFor } from '../data/tasks/host-records'
+import { settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
+import { readPrLinkInterests, recordPullRequestObservation } from '../data/tasks/task-links'
+import { onTasksChanged } from '../data/tasks/task-store'
+import { sessionRecordsFor } from '../data/tasks/host-records'
 import {
   linkSessionPullRequest,
-  readSessionPullRequestInterests,
+  onSessionPullRequestsChanged,
   sessionKnowsPullRequest,
 } from '../data/sessions/session-pull-requests'
+import { runAsync } from '../git/exec'
 import { attachReviewAttention } from '../transport/handlers/review-attention'
 import { GitHubRateLimitedError } from '../providers/github/rate-limit'
 import { asBackgroundWork } from '../providers/github/request-budget'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
+import { liveCheckouts, liveTaskSessions, sessionLinkInterests, type LiveCheckout, type LiveTaskSessions } from './pr-sync-interest'
 import { withBranchRules } from './pull-request'
 import { HOST_SCOPE } from '../execution/seats/acting-identity'
 import { requireActingScope, withActingScope, withUserScope, type ActingScope } from '../vault/acting-scope'
 
 const log = createLogger('main', 'pr-sync')
-/** How often the clock looks for a repository that is due. */
+/** The shortest wait of the clock. It wakes when the next repository is due,
+ *  and does not run while nothing is wanted. */
 const CLOCK_MS = 5_000
 /** Cadence of a repository with interest (docs/plans/pr-sync.md §11). The
  *  open pull requests it tracks are read by number at this cadence; a faster
@@ -40,21 +42,13 @@ const CHECKS_IN_FLIGHT_MS = 10_000
 const TASK_INTEREST_MS = 60_000
 /** A repository the code host would not answer for waits this long. */
 const FAILURE_BACKOFF_MS = 5 * 60_000
-/** A branch is asked about for a session that was active this recently. A
- *  link, once made, is kept fresh until its session is settled. */
-const BRANCH_LOOKUP_MS = 30 * 24 * 60 * 60_000
+/** A scope with no code host is not asked again for this long: a folder with
+ *  no remote costs a `git` spawn each time. */
+const NO_CODE_HOST_MS = 5 * 60_000
 
 /** What PR sync knows about one pull request. `missing`: the code host says
  *  that it does not exist, which is an answer and is not asked again. */
 type PrRecord = { result: 'found'; pullRequest: PullRequest } | { result: 'missing' }
-
-/** A live session that runs in its own worktree on a branch. */
-export interface LiveCheckout {
-  projectScope: string
-  branch: string
-  /** The stable Solus session id. */
-  sessionId: string
-}
 
 /** What live work — tasks and sessions — wants kept fresh in one repository. */
 interface TaskInterest {
@@ -143,6 +137,9 @@ interface RepositoryRun {
   checks: NumberedPrChecksSummary[]
   /** A step failed or was skipped; the later steps do not run. */
   stopped: boolean
+  /** A branch lookup found a pull request that an earlier lookup of the
+   *  branch did not: a list of the repository can miss it. */
+  listChanged: boolean
 }
 
 export interface PrSyncDeps {
@@ -156,8 +153,9 @@ export interface PrSyncDeps {
   observeNeedingAttention?: (repo: RepoRef, viewer: string, pullRequests: PullRequest[]) => Promise<void>
   /** The branches live sessions work on. A machine reads its own checkouts; the
    *  Solus API reads the session records its runners report
-   *  (docs/plans/session-archive.md). */
-  liveCheckouts?: (now: number) => Promise<LiveCheckout[]>
+   *  (docs/plans/session-archive.md). `ofLiveTasks` is what the same read of
+   *  interest found under live tasks. */
+  liveCheckouts?: (now: number, ofLiveTasks: LiveTaskSessions) => Promise<LiveCheckout[]>
   /** The person whose connection reads a repository no client asked about, by
    *  user key. A machine reads as itself; the Solus API, which has no connection
    *  of its own, as a person whose live session works in that repository. */
@@ -165,6 +163,13 @@ export interface PrSyncDeps {
   /** The checkout a session works in, to find the repository of a turn that
    *  ended. A machine reads its session index. */
   sessionCheckout?: (sessionId: string) => string | null
+  /** A value that changes when the checkout's HEAD or a remote-tracking ref
+   *  moves, as by a commit, a push, or a fetch; null when Git cannot say. */
+  checkoutState?: (checkout: string) => Promise<string | null>
+  /** Interest can appear with no event this server hears, so the clock reads
+   *  it each `TASK_INTEREST_MS` also while nothing is wanted. The Solus API
+   *  sets this: its runners report sessions, and it hears no turn end. */
+  pollsForInterest?: boolean
 }
 
 /**
@@ -198,9 +203,18 @@ export class PrSync {
   private readonly isSessionBusy: NonNullable<PrSyncDeps['isSessionBusy']>
   private readonly liveCheckouts: NonNullable<PrSyncDeps['liveCheckouts']>
   private readonly sessionCheckout: NonNullable<PrSyncDeps['sessionCheckout']>
+  private readonly checkoutState: NonNullable<PrSyncDeps['checkoutState']>
   private readonly now: () => number
-  private timer: ReturnType<typeof setInterval> | null = null
-  private stopHearingReads: Array<() => void> = []
+  /** The state of each checkout at the last turn end in it (`checkoutState`). */
+  private readonly checkoutStates = new Map<string, string>()
+  /** Scopes with no code host, until when they are not asked again. */
+  private readonly noCodeHostUntil = new Map<string, number>()
+  /** A session link or a session's turn changed since sessions were last
+   *  settled; a tick with no reads settles only then. */
+  private settleDue = true
+  private isStarted = false
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private stopHearing: Array<() => void> = []
   private running: Promise<void> | null = null
   private rerun = false
 
@@ -209,25 +223,74 @@ export class PrSync {
     this.isSessionBusy = deps.isSessionBusy ?? (() => false)
     this.liveCheckouts = deps.liveCheckouts ?? liveCheckouts
     this.sessionCheckout = deps.sessionCheckout ?? ((sessionId) => sessionRecordsFor([sessionId]).get(sessionId)?.checkout_path ?? null)
+    this.checkoutState = deps.checkoutState ?? checkoutState
     this.now = deps.now ?? Date.now
   }
 
   start(): void {
-    if (this.timer) return
-    // Nobody waits on a clock tick, so it leaves GitHub's reserve to people.
-    this.timer = setInterval(() => void asBackgroundWork(() => this.tick()), CLOCK_MS)
-    this.timer.unref?.()
-    this.stopHearingReads = [
+    if (this.isStarted) return
+    this.isStarted = true
+    this.stopHearing = [
       prIndex.onPullRequestRead((repo, pullRequest) => this.hearRead(repo, pullRequest)),
       prIndex.onNeedsReviewRead((repo, viewer, rows) => this.hearNeedsReview(repo, viewer, rows)),
+      // A link a person or an agent made can be the first interest.
+      onTasksChanged(() => this.hearLinksChanged()),
+      onSessionPullRequestsChanged(() => this.hearLinksChanged()),
     ]
+    // The first look reads the interest that the database holds.
+    this.armClock(this.now() + CLOCK_MS)
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer)
+    this.isStarted = false
+    if (this.timer) clearTimeout(this.timer)
     this.timer = null
-    for (const stopHearing of this.stopHearingReads) stopHearing()
-    this.stopHearingReads = []
+    for (const stopHearing of this.stopHearing) stopHearing()
+    this.stopHearing = []
+  }
+
+  /** A tick that no person waits on leaves GitHub's reserve to people. */
+  private tickInBackground(): void {
+    void asBackgroundWork(() => this.tick())
+  }
+
+  /**
+   * Wake when the next repository is due, or when interest is read again. With
+   * nothing wanted, no clock runs: a client's interest, a turn end, and a
+   * change to a link start the next tick.
+   */
+  private scheduleClock(): void {
+    if (!this.isStarted) return
+    if (!this.repositories.size) {
+      if (this.timer) clearTimeout(this.timer)
+      this.timer = null
+      if (this.deps.pollsForInterest) this.armClock(this.taskInterestsAt)
+      return
+    }
+    let dueAt = this.taskInterestsAt
+    for (const sync of this.repositories.values()) {
+      dueAt = Math.min(dueAt, Math.max(sync.nextAt, this.rateLimitedUntil.get(sync.host.repo.host) ?? 0))
+    }
+    this.armClock(dueAt)
+  }
+
+  private armClock(dueAt: number): void {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      this.timer = null
+      this.tickInBackground()
+    }, Math.max(CLOCK_MS, dueAt - this.now()))
+    this.timer.unref?.()
+  }
+
+  /** A task or session link changed. Sessions can settle now. With nothing
+   *  wanted, the link can be the first interest, so it is read at once; else
+   *  the next read of interest finds it. */
+  private hearLinksChanged(): void {
+    this.settleDue = true
+    if (this.repositories.size) return
+    this.taskInterestsAt = 0
+    this.tickInBackground()
   }
 
   /**
@@ -243,7 +306,7 @@ export class PrSync {
     if (!sync || record?.result !== 'found' || record.pullRequest.state === pullRequest.state) return
     sync.reread.add(pullRequest.number)
     sync.nextAt = 0
-    void this.tick()
+    this.tickInBackground()
   }
 
   /**
@@ -284,7 +347,10 @@ export class PrSync {
       log.warn('pr_sync_tick_failed', { error: String(error) })
     }).finally(() => {
       this.running = null
-      if (!this.rerun) return
+      if (!this.rerun) {
+        this.scheduleClock()
+        return
+      }
       this.rerun = false
       // Returned so that everyone waiting on this run also waits for the rerun.
       return this.tick()
@@ -311,30 +377,53 @@ export class PrSync {
       if (!entry.owners.size) this.clientInterests.delete(key)
     }
     const sync = this.syncFor(key, host)
+    // A person waits on what is not known yet, so this tick may use the reserve.
     if (interests.some((interest) => !isAnswered(sync, interest))) {
       sync.nextAt = 0
       void this.tick()
-    }
+    } else if (!this.running) this.scheduleClock()
     return snapshotOf(key, sync, interests)
   }
 
   /**
    * A turn ended in a session. Its agent may have pushed a branch or opened a
    * pull request, so this tick looks up the branches of its checkouts that
-   * have no open pull request, and a list that shows its repository reads its
-   * first page again (`listChanged`). The answer arrives as `pr.changed`.
+   * have no open pull request. Only when the turn moved its checkout's HEAD
+   * or a remote-tracking ref (a commit, a push), or a lookup finds a new pull
+   * request, does a list that shows the repository read its first page again
+   * (`listChanged`). A turn that changed nothing in Git costs no list read.
    */
   async turnEnded(sessionId: string): Promise<void> {
     this.endedTurns.add(sessionId)
     // A new checkout, or a branch the agent made, joins the interest now.
     this.taskInterestsAt = 0
-    void this.tick()
+    // A session that was busy can settle now.
+    this.settleDue = true
+    this.tickInBackground()
     const checkout = this.sessionCheckout(sessionId)
-    const host = checkout ? await this.codeHost(checkout).catch(() => null) : null
-    if (!host) return
-    // The lists the server holds are older than the turn.
-    prIndex.invalidate(host.repo)
-    this.deps.publish({ repo: repoKeyOf(host.repo).toLowerCase(), pullRequests: [], missing: [], checks: [], listChanged: true })
+    if (!checkout || !await this.checkoutMoved(checkout)) return
+    const host = await this.codeHost(checkout).catch(() => null)
+    if (host) this.publishListChanged(host.repo)
+  }
+
+  /** Whether the checkout's Git state moved since the last turn end in it.
+   *  The first turn end this server sees there counts as moved. */
+  private async checkoutMoved(checkout: string): Promise<boolean> {
+    const state = await this.checkoutState(checkout).catch(() => null)
+    const previous = this.checkoutStates.get(checkout)
+    if (state === null) {
+      this.checkoutStates.delete(checkout)
+      return true
+    }
+    this.checkoutStates.set(checkout, state)
+    return state !== previous
+  }
+
+  /** The lists the server holds are older than a change: forget them, and
+   *  tell a list that shows the repository to read its first page again. */
+  private publishListChanged(repo: RepoRef): void {
+    prIndex.invalidateListings(repo)
+    this.deps.publish({ repo: repoKeyOf(repo).toLowerCase(), pullRequests: [], missing: [], checks: [], listChanged: true })
   }
 
   /** Every connection closed at once, as when the transport rebinds. */
@@ -410,7 +499,7 @@ export class PrSync {
       if ((sync.nextAt > this.now() && !turnEnded) || (this.rateLimitedUntil.get(host.repo.host) ?? 0) > this.now()) continue
       runs.push({
         key, sync, wanted: this.wantedIn(key, sync, endedTurns), heldBefore: new Set(sync.records.keys()),
-        observations: new Map(), seen: new Set(), checks: [], stopped: false,
+        observations: new Map(), seen: new Set(), checks: [], stopped: false, listChanged: false,
       })
     }
     // Each read of every repository goes at once, and the reads of one
@@ -427,7 +516,7 @@ export class PrSync {
       if (stopped) continue
       sync.nextAt = this.now() + cadenceOf(sync, wanted)
     }
-    await this.settleSessions()
+    await this.settleSessions(runs.length > 0)
   }
 
   /** One step of one repository's tick, read as its reader. A failure, or a
@@ -521,13 +610,18 @@ export class PrSync {
       }
     }
     const published = wanted.clientsListening ? observations : observations.filter(({ isNews }) => isNews)
-    if (published.length || checks.length) {
-      this.deps.publish({
+    if (published.length || checks.length || run.listChanged) {
+      const change: PrSyncChange = {
         repo: key,
         pullRequests: published.flatMap(({ pullRequest }) => pullRequest ? [pullRequest] : []),
         missing: published.flatMap(({ number, pullRequest }) => pullRequest ? [] : [number]),
         checks,
-      })
+      }
+      if (run.listChanged) {
+        prIndex.invalidateListings(sync.host.repo)
+        change.listChanged = true
+      }
+      this.deps.publish(change)
     }
     if (task) {
       await this.linkBranches(sync, task)
@@ -540,7 +634,10 @@ export class PrSync {
    * (docs/plans/session-pull-requests.md). A settled session is no longer
    * live work, so interest is read again.
    */
-  private async settleSessions(): Promise<void> {
+  private async settleSessions(hadReads: boolean): Promise<void> {
+    // A read can end a link; else only a changed link or turn can settle a session.
+    if (!hadReads && !this.settleDue) return
+    this.settleDue = false
     const settled = await settleSessionsWithEndedPullRequests(this.isSessionBusy)
     if (!settled.length) return
     log.info('pr_sync_sessions_settled', { count: settled.length })
@@ -556,10 +653,12 @@ export class PrSync {
     const heads = [...wanted.branches]
     const found = await provider.review.getPullRequestsByHead(repo, heads)
     for (const head of heads) {
+      const lookedUpBefore = sync.branchesLookedUpAt.has(head)
       sync.branchesLookedUpAt.set(head, this.now())
       const rows = found.get(head) ?? []
       const pullRequest = rows.find(({ state }) => state === 'open') ?? rows[0]
       if (!pullRequest) continue
+      if (lookedUpBefore && sync.byBranch.get(head) !== pullRequest.number) run.listChanged = true
       observe(run, pullRequest.number, pullRequest)
       sync.byBranch.set(head, pullRequest.number)
     }
@@ -569,7 +668,8 @@ export class PrSync {
    * Numbers never seen, numbers another read path saw change, each
    * `REPOSITORY_MS` the open pull requests that are wanted, and each
    * `CLOSED_MS` the closed ones. A merged or missing one is not read again;
-   * nor is one this tick has read.
+   * nor is one this tick has read. A detail read answers a number too
+   * (`answerByDetail`).
    */
   private async readNumbers(run: RepositoryRun): Promise<void> {
     const { sync, wanted } = run
@@ -583,12 +683,20 @@ export class PrSync {
       const { state } = record.pullRequest
       return (isDue && state === 'open') || (isClosedDue && state === 'closed')
     })
+    const reread = new Set(sync.reread)
     sync.reread.clear()
     if (isDue) sync.numbersAt = this.now() + REPOSITORY_MS
     if (isClosedDue) sync.closedNumbersAt = this.now() + CLOSED_MS
     if (!numbers.length) return
     const { repo, provider } = sync.host
-    for (const [number, pullRequest] of await provider.review.getPullRequests(repo, numbers)) observe(run, number, pullRequest)
+    const byDetail = await Promise.all(numbers.map((number) => reread.has(number) ? null : answerByDetail(run, number)))
+    const unanswered = numbers.filter((number, index) => {
+      const pullRequest = byDetail[index]
+      if (pullRequest) observe(run, number, pullRequest)
+      return !pullRequest
+    })
+    if (!unanswered.length) return
+    for (const [number, pullRequest] of await provider.review.getPullRequests(repo, unanswered)) observe(run, number, pullRequest)
   }
 
   /**
@@ -671,7 +779,7 @@ export class PrSync {
    */
   private async linkBranchOwners(pullRequest: PullRequest, branch: string, sessionIds: string[]): Promise<void> {
     const repositoryKey = repoKeyOf(pullRequest.baseRepo)
-    const live = new Set((await this.liveCheckouts(this.now())).flatMap((checkout) =>
+    const live = new Set((await this.liveCheckouts(this.now(), await liveTaskSessions())).flatMap((checkout) =>
       checkout.branch === branch ? [checkout.sessionId] : []))
     for (const sessionId of sessionIds) {
       if (!live.has(sessionId)) continue
@@ -689,10 +797,14 @@ export class PrSync {
     const hosts = new Map<string, CodeHost | null>()
     const hostFor = async (scope: string): Promise<CodeHost | null> => {
       if (!hosts.has(scope)) {
-        hosts.set(scope, await this.codeHost(scope).catch((error) => {
+        if ((this.noCodeHostUntil.get(scope) ?? 0) > this.now()) return null
+        const host = await this.codeHost(scope).catch((error) => {
           log.warn('pr_sync_scope_unresolved', { projectRoot: scope, error: String(error) })
           return null
-        }))
+        })
+        if (host) this.noCodeHostUntil.delete(scope)
+        else this.noCodeHostUntil.set(scope, this.now() + NO_CODE_HOST_MS)
+        hosts.set(scope, host)
       }
       return hosts.get(scope) ?? null
     }
@@ -707,9 +819,10 @@ export class PrSync {
       return interest
     }
 
+    const ofLiveTasks = await liveTaskSessions()
     const links = [
       ...await readPrLinkInterests(getDatabase(), ANY_ORGANIZATION),
-      ...await sessionLinkInterests(),
+      ...await sessionLinkInterests(ofLiveTasks.sessionIds),
     ]
     for (const link of links) {
       if (!link.isActive || link.state === 'missing') continue
@@ -719,7 +832,7 @@ export class PrSync {
       if (link.state !== 'merged') interest.open.add(link.number)
       else if (link.updatedAt) interest.merged.set(link.number, link.updatedAt)
     }
-    for (const { projectScope, branch, sessionId } of await this.liveCheckouts(this.now())) {
+    for (const { projectScope, branch, sessionId } of await this.liveCheckouts(this.now(), ofLiveTasks)) {
       const host = await hostFor(projectScope)
       if (!host) continue
       const owners = interestFor(host).branches
@@ -738,60 +851,25 @@ export class PrSync {
   }
 }
 
-/** The sessions that work under a task that is not finished, and the
- *  isolated checkouts of those sessions. */
-async function liveTaskSessions(): Promise<{ checkouts: LiveCheckout[]; sessionIds: Set<string> }> {
-  const unfinished = await unfinishedTaskProjects(ANY_ORGANIZATION)
-  const sessions = await taskSessions(ANY_ORGANIZATION, [...unfinished.keys()])
-  const checkouts: LiveCheckout[] = []
-  const sessionIds = new Set<string>()
-  for (const [taskId, projectKey] of unfinished) {
-    for (const attempt of sessions[taskId] ?? []) {
-      if (attempt.role === 'referenced') continue
-      sessionIds.add(attempt.sessionId)
-      if (projectKey && attempt.isolatedCheckout && attempt.branch) {
-        checkouts.push({ projectScope: projectKey, branch: attempt.branch, sessionId: attempt.sessionId })
-      }
-    }
-  }
-  return { checkouts, sessionIds }
+/**
+ * The answer of a detail read of this number that is in flight or younger
+ * than the repository's cadence; null when there is none. A review pane reads
+ * the detail anyway, so a number it wants that PR sync has never read is read
+ * as a detail, which the pane's own read joins. A failed detail read answers
+ * nothing: the number is read by number.
+ */
+async function answerByDetail(run: RepositoryRun, number: number): Promise<PullRequest | null> {
+  const { repo, provider } = run.sync.host
+  const detail = prIndex.recentDetail(repo, number, REPOSITORY_MS)
+    ?? (run.wanted.review.has(number) && !run.sync.records.has(number) ? prIndex.pullRequest(repo, provider, number).read() : null)
+  return detail ? detail.catch(() => null) : null
 }
 
-/**
- * The branch of each isolated checkout that live work runs in: the sessions of
- * tasks that are not finished, and the sessions active recently that are not
- * settled. A settled session is not live work.
- */
-async function liveCheckouts(now: number): Promise<LiveCheckout[]> {
-  const { checkouts } = await liveTaskSessions()
-  const seen = new Set(checkouts.map((checkout) => `${checkout.sessionId}\0${checkout.branch}`))
-  const recent = recentWorktreeSessions(now - BRANCH_LOOKUP_MS)
-    .map((indexed) => ({ ...indexed, sessionId: sessionIdOfThread(indexed.sessionId) }))
-  const settled = await settledSessionIds(recent.map((indexed) => indexed.sessionId))
-  for (const { sessionId, branch, projectScope } of recent) {
-    if (settled.has(sessionId) || seen.has(`${sessionId}\0${branch}`)) continue
-    seen.add(`${sessionId}\0${branch}`)
-    checkouts.push({ projectScope, branch, sessionId })
-  }
-  return checkouts
-}
-
-/**
- * The pull requests sessions link, as PR sync's interest reads them. A link is live
- * work until its session is settled; a task that is not finished keeps the
- * links of its sessions live, because the task reads them.
- */
-async function sessionLinkInterests(): Promise<PrLinkInterest[]> {
-  const { sessionIds: ofLiveTask } = await liveTaskSessions()
-  const links = await readSessionPullRequestInterests(ANY_ORGANIZATION)
-  const settled = await settledSessionIds([...new Set(links.map((link) => link.sessionId))])
-  return links.map((link) => ({
-    projectScope: link.repository,
-    number: link.number,
-    isActive: ofLiveTask.has(link.sessionId) || !settled.has(link.sessionId),
-    state: link.state,
-    updatedAt: link.updatedAt,
-  }))
+/** A value that changes when HEAD or a remote-tracking ref moves: one spawn,
+ *  hashed because a repository can have many remote branches. */
+async function checkoutState(checkout: string): Promise<string | null> {
+  const refs = await runAsync('git', ['rev-parse', 'HEAD', '--remotes'], checkout).catch(() => null)
+  return refs === null ? null : createHash('sha1').update(refs).digest('hex')
 }
 
 /** One sight of a pull request in a tick. */

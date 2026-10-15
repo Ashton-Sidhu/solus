@@ -97,7 +97,11 @@ belongs to a session, not to a task.
     pull requests per document, about 1 point; docs/plans/pr-sync.md §11). A watch read happens only when a fingerprint moved, while a check
     is in progress, and every 30 minutes (edits inside review threads are not in
     the fingerprint). Remarks are read only when the remark half of the
-    fingerprint moved, or every 30 minutes. Sessions that watch the same pull
+    fingerprint moved, or every 30 minutes. The pull request row is read only
+    when the row that `prIndex` holds does not agree with the fingerprint on
+    state, mergeability and head (2026-10-14). PR sync keeps that row fresh,
+    because the watching session links the pull request, so a moved check or
+    a new comment costs no second read of it. Sessions that watch the same pull
     request share one read. Sweeps are background work: they leave GitHub's
     reserve to people and back off on a rate limit
     (`providers/github/request-budget.ts`).

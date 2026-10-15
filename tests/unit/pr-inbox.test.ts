@@ -150,7 +150,8 @@ describe('PrsStore every-project read', () => {
     await store.listProjects(projects, { state: 'open' })
     expect(store.at('h', '/workspace')?.error?.kind).toBe('unavailable')
 
-    await store.listProjects(projects, { state: 'open' })
+    // Another state, so the repository's own list is not fresh.
+    await store.listProjects(projects, { state: 'closed' })
     await store.listProjects(projects, { state: 'open' }, { force: true })
 
     expect(calls.map((call) => call.roots)).toEqual([
@@ -158,6 +159,45 @@ describe('PrsStore every-project read', () => {
       ['/repos/a'],
       ['/workspace', '/repos/a'],
     ])
+  })
+
+  // WHY: the page reads its list on every mount and every scope change. A
+  // list read moments ago is still what the host would say, and what changed
+  // since arrives as `pr.changed`.
+  test('a fresh list is not read again when the page mounts again; a refresh still reads', async () => {
+    const store = await newStore()
+    const calls: { roots: string[] }[] = []
+    const api = asHostApi({ ...hostServing({ '/repos/a': page([pr(1)]), '/repos/b': page([pr(2)]) }, calls), prRefresh: async () => {} })
+    const projects = [target('h', '/repos/a', api), target('h', '/repos/b', api)]
+
+    await store.listProjects(projects, { state: 'open' })
+    await store.listProjects(projects, { state: 'open' })
+    expect(calls).toHaveLength(1)
+
+    await store.listProjects(projects, { state: 'open' }, { force: true })
+    expect(calls.map((call) => call.roots)).toEqual([['/repos/a', '/repos/b'], ['/repos/a', '/repos/b']])
+  })
+
+  // WHY: the host says which repository's list changed when an agent turn
+  // ends there. Reading every project of every host for it cost one read per
+  // project on each turn.
+  test('a changed list reads again only the projects named, even when fresh', async () => {
+    const store = await newStore()
+    const calls: { roots: string[] }[] = []
+    let refreshes = 0
+    const api = asHostApi({
+      ...hostServing({ '/repos/a': page([pr(1)]), '/repos/b': page([pr(2)]) }, calls),
+      prRefresh: async () => { refreshes++ },
+    })
+    const projects = [target('h', '/repos/a', api), target('h', '/repos/b', api)]
+    await store.listProjects(projects, { state: 'open' })
+
+    const changed = store.at('h', '/repos/b')!
+    await store.readPage([store.at('h', '/repos/a')!, changed], { state: 'open' }, { memoryKey: 'changed-test', targets: projects, changed: [changed] })
+
+    expect(calls.map((call) => call.roots)).toEqual([['/repos/a', '/repos/b'], ['/repos/b']])
+    // Not a person's refresh: the host keeps what it remembers of the others.
+    expect(refreshes).toBe(0)
   })
 
   // WHY: a refresh is a person asking for the code host again. The host shares

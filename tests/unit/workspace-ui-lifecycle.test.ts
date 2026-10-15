@@ -43,21 +43,26 @@ test('same-number PRs load once for each host and project scope', async () => {
   const effect = ast.statements.slice(index, index + 2).map((statement) => statement.getText(ast)).join('\n')
   const harness = `
     import assert from 'node:assert/strict';
-    import { flushSync } from 'svelte';
+    import { flushSync, untrack } from 'svelte';
     import { projectScopeOf } from ${JSON.stringify(new URL('packages/contracts/src/types.ts', root).href)};
     let activePr = $state({ number: 7 });
     let prServerId = $state('first-host');
     let env = $state({ cwd: '/first-project', checkout: null });
     const sourceId = 'mounted-tab';
+    const active = true;
     const prApi = {};
     const calls = [];
-    const session = { ctxForEnvironment(cwd) { return { session: { projectPath: cwd, workingDirectory: cwd } } } };
+    // A new context object on every session event, as the real builder makes.
+    let sessionEvents = $state(0);
+    const session = { ctxForEnvironment(cwd) { void sessionEvents; return { session: { projectPath: cwd, workingDirectory: cwd } } } };
+    const prProjectScope = $derived(projectScopeOf(session.ctxForEnvironment(env.cwd).session));
     const pullRequests = { checks: { async load(api, serverId, ctx, numbers) {
       calls.push([serverId, projectScopeOf(ctx.session), numbers[0]]);
     } } };
     const destroy = $effect.root(() => { ${effect} });
     flushSync();
     activePr = { number: 7 }; flushSync();
+    sessionEvents++; flushSync();
     assert.equal(calls.length, 1);
     env.cwd = '/second-project'; flushSync();
     prServerId = 'second-host'; flushSync();

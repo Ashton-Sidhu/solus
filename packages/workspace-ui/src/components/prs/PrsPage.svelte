@@ -37,10 +37,10 @@
     showsPrPageSkeleton,
     type ScopeSwitchPhase,
   } from "./lib/pr-list-loading";
-  import { isAuthoredBy, isReviewRequestedFrom, PR_LIST_LOAD_CAP, prFetchScope, prGroups, type PrRowContext, type PrRowSpec } from "./lib/prs-list-view";
+  import { isAuthoredBy, isReviewRequestedFrom, PR_LIST_LOAD_CAP, prFetchScope, prGroups, prTimeLabelsMoved, type PrRowContext, type PrRowSpec } from "./lib/prs-list-view";
   import { PrListSearch } from "./lib/pr-list-search.svelte";
   import { prListPreferencesOf, writePrListPreferences } from "./lib/pr-list-memory";
-  import type { ProjectPrs } from "../../contexts/prs/prs.store.svelte";
+  import type { PrListRead, ProjectPrs } from "../../contexts/prs/prs.store.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import { flattenQualifiedProjects, qualifiedKeyOf, qualifiedPrKey, type PrTarget } from "./lib/pr-cross-project";
   import {
@@ -124,11 +124,16 @@
   let mergeKey = $state<string | null>(null);
   let mergeConfirmOpen = $state(false);
 
-  // Tick the clock so relative row times age instead of freezing at load.
+  // Tick the clock so relative row times age instead of freezing at load. The
+  // groups do not depend on time, so the clock moves only when a row's time
+  // label changes; other ticks build no row again.
   let now = $state(Date.now());
   $effect(() => {
     if (!open) return;
-    const interval = setInterval(() => (now = Date.now()), 30_000);
+    const interval = setInterval(() => {
+      const next = Date.now();
+      if (prTimeLabelsMoved(activeItems, now, next)) now = next;
+    }, 30_000);
     return () => clearInterval(interval);
   });
 
@@ -534,7 +539,7 @@
           label: "Retry",
           onAction: () => {
             lastNotifiedPartialFailure = "";
-            readList(true);
+            readList({ force: true });
           },
         },
       });
@@ -623,18 +628,18 @@
 
   /** Read the list the page is on, then the guides for the rows it holds. Each
    *  row carries its own check state. */
-  function readList(force = false): void {
+  function readList(read: PrListRead = {}): void {
     const scopes = readTargets();
     const readKey = listReadKey;
     void store
       .readPage(scopes, { ...listFilter }, {
+        ...read,
         memoryKey: pageScope.allProjects ? "all" : pageScope.scopeKey,
-        force,
         targets: pageScope.allProjects ? pageScope.projectTargets : undefined,
       })
       .then(() => {
         if (open && pageScope.allProjects && readKey === listReadKey) notifyPartialFailure();
-        for (const scope of scopes) {
+        for (const scope of read.changed ?? scopes) {
           void pullRequests.guides.loadListed(scope);
           loadListedLenses(scope);
         }
@@ -699,13 +704,15 @@
   }
 
   // While the page is open, a host that says a listed repository changed —
-  // an agent turn ended there — makes the list read again. Pull requests PR
-  // sync tracks reach the rows with no read.
+  // an agent turn ended there — makes the lists of that repository's projects
+  // read again, and only those. Pull requests PR sync tracks reach the rows
+  // with no read.
   $effect(() => {
     if (!open) return;
     return untrack(() =>
       store.onListChanged((projects) => {
-        if (readTargets().some((scope) => projects.includes(scope))) readList();
+        const changed = readTargets().filter((scope) => projects.includes(scope));
+        if (changed.length) readList({ changed });
       }),
     );
   });
@@ -964,7 +971,7 @@
       split={splitList}
       page="prs"
       title={splitList ? "Pull Requests" : undefined}
-      onRefresh={() => readList(true)}
+      onRefresh={() => readList({ force: true })}
       refreshing={activeRefreshing}
       syncedAt={synced.at}
       onClose={workspace ? close : undefined}
@@ -989,7 +996,7 @@
           serverId={pageScope.serverId}
           {projectsFailure}
           hasItems={activeItems.length > 0}
-          onRetry={() => readList(true)}
+          onRetry={() => readList({ force: true })}
           onShowAll={() => session.setProjectPageScope({ kind: "all" })}
         >
         {#if groups.length === 0 && activeLoading}

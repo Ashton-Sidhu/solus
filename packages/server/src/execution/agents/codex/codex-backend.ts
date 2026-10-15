@@ -777,11 +777,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.client.shutdown()
   }
 
-  async refreshSessionIndex(): Promise<void> {
-    // The server's periodic index poll must not turn a Claude-only idle host
-    // into a two-process Codex host. Explicit Codex work starts the client; its
-    // turn/completed notification then enters this same refresh path.
-    if (!this.client.hasStarted) return
+  private async refreshSessionIndex(): Promise<void> {
     if (this.sessionIndexRefresh) return this.sessionIndexRefresh
     this.sessionIndexRefresh = this.refreshSessionIndexOnce()
     try {
@@ -791,9 +787,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
-  /** Coalesce turn-completion index sweeps: a burst of completing turns (parallel
-   *  sessions, subagent fan-out) schedules one sweep instead of one per turn. */
-  private scheduleSessionIndexRefresh(): void {
+  /** Coalesce index sweeps: a burst of requests (completing turns, connecting
+   *  clients, list reads) in one window costs one sweep. */
+  requestSessionIndexRefresh(): void {
+    // A refresh must not turn a Claude-only host into a two-process Codex host.
+    // Codex work starts the client; its turn/completed then asks again.
+    if (!this.client.hasStarted) return
     if (this.sessionIndexRefreshTimer) return
     this.sessionIndexRefreshTimer = setTimeout(() => {
       this.sessionIndexRefreshTimer = null
@@ -1168,7 +1167,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
       // A turn just created or updated a thread, so the index catches up. The
       // sweep is coalesced: a burst of completing turns pays for one, not one each.
-      if (handle?.persistent) this.scheduleSessionIndexRefresh()
+      if (handle?.persistent) this.requestSessionIndexRefresh()
       const sawRateLimit = handle?.normalizer.summary.sawRateLimit ?? false
       const exitCode = params?.turn?.status === 'failed' && !sawRateLimit ? 1 : wasInterrupted ? null : 0
       const exitSignal = wasInterrupted ? 'SIGINT' : null

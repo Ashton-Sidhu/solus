@@ -209,7 +209,7 @@ export class PrWatcher {
     if (!plan) return
     let answer: { read: WatchRead; pullRequest: PullRequest }
     try {
-      answer = await this.read(host, number, plan.remarks)
+      answer = await this.read(host, number, plan.remarks, fingerprint)
     } catch (error) {
       const limited = githubRateLimitOf(error)
       if (limited) {
@@ -247,14 +247,27 @@ export class PrWatcher {
    * (`prIndex`): what it reads reaches every surface that shows the pull
    * request, and a conversation a surface just read is joined, not read again.
    * It is forced, because the fingerprint only moves when the host has news.
+   * The pull request itself is read only when the row the server holds does
+   * not agree with the fingerprint: PR sync keeps a watched pull request
+   * fresh, because its session links it, and a moved check or a new comment
+   * does not change the row the rules read.
    */
-  private async read(host: CodeHost, number: number, withRemarks: boolean): Promise<{ read: WatchRead; pullRequest: PullRequest }> {
+  private async read(
+    host: CodeHost,
+    number: number,
+    withRemarks: boolean,
+    fingerprint: PullRequestWatchFingerprint | null,
+  ): Promise<{ read: WatchRead; pullRequest: PullRequest }> {
     const { repo, provider } = host
     const entity = prIndex.pullRequest(repo, provider, number)
-    const fetched = (await provider.review.getPullRequests(repo, [number])).get(number)
-    if (!fetched) throw new Error(`The code host has no pull request #${number}.`)
-    entity.seed(fetched)
-    const pullRequest = entity.lastRead() ?? fetched
+    const held = entity.lastRead()
+    if (!held || !fingerprint || !agrees(held, fingerprint)) {
+      const fetched = (await provider.review.getPullRequests(repo, [number])).get(number)
+      if (!fetched) throw new Error(`The code host has no pull request #${number}.`)
+      entity.seed(fetched)
+    }
+    const pullRequest = entity.lastRead()
+    if (!pullRequest) throw new Error(`The code host has no pull request #${number}.`)
     const summaries = await provider.review.listChecks(repo, [number])
     prIndex.absorbChecks(repo, provider, summaries)
     const checks = summaries[0]
@@ -391,6 +404,12 @@ function groupKey(group: ReadGroup): string {
 
 function pullRequestKey(group: ReadGroup, number: number): string {
   return `${groupKey(group)}\0${number}`
+}
+
+/** Whether a held row says what the fingerprint says about the fields the
+ *  watch rules read. */
+function agrees(held: PullRequest, { pullRequest }: PullRequestWatchFingerprint): boolean {
+  return held.state === pullRequest.state && held.mergeable === pullRequest.mergeable && held.headSha === pullRequest.headSha
 }
 
 function sameState(a: PullRequestWatchState, b: PullRequestWatchState): boolean {

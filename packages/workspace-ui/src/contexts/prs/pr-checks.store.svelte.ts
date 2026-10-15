@@ -12,7 +12,7 @@ import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { NumberedPrChecksSummary, PrChecksSnapshot } from '@solus/contracts/checks-rpc-types'
 import type { IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
-import { projectPrsKey, type ProjectPrs } from './project-prs.svelte'
+import { detached, projectPrsKey, type ProjectPrs } from './project-prs.svelte'
 import type { PrsStore } from './prs.store.svelte'
 
 export class PrChecksStore {
@@ -41,6 +41,13 @@ export class PrChecksStore {
 
   loadFailedFor(serverId: string, ctx: IpcContext): boolean {
     return this.byProject.get(projectPrsKey(serverId, ctx))?.loadFailed ?? false
+  }
+
+  /** Read the check runs of a pull request that no review pane keeps fresh:
+   *  the git rail's branch holds a branch interest, which carries no checks. */
+  async load(api: HostApi, serverId: string, ctx: IpcContext, numbers: number[]): Promise<void> {
+    if (numbers.length === 0) return
+    this.byProject.set(projectPrsKey(serverId, ctx), await api.prChecks(detached(ctx), numbers))
   }
 
   /** Keep one pull request's check runs fresh while a review pane shows it. */

@@ -156,6 +156,12 @@ export class PrIndex {
     return this.entities.get(entityKey(scope, number))?.lastRead()
   }
 
+  /** A detail read of a pull request that is in flight or younger than
+   *  `maxAgeMs` (`PullRequest.recentDetail`). Never creates an entity. */
+  recentDetail(repo: RepoRef, number: number, maxAgeMs: number): Promise<Contracts.PullRequest> | null {
+    return this.entities.get(entityKey(repoKeyOf(repo), number))?.recentDetail(maxAgeMs) ?? null
+  }
+
   /**
    * File what one checks poll returned, and answer with the pull requests it
    * covered so the caller can publish them.
@@ -295,8 +301,19 @@ export class PrIndex {
     for (const [key, entity] of this.entities) {
       if (key.startsWith(prefix)) entity.forget()
     }
-    for (const key of this.listings.keys()) if (key.startsWith(prefix)) this.listings.delete(key)
-    for (const key of this.needsReview.keys()) if (key.startsWith(prefix)) this.needsReview.delete(key)
+    this.invalidateListings(repo)
+  }
+
+  /**
+   * Forget the listings of a repository, for every viewer, and keep each pull
+   * request. A turn that pushed can add a pull request or reorder a list, but
+   * a pull request it changed is read again by PR sync.
+   */
+  invalidateListings(repo: RepoRef): void {
+    // Listing keys keep the remote's case; the same repository arrives spelled both ways.
+    const prefix = `${repoKeyOf(repo).toLowerCase()}::`
+    for (const key of this.listings.keys()) if (key.toLowerCase().startsWith(prefix)) this.listings.delete(key)
+    for (const key of this.needsReview.keys()) if (key.toLowerCase().startsWith(prefix)) this.needsReview.delete(key)
   }
 
   /** Exposed for tests: how many entities are held right now. */

@@ -132,4 +132,40 @@ describe('PR checks read', () => {
     expect(retried.loadFailed).toBe(false)
     expect(calls).toBe(2)
   })
+
+  test('the server holds the checks of a bounded number of repositories, and forgets the least recently read', async () => {
+    // WHY: the cache lives as long as the server. A host whose clients read
+    // many repositories over weeks must not keep every one of them.
+    const server = new SolusServer()
+    const reads: string[] = []
+    let repo = ''
+    const provider = {
+      review: {
+        listChecks: async (target: RepoRef, numbers: number[]) => {
+          reads.push(target.repo)
+          return numbers.map((number) => ({ number, summary: { state: 'passing', required: [], optional: [], headSha: 'sha', inFlight: false } }))
+        },
+      },
+    } as unknown as Provider
+    registerChecksHandlers(server, {
+      resolveReviewTarget: async () => ({ repo: { host: 'github.com', owner: 'owner', repo }, provider }),
+    })
+    const read = async (name: string) => {
+      repo = name
+      await server.handle('prChecks', [{} as IpcContext, [1]], localOwnerCtx('local'))
+    }
+
+    await read('bounded-first')
+    await read('bounded-kept')
+    for (let index = 0; index < 63; index++) await read(`bounded-${index}`)
+    // The kept repository was read again, so it is not the oldest.
+    await read('bounded-kept')
+    await read('bounded-last')
+    reads.length = 0
+    await read('bounded-kept')
+    await read('bounded-first')
+
+    // Both answers are younger than the stale time; only the forgotten one is read again.
+    expect(reads).toEqual(['bounded-first'])
+  })
 })

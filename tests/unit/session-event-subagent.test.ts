@@ -35,6 +35,7 @@ async function createReducer() {
       tabIdsBySession: new Map([['session-1', ['tab-1']]]),
     },
     settings: { rateLimitBehavior: 'ask' },
+    closePlanModal: () => {},
     log: () => {},
   } as any)
   return { parent, reducer }
@@ -182,6 +183,28 @@ describe('SessionEventReducer sub-agent transcript events', () => {
       toolStatus: 'error',
       report: 'Child process failed',
     })
+  })
+
+  test('stopping the session settles a running card and its running child tools', async () => {
+    // WHY: Stop cancels the provider query and every sub-agent with it. No result
+    // follows, so without this the card said "running" for good.
+    const { parent, reducer } = await createReducer()
+    reducer.apply('session-1', { type: 'tool_call', toolName: 'Read', toolId: 'child-tool', index: 0, parentToolUseId: 'parent-tool' })
+
+    reducer.apply('session-1', { type: 'status_change', status: 'interrupted' })
+
+    expect(parent).toMatchObject({ toolStatus: 'error', report: 'Interrupted' })
+    expect(parent.toolCompletedAt).toBeGreaterThan(parent.timestamp)
+    expect(parent.subMessages?.[0]).toMatchObject({ toolId: 'child-tool', toolStatus: 'error' })
+  })
+
+  test('stopping the session keeps a card that already settled', async () => {
+    const { parent, reducer } = await createReducer()
+    reducer.apply('session-1', { type: 'subagent_report', toolUseId: 'parent-tool', text: 'Answer.' })
+
+    reducer.apply('session-1', { type: 'status_change', status: 'interrupted' })
+
+    expect(parent).toMatchObject({ toolStatus: 'completed', report: 'Answer.' })
   })
 
   test('stores SDK task progress on the matching sub-agent card', async () => {

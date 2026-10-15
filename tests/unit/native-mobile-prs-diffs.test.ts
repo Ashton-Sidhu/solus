@@ -112,7 +112,8 @@ describe('detail stale-read guard', () => {
     const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
     const older = directory.loadDetail(PR_REF)
     await flushPromises()
-    await directory.loadDetail(PR_REF)
+    // A forced read does not join the one on the wire; it replaces it.
+    await directory.loadDetail(PR_REF, { force: true })
     first.resolve({ pullRequest: pullRequest(7, { title: 'Old' }), commits: [], reviewers: [] })
     await older
     expect(shownValue(directory.detailOf(PR_REF))?.overview.pullRequest.title).toBe('New')

@@ -16,6 +16,10 @@ export type ViewedFileState = PrViewedFileState | 'unknown'
 /** The most changes one `prSetFilesViewed` call takes. */
 export const VIEWED_FILES_BATCH_LIMIT = 3000
 
+/** How long a read answers for a surface that opens again. Each read goes to
+ *  the code host, so a pane that mounts again soon after shows what it read. */
+export const VIEWED_FILES_FRESH_MS = 30_000
+
 export interface PrViewedFilesDeps {
   read: () => Promise<HostViewedFiles>
   write: (changes: PrViewedFileChange[]) => Promise<void>
@@ -42,6 +46,9 @@ export class PrViewedFiles {
   readonly #deps: PrViewedFilesDeps
   #timer: ReturnType<typeof setTimeout> | null = null
   #readGeneration = 0
+  /** When the last read answered; 0 before one did. */
+  #readAt = 0
+  #reading: Promise<void> | null = null
 
   constructor(deps: PrViewedFilesDeps) {
     this.#deps = deps
@@ -62,8 +69,26 @@ export class PrViewedFiles {
     return count
   }
 
-  /** Read the marks again. A path with a toggle not yet answered keeps the toggle. */
-  async load(): Promise<void> {
+  /**
+   * Read the marks again. A read on the wire answers every caller, and a read
+   * that answered within `VIEWED_FILES_FRESH_MS` is not repeated unless
+   * `force`. A path with a toggle not yet answered keeps the toggle.
+   */
+  async load(opts: { force?: boolean } = {}): Promise<void> {
+    if (!opts.force) {
+      if (this.#reading) return this.#reading
+      if (this.loaded && Date.now() - this.#readAt < VIEWED_FILES_FRESH_MS) return
+    }
+    const reading = this.#read()
+    this.#reading = reading
+    try {
+      await reading
+    } finally {
+      if (this.#reading === reading) this.#reading = null
+    }
+  }
+
+  async #read(): Promise<void> {
     const generation = ++this.#readGeneration
     try {
       const answer = await this.#deps.read()
@@ -79,6 +104,7 @@ export class PrViewedFiles {
       this.complete = answer.complete
       this.loadError = null
       this.loaded = true
+      this.#readAt = Date.now()
     } catch (error) {
       if (generation !== this.#readGeneration) return
       this.loadError = error instanceof Error ? error.message : String(error)

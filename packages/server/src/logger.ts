@@ -121,7 +121,7 @@ const MAX_STRING_LENGTH = 2000
 let logPath: string | null = null
 let buffer: string[] = []
 let bufferedBytes = 0
-let timer: ReturnType<typeof setInterval> | null = null
+let timer: ReturnType<typeof setTimeout> | null = null
 let activeWrite: string | null = null
 let droppedEntries = 0
 /**
@@ -283,7 +283,7 @@ function pushEntry(entry: LogEntry): void {
   buffer.push(line)
   bufferedBytes += lineBytes
   if (buffer.length >= MAX_BUFFER_SIZE || bufferedBytes >= MAX_BUFFER_BYTES / 2) flush()
-  ensureTimer()
+  if (buffer.length > 0) ensureTimer()
 }
 
 function flush(): void {
@@ -304,6 +304,8 @@ function flush(): void {
     activeWrite = null
     if (error) {
       console.error('[solus:logger] log write failed', error)
+      // Entries that came during the failed write wait for the next flush.
+      if (buffer.length > 0) ensureTimer()
       return
     }
     if (droppedEntries > 0) {
@@ -322,9 +324,15 @@ function flush(): void {
   })
 }
 
+/** One flush `FLUSH_INTERVAL_MS` after the first entry that waits. An empty
+ *  buffer sets no timer, so a quiet process does not wake to write nothing.
+ *  An entry that arrives during a write is written when that write ends. */
 function ensureTimer(): void {
   if (timer) return
-  timer = setInterval(flush, FLUSH_INTERVAL_MS)
+  timer = setTimeout(() => {
+    timer = null
+    flush()
+  }, FLUSH_INTERVAL_MS)
   if (timer instanceof Object && 'unref' in timer) {
     timer.unref()
   }
@@ -401,7 +409,7 @@ export function createLogger(tag: string, file: string): Logger {
 }
 
 export function flushLogs(): void {
-  if (timer) { clearInterval(timer); timer = null }
+  if (timer) { clearTimeout(timer); timer = null }
   // `activeWrite` was already submitted to appendFile; appending it again here
   // races the callback and duplicates records. Only synchronously drain bytes
   // that have not yet been handed to the filesystem.

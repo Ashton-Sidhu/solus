@@ -1011,6 +1011,7 @@ export class SessionEventReducer {
           // Stop keeps the host's queue (plan 004 D12): held prompts leave only on
           // `prompt_dequeued`. Who stopped it arrives as a `stopped` activity.
           this.deps.closePlanModal()
+          this.settleInterruptedSubagents(session)
         }
         if (event.status === 'idle') {
           session.isStreamingText = false
@@ -1220,6 +1221,24 @@ export class SessionEventReducer {
     target.toolStatus = event.isError ? 'error' : 'completed'
     target.toolCompletedAt = Date.now()
     session.currentActivity = 'Thinking...'
+  }
+
+  /**
+   * Stop cancels the provider query, which ends every sub-agent it started,
+   * blocking or backgrounded. None of them sends a result after that, so their
+   * cards settle here, with the word a reload of a stopped child shows.
+   */
+  private settleInterruptedSubagents(session: Session): void {
+    const now = Date.now()
+    for (const message of session.messages) {
+      if (message.role !== 'tool' || !message.subMessages || message.toolStatus !== 'running') continue
+      message.toolStatus = 'error'
+      message.report ??= 'Interrupted'
+      message.toolCompletedAt = now
+      for (const child of message.subMessages) {
+        if (child.role === 'tool' && child.toolStatus === 'running') child.toolStatus = 'error'
+      }
+    }
   }
 
   /**

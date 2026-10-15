@@ -26,7 +26,6 @@ export function detailApi(api: FakeApi, pr: () => PullRequest = () => pullReques
     .on('prListComments', () => [])
     .on('prListThreads', () => [])
     .on('prChangedFiles', () => [])
-    .on('prChecks', () => ({ repo: { host: 'github.com', owner: 'o', repo: 'r' }, checks: [], loadFailed: false }))
     .on('prGetStack', () => null)
 }
 

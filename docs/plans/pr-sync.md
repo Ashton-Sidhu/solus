@@ -100,6 +100,22 @@ run every 15 s, and every 10 s while that pull request has a check in progress.
 A faster pass reads only the check runs (step 4); the read by number keeps the
 60 s cadence.
 
+**The clock** (2026-10-14). The clock wakes when the next repository is due, or
+when interest is read again (60 s), never sooner than 5 s. While nothing is
+wanted, no clock runs and no tick reads the database. These events start a
+tick: a client's interest, a turn end, a person's refresh, another read path
+that saw a new state, and a change to a task or a session link (`onTasksChanged`,
+`onSessionPullRequestsChanged`), because a new link can be the first interest.
+The Solus API hears no turn end, and its runners report sessions with no event,
+so its PR sync reads interest every 60 s also while nothing is wanted
+(`pollsForInterest`). A tick settles sessions (`settleSessionsWithEndedPullRequests`)
+only when it read something, or when a link or a turn changed since the last
+time. A tick that a person does not wait on (the clock, a turn end, another
+read path, a link change) is background work (`asBackgroundWork`); one that a
+client's interest or a refresh starts is not. One read of interest reads the
+sessions of live tasks once. A scope with no code host is not resolved again
+for 5 minutes, so a folder with no remote does not spawn `git` each minute.
+
 A rate limit from the code host (REST 403 or 429 with
 `x-ratelimit-remaining: 0` or `retry-after`, or GraphQL `RATE_LIMITED`) is not
 a credential failure: the request does not go to the next credential. The
@@ -142,7 +158,12 @@ A tick:
    repository(...) { p60: pullRequest(number: 60) }`), shared with the other
    repositories of the same account (§11, item 4). A merged or missing record
    is not read again. A closed one that is open again returns to the 60 s
-   reads, and its branch matches it again. GitHub answers a number that does not exist with a `null` alias and a
+   reads, and its branch matches it again. A detail read that is in flight,
+   or that answered in the last 60 s, answers a number too, except a number
+   another read path saw change. A number that a `review` interest wants and
+   that PR sync has never read is read as a detail, which the pane's own
+   detail read joins: a pane that opens a pull request and asks to keep it
+   fresh costs one read, in either order (2026-10-14). GitHub answers a number that does not exist with a `null` alias and a
    `NOT_FOUND` error for that path. The other aliases still return data. That
    pair is `missing`.
 3. **Branch linking — no requests.** A pull request found for a session branch
@@ -226,12 +247,20 @@ turn of a session ends (status `completed`, `background`, `failed`, or
 - makes the session's branches with no open pull request due for a lookup on
   this tick, and reads the live checkouts again, so a branch the agent made is
   in the interest;
-- forgets the server's cached lists of the session's repository
-  (`prIndex.invalidate`), and broadcasts `pr.changed` with `listChanged: true`
-  and no rows. A list that shows the repository reads its first page again
-  while it is on screen. A list that is not on screen reads it at its next
-  open or focus. This is how a pull request that PR sync does not track, for
-  example one that a person opened on GitHub, gets to an open list.
+- when the turn moved the checkout's HEAD or a remote-tracking ref (a commit,
+  a push, or a fetch; `git rev-parse HEAD --remotes`, compared with the last
+  turn end in that checkout), forgets the server's cached lists of the
+  session's repository (`prIndex.invalidateListings`; the pull requests it
+  holds are kept), and broadcasts `pr.changed` with `listChanged: true` and no
+  rows. The first turn end that the server sees in a checkout counts as a
+  move. A lookup of the turn's branch that finds a pull request that an
+  earlier lookup did not also sends `listChanged`, with the row. A turn that
+  changed nothing in Git sends nothing (2026-10-14; before, every turn end
+  made every open list read GitHub again). A list that shows the repository
+  reads its first page again while it is on screen. A list that is not on
+  screen reads it at its next open or focus. This is how a pull request that
+  PR sync does not track, for example one that a person opened on GitHub,
+  gets to an open list.
 
 The Solus API's PR sync (`organization-pr-sync.ts`) gets no turn ends: its
 branches are looked up when they join the interest and every 5 min.
@@ -486,10 +515,13 @@ Tests: `pr-sync`, `github-pr-sync-reads`, `pr-checks-read`, `prs-store-sync`,
   page, pagination, search and the merge controls keep working as before. What
   was removed is every timer and every refresh a client ran on its own.
 - **The list page reads its first page and listens.** It reads its first page
-  with `prListProjects` when it opens. A pushed row updates in place, and a new
-  pull request joins the unsearched list at the top. While it is open, a
-  `pr.changed` with `listChanged` for one of its repositories makes it read its
-  first page again (`PrsStore.onListChanged`).
+  with `prListProjects` when it opens. A project whose first page was read in
+  the last 30 seconds is not read again when the page opens again; a refresh
+  always reads. A pushed row updates in place, and a new pull request joins the
+  unsearched list at the top. While it is open, a `pr.changed` with
+  `listChanged` for one of its repositories makes the projects of that
+  repository, and only those, read their first page again
+  (`PrsStore.onListChanged`).
 - **One search answers a page of many projects.** `prListProjects` reads a
   page of every GitHub project on one account with one GraphQL search per 100
   repositories (`providers/github/pull-request-search.ts`). On page one of a
@@ -512,12 +544,16 @@ Tests: `pr-sync`, `github-pr-sync-reads`, `pr-checks-read`, `prs-store-sync`,
   checkouts of one repository on one client do not replace each other's set.
 - **The mobile app has its own store** (`apps/mobile/src/features/prs/
   pull-request-directory.ts`), not `PrsStore`, because it does not share the
-  Svelte code. It follows the same rules: the Pull Requests tab reads the host
-  again on a `listChanged` for a listed repository while it has focus
-  (`showList`), and a pull request screen sends `review` interest for its
-  number. A `pr.changed` change updates the list rows, the list checks, and an
-  open detail in place, and an accepted connection sends the interest again. A screen that gets focus again
-  within 30 seconds of a full read does not read again; a refresh always does.
+  Svelte code. It follows the same rules: the Pull Requests tab reads again
+  the projects of a listed repository on a `listChanged` for it while it has
+  focus (`showList`), and a pull request screen sends `review` interest for its
+  number. The detail read reads no checks: they come with the interest answer
+  or with `pr.changed`, and the detail shows them as being read until then, or
+  as missing when the interest fails. A `pr.changed` change updates the list
+  rows, the list checks, and an open detail in place, and an accepted
+  connection sends the interest again. A screen that gets focus again within
+  30 seconds of a full read does not read again; a refresh always does. Reads
+  of one pull request that the stacked screens start together share one read.
 - **Only three columns** were added to `task_links` (`pr_state`, `pr_draft`,
   `pr_updated_at`). The existing `title` and `url` carry the rest, and the
   repository is parsed from the URL.

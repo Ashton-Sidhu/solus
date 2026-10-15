@@ -9,6 +9,7 @@ import {
   prRow,
   prStatusGlyph,
   prStatusOf,
+  prTimeLabelsMoved,
   shortBranch,
   type PrRowContext,
 } from '@solus/workspace-ui/components/prs/lib/prs-list-view'
@@ -334,5 +335,19 @@ describe('PR list author avatars', () => {
       id: 'hubot',
       initials: 'HU',
     })
+  })
+})
+
+// WHY: the page's clock fed every row, so each tick built every row again even
+// when no label changed. It moves only when a row would read differently.
+describe('prTimeLabelsMoved', () => {
+  test('a tick that changes no row time does not move the clock', () => {
+    const daysOld = pullRequestFixture(1, { updatedAt: '2026-08-01T13:00:00Z' })
+    expect(prTimeLabelsMoved([daysOld], NOW, NOW + 30_000)).toBe(false)
+  })
+
+  test('a row whose minutes changed moves the clock', () => {
+    const recent = pullRequestFixture(2, { updatedAt: new Date(NOW - 5 * 60_000).toISOString() })
+    expect(prTimeLabelsMoved([recent], NOW, NOW + 60_000)).toBe(true)
   })
 })

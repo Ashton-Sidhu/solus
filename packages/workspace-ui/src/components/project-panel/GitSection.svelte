@@ -455,14 +455,20 @@
 
   // The same branch read as the mobile navbar, shared by host and project.
   // Only environment changes re-run it; store writes are not dependencies.
+  // The context is built untracked: it is a new object on every session
+  // event, and the project scope stands for it.
   $effect(() => {
     const url = prUrl;
     const branch = currentBranch;
-    if (!active || !url || !branch || !hasGitStatus || !env.cwd) return;
-    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
+    const cwd = env.cwd;
+    void prProjectScope;
+    if (!active || !url || !branch || !hasGitStatus || !cwd) return;
     const api = prApi;
     const serverId = prServerId;
-    return untrack(() => pullRequests.projects.want(api, serverId, ctx, [{ kind: "branch", head: branch }]));
+    return untrack(() => {
+      const ctx = session.ctxForEnvironment(cwd, env.checkout, sourceId);
+      return pullRequests.projects.want(api, serverId, ctx, [{ kind: "branch", head: branch }]);
+    });
   });
 
   // The host caches checks per repo, so asking for this one PR warms — and reads
@@ -470,18 +476,16 @@
   let requestedChecksFor: string | null = null;
   $effect(() => {
     if (!active || !activePr) return;
-    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
-    const key = JSON.stringify([prServerId, projectScopeOf(ctx.session), activePr.number]);
+    const key = JSON.stringify([prServerId, prProjectScope, activePr.number]);
     if (requestedChecksFor === key) return;
     requestedChecksFor = key;
-    void pullRequests.checks
-      .load(
-        prApi,
-        prServerId,
-        ctx,
-        [activePr.number],
-      )
-      .catch(() => {});
+    const api = prApi;
+    const serverId = prServerId;
+    const number = activePr.number;
+    untrack(() => {
+      const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
+      void pullRequests.checks.load(api, serverId, ctx, [number]).catch(() => {});
+    });
   });
 
   useGitSectionReads({

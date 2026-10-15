@@ -58,7 +58,15 @@ function AppContent() {
       })
       setInitialState({ index: routes.length - 1, routes })
     })
-    const stopLifecycle = watchAppLifecycle(app.connections, () => void app.notifications.refresh())
+    const stopLifecycle = watchAppLifecycle(app.connections, () => {
+      void app.notifications.refresh()
+      // A host whose socket lived through the background reads its list again,
+      // which also brings in sessions started outside Solus. A host that
+      // reconnects reads it in `useThreadListRefresh`.
+      for (const host of app.registry.hosts()) {
+        if (app.connections.state(host.id)?.phase === 'connected') void app.threads.load(host.id)
+      }
+    })
     const stopUiRuntimeGc = collectUiRuntimeGarbageOnMemoryWarning()
     return () => {
       active = false

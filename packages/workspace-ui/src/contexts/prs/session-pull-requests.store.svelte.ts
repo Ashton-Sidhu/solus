@@ -13,12 +13,17 @@ import { serverConnections } from '@solus/client-core/server-connections'
  * home that announced it. A task's pull requests are not here: the home
  * answers those with the task, from the links of the task's sessions.
  */
+/** How many unlisted sessions `linksFor` remembers. */
+const MAX_UNLISTED_SHOWN = 64
+
 export class SessionPullRequestsStore {
   /** Links by stable session id. A session with none has no entry. */
   private linksBySession = new SvelteMap<string, SessionPullRequestLink[]>()
   /** The home each listed session's links came from. */
   private homeBySession = new Map<string, string>()
   private watchedServerIds = new Set<string>()
+  /** Sessions a surface asked for that no list has named yet. */
+  private unlistedShown = new Set<string>()
 
   /** Take the links a home's session list carries. A listed session of this
    *  home that has none now has none here. */
@@ -31,19 +36,33 @@ export class SessionPullRequestsStore {
       this.linksBySession.delete(sessionId)
     }
     for (const record of records) {
+      this.unlistedShown.delete(record.sessionId)
       this.homeBySession.set(record.sessionId, homeServerId)
       this.write(record.sessionId, record.pullRequests ?? [])
     }
   }
 
-  /** Each home announces its own changes, so each is subscribed once. */
+  /** Each home announces its own changes, so each is subscribed once. A host
+   *  announces the change of every session, so only a session this client
+   *  shows is read again: one listed from that home, or one a surface asked
+   *  for before a list named it — a tab of a new session. */
   private watchHost(serverId: string): void {
     if (this.watchedServerIds.has(serverId)) return
     this.watchedServerIds.add(serverId)
     serverConnections.eventsFor(serverId).subscribe('session.pullRequestsChanged', ({ sessionId }) => {
       const home = this.homeBySession.get(sessionId)
-      if (!home || home === serverId) void this.refresh(serverId, sessionId)
+      if (home === serverId || (!home && this.unlistedShown.has(sessionId))) void this.refresh(serverId, sessionId)
     })
+  }
+
+  /** Remember an unlisted session a surface asked for. Not reactive: it only
+   *  decides which announcements are read. The oldest go first. */
+  private rememberUnlisted(sessionId: string): void {
+    if (this.homeBySession.has(sessionId) || this.unlistedShown.has(sessionId)) return
+    this.unlistedShown.add(sessionId)
+    if (this.unlistedShown.size <= MAX_UNLISTED_SHOWN) return
+    const oldest = this.unlistedShown.values().next().value
+    if (oldest !== undefined) this.unlistedShown.delete(oldest)
   }
 
   /** The home of a session's links: the one its list named, else the machine the caller acts through. */
@@ -66,7 +85,9 @@ export class SessionPullRequestsStore {
 
   /** The links of one session. */
   linksFor(sessionId: string | null | undefined): SessionPullRequestLink[] {
-    return sessionId ? this.linksBySession.get(sessionId) ?? [] : []
+    if (!sessionId) return []
+    this.rememberUnlisted(sessionId)
+    return this.linksBySession.get(sessionId) ?? []
   }
 
   /** Link a pull request to a session by its URL, at the session's home. */

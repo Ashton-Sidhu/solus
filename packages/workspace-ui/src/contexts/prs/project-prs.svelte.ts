@@ -353,6 +353,13 @@ export class ProjectPrs {
     if (token === this.listingToken) this.loading = false
   }
 
+  /** Whether the list shows the first page of `filter` and that page is recent
+   *  enough that a surface that mounts again does not ask the host again. */
+  holdsFreshListing(filter: PrFilter): boolean {
+    const key = this.listKey(filter)
+    return this.loaded && !this.error && this.listKey(this.filter) === key && this.mirrors.list.fresh(key) !== undefined
+  }
+
   /** Drop this filter's pages here and on the host, so the next read asks the
    *  code host again. What a person's refresh does before it reads. */
   async forgetListing(filter: PrFilter): Promise<void> {

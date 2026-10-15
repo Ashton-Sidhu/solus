@@ -266,7 +266,8 @@ export class PullRequestActions {
       if (options.refresh) {
         // A failed write can still have changed the pull request; read it again either way.
         await Promise.all([
-          this.deps.directory.loadDetail(ref),
+          // Forced: a read on the wire began before the write.
+          this.deps.directory.loadDetail(ref, { force: true }),
           listChanges ? this.deps.directory.loadHost(ref.hostId) : undefined,
         ])
       }

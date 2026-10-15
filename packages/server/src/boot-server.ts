@@ -1,6 +1,7 @@
 import { installWorkspaceToolOperations, type RemoteToolOperations } from './data/workspace/tool-context'
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
+import { refreshingSessionIndexOnList } from './transport/solus-api/session-index-refresh'
 import { AccountReads, useAccountReads } from './vault/account-reads'
 import { ANY_ORGANIZATION, principalFor, recordScopeOf, scopeAdmits } from './admission/principal'
 import type { ShareResource } from '@solus/contracts/sharing'
@@ -257,9 +258,6 @@ export const WEB_UI_PORT = parseInt(process.env.SOLUS_PORT ?? '') || DEFAULT_SER
  * a trusted requester. Override with SOLUS_TUNNEL_PORT.
  */
 export const DEFAULT_TUNNEL_LISTENER_PORT = parseInt(process.env.SOLUS_TUNNEL_PORT ?? '') || 34118
-const SESSION_INDEX_POLL_MS = 60_000
-const SESSION_INDEX_POLL_JITTER_MS = 5_000
-const SESSION_INDEX_POLL_MAX_BACKOFF_MS = 5 * 60_000
 
 interface LockFileBody {
   pid: number
@@ -1308,7 +1306,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
 
   const { server: http, requestListener } = buildHttpServer({
-    solusApi: { operations: workspaceOperations, ...apiSettings },
+    solusApi: { operations: refreshingSessionIndexOnList(workspaceOperations, () => opts.sessionRuntime.requestSessionIndexRefresh()), ...apiSettings },
     isVerifyingUpdate: () => server.isVerifyingUpdate,
     host,
     port,
@@ -1399,6 +1397,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     responseBudget: responseReceiptBudget,
     onClientConnected: ({ clientId }) => {
       handlePresenceConnected(clientId)
+      // A client that connects may list sessions started outside Solus.
+      opts.sessionRuntime.requestSessionIndexRefresh()
     },
     onClientDisconnected: ({ clientId }) => {
       prSync.dropConnection(clientId)
@@ -1443,41 +1443,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (left.composingSessionId) rooms.add(left.composingSessionId)
     for (const sessionId of rooms) publishSessionPresence(sessionId)
   }
-  let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
-  let sessionIndexPollFailures = 0
-
-  function scheduleSessionIndexPoll(delay = SESSION_INDEX_POLL_MS): void {
-    if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
-    const jitter = Math.floor(Math.random() * SESSION_INDEX_POLL_JITTER_MS)
-    sessionIndexPollTimer = setTimeout(() => {
-      sessionIndexPollTimer = null
-      void pollSessionIndexes()
-    }, delay + jitter)
-    sessionIndexPollTimer.unref()
-  }
-
-  async function pollSessionIndexes(): Promise<void> {
-    if (ws.sessions.size === 0) {
-      scheduleSessionIndexPoll()
-      return
-    }
-    try {
-      await opts.sessionRuntime.refreshSessionIndexes()
-      sessionIndexPollFailures = 0
-      scheduleSessionIndexPoll()
-    } catch (err) {
-      sessionIndexPollFailures++
-      const backoff = Math.min(
-        SESSION_INDEX_POLL_MAX_BACKOFF_MS,
-        SESSION_INDEX_POLL_MS * 2 ** sessionIndexPollFailures,
-      )
-      log.warn('session_index_poll_failed', { error: err instanceof Error ? err.message : String(err) })
-      scheduleSessionIndexPoll(backoff)
-    }
-  }
-
-  scheduleSessionIndexPoll()
-
   // Walk forward from the requested port if it's taken — keeps the picked port
   // close to the deterministic default so the chance a saved web-client URL
   // still works stays high. EADDRINUSE on a contiguous range is common when
@@ -1591,6 +1556,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       responseBudget: responseReceiptBudget,
       onClientConnected: ({ clientId }) => {
         handlePresenceConnected(clientId)
+        opts.sessionRuntime.requestSessionIndexRefresh()
       },
       onClientDisconnected: ({ clientId }) => {
         prSync.dropConnection(clientId)
@@ -1680,8 +1646,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await devices.manager.dispose()
         await devices.bridge.stop()
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
-        if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
-        sessionIndexPollTimer = null
         clearInterval(seatSweepTimer)
         await seatConnector.stopAll()
         await integrationGateway.close()

@@ -27,22 +27,19 @@ function listApi(api: FakeApi, prs: PullRequest[] = [pullRequest(7)]): FakeApi {
     .on('listProjects', () => [project('/work/app', REPO)])
     .on('prListProjects', () => [page('/work/app', prs)])
     .on('providerViewer', () => ({ login: 'me' }))
-    .on('prChecks', () => ({ repo: { host: 'github.com', owner: 'o', repo: 'r' }, checks: [], loadFailed: false }))
     .on('prSetInterest', () => sync({}))
 }
 
 describe('pull request detail paints part by part', () => {
   test('the list row shows at once, and a slow part does not hold back the others', async () => {
-    const checks = deferred<{ repo: { host: string; owner: string; repo: string }; checks: { number: number; summary: PrChecksSummary }[]; loadFailed: boolean }>()
+    const files = deferred<{ path: string; additions: number; deletions: number; status: string }[]>()
     const overview = deferred<{ pullRequest: PullRequest; commits: []; reviewers: [] }>()
     const api = listApi(detailApi(new FakeApi()))
-      .on('prGetOverview', () => overview.promise)
-      .on('prChangedFiles', () => [{ path: 'a.ts', additions: 1, deletions: 0, status: 'M' }])
     const world = await hostWorld(api, { connected: true })
     const cache = new PullRequestCache(memoryPullRequestCacheDatabase())
     const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null, cache)
     await directory.loadHost('inst-a')
-    api.on('prChecks', () => checks.promise)
+    api.on('prGetOverview', () => overview.promise).on('prChangedFiles', () => files.promise)
 
     const read = directory.loadDetail(PR_REF)
     await flushPromises()
@@ -53,22 +50,93 @@ describe('pull request detail paints part by part', () => {
 
     overview.resolve({ pullRequest: pullRequest(7, { title: 'Read' }), commits: [], reviewers: [] })
     await flushPromises()
-    // The overview and files are shown; the checks are still unknown, not "none".
+    // The overview is shown; the files are still unknown, not "none".
     state = directory.detailOf(PR_REF)
     expect(state.kind).toBe('loading')
     if (state.kind !== 'loading') return
     expect(state.previous?.overview.pullRequest.title).toBe('Read')
-    expect(state.previous?.files).toHaveLength(1)
-    expect(state.previous?.reading).toEqual(['checks'])
+    expect(state.previous?.reading).toEqual(['files', 'checks'])
 
-    checks.resolve({ repo: { host: 'github.com', owner: 'o', repo: 'r' }, checks: [{ number: 7, summary: checksOf('head-7', 'passing') }], loadFailed: false })
+    files.resolve([{ path: 'a.ts', additions: 1, deletions: 0, status: 'M' }])
     await read
     const loaded = directory.detailOf(PR_REF)
-    expect(loaded.kind === 'loaded' && loaded.value.checks?.state).toBe('passing')
-    expect(loaded.kind === 'loaded' && loaded.value.reading).toBeUndefined()
-    // Only the whole answer is kept on the device.
-    const copy = await cache.read<{ reading?: string[] }>('inst-a', `detail:${PR_REF.projectPath}:${PR_REF.number}`)
-    expect(copy?.reading).toBeUndefined()
+    expect(loaded.kind === 'loaded' && loaded.value.files).toHaveLength(1)
+    // Only PR sync answers the checks, so they are still being read.
+    expect(loaded.kind === 'loaded' && loaded.value.reading).toEqual(['checks'])
+  })
+
+  test('the checks come from the review interest, not from a read of their own', async () => {
+    // WHY: the detail screen holds a review interest, and PR sync reads the
+    // checks for it. A `prChecks` read beside it asked the host the same
+    // question twice on every opening.
+    const api = listApi(detailApi(new FakeApi()))
+      .on('prSetInterest', () => sync({ checks: [{ number: 7, summary: checksOf('head-7', 'passing') }] }))
+    const world = await hostWorld(api, { connected: true })
+    const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
+    await directory.loadHost('inst-a')
+
+    await directory.loadDetail(PR_REF)
+    let state = directory.detailOf(PR_REF)
+    expect(state.kind === 'loaded' && state.value.reading).toEqual(['checks'])
+    directory.want('inst-a', '/work/app', [{ kind: 'review', number: 7 }])
+    await flushPromises()
+
+    state = directory.detailOf(PR_REF)
+    expect(state.kind === 'loaded' && state.value.checks?.state).toBe('passing')
+    expect(state.kind === 'loaded' && state.value.reading).toBeUndefined()
+    expect(api.callsOf('prChecks')).toHaveLength(0)
+  })
+
+  test('checks the interest answered before the detail had anything to show still reach it', async () => {
+    const overview = deferred<{ pullRequest: PullRequest; commits: []; reviewers: [] }>()
+    const api = detailApi(new FakeApi())
+      .on('prGetOverview', () => overview.promise)
+      .on('prSetInterest', () => sync({ checks: [{ number: 7, summary: checksOf('head-7', 'failing') }] }))
+    const world = await hostWorld(api, { connected: true })
+    const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
+
+    const read = directory.loadDetail(PR_REF)
+    directory.want('inst-a', '/work/app', [{ kind: 'review', number: 7 }])
+    await flushPromises()
+    overview.resolve({ pullRequest: pullRequest(7), commits: [], reviewers: [] })
+    await read
+
+    const state = directory.detailOf(PR_REF)
+    expect(state.kind === 'loaded' && state.value.checks?.state).toBe('failing')
+    expect(state.kind === 'loaded' && state.value.reading).toBeUndefined()
+  })
+
+  test('a refused interest names the checks missing', async () => {
+    const api = detailApi(new FakeApi()).on('prSetInterest', () => { throw new Error('rate limited') })
+    const world = await hostWorld(api, { connected: true })
+    const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
+    await directory.loadDetail(PR_REF)
+    directory.want('inst-a', '/work/app', [{ kind: 'review', number: 7 }])
+    await flushPromises()
+
+    const state = directory.detailOf(PR_REF)
+    expect(state.kind === 'loaded' && state.value.missing).toEqual(['checks'])
+    expect(state.kind === 'loaded' && state.value.reading).toBeUndefined()
+  })
+
+  test('screens that read one pull request together share one read; a refresh reads anew', async () => {
+    // WHY: the detail, files, and ask screens of a pull request are stacked,
+    // and each reads it when the host connects again.
+    const overview = deferred<{ pullRequest: PullRequest; commits: []; reviewers: [] }>()
+    const api = detailApi(new FakeApi()).on('prGetOverview', () => overview.promise)
+    const world = await hostWorld(api, { connected: true })
+    const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
+
+    const reads = [directory.loadDetail(PR_REF), directory.loadDetail(PR_REF), directory.loadDetail(PR_REF)]
+    await flushPromises()
+    expect(api.callsOf('prGetOverview')).toHaveLength(1)
+
+    const refresh = directory.loadDetail(PR_REF, { force: true })
+    await flushPromises()
+    expect(api.callsOf('prGetOverview')).toHaveLength(2)
+    overview.resolve({ pullRequest: pullRequest(7), commits: [], reviewers: [] })
+    await Promise.all([...reads, refresh])
+    expect(directory.detailOf(PR_REF).kind).toBe('loaded')
   })
 
   test('a failed overview still fails the read; a part that answers late does not hide the error', async () => {
@@ -200,6 +268,35 @@ describe('pull requests kept fresh by PR sync', () => {
     expect(api.callsOf('prListProjects')).toHaveLength(2)
     await directory.loadHost('inst-a', { freshFor: 30_000 })
     expect(api.callsOf('prListProjects')).toHaveLength(3)
+  })
+
+  test('a changed repository reads again only its own projects', async () => {
+    // WHY: an agent turn ends often. Reading every project of the host, its
+    // project list, and its account again for one repository spent a read of
+    // each project on every turn.
+    const api = listApi(new FakeApi())
+      .on('listProjects', () => [project('/work/app', REPO), project('/work/site', 'github.com/o/site')])
+      .on('prListProjects', (_ctx: unknown, roots: string[]) => roots.map((root) => page(root, [pullRequest(root === '/work/app' ? 7 : 1)])))
+    const world = await hostWorld(api, { connected: true })
+    const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
+    await directory.loadHost('inst-a')
+    directory.showList()
+    const projectReads = api.callsOf('listProjects').length
+    const viewerReads = api.callsOf('providerViewer').length
+
+    api.on('prListProjects', (_ctx: unknown, roots: string[]) => roots.map((root) => page(root, [pullRequest(8), pullRequest(7)])))
+    world.transports[0]!.emit('pr.changed', sync({ listChanged: true }))
+    await flushPromises()
+
+    expect(api.callsOf('prListProjects').at(-1)![1]).toEqual(['/work/app'])
+    expect(api.callsOf('listProjects')).toHaveLength(projectReads)
+    expect(api.callsOf('providerViewer')).toHaveLength(viewerReads)
+    const list = directory.hostOf('inst-a')
+    const projects = list.kind === 'loaded' ? list.value.projects : []
+    expect(projects.map((entry) => entry.kind === 'page' ? [entry.projectPath, entry.prs.map((pr) => pr.number)] : null)).toEqual([
+      ['/work/app', [8, 7]],
+      ['/work/site', [1]],
+    ])
   })
 
   test('a focus within the fresh time does not read again; a refresh always does', async () => {

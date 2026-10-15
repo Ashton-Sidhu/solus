@@ -354,6 +354,17 @@ export function flatPrSection(prs: PullRequest[]): PrSection[] {
   return prs.length > 0 ? [{ key: 'all', label: 'Pull requests', prs }] : []
 }
 
+/**
+ * Whether a row's time reads differently at `next` than at `shown`. Only the
+ * time labels depend on the clock, not the groups, so the list's clock moves
+ * only when a label changes: a tick that changes no label builds no row again.
+ */
+export function prTimeLabelsMoved(prs: readonly PullRequest[], shown: number, next: number): boolean {
+  return prs.some((pr) =>
+    compactRelativeTime(pr.updatedAt, shown) !== compactRelativeTime(pr.updatedAt, next)
+    || relativeTime(pr.updatedAt, shown) !== relativeTime(pr.updatedAt, next))
+}
+
 /** The sections as the shared list grammar's groups. */
 export function prGroups(
   sections: PrSection[],

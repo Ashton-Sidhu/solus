@@ -66,6 +66,11 @@ export function decodeWatchFingerprints(rows: RepositoryRows<object>, numbers: n
         stateCounts(contexts?.checkRunCountsByState ?? null),
         stateCounts(contexts?.statusContextCountsByState ?? null),
       ].join(' '),
+      pullRequest: {
+        state: pullRequest.state === 'OPEN' ? 'open' : pullRequest.state === 'MERGED' ? 'merged' : 'closed',
+        mergeable: pullRequest.mergeable === 'MERGEABLE' ? true : pullRequest.mergeable === 'CONFLICTING' ? false : null,
+        headSha: pullRequest.headRefOid,
+      },
       remarks: [
         pullRequest.comments.totalCount,
         newestEdit(pullRequest.comments),

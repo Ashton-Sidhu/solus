@@ -484,23 +484,28 @@
   --solus-art-positive: #26894c;
   --solus-art-negative: #c9302d;
   /* ─── HTML render palette ───
-     What a rendered HTML artifact sees as --card, --muted, --border, and
-     --chart-1 … --chart-6 (contracts/src/artifact-sandbox.ts). Neutrals are a
-     warm grey with almost no chroma, so a code block or a lane reads as paper
-     next to the page rather than as sand. The series is one family: the
-     brand terracotta first, then five hues at the same OKLCH lightness and
-     chroma (L 0.60, C 0.12), evenly spaced around the wheel. The --solus-art-*
-     ramp above keeps its hue roles for the app's own charts and marks. */
-  --solus-render-surface: #fcfbf9;
-  --solus-render-raised: #f3f2ee;
-  --solus-render-border: #e4e2dc;
-  --solus-render-border-strong: #cfccc4;
-  --solus-render-1: #d97757; /* terracotta, the brand accent */
-  --solus-render-2: #00959c; /* teal */
-  --solus-render-3: #647bc8; /* indigo */
-  --solus-render-4: #ab639c; /* plum */
-  --solus-render-5: #a57710; /* ochre */
-  --solus-render-6: #57914a; /* moss */
+     What a rendered HTML artifact sees as --primary, --accent, --muted,
+     --border, and --chart-1 … --chart-6 (contracts/src/artifact-sandbox.ts);
+     its --card is the page. Fills and lines are washes of the text colour,
+     the same recipe as the app's hover wash and hairlines, so a render reads
+     as part of the conversation and never as grey or sand boxes. The accent
+     is a slate blue, chosen in the palette workshop: calm next to the app's
+     terracotta chrome, so a selected tab or a button in a render does not
+     compete with it. The series is one family: the accent first, then five
+     hues at the same OKLCH lightness and chroma (L 0.58, C 0.12). The
+     --solus-art-* ramp above keeps its hue roles for the app's own charts. */
+  --solus-render-raised: color-mix(in oklch, var(--solus-text-primary) 5%, transparent);
+  --solus-render-border: color-mix(in oklch, var(--solus-text-primary) 10%, transparent);
+  --solus-render-border-strong: color-mix(in oklch, var(--solus-text-primary) 18%, transparent);
+  --solus-render-accent: #5f75c1;
+  --solus-render-on-accent: #ffffff;
+  --solus-render-accent-light: rgba(95, 117, 193, 0.09);
+  --solus-render-1: #5f75c1; /* slate blue, the render accent */
+  --solus-render-2: #00908a; /* teal */
+  --solus-render-3: #d97757; /* the brand terracotta: free for a series here, since the accent is slate blue */
+  --solus-render-4: #a15e9c; /* plum */
+  --solus-render-5: #628835; /* moss */
+  --solus-render-6: #cb7f00; /* amber: lighter and stronger than the rest, a yellow at the series lightness reads as olive */
 }
 
 
@@ -718,17 +723,25 @@
   --solus-art-positive: #2ee07e;
   --solus-art-negative: #f75d59;
   /* ─── HTML render palette (dark twin) ───
-     The same six hues lifted to L 0.78, C 0.11 for charcoal. */
-  --solus-render-surface: #2c2b28;
-  --solus-render-raised: #353431;
-  --solus-render-border: rgba(255, 245, 230, 0.1);
-  --solus-render-border-strong: rgba(255, 245, 230, 0.2);
-  --solus-render-1: #e68e6b; /* terracotta, the brand accent */
+     Dark keeps the brand terracotta as the render accent: on charcoal it
+     reads as warm light, not as chrome. Series 2 to 5 are the same hues as
+     light, in the same order, so a legend keeps its colour meaning across
+     modes. Series 3 and 6 carry the warm hues: in light they are the brand
+     terracotta and amber; in dark, terracotta is the accent, so they are
+     ochre and the slate blue the light accent uses. Six hues at L 0.78,
+     C 0.11. */
+  --solus-render-raised: color-mix(in oklch, var(--solus-text-primary) 7%, transparent);
+  --solus-render-border: color-mix(in oklch, var(--solus-text-primary) 12%, transparent);
+  --solus-render-border-strong: color-mix(in oklch, var(--solus-text-primary) 20%, transparent);
+  --solus-render-accent: #e68e6b;
+  --solus-render-on-accent: #2c1a12;
+  --solus-render-accent-light: #e68e6b24;
+  --solus-render-1: #e68e6b; /* terracotta, the render accent */
   --solus-render-2: #4eccd3; /* teal */
-  --solus-render-3: #9cb4fe; /* indigo */
+  --solus-render-3: #dcaf61; /* ochre */
   --solus-render-4: #e39cd3; /* plum */
-  --solus-render-5: #dcaf61; /* ochre */
-  --solus-render-6: #91c985; /* moss */
+  --solus-render-5: #91c985; /* moss */
+  --solus-render-6: #9cb4fe; /* indigo */
 }
 
 /* shadcn-svelte theme bridge — maps the semantic vars that shadcn components

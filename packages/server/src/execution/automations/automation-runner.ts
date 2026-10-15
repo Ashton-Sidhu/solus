@@ -62,6 +62,11 @@ const pendingTriggers = new Set<string>()
 let updatesPaused = false
 
 export function setAutomationUpdatesPaused(paused: boolean): void { updatesPaused = paused }
+
+// Called after a run leaves `activeRuns`, so `hasActiveRun` is already false.
+// The scheduler uses it to claim a due automation that it skipped during the run.
+let runSettledListener: (() => void) | null = null
+export function setAutomationRunSettledListener(listener: (() => void) | null): void { runSettledListener = listener }
 export function hasAutomationWork(): boolean { return pendingTriggers.size > 0 || activeRuns.size > 0 }
 export function automationUpdatesPaused(): boolean { return updatesPaused }
 
@@ -118,7 +123,10 @@ export async function triggerAutomationRun(automation: Automation): Promise<Auto
     done: Promise.resolve(),
   }
   activeRuns.set(run.id, entry)
-  entry.done = executeRun(automation, run, entry).finally(() => activeRuns.delete(run.id))
+  entry.done = executeRun(automation, run, entry).finally(() => {
+    activeRuns.delete(run.id)
+    runSettledListener?.()
+  })
   return run
 }
 

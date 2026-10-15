@@ -98,12 +98,15 @@ export class PullRequest {
   /** The one detail read in flight. The pull request, its commits and its
    *  reviewers come in one answer, so a reader of any of them joins it. */
   private overviewFlight: Promise<PullRequestOverview> | null = null
+  /** When the last detail read answered; 0 after `forget`. */
+  private detailReadAt = 0
 
   /** Read the pull request with its commits and reviewers, and keep all three. */
   private loadOverview(): Promise<PullRequestOverview> {
     this.overviewFlight ??= this.provider.review.getPullRequestOverview(this.repo, this.number)
       .then((overview) => {
         this.pullRequestField.seed(overview.pullRequest)
+        this.detailReadAt = Date.now()
         this.commitsField.seed(overview.commits)
         this.reviewersField.seed(overview.reviewers)
         this.onRead(overview.pullRequest)
@@ -144,6 +147,18 @@ export class PullRequest {
   /** The last answer read, however old, or undefined if nothing has read it. */
   lastRead(): Contracts.PullRequest | undefined {
     return this.pullRequestField.peek()
+  }
+
+  /**
+   * The answer of a detail read that is in flight, or that answered less than
+   * `maxAgeMs` ago; null when there is none. Costs no request. PR sync takes
+   * it as its own read, so a pane that opens a pull request and asks to keep
+   * it fresh costs one read, not two.
+   */
+  recentDetail(maxAgeMs: number): Promise<Contracts.PullRequest> | null {
+    if (this.overviewFlight) return this.overviewFlight.then(({ pullRequest }) => pullRequest)
+    const held = this.pullRequestField.peek()
+    return held && Date.now() - this.detailReadAt < maxAgeMs ? Promise.resolve(held) : null
   }
 
   /** Take a pull request that arrived another way — a listing row, a write's
@@ -235,6 +250,7 @@ export class PullRequest {
    * turn came round.
    */
   forget(): void {
+    this.detailReadAt = 0
     this.pullRequestField.clear()
     this.threadsField.clear()
     this.commentsField.clear()

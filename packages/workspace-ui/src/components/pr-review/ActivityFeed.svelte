@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import {
     ArrowUp as ArrowUpIcon,
@@ -320,9 +320,18 @@
       taskLinksToPr(task.prLinks, session.tasksStore.get(task.id).serverId, serverId, prUrl),
     ),
   );
+  // Keyed on the ids, not the task rows: the task list changes on every task
+  // event, and a task whose detail is already held is not read again.
+  const tasksOnPrIds = $derived(tasksOnPr.map((task) => task.id).join("\n"));
   $effect(() => {
-    if (!artifactsEnabled) return;
-    for (const task of tasksOnPr) void session.tasksStore.get(task.id).loadDetails();
+    if (!artifactsEnabled || !tasksOnPrIds) return;
+    const ids = tasksOnPrIds.split("\n");
+    untrack(() => {
+      for (const id of ids) {
+        const task = session.tasksStore.get(id);
+        if (!task.details) void task.loadDetails();
+      }
+    });
   });
   const artifacts = $derived(
     prArtifactsFrom(

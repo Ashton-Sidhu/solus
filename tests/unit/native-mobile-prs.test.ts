@@ -71,10 +71,14 @@ describe('native pull request directory', () => {
       .on('prListComments', () => [])
       .on('prListThreads', () => [])
       .on('prChangedFiles', () => [{ path: 'a.ts', additions: 1, deletions: 0, status: 'M' }])
-      .on('prChecks', () => { throw new Error('rate limited') })
+      .on('prGetStack', () => null)
+      // The checks come from PR sync, for the screen's review interest.
+      .on('prSetInterest', () => { throw new Error('rate limited') })
     const { directory } = await setup(api)
     const ref = { hostId: 'inst-a', projectPath: '/work/app', number: 7 }
     await directory.loadDetail(ref)
+    directory.want(ref.hostId, ref.projectPath, [{ kind: 'review', number: 7 }])
+    await flushPromises()
     const state = directory.detailOf(ref)
     expect(state.kind).toBe('loaded')
     if (state.kind !== 'loaded') return
@@ -95,7 +99,6 @@ describe('native pull request directory', () => {
       .on('prListComments', () => [])
       .on('prListThreads', () => [])
       .on('prChangedFiles', () => [])
-      .on('prChecks', () => ({ checks: [] }))
       .on('prGetStack', () => stackRead())
     const { directory } = await setup(api)
     const ref = { hostId: 'inst-a', projectPath: '/work/app', number: 7 }

@@ -63,6 +63,9 @@ export interface ProviderAuth {
 export interface PullRequestWatchFingerprint {
   status: string
   remarks: string
+  /** What the watch rules read of the pull request, as `status` holds it. A
+   *  row held on the server that agrees needs no read. */
+  pullRequest: Pick<PullRequest, 'state' | 'mergeable' | 'headSha'>
 }
 
 /** One repository's place in a list read: page one has no cursor. */
