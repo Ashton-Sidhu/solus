@@ -68,6 +68,7 @@ import { installSkill, listInstalledSkills, removeSkill } from './skills/skills-
 import { publishPresenceRoom, registerPresenceHandlers } from './transport/handlers/presence-handlers'
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
+import { CodexBackend } from './execution/agents/codex/codex-backend'
 import { ActingIdentities, identityFor, useActingIdentities } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, ownerKeyOf, seatFor } from './admission/actor'
 import { currentHostUser, hostUserKey } from './host/host-user'
@@ -544,6 +545,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (source) transcriptMirror.touch(sessionId, source)
   }
   opts.sessionRuntime.useSeats(seats)
+  // WORKAROUND(openai/codex#54472): Codex history is read through the seat that last ran the thread.
+  const codexBackend = opts.sessionRuntime.backendFor('codex')
+  if (codexBackend instanceof CodexBackend) codexBackend.useReaderSeats(seats)
   const seatConnector = new SeatConnector({ seats })
   const agentAuth = new AgentAuthFlows({ seats })
   // A client with no socket principal is the desktop's own IPC connection: the

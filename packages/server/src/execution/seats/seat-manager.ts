@@ -291,6 +291,21 @@ export class SeatManager implements SeatStore {
     return turnSeat
   }
 
+  /**
+   * WORKAROUND(openai/codex#54472): the seat a thread's history is read through,
+   * by the key of the seat that last ran it (`data/sessions/codex-thread-writers.ts`).
+   * A read needs no login, so an expired seat still answers. A member whose seat
+   * row is gone answers null, and the caller reads on the host's app-server.
+   * The launch options are the ones a turn gets, because a run reuses an
+   * app-server a read started.
+   */
+  async readerSeat(key: string, provider: SeatProvider): Promise<TurnSeat | null> {
+    if (key === HOST_LOGIN_ROW_ID) return this.hostLoginSeat(provider)
+    const seat: Extract<Seat, { kind: 'user' }> = { kind: 'user', userId: parseUserKey(key) }
+    if (!this.row(seat, provider)) return null
+    return { seat, provider, home: this.userHome(seat, provider), launch: await identityFor(seat).launchOptions() }
+  }
+
   /** A user's directory for a provider, created with its links on first use; the host login's is the host's own home. */
   homeFor(seat: Seat, provider: SeatProvider): string {
     return seat.kind === 'host-login' ? this.hostHomeFor(provider) : this.userHome(seat, provider)

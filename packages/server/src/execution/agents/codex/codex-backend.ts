@@ -5,7 +5,9 @@ import type { AgentToolImage } from '../tools/agent-tool'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
-import { seatKey, type TurnSeat } from '../../seats/seat-manager'
+import { seatKey, type SeatManager, type TurnSeat } from '../../seats/seat-manager'
+import { HOST_LOGIN_SEAT } from '@solus/contracts/seats'
+import { CodexThreadWriters } from '../../../data/sessions/codex-thread-writers'
 import { encodePathAsFolder } from '../utils'
 import { stripAttachedFileLines } from '@solus/contracts/injected-context'
 import { createLogger, isDebugEnabled } from '../../../logger'
@@ -285,6 +287,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private client = getCodexAppServerClient()
   /** One app-server per member seat, keyed by user id; started on first use, stopped when idle. */
   private seatClients = new Map<string, SeatClient>()
+  /** WORKAROUND(openai/codex#54472): which seat last ran each thread, and how to reach that seat's app-server. */
+  private readonly threadWriters = new CodexThreadWriters()
+  private readerSeats: Pick<SeatManager, 'readerSeat'> | null = null
   /** The unload clock of each idle thread, per app-server: one thread can be
    *  loaded on a seat's server for a run and on the host's for a preview. */
   private readonly idleThreads = new Map<CodexAppServerClient, Map<string, ReturnType<typeof setTimeout>>>()
@@ -377,6 +382,38 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.armSeatIdle(seatKey(seat.seat), entry)
     log.info('seat_app_server_started', { seat: seatKey(seat.seat), pool: this.seatClients.size })
     return client
+  }
+
+  /** WORKAROUND(openai/codex#54472): how a history read finds the seat that last ran a thread. */
+  useReaderSeats(seats: Pick<SeatManager, 'readerSeat'>): void {
+    this.readerSeats = seats
+  }
+
+  /**
+   * WORKAROUND(openai/codex#54472): the app-server to read a thread's history
+   * through. Codex reads an unloaded thread from the projection in its own home
+   * and never projects the shared rollout first, so only the seat that last ran
+   * the thread is sure to have all of it. The host's app-server answers a thread
+   * with no record, a member who is gone, and a full pool. A preview passes
+   * `startSeatClient: false`: the session picker must not start a Codex process
+   * per row, so it reads the host's when the seat's app-server is stopped.
+   *
+   * When Codex projects the rollout on read, delete this and read on `this.client`.
+   */
+  private async readerFor(threadId: string, options: { startSeatClient: boolean }): Promise<CodexAppServerClient> {
+    const key = this.threadWriters.get(threadId)
+    if (!key || key === seatKey(HOST_LOGIN_SEAT)) return this.client
+    const running = this.seatClients.get(key)
+    if (running) return running.client
+    if (!options.startSeatClient || !this.readerSeats) return this.client
+    try {
+      const seat = await this.readerSeats.readerSeat(key, 'codex')
+      if (seat) return this.clientFor(seat)
+      log.warn('codex_history_reader_fallback', { sessionId: threadId, reason: 'seat_gone' })
+    } catch (error) {
+      log.warn('codex_history_reader_fallback', { sessionId: threadId, reason: error instanceof Error ? error.message : String(error) })
+    }
+    return this.client
   }
 
   /** Holds a seat's app-server for the life of a run; the last release starts the idle clock. */
@@ -601,6 +638,15 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           ...toolsConfig,
         })
         threadId = response.thread.id || threadId
+      }
+
+      // WORKAROUND(openai/codex#54472): this seat's home now holds the thread's whole history.
+      if (request.persistence !== 'ephemeral') {
+        try {
+          this.threadWriters.record(threadId, seatKey(request.seat?.seat ?? HOST_LOGIN_SEAT))
+        } catch (error) {
+          log.warn('codex_thread_writer_record_failed', { sessionId: threadId, error: error instanceof Error ? error.message : String(error) })
+        }
       }
 
       // Promote from pending to active now that we have the real sessionId.
@@ -919,9 +965,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
-  private async readThread(sessionId: string): Promise<CodexThreadReadResponse | CodexThreadResumeResponse> {
+  private async readThread(client: CodexAppServerClient, sessionId: string): Promise<CodexThreadReadResponse | CodexThreadResumeResponse> {
     try {
-      return await this.client.request('thread/read', {
+      return await client.request('thread/read', {
         threadId: sessionId,
         includeTurns: true,
       })
@@ -931,19 +977,21 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // load those through the protocol's disk-backed resume path before the
       // picker asks for their transcript preview.
       if (!(error instanceof Error) || !isThreadNotLoadedError(error)) throw error
-      const response = await this.client.request('thread/resume', { threadId: sessionId })
-      this.armThreadIdle(this.client, sessionId)
+      const response = await client.request('thread/resume', { threadId: sessionId })
+      this.armThreadIdle(client, sessionId)
       return response
     }
   }
 
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
-    const response = await this.readThread(sessionId)
+    // A subagent's thread was run on the same app-server as its parent, so it is read there too.
+    const client = await this.readerFor(sessionId, { startSeatClient: true })
+    const response = await this.readThread(client, sessionId)
     const messages = await loadCodexHistory(sessionId, response.thread?.turns ?? [],
-      (params) => this.client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
+      (params) => client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
       limit)
     await reconcileCodexSubagentHistory(messages, async (threadId) => {
-      const child = await this.readThread(threadId)
+      const child = await this.readThread(client, threadId)
       return child.thread?.turns ?? []
     })
     restoreAsyncQuestionAnswers(sessionId, messages)
@@ -951,12 +999,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async loadSessionPage(sessionId: string, _projectPath: string | undefined, turnLimit: number, before?: string) {
-    const response = await this.readThread(sessionId)
+    const client = await this.readerFor(sessionId, { startSeatClient: true })
+    const response = await this.readThread(client, sessionId)
     const page = await loadCodexHistoryPage(sessionId, response.thread?.turns ?? [],
-      (params) => this.client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
+      (params) => client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
       turnLimit, before)
     await reconcileCodexSubagentHistory(page.messages, async (threadId) => {
-      const child = await this.readThread(threadId)
+      const child = await this.readThread(client, threadId)
       return child.thread?.turns ?? []
     })
     restoreAsyncQuestionAnswers(sessionId, page.messages)
@@ -966,7 +1015,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   async loadSessionPreview(sessionId: string): Promise<SessionPreviewResult> {
     // Picker previews need spoken text, not hidden tool history. Keep them on
     // the summary read even though opening the conversation now hydrates tools.
-    const response = await this.readThread(sessionId)
+    const client = await this.readerFor(sessionId, { startSeatClient: false })
+    const response = await this.readThread(client, sessionId)
     const messages = codexTurnsToMessages(response.thread?.turns ?? [])
       .filter((message) => message.role !== 'reasoning')
     return { head: messages.slice(0, 4), tail: messages.slice(-1), totalMessages: messages.length }
@@ -1023,19 +1073,23 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
-    const response = await this.client.request<CodexThreadGoalResponse>('thread/goal/get', { threadId })
+    // WORKAROUND(openai/codex#54472): each Codex home keeps its own goals too.
+    const client = await this.readerFor(threadId, { startSeatClient: true })
+    const response = await client.request<CodexThreadGoalResponse>('thread/goal/get', { threadId })
     return normalizeThreadGoal(response.goal)
   }
 
   async setThreadGoal(request: ThreadGoalSetRequest): Promise<ThreadGoal> {
-    const response = await this.client.request<CodexThreadGoalResponse>('thread/goal/set', request)
+    const client = await this.readerFor(request.threadId, { startSeatClient: true })
+    const response = await client.request<CodexThreadGoalResponse>('thread/goal/set', request)
     const goal = normalizeThreadGoal(response.goal)
     if (!goal) throw new Error('Codex thread/goal/set returned an invalid goal')
     return goal
   }
 
   async clearThreadGoal(threadId: string): Promise<boolean> {
-    const response = await this.client.request<CodexThreadGoalClearResponse>('thread/goal/clear', { threadId })
+    const client = await this.readerFor(threadId, { startSeatClient: true })
+    const response = await client.request<CodexThreadGoalClearResponse>('thread/goal/clear', { threadId })
     return response.cleared === true
   }
 
