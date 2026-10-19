@@ -17,13 +17,11 @@ export async function loadDiffFiles(
   ctx: IpcContext,
   scope: DiffScope,
   fileDiff: FileDiffMetadata,
-  livePaths?: string[],
 ): Promise<FileDiffLoadedFiles> {
   const result = await api.diffFileContents(ctx, {
     scope: { ...scope },
     path: fileDiff.name,
     previousPath: fileDiff.prevName,
-    livePaths,
     expectedOldObjectId: fileDiff.prevObjectId,
     expectedNewObjectId: fileDiff.newObjectId,
   })

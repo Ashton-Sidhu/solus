@@ -205,7 +205,6 @@ export class PromptDispatch {
         additionalDirs: [],
         gitContext: null,
         worktreeBaseBranch: null,
-        sessionChangedFiles: [],
         contextWindow: defaultContextWindowFor(provider, meta.model),
         model: meta.model,
         preferredModel: meta.model,
@@ -316,7 +315,6 @@ export class PromptDispatch {
       additionalDirs: [],
       gitContext: null,
       worktreeBaseBranch: req.worktreeBaseBranch ?? null,
-      sessionChangedFiles: [],
       contextWindow: req.contextWindow,
       model,
       preferredModel: req.modelId,
@@ -400,7 +398,6 @@ export class PromptDispatch {
       additionalDirs: [],
       gitContext: req.gitContext ?? null,
       worktreeBaseBranch: null,
-      sessionChangedFiles: [],
       reasoningEffort: req.reasoningEffort,
       fastMode: false,
       // The automation default.

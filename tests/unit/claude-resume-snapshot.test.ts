@@ -83,7 +83,7 @@ describe('a resumed Claude turn', () => {
       provider: 'claude-code', prompt: 'edit a.txt', cwd, tools: [],
       permissionMode: 'supervised', persistence: 'session', service: SPAN_SERVICES.sessions,
       conversation: { kind: 'resume', threadId: 'provider-thread' },
-    }, { sessionId: 'solus-session', changedFiles: ['a.txt'] })
+    }, { sessionId: 'solus-session' })
     await handle.runPromise
 
     const turns = await listTurnSnapshots(cwd, 'solus-session')

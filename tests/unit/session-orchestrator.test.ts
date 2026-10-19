@@ -203,7 +203,7 @@ class Backend extends EventEmitter implements AgentBackend {
 function input(): SessionRunInput {
   return {
     provider: 'codex', agentSessionId: null, forked: false, workingDirectory: projectDir, projectPath: projectDir,
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null,
+    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null,
     model: 'gpt-test', preferredModel: 'gpt-test', reasoningEffort: 'medium', fastMode: false,
     permissionMode: 'full-access', rateLimitBehavior: 'queue', extraInstructions: '',
   }

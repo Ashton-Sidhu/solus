@@ -25,9 +25,7 @@ import { activeThreadOf } from '../../../data/sessions/session-lineage'
 import { createLogger } from '../../../logger'
 import { recordOtelDuration } from '../../../otel'
 import { resolveHomePath } from '../../../platform/paths'
-import { getHeadCommit } from '../../../git/worktree-manager'
-import { resolveRepoRoot } from '../../../git/git-helpers'
-import { initSessionBase, prepareTurnSnapshot, snapshotTurn } from '../../../git/session-snapshots'
+import { beginTurnCheckpoint, endTurnCheckpoint } from '../../../git/turn-checkpoints'
 import type { AgentBackend, RunHandle } from '../agent-backend'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import { MODEL_PROFILES, SOLUS_WORKTREE_ENCODED_MARKER, providerModelsFor } from '@solus/contracts/types'
@@ -263,24 +261,13 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
 
     this.pendingRuns.push(handle)
     void (async () => {
-      // Snapshots belong to the session, not to one provider thread
-      // (docs/plans/session-identity.md), so a provider switch keeps its turns.
-      const prepareSnapshots = async () => {
-        const snapshotSessionId = handle.sessionId
-        if (!snapshotSessionId) return
-        const repoRoot = await resolveRepoRoot(workTree)
-        if (!repoRoot) return
-        const head = await getHeadCommit(workTree)
-        if (!head) return
-        await initSessionBase(repoRoot, snapshotSessionId, head)
-        await prepareTurnSnapshot(workTree, repoRoot, snapshotSessionId)
-      }
+      const checkpointTarget = request.persistence === 'session' && sessionState
+        ? { sessionId: sessionState.sessionId, workTree }
+        : null
       const resumeSessionAt = conversation.kind === 'fork' && conversation.excludeLatestTurn && sessionId
         ? await this.forkResumeId(sessionId, request.cwd)
         : null
-      if (request.persistence === 'session' && sessionId && conversation.kind === 'resume') {
-        await prepareSnapshots()
-      }
+      if (checkpointTarget) await beginTurnCheckpoint(checkpointTarget)
       const { events, result, stopTask } = this.agent.run({
         prompt: handle.input,
         cwd: resolveHomePath(request.cwd),
@@ -309,19 +296,9 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         seat: request.seat ? claudeSeatOf(request.seat) : undefined,
         persistSession: request.persistence === 'session',
         abortController,
-        onSessionInit: request.persistence === 'session'
-          ? prepareSnapshots
+        onTurnComplete: checkpointTarget
+          ? (facts) => endTurnCheckpoint(checkpointTarget, { ...facts, traceId: sessionState?.turnTraceId })
           : undefined,
-        onTurnComplete: request.persistence === 'session' ? async (_threadId, snapOpts) => {
-          const repoRoot = await resolveRepoRoot(workTree)
-          if (!repoRoot || !handle.sessionId) return null
-          const result = await snapshotTurn(workTree, repoRoot, handle.sessionId, {
-            ...snapOpts,
-            traceId: sessionState?.turnTraceId,
-            sessionChangedFiles: [...new Set([...(sessionState?.changedFiles ?? []), ...snapOpts.editedFiles])],
-          })
-          return result?.sessionChangedFiles ?? null
-        } : undefined,
       })
       handle.stopTask = stopTask
 

@@ -182,7 +182,6 @@ function reviewContext(cwd: string, sessionId: string): IpcContext {
       permissionMode: 'plan',
       gitContext: null,
       worktreeBaseBranch: null,
-      sessionChangedFiles: ['session.txt'],
       readOnlyReason: null,
     },
     settings: {
@@ -313,10 +312,9 @@ describe('session review guide scope', () => {
     await initSessionBase(cwd, sessionId, baseSha)
     await prepareTurnSnapshot(cwd, cwd, sessionId)
     writeFileSync(join(cwd, 'session.txt'), 'base\nsession edit\n')
+    await snapshotTurn(cwd, cwd, sessionId)
+    // After the turn: only a read of the live checkout would see this.
     writeFileSync(join(cwd, 'unrelated.txt'), 'base\nunrelated edit\n')
-    await snapshotTurn(cwd, cwd, sessionId, {
-      sessionChangedFiles: ['session.txt'],
-    })
 
     const dispatcher = new CapturingDispatcher()
     const generated = await generateGuide(
@@ -349,7 +347,7 @@ describe('session review guide scope', () => {
     await initSessionBase(cwd, sessionId, baseSha)
     await prepareTurnSnapshot(cwd, cwd, sessionId)
     writeFileSync(join(cwd, 'session.txt'), 'base\nsession edit\n')
-    await snapshotTurn(cwd, cwd, sessionId, { sessionChangedFiles: ['session.txt'] })
+    await snapshotTurn(cwd, cwd, sessionId)
     await generateGuide(new CapturingDispatcher(), reviewContext(cwd, sessionId), { target: { kind: 'session' }, agent: 'codex' })
 
     // WHY: a restored workspace probes every tab in one request. Each answer
@@ -446,9 +444,7 @@ describe('session review guide scope', () => {
     await initSessionBase(cwd, sessionId, baseSha)
     await prepareTurnSnapshot(cwd, cwd, sessionId)
     writeFileSync(join(cwd, 'session.txt'), 'base\nfirst edit\n')
-    await snapshotTurn(cwd, cwd, sessionId, {
-      sessionChangedFiles: ['session.txt'],
-    })
+    await snapshotTurn(cwd, cwd, sessionId)
 
     const dispatcher = new BlockingDispatcher()
     const generation = generateGuide(
@@ -462,9 +458,7 @@ describe('session review guide scope', () => {
     // fingerprint that was current when hidden authoring began.
     await prepareTurnSnapshot(cwd, cwd, sessionId)
     writeFileSync(join(cwd, 'session.txt'), 'base\nfirst edit\nsecond edit\n')
-    await snapshotTurn(cwd, cwd, sessionId, {
-      sessionChangedFiles: ['session.txt'],
-    })
+    await snapshotTurn(cwd, cwd, sessionId)
 
     expect(await jobs.cancel(ctx, { target: { kind: 'session' } })).toBe(true)
     expect(dispatcher.cancelled).toBe(true)

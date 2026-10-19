@@ -5,16 +5,16 @@ panel shows that checkout. A shell command that enters another directory does no
 change the session's checkout or diff target. Assign the worktree to the session
 before asking the agent to work there.
 
-In an assigned linked worktree, the live session diff includes the full worktree
-relative to the session base. At the end of each turn, the saved session snapshot
-and the turn's ending snapshot use the same complete Git tree. This includes
-shell edits, additions, deletions, and changes the provider did not report.
-Untracked files excluded by Git ignore rules are not included.
+Solus snapshots the whole checkout at the start and at the end of each turn. The
+turn's diff is the difference between those two snapshots. The live session diff
+is the whole checkout compared with the session base. This includes shell edits,
+additions, deletions, and changes that the provider did not report. Untracked
+files excluded by Git ignore rules are not included.
 
-In the main checkout, session snapshots filter changes to paths reported for that
-session. This limits inclusion of edits from the user or other sessions, but can
-omit shell changes to paths the provider never reported. The working-tree diff
-shows the checkout's changes regardless of which session made them.
+The same rule applies in a linked worktree and in the main checkout. In the main
+checkout, the user and other sessions can edit the same files. Their edits show in
+the turn diff and the session diff too. To keep a session's diff to its own work,
+assign it a worktree.
 
 Snapshots use a temporary Git index. They do not change staged files or advance
 the checked-out branch. The same server behavior applies to Claude and Codex and

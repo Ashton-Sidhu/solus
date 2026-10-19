@@ -23,9 +23,7 @@ import {
   type IndexedPlanInput,
 } from '../../../plans/plan-index'
 import { activeThreadOf } from '../../../data/sessions/session-lineage'
-import { getHeadCommit } from '../../../git/worktree-manager'
-import { resolveRepoRoot } from '../../../git/git-helpers'
-import { initSessionBase, prepareTurnSnapshot, snapshotTurn } from '../../../git/session-snapshots'
+import { beginTurnCheckpoint, endTurnCheckpoint, type CheckpointTarget } from '../../../git/turn-checkpoints'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
 import { type AgentRunRequest, type AgentRunSessionState } from '../agent-runner'
 import type {
@@ -94,7 +92,6 @@ import {
   codexForkCutoffTurnId,
   codexTurnToMessages,
   codexTurnsToMessages,
-  extractCodexChangedFilePaths,
   groupCodexPlansBySession,
   isInterruptedTurnStatus,
   isNormalStreamingTextNotification,
@@ -234,15 +231,13 @@ type CodexRunHandle = RunHandle & {
   permissionMode: PermissionMode
   interrupted: boolean
   normalizer: CodexTurnNormalizer
-  workTree: string | null
-  repoRoot: string | null
+  /** Where this turn's checkpoints go; null for a run that keeps no session. */
+  checkpoint: CheckpointTarget | null
   /** Real project working directory — origin cwd recorded on created works. */
   cwd: string
   userMessagePreview: string
   /** The Insights trace of this turn, recorded on its git snapshot. */
   turnTraceId: string | undefined
-  baseChangedFiles: Set<string>
-  trackedFiles: Set<string>
   toolDispatcher: CodexToolDispatcher
   persistent: boolean
   isCompaction: boolean
@@ -519,7 +514,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
     }
     const abortController = new AbortController()
-    const workTree = request.cwd
     const client = this.clientFor(request.seat)
     let handle!: CodexRunHandle
     const toolDispatcher = new CodexToolDispatcher(request.tools, {
@@ -554,13 +548,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       permissionMode: request.permissionMode,
       interrupted: false,
       normalizer: new CodexTurnNormalizer({ planMode: request.permissionMode === 'plan' }),
-      workTree,
-      repoRoot: null,
+      checkpoint: request.persistence === 'session' && request.operation !== 'compact' && sessionState
+        ? { sessionId: sessionState.sessionId, workTree: request.cwd }
+        : null,
       cwd: resolveHomePath(request.cwd),
       userMessagePreview: request.prompt.slice(0, 80),
       turnTraceId: sessionState?.turnTraceId,
-      baseChangedFiles: new Set(sessionState?.changedFiles ?? []),
-      trackedFiles: new Set(sessionState?.changedFiles ?? []),
       toolDispatcher,
       persistent: request.persistence === 'session',
       isCompaction: request.operation === 'compact',
@@ -681,7 +674,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         return
       }
 
-      if (request.persistence === 'session') await this.initSnapshots(handle)
+      if (handle.checkpoint) await beginTurnCheckpoint(handle.checkpoint)
 
       // Stop landed while the thread was starting: settle the run so its seat
       // app-server and the launcher's wait on runPromise are released.
@@ -1222,12 +1215,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (msg.method === 'thread/started') return
 
     this.cacheFileChanges(params)
-    if (msg.method === 'turn/diff/updated' && handle) {
-      this.emit('normalized', sessionId, {
-        type: 'session_changed_files_updated',
-        paths: this.updateTrackedFilesFromTurnDiff(handle, params?.diff),
-      })
-    }
     const wasInterrupted = !!handle?.interrupted || isInterruptedTurnStatus(params?.turn?.status)
 
     const normalized = handle?.normalizer.push({ method: msg.method, params }) ?? []
@@ -1293,17 +1280,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const turnId = optionalString(params?.turnId)
       if (turnId) this.fileChangeTurnByItem.set(itemId, turnId)
     }
-  }
-
-  private updateTrackedFilesFromTurnDiff<T>(handle: CodexRunHandle, diff: T): string[] {
-    handle.trackedFiles.clear()
-    for (const filePath of handle.baseChangedFiles) {
-      handle.trackedFiles.add(filePath)
-    }
-    for (const filePath of extractCodexChangedFilePaths(diff)) {
-      handle.trackedFiles.add(filePath)
-    }
-    return [...handle.trackedFiles]
   }
 
   private clearFileChangesForTurn<T>(value: T): void {
@@ -1460,41 +1436,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return changes?.length ? { ...params, changes } : params
   }
 
-  /** Snapshots belong to the session, not to one provider thread
-   *  (docs/plans/session-identity.md), so a provider switch keeps its turns. */
-  private async initSnapshots(handle: CodexRunHandle): Promise<void> {
-    const { workTree, sessionId } = handle
-    if (!workTree || workTree === '~' || !sessionId) return
-    try {
-      const repoRoot = await resolveRepoRoot(workTree)
-      if (!repoRoot) return
-      handle.repoRoot = repoRoot
-      const head = await getHeadCommit(workTree)
-      if (!head) return
-      await initSessionBase(repoRoot, sessionId, head)
-      await prepareTurnSnapshot(workTree, repoRoot, sessionId)
-    } catch (e) {
-      log.warn('init_snapshots_failed', { error: e instanceof Error ? e.message : String(e) })
-    }
-  }
-
-  private async snapshotOnTurnComplete(handle: CodexRunHandle, partial: boolean): Promise<string[] | null> {
-    const { workTree, repoRoot, sessionId } = handle
-    if (!workTree || !repoRoot || !sessionId) return null
-    try {
-      const result = await snapshotTurn(workTree, repoRoot, sessionId, {
-        partial,
-        userMessagePreview: handle.userMessagePreview,
-        traceId: handle.turnTraceId,
-        sessionChangedFiles: [...handle.trackedFiles],
-      })
-      return result?.sessionChangedFiles ?? null
-    } catch (e) {
-      log.warn('snapshot_on_turn_complete_failed', { error: e instanceof Error ? e.message : String(e) })
-      return null
-    }
-  }
-
   private async finishCompletedTurn<T>(
     handle: CodexRunHandle,
     normalized: NormalizedEvent[],
@@ -1520,8 +1461,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const childThreadIds = this.nativeChildren.detach(sessionId)
       if (childThreadIds.length) log.info('codex_children_detached', { sessionId, childThreadIds, exitCode })
     }
-    const changedFiles = handle.persistent && !handle.isCompaction
-      ? await this.snapshotOnTurnComplete(handle, partial)
+    const changedFiles = handle.checkpoint
+      ? await endTurnCheckpoint(handle.checkpoint, { partial, userMessagePreview: handle.userMessagePreview, traceId: handle.turnTraceId })
       : null
     if (changedFiles) {
       this.emit('normalized', sessionId, { type: 'session_changed_files_updated', paths: changedFiles })

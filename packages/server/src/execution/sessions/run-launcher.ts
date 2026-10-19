@@ -666,7 +666,6 @@ export class RunLauncher {
       gitContext: effectiveGitCtx,
       agentSessionId,
       forked: pendingHandoff ? false : input.forked,
-      sessionChangedFiles: existingSession?.runInput?.sessionChangedFiles ?? input.sessionChangedFiles,
     }
     if (handoffPayload) effectiveInput.handoff = handoffPayload
 
@@ -877,7 +876,6 @@ export class RunLauncher {
         seat: seat ?? undefined,
       }, {
         sessionId,
-        changedFiles: effectiveInput.sessionChangedFiles,
         // Empty when tracing is off; the snapshot then records no trace.
         turnTraceId: turnTraceId || undefined,
       }))

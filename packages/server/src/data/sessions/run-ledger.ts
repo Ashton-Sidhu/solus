@@ -22,7 +22,7 @@ import { getDb, withTx } from '../../db'
 const inputFields = z.object({
   provider: z.enum(['claude-code', 'codex', 'opencode']), agentSessionId: z.string().nullable(),
   workingDirectory: z.string(), projectPath: z.string(), model: z.string(), preferredModel: z.string().nullable(),
-  forked: z.boolean(), additionalDirs: z.array(z.string()), sessionChangedFiles: z.array(z.string()),
+  forked: z.boolean(), additionalDirs: z.array(z.string()),
   contextWindow: z.number().nullable(), fastMode: z.boolean(), extraInstructions: z.string(),
   permissionMode: z.enum(['supervised', 'accept-edits', 'auto', 'full-access', 'plan']),
   reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']),

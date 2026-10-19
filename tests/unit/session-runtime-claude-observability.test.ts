@@ -115,7 +115,7 @@ class ClaudeShapedBackend extends EventEmitter implements AgentBackend {
 function input(agentSessionId: string | null): SessionRunInput {
   return {
     provider: 'claude-code', agentSessionId, forked: false, workingDirectory: process.cwd(), projectPath: process.cwd(),
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null,
+    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null,
     model: 'claude-opus-5', preferredModel: 'claude-opus-5', reasoningEffort: 'medium', fastMode: false,
     permissionMode: 'supervised', rateLimitBehavior: 'queue', extraInstructions: '',
   }

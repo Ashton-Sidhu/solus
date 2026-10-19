@@ -173,10 +173,6 @@ export interface SnapshotOpts {
   userMessagePreview?: string
   /** The Insights trace of the turn being closed. */
   traceId?: string
-  /** Files this session modified. When provided, only these paths are staged
-   *  instead of the full working tree — prevents cross-session leakage when
-   *  multiple sessions share the same branch. */
-  sessionChangedFiles?: string[]
 }
 
 export interface SnapshotTurnResult {
@@ -202,43 +198,16 @@ export async function prepareTurnSnapshot(
 
 /**
  * The whole live worktree as a Git tree: `HEAD` plus every dirty and untracked
- * path. The turn range always starts here, and in the session's own worktree it
- * ends here too. That symmetry is the point — a tree built from a narrower path
- * list can only report the changes that list already knew about, so a deletion
- * through the shell, a subagent's write, or a revert back to `HEAD` diffs to
- * nothing against its own start.
+ * path. Both ends of every turn are captured this way, in a shared checkout as
+ * in the session's own worktree. A narrower tree can only report the changes a
+ * path list already knew about, so an edit through the shell, a subagent's
+ * write, or a revert back to `HEAD` would diff to nothing. In a shared checkout
+ * a turn therefore also shows what other authors changed while it ran.
  */
 async function snapshotLiveTree(workTree: string, repoRoot: string): Promise<string> {
   const headSha = await runAsync('git', ['rev-parse', 'HEAD'], workTree)
   const dirtyPaths = await listLiveChangedPaths(workTree)
   return writeTreeForPaths(workTree, repoRoot, headSha, dirtyPaths)
-}
-
-/**
- * Close the turn range. In the session's own worktree the session owns every
- * change, so the end is another whole-worktree snapshot and nothing it did can
- * be missed. A shared checkout has other authors: the developer and any
- * concurrent session edit the same tree while this turn runs, and a
- * whole-worktree end reports their work as this turn's. So the end is built on
- * the turn-start tree and restages only the paths this session touched — every
- * other path keeps its turn-start blob and diffs to nothing.
- *
- * The cost is the mirror of the session scope's: a path the session never
- * announced through a tool call is not restaged, so an unannounced deletion or
- * revert to a *never-touched* file is invisible in a shared checkout. Paths the
- * session named earlier in the session stay covered, because the list is
- * cumulative.
- */
-async function captureTurnEnd(
-  workTree: string,
-  repoRoot: string,
-  turnFrom: string,
-  sessionChangedFiles: string[] | undefined,
-): Promise<string> {
-  if (ownsWorkTree(workTree, repoRoot) || !sessionChangedFiles) {
-    return snapshotLiveTree(workTree, repoRoot)
-  }
-  return writeTreeForPaths(workTree, repoRoot, turnFrom, sessionChangedFiles)
 }
 
 export async function snapshotTurn(
@@ -274,12 +243,8 @@ async function snapshotTurnQueued(
 
   try {
     const turnFrom = sidecar.pendingTurnTreeSha
-    const turnTo = await captureTurnEnd(workTree, repoRoot, turnFrom, opts.sessionChangedFiles)
-    // Reuse the complete turn endpoint in an owned worktree, including changes
-    // the provider did not report. Shared checkouts retain their path filter.
-    const treeSha = ownsWorkTree(workTree, repoRoot)
-      ? turnTo
-      : await writeTreeForPaths(workTree, repoRoot, prev.tree, opts.sessionChangedFiles)
+    const turnTo = await snapshotLiveTree(workTree, repoRoot)
+    const treeSha = turnTo
     const turnStats = await diffStats(repoRoot, turnFrom, turnTo)
     await Promise.all([
       runAsync('git', ['update-ref', refForTurnRange(sessionId, turnIndex, 'from'), turnFrom], repoRoot),
@@ -405,7 +370,7 @@ function chunkPathspecs(paths: string[]): string[][] {
 }
 
 /**
- * Stage each live path's current worktree state into the temp index. One batched
+ * Stage each path's current worktree state into the temp index. One batched
  * `git add` (chunked under the arg-length limit) replaces the per-path spawn that
  * dominated live-refresh latency. A path that no longer matches — created then
  * deleted within the session, or gitignored — makes a batched add abort *before*
@@ -415,21 +380,21 @@ function chunkPathspecs(paths: string[]): string[][] {
  * The env — carrying the temp GIT_INDEX_FILE — is passed through exactly as the
  * per-path calls did.
  */
-async function stageLivePaths(
+async function stagePaths(
   treeArgs: string[],
-  livePaths: string[],
+  paths: string[],
   repoRoot: string,
   indexEnv: NodeJS.ProcessEnv,
 ): Promise<void> {
   try {
-    for (const chunk of chunkPathspecs(livePaths)) {
+    for (const chunk of chunkPathspecs(paths)) {
       await runAsync('git', [...treeArgs, 'add', '--', ...chunk], repoRoot, { env: indexEnv })
     }
     return
   } catch {
     /* fall through to the per-path loop below */
   }
-  for (const file of livePaths) {
+  for (const file of paths) {
     try {
       await runAsync('git', [...treeArgs, 'add', '--', file], repoRoot, { env: indexEnv })
     } catch {
@@ -456,7 +421,7 @@ async function writeTreeForPaths(
   workTree: string,
   repoRoot: string,
   baseTreeish: string,
-  paths: string[] | undefined,
+  paths: string[],
 ): Promise<string> {
   ensureSolusDirs(repoRoot)
   const indexPath = tmpIndexPath(repoRoot)
@@ -464,28 +429,11 @@ async function writeTreeForPaths(
   const treeArgs = [`--git-dir=${join(repoRoot, '.git')}`, `--work-tree=${workTree}`]
   try {
     await runAsync('git', [...treeArgs, 'read-tree', baseTreeish], repoRoot, { env: indexEnv })
-    if (paths) {
-      await stageLivePaths(treeArgs, paths, repoRoot, indexEnv)
-    } else {
-      await runAsync('git', [...treeArgs, 'add', '-A'], repoRoot, { env: indexEnv })
-    }
+    await stagePaths(treeArgs, paths, repoRoot, indexEnv)
     return await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
   } finally {
     try { unlinkSync(indexPath) } catch { /* best-effort */ }
   }
-}
-
-/**
- * True when the session works in its own linked worktree rather than the shared
- * checkout. There it owns every change in the tree, so the session scope is the
- * whole worktree against the session base: scoping to transcript-derived
- * `livePaths` can only drop files, because a shell write or a subagent edit
- * never produces the Write/Edit tool message those paths are harvested from. In
- * a shared checkout the filter still earns its place — other sessions and the
- * developer edit the same tree.
- */
-function ownsWorkTree(workTree: string | null, repoRoot: string): workTree is string {
-  return !!workTree && resolve(workTree) !== resolve(repoRoot)
 }
 
 /** The session base read through its ref, so a rewritten or collected base
@@ -494,42 +442,6 @@ async function resolveSessionBase(repoRoot: string, sessionId: string): Promise<
   try {
     return await runAsync('git', ['rev-parse', '--verify', refForBase(sessionId)], repoRoot)
   } catch {
-    return null
-  }
-}
-
-async function buildLiveTree(
-  workTree: string,
-  repoRoot: string,
-  sessionId: string,
-  livePaths: string[],
-): Promise<{ baseSha: string; treeSha: string; cleanup: () => void } | null> {
-  const sidecar = readSidecar(repoRoot, sessionId)
-  if (!sidecar || livePaths.length === 0) return null
-
-  const baseSha = await resolveSessionBase(repoRoot, sessionId)
-  if (!baseSha) return null
-
-  ensureSolusDirs(repoRoot)
-  const tmpIndex = tmpIndexPath(repoRoot)
-  const indexEnv: NodeJS.ProcessEnv = { GIT_INDEX_FILE: tmpIndex }
-  const treeArgs = [`--git-dir=${join(repoRoot, '.git')}`, `--work-tree=${workTree}`]
-
-  try {
-    const baseTree = await runAsync('git', ['rev-parse', `${baseSha}^{tree}`], repoRoot)
-    await runAsync('git', [...treeArgs, 'read-tree', baseTree], repoRoot, { env: indexEnv })
-    await stageLivePaths(treeArgs, livePaths, repoRoot, indexEnv)
-    const treeSha = await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
-    return {
-      baseSha,
-      treeSha,
-      cleanup: () => {
-        try { unlinkSync(tmpIndex) } catch { /* best-effort */ }
-      },
-    }
-  } catch (err) {
-    try { unlinkSync(tmpIndex) } catch { /* best-effort */ }
-    log.error('build_live_tree_failed', { sessionId, error: err instanceof Error ? err.message : String(err) })
     return null
   }
 }
@@ -672,7 +584,6 @@ export async function getDiff(
   repoRoot: string,
   scope: DiffScope,
   sessionId: string | null,
-  livePaths: string[],
 ): Promise<DiffResult | null> {
   if (scope.kind === 'working-tree') {
     if (!workTree) return null
@@ -695,31 +606,11 @@ export async function getDiff(
 
   if (!sessionId) return null
 
-  // Isolated worktree: the session owns the tree, so diff all of it against the
-  // session base rather than the paths its transcript happens to name.
-  if (scope.kind === 'session' && ownsWorkTree(workTree, repoRoot)) {
+  // The session diff is the session base against the live checkout, whoever
+  // made the change. A surface with no checkout reads the latest snapshot.
+  if (scope.kind === 'session' && workTree) {
     const base = await resolveSessionBase(repoRoot, sessionId)
     if (base) return getEpisodeDiff(workTree, repoRoot, base)
-  }
-
-  // Live session diff: uncommitted work scoped to the paths this session touched.
-  if (scope.kind === 'session' && workTree && livePaths.length > 0) {
-    const live = await buildLiveTree(workTree, repoRoot, sessionId, livePaths)
-    if (live) {
-      try {
-        if (live.baseSha === live.treeSha) return EMPTY_DIFF
-        return {
-          patch: await runAsync('git',
-            ['-c', 'core.quotepath=false', 'diff', live.baseSha, live.treeSha, ...diffFormatArgs()],
-            repoRoot,
-            { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
-          ),
-        }
-      } finally {
-        live.cleanup()
-      }
-    }
-    // Live tree unavailable — fall through to the committed snapshot diff.
   }
 
   const range = await resolveScope(repoRoot, sessionId, scope)
@@ -824,9 +715,8 @@ export async function getDiffFileContents(
     ])
   } else if (!sessionId) {
     return null
-  } else if (request.scope.kind === 'session' && ownsWorkTree(workTree, repoRoot)) {
-    // Isolated worktree: the session owns the tree, so read the live file
-    // against the session base, exactly as `getDiff` renders it.
+  } else if (request.scope.kind === 'session' && workTree) {
+    // Read the live file against the session base, exactly as `getDiff` renders it.
     const base = await resolveSessionBase(repoRoot, sessionId)
     if (!base) return null
     ;[oldFile, newFile] = await Promise.all([
@@ -834,24 +724,13 @@ export async function getDiffFileContents(
       readWorktreeFile(workTree, request.path),
     ])
   } else {
-    // Shared checkout, or a turn: both sides are blobs in captured trees — the
-    // session's isolated temp tree when it has one, else the snapshot range.
-    const livePaths = request.livePaths?.filter(Boolean) ?? []
-    const live = request.scope.kind === 'session' && workTree && livePaths.length > 0
-      ? await buildLiveTree(workTree, repoRoot, sessionId, livePaths)
-      : null
-    const range = live
-      ? { from: live.baseSha, to: live.treeSha }
-      : await resolveScope(repoRoot, sessionId, request.scope)
+    // A turn, or a session with no checkout: both sides are blobs in captured trees.
+    const range = await resolveScope(repoRoot, sessionId, request.scope)
     if (!range) return null
-    try {
-      ;[oldFile, newFile] = await Promise.all([
-        readBlobAt(repoRoot, range.from, oldPath),
-        readBlobAt(repoRoot, range.to, request.path),
-      ])
-    } finally {
-      live?.cleanup()
-    }
+    ;[oldFile, newFile] = await Promise.all([
+      readBlobAt(repoRoot, range.from, oldPath),
+      readBlobAt(repoRoot, range.to, request.path),
+    ])
   }
 
   if (isStaleFile(oldFile, request.expectedOldObjectId) || isStaleFile(newFile, request.expectedNewObjectId)) {
@@ -862,16 +741,13 @@ export async function getDiffFileContents(
 
 /**
  * Per-file statistics for the same scopes as `getDiff`, without constructing or
- * transferring patch text. In a shared checkout the session-live path still uses
- * its isolated temp tree so files touched by another session cannot leak into
- * the result; in the session's own worktree there is nobody to leak from.
+ * transferring patch text.
  */
 export async function getDiffStats(
   workTree: string | null,
   repoRoot: string,
   scope: DiffScope,
   sessionId: string | null,
-  livePaths: string[],
 ): Promise<ChangedFileStat[]> {
   if (scope.kind === 'working-tree') {
     if (!workTree) return []
@@ -891,26 +767,9 @@ export async function getDiffStats(
 
   if (!sessionId) return []
 
-  if (scope.kind === 'session' && ownsWorkTree(workTree, repoRoot)) {
+  if (scope.kind === 'session' && workTree) {
     const base = await resolveSessionBase(repoRoot, sessionId)
     if (base) return getEpisodeNumstat(workTree, repoRoot, base)
-  }
-
-  if (scope.kind === 'session' && workTree && livePaths.length > 0) {
-    const live = await buildLiveTree(workTree, repoRoot, sessionId, livePaths)
-    if (live) {
-      try {
-        if (live.baseSha === live.treeSha) return []
-        const out = await runAsync('git',
-          ['-c', 'core.quotepath=false', 'diff', live.baseSha, live.treeSha, '--numstat', '--summary'],
-          repoRoot,
-          { maxBuffer: COMBINED_DIFF_MAX_BUFFER },
-        )
-        return parseChangedFileStats(out)
-      } finally {
-        live.cleanup()
-      }
-    }
   }
 
   const range = await resolveScope(repoRoot, sessionId, scope)

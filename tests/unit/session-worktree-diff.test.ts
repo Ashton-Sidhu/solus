@@ -39,15 +39,14 @@ function addWorkTree(repoRoot: string) {
 }
 
 /**
- * `livePaths` is harvested from the session's Write/Edit tool messages, so a
- * file the session wrote through the shell or a subagent never appears in it.
- * In the session's own worktree that filter can only hide the session's own
- * work, which is why the scope must ignore it there.
+ * An agent changes files through the shell, a subagent, or a script as often as
+ * through a Write/Edit tool. The session diff reads the checkout itself, so no
+ * route an edit takes can hide it.
  */
 // The helpers under test start processes; with no caller, they act as the host (plans/019).
 actAsHostForTests()
 
-describe('session-scoped diff in the session’s own worktree', () => {
+describe('session-scoped diff', () => {
   test('saved snapshots retain unreported shell changes and their later removal', async () => {
     const { repoRoot, baseSha } = createRepo()
     const workTree = addWorkTree(repoRoot)
@@ -58,7 +57,7 @@ describe('session-scoped diff in the session’s own worktree', () => {
     git(workTree, ['add', 'tracked.txt'])
     const stagedTree = git(workTree, ['write-tree'])
 
-    const first = await snapshotTurn(workTree, repoRoot, 'session-shell', { sessionChangedFiles: [] })
+    const first = await snapshotTurn(workTree, repoRoot, 'session-shell', {})
     expect(first?.sessionChangedFiles?.sort()).toEqual(['shell.txt', 'tracked.txt'])
     const range = getSessionSnapshotRange(repoRoot, 'session-shell')!
     expect(git(repoRoot, ['show', `${range.headSha}:shell.txt`])).toBe('new through the shell')
@@ -69,9 +68,9 @@ describe('session-scoped diff in the session’s own worktree', () => {
     await prepareTurnSnapshot(workTree, repoRoot, 'session-shell')
     rmSync(join(workTree, 'shell.txt'))
     writeFileSync(join(workTree, 'tracked.txt'), 'first\n')
-    const second = await snapshotTurn(workTree, repoRoot, 'session-shell', { sessionChangedFiles: [] })
+    const second = await snapshotTurn(workTree, repoRoot, 'session-shell', {})
     expect(second?.sessionChangedFiles).toEqual([])
-    const saved = await getDiff(null, repoRoot, { kind: 'session' }, 'session-shell', [])
+    const saved = await getDiff(null, repoRoot, { kind: 'session' }, 'session-shell')
     expect(saved?.patch).toBe('')
     expect(git(workTree, ['write-tree'])).toBe(stagedTree)
   })
@@ -84,22 +83,25 @@ describe('session-scoped diff in the session’s own worktree', () => {
     writeFileSync(join(workTree, 'tracked.txt'), 'first\nfrom an Edit call\n')
     writeFileSync(join(workTree, 'from-shell.txt'), 'written by a Bash heredoc\n')
 
-    const stats = await getDiffStats(workTree, repoRoot, { kind: 'session' }, 'session-1', ['tracked.txt'])
+    const stats = await getDiffStats(workTree, repoRoot, { kind: 'session' }, 'session-1')
 
     expect(stats.map((stat) => stat.path).sort()).toEqual(['from-shell.txt', 'tracked.txt'])
-    const diff = await getDiff(workTree, repoRoot, { kind: 'session' }, 'session-1', ['tracked.txt'])
+    const diff = await getDiff(workTree, repoRoot, { kind: 'session' }, 'session-1')
     expect(diff?.patch).toContain('from-shell.txt')
   })
 
-  test('a shared checkout still scopes to the paths this session touched', async () => {
+  // WHY: a filter by the paths a session named hid every shell edit in the main
+  // checkout, and the turn's "files changed" card never showed. The checkout is
+  // read whole; a change by another author shows too, which is the accepted cost.
+  test('a shared checkout shows every change, also one made through the shell', async () => {
     const { repoRoot, baseSha } = createRepo()
     await initSessionBase(repoRoot, 'session-1', baseSha)
 
     writeFileSync(join(repoRoot, 'tracked.txt'), 'first\nfrom an Edit call\n')
-    writeFileSync(join(repoRoot, 'someone-else.txt'), 'another session was here\n')
+    writeFileSync(join(repoRoot, 'from-shell.txt'), 'written by a Bash heredoc\n')
 
-    const stats = await getDiffStats(repoRoot, repoRoot, { kind: 'session' }, 'session-1', ['tracked.txt'])
+    const stats = await getDiffStats(repoRoot, repoRoot, { kind: 'session' }, 'session-1')
 
-    expect(stats.map((stat) => stat.path)).toEqual(['tracked.txt'])
+    expect(stats.map((stat) => stat.path).sort()).toEqual(['from-shell.txt', 'tracked.txt'])
   })
 })

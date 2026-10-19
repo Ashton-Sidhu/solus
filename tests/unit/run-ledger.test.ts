@@ -27,7 +27,7 @@ afterAll(() => {
 })
 const input: RestartRun['input'] = { provider: 'codex', agentSessionId: 'thread', workingDirectory: '/tmp/project', projectPath: '/tmp/project', model: 'gpt-6-astra',
   preferredModel: 'gpt-6-astra', permissionMode: 'plan', reasoningEffort: 'high', contextWindow: 1_050_000,
-  fastMode: true, extraInstructions: '', forked: false, additionalDirs: [], sessionChangedFiles: [], rateLimitBehavior: 'ask', worktreeBaseBranch: null }
+  fastMode: true, extraInstructions: '', forked: false, additionalDirs: [], rateLimitBehavior: 'ask', worktreeBaseBranch: null }
 function run(sessionId: string): RestartRun {
   return { sessionId, runId: 'original', state: 'running', author: null, authority: 'host', prompt: 'Fix the parser', backgroundTools: [], input }
 }

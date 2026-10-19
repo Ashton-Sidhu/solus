@@ -405,27 +405,4 @@ describe('ClaudeTurnNormalizer', () => {
       },
     })).toEqual([])
   })
-
-  test('collects edited files from Claude write tools without exposing them as events', () => {
-    const normalizer = new ClaudeTurnNormalizer()
-    expect(normalizer.push({
-      type: 'assistant',
-      session_id: 'claude-session-1',
-      uuid: 'assistant-edit-1',
-      parent_tool_use_id: null,
-      message: {
-        model: 'claude-test',
-        id: 'msg-edit',
-        role: 'assistant',
-        content: [
-          { type: 'tool_use', id: 'write-1', name: 'Write', input: { file_path: 'src/new.ts' } },
-          { type: 'tool_use', id: 'edit-1', name: 'Edit', input: { file_path: 'src/existing.ts' } },
-          { type: 'tool_use', id: 'notebook-1', name: 'NotebookEdit', input: { notebook_path: 'notebooks/demo.ipynb' } },
-        ],
-        stop_reason: null,
-        usage: {},
-      },
-    })).toEqual([])
-    expect(normalizer.editedFiles).toEqual(['src/new.ts', 'src/existing.ts', 'notebooks/demo.ipynb'])
-  })
 })

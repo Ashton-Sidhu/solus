@@ -739,17 +739,13 @@ export class DemoStore {
 
   diff(ctx: IpcContext, request: DiffRequest): DemoDiff {
     if (request.scope.kind === 'pr') {
-      const selected = request.livePaths?.length
-        ? request.livePaths.map((path) => this.fixtures.pr.filePatches[path]).filter((patch): patch is string => !!patch)
-        : Object.values(this.fixtures.pr.filePatches)
-      return { patch: selected.join('\n') }
+      return { patch: Object.values(this.fixtures.pr.filePatches).join('\n') }
     }
     return { patch: this.diffFixture(ctx)?.patch ?? '' }
   }
 
   diffStats(ctx: IpcContext, request: DiffRequest): ChangedFileStat[] {
-    const stats = request.scope.kind === 'pr' ? this.fixtures.pr.changedFiles : this.diffFixture(ctx)?.stats ?? []
-    return request.livePaths?.length ? stats.filter((stat) => request.livePaths?.includes(stat.path)) : stats
+    return request.scope.kind === 'pr' ? this.fixtures.pr.changedFiles : this.diffFixture(ctx)?.stats ?? []
   }
 
   turnSnapshots(ctx: IpcContext): TurnSnapshot[] {

@@ -54,41 +54,37 @@ describe('turn diff stats', () => {
     await prepareTurnSnapshot(cwd, cwd, 'session-1')
 
     writeFileSync(join(cwd, 'tracked.txt'), 'first\npre-existing\nthis turn\n')
-    const result = await snapshotTurn(cwd, cwd, 'session-1', {
-      sessionChangedFiles: ['tracked.txt'],
-    })
+    const result = await snapshotTurn(cwd, cwd, 'session-1')
 
     expect(result?.snapshot).toMatchObject({ filesChanged: 1, additions: 1, deletions: 0 })
-    expect(await getDiffStats(cwd, cwd, { kind: 'turn', index: 0 }, 'session-1', [])).toEqual([
+    expect(await getDiffStats(cwd, cwd, { kind: 'turn', index: 0 }, 'session-1')).toEqual([
       { path: 'tracked.txt', additions: 1, deletions: 0, status: 'M' },
     ])
   })
 
-  // WHY: several sessions and the developer can run against the same checkout at
-  // once. A whole-worktree end snapshot reported whatever they wrote while this
-  // turn ran as this turn's own work, which made the card useless on a shared
-  // branch. The turn range is the session's paths, exactly like the session scope.
-  test('a shared checkout excludes another author’s edit made during the turn', async () => {
+  // WHY: the card after a turn reads this range. When the main checkout's end
+  // snapshot restaged only the paths a tool call named, an agent that edited
+  // through the shell got an empty range and no card. Both ends are the whole
+  // checkout, so an edit by another author during the turn shows as well.
+  test('a shared checkout reports an edit no tool call announced', async () => {
     const { cwd, baseSha } = createRepo()
     await initSessionBase(cwd, 'session-1', baseSha)
     await prepareTurnSnapshot(cwd, cwd, 'session-1')
 
-    writeFileSync(join(cwd, 'tracked.txt'), 'first\nfrom this session\n')
-    writeFileSync(join(cwd, 'someone-else.txt'), 'another session was here\n')
-    const result = await snapshotTurn(cwd, cwd, 'session-1', {
-      sessionChangedFiles: ['tracked.txt'],
-    })
+    writeFileSync(join(cwd, 'tracked.txt'), 'first\nfrom a sed -i\n')
+    writeFileSync(join(cwd, 'from-shell.txt'), 'written by a Bash heredoc\n')
+    const result = await snapshotTurn(cwd, cwd, 'session-1')
 
-    expect(result?.snapshot).toMatchObject({ filesChanged: 1 })
-    expect(await getDiffStats(cwd, cwd, { kind: 'turn', index: 0 }, 'session-1', [])).toEqual([
+    expect(result?.snapshot).toMatchObject({ filesChanged: 2 })
+    expect(result?.sessionChangedFiles?.sort()).toEqual(['from-shell.txt', 'tracked.txt'])
+    expect(await getDiffStats(cwd, cwd, { kind: 'turn', index: 0 }, 'session-1')).toEqual([
+      { path: 'from-shell.txt', additions: 1, deletions: 0, status: 'A' },
       { path: 'tracked.txt', additions: 1, deletions: 0, status: 'M' },
     ])
   })
 
-  // WHY: in its own worktree the session owns every change, so scoping to
-  // harvested tool paths can only hide the session's own work — a shell `rm`, a
-  // subagent, a write that never produced an Edit/Write message. Both ends stay
-  // whole-worktree snapshots there.
+  // WHY: a shell `rm`, a subagent, or a script never produces an Edit/Write
+  // message, and its deletion is still the turn's change.
   test('report a deletion no tool call announced in the session’s own worktree', async () => {
     const { cwd, baseSha } = createRepo()
     await initSessionBase(cwd, 'session-1', baseSha)
@@ -96,10 +92,10 @@ describe('turn diff stats', () => {
     await prepareTurnSnapshot(workTree, cwd, 'session-1')
 
     rmSync(join(workTree, 'tracked.txt'))
-    const result = await snapshotTurn(workTree, cwd, 'session-1', { sessionChangedFiles: [] })
+    const result = await snapshotTurn(workTree, cwd, 'session-1')
 
     expect(result?.snapshot).toMatchObject({ filesChanged: 1, additions: 0, deletions: 1 })
-    expect(await getDiffStats(workTree, cwd, { kind: 'turn', index: 0 }, 'session-1', [])).toEqual([
+    expect(await getDiffStats(workTree, cwd, { kind: 'turn', index: 0 }, 'session-1')).toEqual([
       { path: 'tracked.txt', additions: 0, deletions: 1, status: 'D' },
     ])
   })
@@ -115,29 +111,10 @@ describe('turn diff stats', () => {
     await prepareTurnSnapshot(workTree, cwd, 'session-1')
 
     writeFileSync(join(workTree, 'tracked.txt'), 'first\n')
-    await snapshotTurn(workTree, cwd, 'session-1', { sessionChangedFiles: [] })
+    await snapshotTurn(workTree, cwd, 'session-1')
 
-    expect(await getDiffStats(workTree, cwd, { kind: 'turn', index: 0 }, 'session-1', [])).toEqual([
+    expect(await getDiffStats(workTree, cwd, { kind: 'turn', index: 0 }, 'session-1')).toEqual([
       { path: 'tracked.txt', additions: 0, deletions: 1, status: 'M' },
-    ])
-  })
-
-  // WHY: the shared-checkout scope is a filter on paths, not on content. A path
-  // the session named stays fully reported, including a deletion the transcript
-  // never announced.
-  test('a shared checkout still reports a deletion of a path the session touched', async () => {
-    const { cwd, baseSha } = createRepo()
-    await initSessionBase(cwd, 'session-1', baseSha)
-    await prepareTurnSnapshot(cwd, cwd, 'session-1')
-
-    rmSync(join(cwd, 'tracked.txt'))
-    const result = await snapshotTurn(cwd, cwd, 'session-1', {
-      sessionChangedFiles: ['tracked.txt'],
-    })
-
-    expect(result?.snapshot).toMatchObject({ filesChanged: 1, additions: 0, deletions: 1 })
-    expect(await getDiffStats(cwd, cwd, { kind: 'turn', index: 0 }, 'session-1', [])).toEqual([
-      { path: 'tracked.txt', additions: 0, deletions: 1, status: 'D' },
     ])
   })
 })

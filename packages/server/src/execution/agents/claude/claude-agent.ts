@@ -209,10 +209,8 @@ export interface ClaudeRunOptions {
   canUseTool?: CanUseTool
   persistSession?: boolean
   abortController?: AbortController
-  /** Fires once when the SDK first reports a session id for this run. */
-  onSessionInit?: (sessionId: string) => Promise<void>
   /** Persists the turn and returns the authoritative net session paths. */
-  onTurnComplete?: (sessionId: string, opts: { partial: boolean; userMessagePreview: string; editedFiles: string[] }) => Promise<string[] | null>
+  onTurnComplete?: (facts: { partial: boolean; userMessagePreview: string }) => Promise<string[] | null>
   /** When true, the SDK creates a new forked session branching from opts.sessionId. */
   forkSession?: boolean
   /** Assistant message UUID through which the resumed fork includes history. */
@@ -356,13 +354,7 @@ export class ClaudeAgent {
         for await (const msg of cquery) {
           const initMessage = initMessageSchema.safeParse(msg)
           if (initMessage.success) {
-            const newSid = initMessage.data.session_id
-            const firstSeen = state.sessionId !== newSid
-            state.sessionId = newSid
-            if (firstSeen && opts.onSessionInit) {
-              try { await opts.onSessionInit(newSid) }
-              catch (e) { log.warn('on_session_init_failed', { error: e instanceof Error ? e.message : String(e) }) }
-            }
+            state.sessionId = initMessage.data.session_id
           }
 
           logRawClaudeEvent(state.sessionId, msg)
@@ -390,11 +382,7 @@ export class ClaudeAgent {
             if (contextUsage) yield { type: 'usage', context: contextUsage }
             if (state.sessionId && opts.onTurnComplete) {
               try {
-                const changedFiles = await opts.onTurnComplete(state.sessionId, {
-                  partial: false,
-                  userMessagePreview,
-                  editedFiles: normalizer.editedFiles,
-                })
+                const changedFiles = await opts.onTurnComplete({ partial: false, userMessagePreview })
                 if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
               }
               catch (e) { log.warn('on_turn_complete_failed', { error: e instanceof Error ? e.message : String(e) }) }
@@ -429,11 +417,7 @@ export class ClaudeAgent {
           normalizer.interrupt()
           if (state.sessionId && opts.onTurnComplete) {
             try {
-              const changedFiles = await opts.onTurnComplete(state.sessionId, {
-                partial: true,
-                userMessagePreview,
-                editedFiles: normalizer.editedFiles,
-              })
+              const changedFiles = await opts.onTurnComplete({ partial: true, userMessagePreview })
               if (changedFiles) yield { type: 'session_changed_files_updated', paths: changedFiles }
             }
             catch (e) { log.warn('on_turn_complete_abort_failed', { error: e instanceof Error ? e.message : String(e) }) }

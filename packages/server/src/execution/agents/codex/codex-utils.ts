@@ -70,44 +70,6 @@ const planTextSchema = z.object({
   output: z.union([z.string(), z.array(messageContentPartSchema)]).optional(),
 })
 
-interface ChangedFileNodeObject {
-  file_path?: string
-  filePath?: string
-  path?: string
-  file?: string
-  fileName?: string
-  filename?: string
-  old_path?: string
-  new_path?: string
-  oldPath?: string
-  newPath?: string
-  changes?: ChangedFileNode
-  diff?: ChangedFileNode
-  patch?: ChangedFileNode
-}
-
-type ChangedFileNode = string | ChangedFileNode[] | ChangedFileNodeObject
-
-const changedFileNodeSchema: z.ZodType<ChangedFileNode> = z.lazy(() => z.union([
-  z.string(),
-  z.array(changedFileNodeSchema),
-  z.object({
-    file_path: z.string().optional(),
-    filePath: z.string().optional(),
-    path: z.string().optional(),
-    file: z.string().optional(),
-    fileName: z.string().optional(),
-    filename: z.string().optional(),
-    old_path: z.string().optional(),
-    new_path: z.string().optional(),
-    oldPath: z.string().optional(),
-    newPath: z.string().optional(),
-    changes: changedFileNodeSchema.optional(),
-    diff: changedFileNodeSchema.optional(),
-    patch: changedFileNodeSchema.optional(),
-  }),
-]))
-
 interface ImageArtifactNodeObject {
   path?: string
   filePath?: string
@@ -179,19 +141,6 @@ function parsedFiniteNumber<Value>(value: Value): number | undefined {
   const parsed = finiteNumberSchema.safeParse(value)
   return parsed.success ? parsed.data : undefined
 }
-
-export const CODEX_CHANGE_PATH_KEYS = [
-  'file_path',
-  'filePath',
-  'path',
-  'file',
-  'fileName',
-  'filename',
-  'old_path',
-  'new_path',
-  'oldPath',
-  'newPath',
-] as const
 
 export interface CodexThreadSummary {
   id?: string
@@ -530,50 +479,6 @@ export function extractCodexPlanExcerpt(planContent: string): string {
     .map((line) => line.replace(/^#{1,6}\s*/, '').trim())
     .filter(Boolean)
   return lines.slice(0, 2).join(' · ').slice(0, 180)
-}
-
-export function extractCodexChangedFilePaths<Source>(source: Source): string[] {
-  const paths = new Set<string>()
-
-  function addPath(value: string | undefined): void {
-    let path = value?.trim() ?? ''
-    if (!path || path === '/dev/null') return
-    if ((path.startsWith('"') && path.endsWith('"')) || (path.startsWith("'") && path.endsWith("'"))) {
-      path = path.slice(1, -1)
-    }
-    paths.add(path)
-  }
-
-  function addDiffPaths(diff: string): void {
-    for (const match of diff.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)) {
-      addPath(match[2] || match[1])
-    }
-    for (const match of diff.matchAll(/^(?:---|\+\+\+) (?:a|b)\/(.+)$/gm)) {
-      addPath(match[1])
-    }
-  }
-
-  function visit(value: ChangedFileNode): void {
-    const text = parsedString(value)
-    if (text !== undefined) {
-      addDiffPaths(text)
-      return
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item)
-      return
-    }
-    for (const key of CODEX_CHANGE_PATH_KEYS) {
-      addPath(value[key])
-    }
-    if (value.changes) visit(value.changes)
-    if (value.diff) visit(value.diff)
-    if (value.patch) visit(value.patch)
-  }
-
-  const parsed = changedFileNodeSchema.safeParse(source)
-  if (parsed.success) visit(parsed.data)
-  return [...paths]
 }
 
 export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): SessionLoadMessage | null {

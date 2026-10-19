@@ -2057,7 +2057,6 @@ export interface SessionCtx {
   permissionMode: PermissionMode
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
-  sessionChangedFiles: string[]
   readOnlyReason: string | null
   title?: string | null
   forked?: boolean
@@ -2156,7 +2155,6 @@ export interface SessionRunInput {
   additionalDirs: string[]
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
-  sessionChangedFiles: string[]
   contextWindow: number | null
   /** Resolved model the run uses (the value the backend actually runs with). */
   model: string

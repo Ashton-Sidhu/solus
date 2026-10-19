@@ -141,7 +141,7 @@ function ctx(): IpcContext {
 function input(rateLimitBehavior: 'ask' | 'queue'): SessionRunInput {
   return {
     provider: 'codex', agentSessionId: null, forked: false, workingDirectory: process.cwd(), projectPath: process.cwd(),
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null,
+    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null,
     model: 'gpt-requested', preferredModel: 'gpt-requested', reasoningEffort: 'medium', fastMode: false,
     permissionMode: 'supervised', rateLimitBehavior, extraInstructions: '',
   }

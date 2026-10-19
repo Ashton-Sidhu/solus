@@ -277,9 +277,6 @@ export class ProviderEvents {
         }
 
         if (event.type === 'session_changed_files_updated') {
-          if (session.runInput) session.runInput.sessionChangedFiles = [...event.paths]
-          const activeRequest = this.rt.activeRunRequests.get(session.sessionId)
-          if (activeRequest) activeRequest.input.sessionChangedFiles = [...event.paths]
           this.rt.reportToActiveRun(session.sessionId, (run) => this.rt.orchestration?.runEvent(run, event))
         } else if (event.type === 'question_request' && event.responseMode === 'message') {
           if (!saveAsyncQuestion(session.sessionId, agentSessionId, event)) return

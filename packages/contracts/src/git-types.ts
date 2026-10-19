@@ -63,7 +63,6 @@ export type DiffScope =
 
 export type DiffRequest = {
   scope: DiffScope
-  livePaths?: string[]
 }
 
 export interface DiffFileContentsRequest {
@@ -72,7 +71,6 @@ export interface DiffFileContentsRequest {
   path: string
   /** Pre-image path for renamed files; defaults to `path`. */
   previousPath?: string
-  livePaths?: string[]
   /** Object ids from the patch, used to reject content loaded after the diff changed. */
   expectedOldObjectId?: string
   expectedNewObjectId?: string

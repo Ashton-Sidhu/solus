@@ -87,7 +87,6 @@ export function runInputFromContext(ctx: IpcContext): SessionRunInput {
     additionalDirs: session.additionalDirs,
     gitContext: session.gitContext,
     worktreeBaseBranch: session.worktreeBaseBranch,
-    sessionChangedFiles: session.sessionChangedFiles,
     contextWindow: session.contextWindow,
     model: statusBar.model,
     preferredModel: session.preferredModel,

@@ -43,7 +43,7 @@ function storage() {
 const input: SessionRunInput = {
   provider: 'claude-code', agentSessionId: 'native-1', workingDirectory: '/tmp/project', projectPath: '/tmp/project',
   model: 'claude-sonnet-5', preferredModel: 'claude-sonnet-5', permissionMode: 'supervised', reasoningEffort: 'medium',
-  contextWindow: 200_000, fastMode: false, extraInstructions: '', forked: false, additionalDirs: [], sessionChangedFiles: [],
+  contextWindow: 200_000, fastMode: false, extraInstructions: '', forked: false, additionalDirs: [],
   rateLimitBehavior: 'ask', worktreeBaseBranch: null,
 }
 function entry(queueId: string, overrides: Partial<QueuedRequest> = {}): QueuedRequest {

@@ -131,7 +131,7 @@ class Backend extends EventEmitter implements AgentBackend {
 function input(provider: AgentId, permissionMode: PermissionMode, preferences?: ExecutionPreferences): SessionRunInput {
   return {
     provider, agentSessionId: null, forked: false, workingDirectory: dataDir, projectPath: dataDir,
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null,
+    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null,
     model: 'model-test', preferredModel: 'model-test', reasoningEffort: 'medium', fastMode: false,
     permissionMode, rateLimitBehavior: 'ask', extraInstructions: '', executionPreferences: preferences,
   }

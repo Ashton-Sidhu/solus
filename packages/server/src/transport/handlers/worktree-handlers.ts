@@ -127,8 +127,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     if (!repoRoot) return null
     const workTree = await workTreeForCtx(ctx)
     const sid = ctx.session.sessionId ?? null
-    const livePaths = request.livePaths?.filter(Boolean) ?? []
-    return await getDiff(workTree, repoRoot, request.scope, sid, livePaths)
+    return await getDiff(workTree, repoRoot, request.scope, sid)
   })
 
   server.register('diffFileContents', async (args) => {
@@ -148,8 +147,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     if (!repoRoot) return []
     const workTree = await workTreeForCtx(ctx)
     const sid = ctx.session.sessionId ?? null
-    const livePaths = request.livePaths?.filter(Boolean) ?? []
-    return getDiffStats(workTree, repoRoot, request.scope, sid, livePaths)
+    return getDiffStats(workTree, repoRoot, request.scope, sid)
   })
 
   server.register('listTurnSnapshots', async (args) => {

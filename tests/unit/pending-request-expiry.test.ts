@@ -105,7 +105,7 @@ class Backend extends EventEmitter implements AgentBackend {
 function input(provider: AgentId): SessionRunInput {
   return {
     provider, agentSessionId: null, forked: false, workingDirectory: process.cwd(), projectPath: process.cwd(),
-    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null,
+    additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: null,
     model: 'model-test', preferredModel: 'model-test', reasoningEffort: 'medium', fastMode: false,
     permissionMode: 'supervised', rateLimitBehavior: 'queue', extraInstructions: '',
   }

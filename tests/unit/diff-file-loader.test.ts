@@ -41,14 +41,12 @@ index 1111111..2222222 100644
       ctx,
       { kind: 'working-tree' },
       fileDiff,
-      ['src/file.ts'],
     )
 
     expect(request).toEqual({
       scope: { kind: 'working-tree' },
       path: 'src/file.ts',
       previousPath: undefined,
-      livePaths: ['src/file.ts'],
       expectedOldObjectId: '1111111',
       expectedNewObjectId: '2222222',
     })

@@ -1,5 +1,5 @@
 import { FIVE_HOUR_WINDOW_MINS, WEEKLY_WINDOW_MINS, type ContextUsage, type NormalizedEvent, type PermissionMode, type UsageData } from '@solus/contracts/types'
-import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, CompactBoundaryEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '@solus/contracts/claude-types'
+import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, CompactBoundaryEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentDelta, ClaudeUsageData } from '@solus/contracts/claude-types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import { isRateLimitMessage, normalizeResetNumber } from '../../rate-limits'
 import { isAuthFailureMessage } from '../auth-failure'
@@ -21,10 +21,6 @@ const permissionDenialSchema = z.object({
   tool_use_id: z.string().optional(),
 })
 const permissionDenialsSchema = z.array(permissionDenialSchema)
-const editedFileInputSchema = z.object({
-  file_path: z.string().optional(),
-  notebook_path: z.string().optional(),
-})
 const todoInputSchema = z.object({
   todos: z.array(z.object({
     content: z.string().optional(),
@@ -110,7 +106,6 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
     sawProtocolError: false,
     permissionDenials: [],
   }
-  private readonly editedFileSet = new Set<string>()
   // A main-thread tool's input arrives only as input_json_delta stream events;
   // accumulate per content-block index so the assembled input rides out on
   // tool_call_complete. Cleared on message_start so indexes never leak.
@@ -133,10 +128,6 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
     return this.turnSummary
   }
 
-  get editedFiles(): string[] {
-    return [...this.editedFileSet]
-  }
-
   push(raw: ClaudeEvent): NormalizedEvent[] {
     if (this.interrupted) return []
 
@@ -151,8 +142,6 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
         }))
       }
     }
-
-    if (raw.type === 'assistant') this.collectEditedFiles(raw.message?.content)
 
     const normalized = normalize(raw, this.pendingToolInputs, this.thinkingBlocks)
     for (const event of normalized) {
@@ -208,19 +197,6 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       return { type: 'background_task_settled', taskId, status: 'stopped' }
     }
     return null
-  }
-
-  private collectEditedFiles(content: ContentBlock[] | undefined): void {
-    if (!Array.isArray(content)) return
-    for (const block of content) {
-      if (block.type !== 'tool_use') continue
-      if (block.name !== 'Write' && block.name !== 'Edit' && block.name !== 'NotebookEdit') continue
-      const parsed = editedFileInputSchema.safeParse(block.input)
-      const filePath = parsed.success
-        ? parsed.data.file_path ?? parsed.data.notebook_path ?? null
-        : null
-      if (filePath) this.editedFileSet.add(filePath)
-    }
   }
 }
 

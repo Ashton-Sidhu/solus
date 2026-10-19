@@ -80,14 +80,14 @@ async function threeTurnsWithAGap(cwd: string, baseSha: string) {
 
   await prepareTurnSnapshot(cwd, cwd, 'provider-thread')
   writeFileSync(join(cwd, 'a.txt'), 'a\nfirst turn\n')
-  await snapshotTurn(cwd, cwd, 'provider-thread', { traceId: 'trace-1', sessionChangedFiles: ['a.txt'] })
+  await snapshotTurn(cwd, cwd, 'provider-thread', { traceId: 'trace-1' })
 
   // No turn-start tree: this turn's snapshot is skipped.
-  expect(await snapshotTurn(cwd, cwd, 'provider-thread', { traceId: 'trace-2', sessionChangedFiles: ['a.txt'] })).toBeNull()
+  expect(await snapshotTurn(cwd, cwd, 'provider-thread', { traceId: 'trace-2' })).toBeNull()
 
   await prepareTurnSnapshot(cwd, cwd, 'provider-thread')
   writeFileSync(join(cwd, 'b.txt'), 'b\nthird turn\nand more\n')
-  await snapshotTurn(cwd, cwd, 'provider-thread', { traceId: 'trace-3', sessionChangedFiles: ['a.txt', 'b.txt'] })
+  await snapshotTurn(cwd, cwd, 'provider-thread', { traceId: 'trace-3' })
 }
 
 describe('turn snapshots carry their trace', () => {
@@ -102,7 +102,7 @@ describe('turn snapshots carry their trace', () => {
     expect(turns.map((turn) => [turn.index, turn.traceId])).toEqual([[0, 'trace-1'], [1, 'trace-3']])
 
     const third = turns.find((turn) => turn.traceId === 'trace-3')!
-    expect(await snapshots.getDiffStats(cwd, cwd, { kind: 'turn', index: third.index }, 'provider-thread', [])).toEqual([
+    expect(await snapshots.getDiffStats(cwd, cwd, { kind: 'turn', index: third.index }, 'provider-thread')).toEqual([
       { path: 'b.txt', additions: 2, deletions: 0, status: 'M' },
     ])
   })

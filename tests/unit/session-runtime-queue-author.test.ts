@@ -114,7 +114,7 @@ afterEach(() => {
 function ctx(sessionId: string, agentSessionId: string | null = null): IpcContext {
   return {
     session: { sessionId, provider: 'claude-code', agentSessionId, workingDirectory: projectDir, projectPath: projectDir, origin: 'user',
-      additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: 1_000_000,
+      additionalDirs: [], gitContext: null, worktreeBaseBranch: null, contextWindow: 1_000_000,
       preferredModel: 'claude-sonnet-5', permissionMode: 'full-access' },
     window: {},
     settings: { activeAgent: 'claude-code', extraInstructions: '' },

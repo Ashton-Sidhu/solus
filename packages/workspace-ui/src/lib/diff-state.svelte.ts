@@ -107,11 +107,8 @@ export class DiffState {
       this.loadError = null
     }
 
-    const session = this.opts.session.sessionFor(this.opts.getTabId())
-    const livePaths = session ? [...session.sessionChangedFiles] : undefined
-
     const requestScope = this.scope
-    const response = await this.load(requestScope, livePaths)
+    const response = await this.load(requestScope)
     if (generation !== this.generation) return { result: null, error: null }
 
     if (opts.silent && !response.result) return response
@@ -142,14 +139,11 @@ export class DiffState {
   }
 
   loadDiffFiles = (fileDiff: FileDiffMetadata) => {
-    const session = this.opts.session.sessionFor(this.opts.getTabId())
-    const livePaths = session ? [...session.sessionChangedFiles] : undefined
     return loadScopedDiffFiles(
       this.opts.getApi?.() ?? this.opts.session.apiFor(this.opts.getTabId()),
       this.opts.getCtx?.() ?? this.opts.session.ctxFor(this.opts.getTabId()),
       this.scope,
       fileDiff,
-      livePaths,
     )
   }
 
@@ -228,14 +222,11 @@ export class DiffState {
     this.parsedByScope.clear()
   }
 
-  private async load(
-    scope: DiffScope,
-    livePaths: string[] | undefined,
-  ): Promise<DiffLoadResult> {
+  private async load(scope: DiffScope): Promise<DiffLoadResult> {
     try {
       const result = await (this.opts.getApi?.() ?? this.opts.session.apiFor(this.opts.getTabId())).diff(
         this.opts.getCtx?.() ?? this.opts.session.ctxFor(this.opts.getTabId()),
-        { scope: { ...scope }, livePaths },
+        { scope: { ...scope } },
       )
       return { result, error: null }
     } catch (err) {

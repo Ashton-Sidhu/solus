@@ -59,7 +59,7 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
       permissionMode: input.permissionMode, model: input.model,
       persistence: 'session', service: SPAN_SERVICES.sessions,
       conversation: { kind: 'resume', threadId }, seat: seat ?? undefined,
-    }, { sessionId, changedFiles: input.sessionChangedFiles })
+    }, { sessionId })
     // ProviderEvents owns terminal status and event delivery. Return at launch;
     // the client must not wait on a long compaction RPC.
     void run.done.catch(() => {})

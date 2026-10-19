@@ -71,9 +71,8 @@ export interface AgentRunRequest {
  * It is deliberately separate from AgentRunRequest. */
 export interface AgentRunSessionState {
   /** The Solus session this run belongs to. The backend reads it before
-   *  `startRun` returns, when a resumed turn captures its turn-start snapshot. */
+   *  `startRun` returns, when the turn captures its turn-start snapshot. */
   sessionId: string
-  changedFiles: string[]
   /** The Insights trace of this turn, written onto the turn's git snapshot so
    *  Insights can open the exact change the turn made. */
   turnTraceId?: string
