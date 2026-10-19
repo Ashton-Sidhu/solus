@@ -42,11 +42,10 @@
   } satisfies Record<MergeAction["kind"], ActionRowIcon>;
 
   // The branch's pull request, continued in the same column: the rows above end
-  // at "you have a pull request", these say what to do with it. The first row is
-  // the way into the pull request pane, which owns the conversation, the diff,
-  // and everything else the rail does not repeat; the rest are the rail's own
-  // shortcuts, and the last row is the move the shared readiness model chose —
-  // the same one the pull request page's status card offers.
+  // at "you have a pull request", and that row is the way into the pull
+  // request pane. These say what to do with it: the rail's own shortcuts, and
+  // last the move the shared readiness model chose — the same one the pull
+  // request page's status card offers.
   interface Props {
     pr: PullRequest;
     ctx: IpcContext;
@@ -152,14 +151,10 @@
   // Said in place of the blocker's headline: the host is already waiting on it.
   const armedLabel = $derived(detail ? armedAutoMergeLabel(detail) : null);
 
-  /** Without a tab the pane opens where it was last left, which is what "Open
-   *  pull request" promises; the rows below it name the tab they stand for. */
-  function openPr(tab?: "activity" | "guide") {
-    void session.prReview.openPullRequest(pr, {
-      ctx,
-      serverId,
-      ...(tab ? { tab } : {}),
-    });
+  /** Each row names the tab it stands for; the pull request row above opens
+   *  the pane where it was last left. */
+  function openPr(tab: "activity" | "guide") {
+    void session.prReview.openPullRequest(pr, { ctx, serverId, tab });
     requestInputFocus();
   }
 
@@ -362,12 +357,6 @@
   const rows = $derived.by<ActionRowItem[]>(() => {
     const defs: ActionRowItem[] = [
       {
-        key: "pr-open",
-        label: "Open pull request",
-        icon: GitPullRequestIcon,
-        phase: "idle",
-      },
-      {
         key: "pr-guide",
         label:
           guideRunning || requestingGuide
@@ -411,10 +400,9 @@
   });
 
   function activate(key: string) {
-    if (key === "pr-open") openPr();
     // Nothing to read yet: the click produces the guide instead of opening an
     // empty pane, and the pane follows when it is ready.
-    else if (key === "pr-guide") {
+    if (key === "pr-guide") {
       if (hasGuide || guideRunning) openPr("guide");
       else void generateGuide();
     } else if (key === "pr-checks") openPr("activity");

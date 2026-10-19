@@ -9,7 +9,9 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { Alert, Platform, View, type ViewStyle } from "react-native";
+import { Alert, Platform, View, type LayoutChangeEvent, type ViewStyle } from "react-native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import Animated, {
   FadeIn,
   FadeOut,
@@ -20,6 +22,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { isSessionBusyStatus, isSteerableStatus } from "@solus/contracts/types";
+import { quotedReplyDraft } from "@solus/client-core/quoted-reply";
 
 import { useApp } from "../../app/app-context";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -34,7 +37,7 @@ import {
   ComposerUploadingThumbnail,
 } from "../../components/ComposerAttachmentStrip";
 import { GlassSurface } from "../../components/GlassSurface";
-import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
+import { ComposerEditor, ComposerTextMeasure, type ComposerEditorHandle } from "../../components/ComposerEditor";
 import {
   ComposerActionButton,
   ComposerInlineControl,
@@ -43,7 +46,8 @@ import {
 import { ControlPillMenu } from "../../components/ControlPill";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
-import type { ConversationMeta, ConversationStore } from "../conversation/conversation-store";
+import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
+import type { RootStackParamList } from "../../navigation/routes";
 import type { PickedFile } from "../conversation/lib/attachments";
 import { modelLabel } from "../conversation/lib/run-settings";
 import {
@@ -52,7 +56,14 @@ import {
   type ComposerSendPresentation,
 } from "./composerSendPresentation";
 import { pastedComposerImages, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
-import { ThreadSettingsSheet } from "./ThreadSettingsSheet";
+import {
+  composerUsesCard,
+  measuredDraftText,
+  ONE_ROW_MIN_EDITOR_SHARE,
+  oneRowEditorHeight,
+  oneRowMeasureFrame,
+  oneRowVerdict,
+} from "./composer-layout";
 import { ComposerQueuedEditAttachments } from "./ComposerQueuedEdit";
 import { composerDraftView, useComposerQueuedEdit } from "./use-composer-queued-edit";
 
@@ -248,6 +259,7 @@ export function ComposerSurface(props: {
 
 export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposerProps) {
   const app = useApp();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { store, meta } = props;
   const hostId = store.controller.hostId;
   const openHostFile = useOpenHostFile(store);
@@ -319,39 +331,107 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     deliveryDeferred: !props.connected || meta.queue.entries.length > 0 || meta.queue.held,
   });
   const sendLabel = sendPresentation.label;
-  const isExpanded = isFocused || settingsOpen;
-  const isToolbarVisible = isExpanded;
-  // A collapsed iOS line uses the font's natural line height (about 1.2em),
-  // centered in the 36pt field.
-  const collapsedIosInset =
-    isExpanded || Platform.OS === "android"
-      ? null
-      : Math.max(0, (36 - Math.ceil(bodyText.fontSize * 1.2)) / 2);
+  const isEditing = isFocused || settingsOpen;
+  // While editing, the composer stays the one-row capsule, with the model
+  // control in it, until the draft would not fit on one line there; then it
+  // is the card (composer-layout.ts). A hidden copy of the draft is laid out
+  // at the row's text width; only its verdict is state, so a keystroke that
+  // keeps it costs no render here.
+  const currentModelLabel = modelLabel(meta.run.provider, meta.run.model);
+  const [draftFitsOneRow, setDraftFitsOneRow] = useState(true);
+  // The widths beside the editor in the editing row. Each comes from that
+  // element's own layout event, and neither depends on the composer's width,
+  // so no event pairs widths from two different layouts. The card renders
+  // neither element and leaves them as last measured. The trailing width
+  // belongs to the model label it was measured with: a new label makes it
+  // unknown, and the row shows again to measure it.
+  const [rowLeadingWidth, setRowLeadingWidth] = useState<number | null>(null);
+  const [rowTrailing, setRowTrailing] = useState<{ readonly label: string; readonly width: number } | null>(
+    null,
+  );
+  const rowTrailingWidth = rowTrailing?.label === currentModelLabel ? rowTrailing.width : null;
+  const onRowEditorLayout = useCallback(
+    (event: LayoutChangeEvent) => setRowLeadingWidth(event.nativeEvent.layout.x),
+    [],
+  );
+  const onRowTrailingLayout = useCallback(
+    (event: LayoutChangeEvent) =>
+      setRowTrailing({ label: currentModelLabel, width: event.nativeEvent.layout.width }),
+    [currentModelLabel],
+  );
+  const hasEditingAttachments =
+    queuedAttachments !== null || stripAttachments.length > 0 || stripUploading > 0;
+  const usesCard = composerUsesCard({
+    editing: isEditing,
+    text,
+    hasEditingAttachments,
+    rowMeasured: rowLeadingWidth !== null && rowTrailingWidth !== null,
+    fitsOneRow: draftFitsOneRow,
+  });
+  const isToolbarVisible = usesCard;
+  const measuredDraft = measuredDraftText(text);
+  // A layout of an earlier draft is ignored: the handler compares with the
+  // draft of its own render, which is the committed one when Fabric calls it.
+  const onDraftLines = useCallback(
+    (lines: ReadonlyArray<{ readonly text: string }>) => {
+      const verdict = oneRowVerdict(measuredDraft, lines);
+      if (verdict !== null) setDraftFitsOneRow(verdict);
+    },
+    [measuredDraft],
+  );
+  // The editor's text attributes follow editing, not the card: changing the
+  // line height when a draft wraps could end an IME composition. iOS centers
+  // the row's line with insets; a collapsed line uses the font's natural line
+  // height (about 1.2em).
+  const rowLineHeight =
+    isEditing || Platform.OS === "android" ? bodyText.lineHeight : Math.ceil(bodyText.fontSize * 1.2);
+  const rowEditorHeight = oneRowEditorHeight(rowLineHeight);
+  const rowIosInset =
+    usesCard || Platform.OS === "android" ? null : Math.max(0, (rowEditorHeight - rowLineHeight) / 2);
+  const editorTextStyle = {
+    ...bodyText,
+    // iOS draws the placeholder at the bottom of a tall line box, below the
+    // typed text and the pill's buttons.
+    lineHeight: Platform.OS === "android" || isEditing ? bodyText.lineHeight : undefined,
+    color: foregroundColor,
+  };
   const sendBlockedReason = queuedEdit?.saving
     ? "Saving…"
     : (props.sendBlockedReason ?? (stripUploading > 0 ? "Uploading attachments" : null));
   const canSend = hasContent && sendBlockedReason === null;
-  const currentModelLabel = modelLabel(meta.run.provider, meta.run.model);
+
+  // "Quote in reply" from a message's selection menu, as desktop's context
+  // menu: the quote follows the draft, and the user types their reply below it.
+  useEffect(
+    () =>
+      store.onQuoteInReply((selected) => {
+        const quoted = quotedReplyDraft(selected);
+        if (!quoted) return;
+        const next = text.trim() ? `${text}\n\n${quoted}` : quoted;
+        onChangeText(next);
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+          inputRef.current?.setSelection({ start: next.length, end: next.length });
+        });
+      }),
+    [inputRef, onChangeText, store, text],
+  );
 
   // Keep the feed inset aligned with the card.
   useEffect(() => {
-    onExpandedChange?.(isExpanded);
-  }, [isExpanded, onExpandedChange]);
+    onExpandedChange?.(usesCard);
+  }, [usesCard, onExpandedChange]);
 
   const onEditorFocusChange = props.onEditorFocusChange;
   const handleFocus = useCallback(() => {
     setIsFocused(true);
-    onExpandedChange?.(true);
     onEditorFocusChange?.(true);
-  }, [onEditorFocusChange, onExpandedChange]);
+  }, [onEditorFocusChange]);
 
   const handleBlur = useCallback(() => {
     setIsFocused(false);
-    if (!settingsOpen) {
-      onExpandedChange?.(false);
-    }
     onEditorFocusChange?.(false);
-  }, [onEditorFocusChange, onExpandedChange, settingsOpen]);
+  }, [onEditorFocusChange]);
 
   const handleSend = useCallback(
     async (followUp?: ActiveTurnComposerAction) => {
@@ -398,15 +478,24 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const onPickDraftFiles = useCallback(() => attach(pickComposerFiles), [attach]);
   const onPasteDraftImages = useCallback((uris: string[]) => void attach(pastedComposerImages(uris)), [attach]);
 
+  // The settings are T3's root form-sheet route over this thread. The thread
+  // regains focus when the sheet is dismissed, by Done, Cancel, or a swipe.
+  const settingsPresentedRef = useRef(false);
   const openSettings = useCallback(() => {
     inputRef.current?.blur();
+    settingsPresentedRef.current = true;
     setSettingsOpen(true);
-  }, [inputRef]);
-  const closeSettings = useCallback(() => {
-    setSettingsOpen(false);
-    // Typing is the natural next step after choosing how the next prompt runs.
-    setTimeout(() => inputRef.current?.focus(), 100);
-  }, [inputRef]);
+    navigation.navigate("ThreadSettings", { hostId, conversationId: conversationIdOf(store) });
+  }, [hostId, inputRef, navigation, store]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!settingsPresentedRef.current) return;
+      settingsPresentedRef.current = false;
+      setSettingsOpen(false);
+      // Typing is the natural next step after choosing how the next prompt runs.
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }, [inputRef]),
+  );
 
   // A hardware Return sends while the composer has focus; Command-Return
   // sends from anywhere; Command-L focuses the composer.
@@ -421,8 +510,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     <Animated.View
       className="px-[12px]"
       style={{
-        paddingTop: isExpanded ? 8 : 6,
-        paddingBottom: (props.bottomInset ?? 0) + (isExpanded ? 8 : 6),
+        paddingTop: usesCard ? 8 : 6,
+        paddingBottom: (props.bottomInset ?? 0) + (usesCard ? 8 : 6),
         backgroundColor:
           Platform.OS === "android" ? themeColorWithAlpha(composerPanel, 1) : undefined,
       }}
@@ -441,9 +530,17 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         className="relative w-full self-center"
         style={{ maxWidth: props.contentMaxWidth }}
       >
+        {isEditing && rowLeadingWidth !== null && rowTrailingWidth !== null ? (
+          <ComposerTextMeasure
+            text={measuredDraft}
+            textStyle={editorTextStyle}
+            frameStyle={oneRowMeasureFrame({ leading: rowLeadingWidth, trailing: rowTrailingWidth })}
+            onLines={onDraftLines}
+          />
+        ) : null}
         <ComposerSurface
           style={
-            isExpanded
+            usesCard
               ? {
                   borderRadius: 26,
                   minHeight: 140,
@@ -462,10 +559,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         >
           <Animated.View
             collapsable={false}
-            className={isExpanded ? undefined : "flex-row items-center"}
+            className={usesCard ? undefined : "flex-row items-center"}
             layout={COMPOSER_LAYOUT_TRANSITION}
           >
-            {!isExpanded ? (
+            {!usesCard ? (
               <ComposerAttachmentButton
                 disabled={attachmentsFull}
                 supportsFiles
@@ -473,7 +570,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 onPickFiles={onPickDraftFiles}
               />
             ) : null}
-            {isExpanded && queuedAttachments !== null ? (
+            {usesCard && queuedAttachments !== null ? (
               <Animated.View
                 className="px-[14px] pb-2.5"
                 entering={COMPOSER_ATTACHMENT_ENTERING}
@@ -486,7 +583,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 />
               </Animated.View>
             ) : null}
-            {isExpanded && (stripAttachments.length > 0 || stripUploading > 0) ? (
+            {usesCard && (stripAttachments.length > 0 || stripUploading > 0) ? (
               <Animated.View
                 className="px-[14px] pb-2.5"
                 entering={COMPOSER_ATTACHMENT_ENTERING}
@@ -501,8 +598,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               </Animated.View>
             ) : null}
             <Animated.View
-              className={isExpanded ? "px-[14px]" : "min-w-0 flex-1 px-[4px]"}
+              className={usesCard ? "px-[14px]" : "min-w-0 flex-1 px-[4px]"}
+              // The model control truncates before the draft gives up its share of the row.
+              style={usesCard || !isEditing ? undefined : { minWidth: ONE_ROW_MIN_EDITOR_SHARE }}
               layout={COMPOSER_LAYOUT_TRANSITION}
+              // Its x is the attach button's width; the card has no attach button before it.
+              onLayout={usesCard ? undefined : onRowEditorLayout}
             >
               <ComposerEditor
                 ref={inputRef}
@@ -513,33 +614,26 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 onFocus={handleFocus}
                 onBlur={handleBlur}
                 onPasteImages={onPasteDraftImages}
-                scrollEnabled={isExpanded}
-                // Android: a collapsed single line centers natively in a
-                // pill-height box matching the send button; iOS centers it
-                // with insets.
-                singleLineCentered={!isExpanded}
-                contentInsetVertical={collapsedIosInset ?? 0}
+                scrollEnabled={isEditing}
+                // Android: a one-row line centers natively in a pill-height
+                // box matching the send button; iOS centers it with insets.
+                singleLineCentered={!usesCard}
+                contentInsetVertical={rowIosInset ?? 0}
                 style={
-                  isExpanded
+                  usesCard
                     ? {
                         minHeight: 72,
                         maxHeight: 160,
                         paddingVertical: 4,
                       }
                     : {
-                        height: 36,
+                        height: rowEditorHeight,
                       }
                 }
-                textStyle={{
-                  ...bodyText,
-                  // iOS draws the placeholder at the bottom of a tall line
-                  // box, below the typed text and the pill's buttons.
-                  lineHeight: collapsedIosInset === null ? bodyText.lineHeight : undefined,
-                  color: foregroundColor,
-                }}
+                textStyle={editorTextStyle}
               />
             </Animated.View>
-            {!isExpanded && (stripAttachments.length > 0 || stripUploading > 0) ? (
+            {!usesCard && (stripAttachments.length > 0 || stripUploading > 0) ? (
               <View className="flex-row gap-1 pl-1">
                 {stripAttachments.slice(0, 3).map((attachment) => (
                   <ComposerAttachmentThumbnail
@@ -562,8 +656,22 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 ) : null}
               </View>
             ) : null}
-            {!isExpanded ? (
-              <View className="flex-row items-center">
+            {!usesCard ? (
+              <View
+                className="min-w-0 shrink flex-row items-center"
+                // Measured only while editing: the model control is in the row then.
+                onLayout={isEditing ? onRowTrailingLayout : undefined}
+              >
+                {isEditing ? (
+                  <View className="min-w-0 shrink">
+                    <ComposerInlineControl
+                      accessibilityLabel="Model and reasoning settings"
+                      emphasized
+                      label={currentModelLabel}
+                      onPress={openSettings}
+                    />
+                  </View>
+                ) : null}
                 {showStopAction ? (
                   <ComposerActionButton
                     accessibilityLabel="Stop agent"
@@ -581,7 +689,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 )}
               </View>
             ) : null}
-            {isExpanded ? <View className="h-1" /> : null}
+            {usesCard ? <View className="h-1" /> : null}
           </Animated.View>
           <Animated.View
             accessibilityElementsHidden={!isToolbarVisible}
@@ -590,7 +698,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             layout={COMPOSER_LAYOUT_TRANSITION}
             pointerEvents={isToolbarVisible ? "auto" : "none"}
             style={
-              isExpanded
+              usesCard
                 ? undefined
                 : {
                     position: "absolute",
@@ -650,13 +758,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           </Animated.View>
         </ComposerSurface>
       </Animated.View>
-
-      <ThreadSettingsSheet
-        visible={settingsOpen}
-        onClose={closeSettings}
-        store={store}
-        meta={meta}
-      />
     </Animated.View>
   );
 });

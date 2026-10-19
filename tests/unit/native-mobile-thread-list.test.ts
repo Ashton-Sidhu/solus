@@ -154,7 +154,7 @@ describe('thread list partition', () => {
     const searched = build('login')
     expect(searched.items.map((item) => [item.thread.record.sessionId, item.archived === true])).toEqual([['kept', false], ['idle', false], ['gone', true], ['old', true]])
     expect(searched).toMatchObject({ archivedCount: 2, archivedHeaderIndex: 2 })
-    const rows = buildThreadListV2ListItems({ ...searched, facts: state, now: NOW })
+    const rows = buildThreadListV2ListItems({ ...searched, facts: state })
     expect(rows.map((item) => item.type)).toEqual(['v2-thread', 'v2-thread', 'v2-archived-section', 'v2-thread', 'v2-thread'])
   })
 
@@ -194,12 +194,12 @@ describe('thread list rows', () => {
     const settled = shell('h', 's')
     const state = facts({ states: { [settled.key]: { settledAt: NOW } }, live: { [a.key]: 'awaiting_input' } })
     const layout = buildThreadListV2Items({ threads: [a, b, settled], facts: state, hostId: null, searchQuery: '', now: NOW })
-    const items = buildThreadListV2ListItems({ ...layout, items: layout.items, facts: state, now: NOW })
+    const items = buildThreadListV2ListItems({ ...layout, items: layout.items, facts: state })
     expect(items.map((item) => item.type)).toEqual(['v2-thread', 'v2-thread', 'v2-settled-shelf', 'v2-thread'])
     expect(items.map((item) => item.type === 'v2-thread' && item.showTrailingDivider)).toEqual([true, false, false, false])
     const first = items[0]!
     // A blocked thread may not be snoozed, and its status label replaces the time.
-    expect(first.type === 'v2-thread' && [first.status, first.snoozePresetMinute, first.timeLabel]).toEqual(['input', undefined, ''])
+    expect(first.type === 'v2-thread' && [first.status, first.snoozable, first.timeLabelAt]).toEqual(['input', false, null])
   })
 
   test('a reload with the same facts does not re-render a row; a status change does', () => {
@@ -208,7 +208,7 @@ describe('thread list rows', () => {
     const build = (thread: SolusThreadShell, live: Record<string, SessionStatus> = {}) => {
       const state = facts({ live })
       const layout = buildThreadListV2Items({ threads: [thread], facts: state, hostId: null, searchQuery: '', now: NOW })
-      return buildThreadListV2ListItems({ items: layout.items, facts: state, now: NOW })[0]!
+      return buildThreadListV2ListItems({ items: layout.items, facts: state })[0]!
     }
     expect(threadListV2ListItemsAreEqual(build(before), build(after))).toBe(true)
     expect(threadListV2ListItemsAreEqual(build(before), build(after, { [after.key]: 'running' }))).toBe(false)
@@ -398,6 +398,20 @@ describe('thread list state', () => {
     expect(host.calls).toEqual([])
   })
 
+  test('settle moves the row before the host answers, and a refusal puts it back', async () => {
+    // WHY: the host may be an organization's Solus API a round trip away; the
+    // row must not wait for it.
+    const host = fakeConnection()
+    let refuse = (_error: Error) => {}
+    host.connection.api.sessionUpdate = () => new Promise((_resolve, reject) => { refuse = reject })
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    const settling = list.setSettled('h', 's1', true)
+    expect(list.facts().states.get(threadKey('h', 's1'))?.settledBy).toBe('person')
+    refuse(new Error('refused'))
+    await expect(settling).rejects.toThrow('refused')
+    expect(list.facts().states.get(threadKey('h', 's1'))).toBeUndefined()
+  })
+
   test('settle changes the shared state; archive and snooze change only this person\'s view', async () => {
     // WHY: settled is the same for every person; archive and snooze are each
     // person's own (docs/plans/session-archive.md).
@@ -460,9 +474,9 @@ describe('thread list state', () => {
   test('unread changes invalidate only the session row that changed', () => {
     const thread = shell('h', 's1')
     const state = facts()
-    const build = () => buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false, isLast: true }], facts: state, now: NOW })
+    const build = () => buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false, isLast: true }], facts: state })
     const read = build()
-    const unread = buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false, isLast: true }], facts: { ...state, unread: new Map([[thread.key, true]]) }, now: NOW })
+    const unread = buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false, isLast: true }], facts: { ...state, unread: new Map([[thread.key, true]]) } })
     expect(threadListV2ListItemsAreEqual(read[0]!, unread[0]!)).toBe(false)
     expect(threadListV2ListItemsAreEqual(read[0]!, build()[0]!)).toBe(true)
   })

@@ -7,7 +7,7 @@
    * go together. A long list shows a page, then "Show more".
    */
   import { onDestroy, tick } from "svelte";
-  import { ExternalLink, LoaderCircle, Plus } from "@lucide/svelte";
+  import { ExternalLink, LoaderCircle, Package, PenLine, Plus, Trash2 } from "@lucide/svelte";
   import { agentProfileKeyOf, type AgentProfileKey } from "@solus/contracts/agent-profile";
   import type { RemoteSkill } from "@solus/contracts/types";
   import { localApi } from "@solus/client-core/local-api";
@@ -17,8 +17,8 @@
   import { Button } from "../../ui/button";
   import { SearchField } from "../../ui/search-field";
   import SettingsSection from "../SettingsSection.svelte";
-  import SettingsRow from "../SettingsRow.svelte";
   import { SkillSearch } from "../skills.store.svelte";
+  import ProfileEntryRow from "./ProfileEntryRow.svelte";
   import ShowMoreRow from "./ShowMoreRow.svelte";
   import { pageOf, providerLabel, skillEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
 
@@ -86,10 +86,22 @@
   }
 </script>
 
+{#snippet tile(kind: "registry" | "written")}
+  <span class="grid size-8 shrink-0 place-items-center rounded-lg border border-border/50 bg-muted text-(--solus-text-secondary)" aria-hidden="true">
+    {#if kind === "registry"}<Package size={15} />{:else}<PenLine size={15} />{/if}
+  </span>
+{/snippet}
+
+{#snippet removeButton(name: string, keys: AgentProfileKey[])}
+  <Button variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-destructive pointer-coarse:size-11" onclick={() => remove(...keys)} aria-label="Remove {name}" title="Remove">
+    <Trash2 size={14} />
+  </Button>
+{/snippet}
+
 {#if isAdding}
   <SettingsSection label="Add from skills.sh" description="A reference the hosts install for you; the files stay in the registry.">
     {#snippet action()}
-      <Button variant="ghost" size="sm" class="[@media(pointer:coarse)]:min-h-11" onclick={closeAdd}>Done</Button>
+      <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={closeAdd}>Done</Button>
     {/snippet}
     <div class="flex items-center">
       <SearchField bind:ref={searchEl} bind:value={() => query, setQuery} placeholder="Search skills.sh…"
@@ -111,51 +123,50 @@
       <p class="p-8 text-center text-workspace-chrome text-muted-foreground">No skills found for “{query.trim()}”.</p>
     {:else}
       {#each search.results as skill (skill.id)}
-        <SettingsRow label={skill.name} description={skill.repo} testId="agent-profile-skill-result">
-          {#snippet labelExtra()}
-            <a href={skill.url} onclick={(event) => { event.preventDefault(); localApi.openExternal(skill.url); }}
-              class="ml-1.5 inline-flex align-middle text-muted-foreground hover:text-foreground" aria-label="Open {skill.name} on skills.sh">
+        <ProfileEntryRow label={skill.name} detail={skill.repo} testId="agent-profile-skill-result">
+          {#snippet mark()}{@render tile("registry")}{/snippet}
+          {#snippet action()}
+            <Button variant="ghost" size="icon-sm" class="text-muted-foreground pointer-coarse:size-11" onclick={() => localApi.openExternal(skill.url)} aria-label="Open {skill.name} on skills.sh" title="Open on skills.sh">
               <ExternalLink size={14} />
-            </a>
-          {/snippet}
-          {#snippet control()}
+            </Button>
             {#if inProfile.has(skill.name)}
-              <span class="text-workspace-chrome text-(--solus-accent)">In your profile</span>
+              <span class="flex h-7 items-center rounded-[min(var(--radius-md),12px)] bg-muted px-2.5 text-workspace-chrome text-foreground pointer-coarse:min-h-11">Added</span>
             {:else}
-              <Button variant="outline" size="sm" class="[@media(pointer:coarse)]:min-h-11" onclick={() => add(skill)}><Plus size={14} />Add</Button>
+              <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" onclick={() => add(skill)} aria-label="Add {skill.name}"><Plus size={14} />Add</Button>
             {/if}
           {/snippet}
-        </SettingsRow>
+        </ProfileEntryRow>
       {/each}
     {/if}
   </SettingsSection>
 {:else}
   <SettingsSection label={skillCount > 0 ? `Skills · ${skillCount}` : "Skills"} description="Installed for you on every host the profile reaches.">
     {#snippet action()}
-      <Button variant="outline" size="sm" class="[@media(pointer:coarse)]:min-h-11" onclick={() => void openAdd()}><Plus size={14} />Add from skills.sh</Button>
+      <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" onclick={() => void openAdd()}><Plus size={14} />Add from skills.sh</Button>
     {/snippet}
     {#if skillCount === 0}
-      <p class="p-8 text-center text-workspace-chrome text-muted-foreground">No skills in your profile yet.</p>
+      <div class="flex flex-col items-center gap-1 p-8 text-center">
+        <p class="text-workspace-chrome text-foreground">No skills in your profile yet</p>
+        <p class="text-chrome-dense text-muted-foreground">Add one from skills.sh. It is installed on every host you work on.</p>
+      </div>
     {/if}
     {#each page.rows as row (row.skill.name)}
       {#if row.kind === "registry"}
         {@const skill = row.skill}
-        <SettingsRow label={skill.name} description="From skills.sh · {skill.source}" testId="agent-profile-registry-skill">
-          {#snippet control()}
-            <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(agentProfileKeyOf(skill))} aria-label="Remove {skill.name}">Remove</Button>
-          {/snippet}
-        </SettingsRow>
+        <ProfileEntryRow label={skill.name} detail="skills.sh · {skill.source}" testId="agent-profile-registry-skill">
+          {#snippet mark()}{@render tile("registry")}{/snippet}
+          {#snippet action()}{@render removeButton(skill.name, [agentProfileKeyOf(skill)])}{/snippet}
+        </ProfileEntryRow>
       {:else}
         {@const skill = row.skill}
-        <SettingsRow
+        <ProfileEntryRow
           label={skill.name}
-          description="Hand-written · {skill.fileCount} {skill.fileCount === 1 ? 'file' : 'files'} · {skill.providers.map(providerLabel).join(', ')}"
+          detail="Hand-written · {skill.fileCount} {skill.fileCount === 1 ? 'file' : 'files'} · {skill.providers.map(providerLabel).join(', ')}"
           testId="agent-profile-written-skill"
         >
-          {#snippet control()}
-            <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(...skill.keys)} aria-label="Remove {skill.name}">Remove</Button>
-          {/snippet}
-        </SettingsRow>
+          {#snippet mark()}{@render tile("written")}{/snippet}
+          {#snippet action()}{@render removeButton(skill.name, skill.keys)}{/snippet}
+        </ProfileEntryRow>
       {/if}
     {/each}
     <ShowMoreRow hiddenCount={page.hiddenCount} {expanded} noun="skills" onToggle={toggleExpanded} />

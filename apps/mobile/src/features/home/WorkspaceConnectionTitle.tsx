@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/home/WorkspaceConnectionTitle.tsx (MIT, see UPSTREAM.md).
 import type { NativeStackNavigationOptions } from "@react-navigation/native-stack";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Animated, Platform, Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
@@ -58,7 +58,7 @@ function StatusFadeIn(props: {
   readonly grow?: boolean;
   readonly maxWidth?: number;
 }) {
-  const opacity = useRef(new Animated.Value(0)).current;
+  const [opacity] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     const animation = Animated.timing(opacity, {

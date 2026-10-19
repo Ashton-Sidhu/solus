@@ -13,6 +13,8 @@ const page = <T extends z.ZodType>(item: T) => z.strictObject({
 
 export const solusApiScopeSchema = z.enum(['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'sessions:admit', 'insights:read', 'profile:read', 'integrations:read', 'integrations:write'])
 export type SolusApiScope = z.infer<typeof solusApiScopeSchema>
+/** What a person's client may do: over its socket, and in the credential it exchanges over HTTP. */
+export const CLIENT_SOLUS_API_SCOPES: SolusApiScope[] = ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'insights:read']
 
 export const workspaceIdSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/)
 export type WorkspaceId = z.infer<typeof workspaceIdSchema>
@@ -84,7 +86,7 @@ export const workspaceAuthSessionSchema = z.strictObject({
   scopes: z.array(solusApiScopeSchema).max(solusApiScopeSchema.options.length).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
   home: workspaceRecordHomeSchema,
   subject: workspaceActorSchema,
-}).meta({ description: 'Verified source authority fixes the actor and home in this credential. At most five minutes and never beyond source expiry. Renewal requires source authority; this bearer cannot renew itself. Keep credentials out of URLs, logs and artifacts.' })
+}).meta({ description: 'Verified source authority fixes the actor and home in this credential. At most eight hours and never beyond source expiry. Renewal requires source authority; this bearer cannot renew itself. Keep credentials out of URLs, logs and artifacts.' })
 export type WorkspaceAuthSession = z.infer<typeof workspaceAuthSessionSchema>
 
 export const workspaceCapabilitiesSchema = z.strictObject({
@@ -359,6 +361,12 @@ export const workspaceUpdateSessionSchema = z.strictObject({
   snoozeNote: z.string().max(1000).optional(),
 })
 export type WorkspaceUpdateSession = z.infer<typeof workspaceUpdateSessionSchema>
+/** What a change to a session left: no more than the change touched. */
+export const workspaceSessionChangedSchema = z.strictObject({
+  state: workspaceSessionStateSchema.optional().meta({ description: 'The state it leaves, when the change settled the session or made it active again.' }),
+  view: workspaceSessionViewSchema.optional().meta({ description: "The caller's view it leaves, when the change archived, returned, or snoozed the session." }),
+})
+export type WorkspaceSessionChanged = z.infer<typeof workspaceSessionChangedSchema>
 
 export const workspaceSessionSchema = z.strictObject({
   ...record,

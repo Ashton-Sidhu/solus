@@ -4,6 +4,7 @@ import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from '@solus/contracts/session-state'
 import type { SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
+import type { SolusAPI } from '@solus/contracts/host-api'
 import { SessionListStore } from '@solus/workspace-ui/contexts/workspace/session-list.store.svelte'
 import { sessionPullRequestsStore } from '@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte'
 
@@ -17,14 +18,14 @@ const record = (sessionId: string, fields: Partial<SessionRecord> = {}) =>
 
 interface FakeHome { records: SessionRecord[]; events: HostEventSubscriber; lists: Array<SessionRecordListFilter | undefined>; viewWrites: string[] }
 
-function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<string, string> = {}) {
+function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<string, string> = {}, update?: SolusAPI['sessionUpdate']) {
   const fakes = new Map<string, FakeHome>(Object.entries(homes).map(([serverId, records]) => [serverId, { records, events: new HostEventSubscriber(), lists: [], viewWrites: [] }]))
   const apis = new Map([...fakes].map(([serverId, home]) => [serverId, asHostApi({
     sessionRecordList: async (filter) => { home.lists.push(filter); return { records: home.records, indexing: false } },
-    sessionUpdate: async (sessionId, change) => {
+    sessionUpdate: update ?? (async (sessionId, change) => {
       home.viewWrites.push(sessionId)
       return { state: UNSETTLED_SESSION_STATE, view: change.archived ? { ...EMPTY_SESSION_VIEW, archivedAt: 5 } : EMPTY_SESSION_VIEW }
-    },
+    }),
   })]))
   const api = spyOn(serverConnections, 'apiFor').mockImplementation((serverId: string) => apis.get(serverId)!)
   const events = spyOn(serverConnections, 'eventsFor').mockImplementation((serverId: string) => fakes.get(serverId)!.events)
@@ -66,6 +67,21 @@ test('a shared settle and a personal archive each move one session, and nothing 
   } finally { restore() }
 })
 
+test('settle moves the session before its home answers, and a refusal puts it back', async () => {
+  // WHY: the home may be an organization's Solus API a round trip away; the row
+  // must not wait for it.
+  let refuse = (_error: Error) => {}
+  const { store, restore } = fakeHomes({ host: [record('one')] }, {}, () => new Promise((_resolve, reject) => { refuse = reject }))
+  try {
+    await store.load()
+    const settling = store.setSettled({ serverId: 'host', sessionId: 'one' }, true)
+    expect(store.stateFor('one')).toMatchObject({ settledBy: 'person' })
+    refuse(new Error('refused'))
+    await expect(settling).rejects.toThrow('refused')
+    expect(store.stateFor('one')).toBeNull()
+  } finally { restore() }
+})
+
 test('archive leaves the list at once, at the session home', async () => {
   const { store, fakes, restore } = fakeHomes({ host: [record('one')] })
   try {
@@ -84,10 +100,10 @@ test('the Solus API keeps an organization session; it opens on its machine, and 
   const link = { sessionId: 'on-runner', repository: 'github.com/acme/web', number: 1, url: 'https://github.com/acme/web/pull/1', title: 'One', source: 'manual' as const, linkedAt: 1 }
   const { store, fakes, announce, restore } = fakeHomes({
     'workspace:org-1': [
-      record('on-runner', { organizationId: 'org-1', runnerHostId: 'vm-on', view: snoozed, pullRequests: [link] }),
-      record('runner-gone', { organizationId: 'org-1', runnerHostId: 'vm-off' }),
+      record('on-runner', { organizationId: 'org-1', publication: 'published', runnerHostId: 'vm-on', view: snoozed, pullRequests: [link] }),
+      record('runner-gone', { organizationId: 'org-1', publication: 'published', runnerHostId: 'vm-off' }),
     ],
-    runner: [record('on-runner', { organizationId: 'org-1' }), record('local-only')],
+    runner: [record('on-runner', { organizationId: 'org-1', publication: 'published' }), record('local-only')],
   }, { 'vm-on': 'runner' })
   try {
     await store.load()
@@ -104,5 +120,37 @@ test('the Solus API keeps an organization session; it opens on its machine, and 
     await store.setArchived({ serverId: 'runner', sessionId: 'on-runner' }, true)
     expect(fakes.get('workspace:org-1')!.viewWrites).toEqual(['on-runner'])
     expect(fakes.get('runner')!.viewWrites).toEqual([])
+  } finally { restore() }
+})
+
+test('an organization session that is not published keeps its machine as home, and its snooze stays', async () => {
+  // WHY: a session belongs to the window's organization for its Insights alone
+  // while its record stays on the machine; the Solus API never lists it. Its
+  // snooze once went to the machine but was read from the Solus API, so it
+  // came back active on every reload.
+  const { store, fakes, restore } = fakeHomes({
+    'workspace:org-1': [],
+    runner: [record('insights-only', { organizationId: 'org-1', publication: 'local', view: snoozed })],
+  })
+  try {
+    await store.load()
+    expect(store.listed('insights-only')).toMatchObject({ serverId: 'runner', homeServerId: 'runner' })
+    expect(store.stateFor('insights-only')?.snoozedUntil).toBe(100)
+
+    await store.snooze({ serverId: 'runner', sessionId: 'insights-only', organizationId: 'org-1' }, 200)
+    expect(fakes.get('runner')!.viewWrites).toEqual(['insights-only'])
+    expect(fakes.get('workspace:org-1')!.viewWrites).toEqual([])
+
+    await store.load()
+    expect(store.stateFor('insights-only')?.snoozedUntil).toBe(100)
+  } finally { restore() }
+})
+
+test('a session no list names finds its home from its organization and publication', async () => {
+  const { store, restore } = fakeHomes({ 'workspace:org-1': [], runner: [] })
+  try {
+    expect(store.homeFor({ serverId: 'runner', sessionId: 'a', organizationId: 'org-1', publication: 'published' })).toBe('workspace:org-1')
+    expect(store.homeFor({ serverId: 'runner', sessionId: 'b', organizationId: 'org-1', publication: 'local' })).toBe('runner')
+    expect(store.homeFor({ serverId: 'runner', sessionId: 'c', organizationId: 'org-1' })).toBe('runner')
   } finally { restore() }
 })

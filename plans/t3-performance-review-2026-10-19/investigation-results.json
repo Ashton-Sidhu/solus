@@ -1,0 +1,572 @@
+[
+  {
+    "number": 20149,
+    "disposition": "covered",
+    "finding": "The iPad Chats sidebar already has a continuous drawer-colored parent. The native primary-column wrapper paints bg-drawer across its full area. WorkspaceTabsFrame adds top inset and tabs without a screen-colored background, and Home sets drawer content color plus the drawer header color on non-glass iOS. The upstream one-line background fix has no missing equivalent in this path. PR-list content deliberately uses its own screen surface; this is not proof of the original Chats header seam.",
+    "evidence": [
+      "apps/mobile/src/native/NativeColumnContent.ios.tsx:18",
+      "apps/mobile/src/features/layout/createWorkspaceStackNavigator.ios.tsx:88",
+      "apps/mobile/src/features/workspace/WorkspaceTabsFrame.tsx:33",
+      "apps/mobile/src/features/home/HomeRouteScreen.tsx:250",
+      "apps/mobile/src/features/home/HomeScreen.tsx:594"
+    ],
+    "proof": "Read the upstream patch and followed the current column -> Home -> frame -> list hierarchy. The source proves the backing colors agree for the Chats sidebar. No screen was opened and no physical-device or simulator check was run. Existing workspace-stack tests concern route state, not colors.",
+    "next_step": "No source change for the initial batch. At the next approved visual pass, check iPad light/dark mode with the sidebar at rest and scrolled, switch Chats/PRs, and resize between full width and split width. Check supported pre-glass and glass iPadOS versions because UIKit material cannot be proved from source. If a seam remains, capture its actual native layer before changing colors. Keep desktop/web wide layout unchanged.",
+    "effort": "None now; S for a visual check.",
+    "risk": "LOW: no implementation recommended. Blindly painting every workspace surface drawer-colored could change the intentional PR-list surface.",
+    "confidence": "high"
+  },
+  {
+    "number": 20292,
+    "disposition": "ready",
+    "finding": "Add a transform-output coverage guard for native mobile before enabling the compiler. The current config performs no React compilation; an enabled probe has real skips. Do not add a blanket no-manual-memo rule.",
+    "evidence": [
+      "apps/mobile/babel.config.js:3",
+      "node_modules/babel-preset-expo/build/common.js:187",
+      "node_modules/@expo/cli/build/src/start/server/metro/MetroBundlerDevServer.js:871",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/expo-transformer-probe-results.json"
+    ],
+    "proof": "117 local files, 234 serial Babel/Expo-preset transforms: current caller has zero compiler events; enabled caller compiles 232 functions and skips 31 distinct functions with 76 diagnostics. Zero transform crashes. Preset58.0.12, compiler1.0.0, Babel7.29.0. A separate direct installed Expo Metro Babel-transformer smoke on SourceFileSurface, with actual local Babel config, emits0 memo-cache calls with the compiler flag false and2 with true.",
+    "next_step": "Use the installed Expo preset in a focused diagnostic check. Record function-level baseline failures and fail on new failures or dropped successes. Enable expo.experiments.reactCompiler only within the staged mobile project; retain existing memos until the relevant function compiles and resource lifetime is verified. Confirm release graph integration and behavior on both native device platforms before release; the direct Expo transformer smoke is already proved.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 20327,
+    "disposition": "decision",
+    "finding": "This is a native iOS control migration, not a proved Solus bug or performance fix. Solus iOS uses an animated capsule with per-option labels, selected state and reduced-motion handling; Android already uses native Material segmented buttons. T3 adds UISegmentedControl through its own Expo module and reports an unresolved selected-text contrast issue during glass dragging. Its adapter also does not carry all Solus props, including per-option accessibility labels and the PR tab indicator theme. A direct copy would change the local control contract.",
+    "evidence": [
+      "apps/mobile/src/components/SegmentedControl.tsx:10",
+      "apps/mobile/src/components/SegmentedControl.tsx:26",
+      "apps/mobile/src/components/SegmentedControl.tsx:48",
+      "apps/mobile/src/components/SegmentedControl.types.ts:1",
+      "apps/mobile/src/components/MaterialSegmentedControl.android.tsx:8",
+      "apps/mobile/src/features/prs/PullRequestScreen.tsx:273"
+    ],
+    "proof": "Read both upstream Swift and React adapters and current Solus control, props and PR caller. The current implementation provides explicit accessibility state; this does not prove its VoiceOver behavior. No tap/drag/accessibility test or native build was run. No measured Solus render cost supports a migration.",
+    "next_step": "Recommended default: keep the current control during the performance batch. If native drag behavior is wanted, make that a separate iOS product choice and implement an adapter that preserves labels, selected state, compact sizing and theme overrides. Before adoption, check physical iPhone/iPad taps and drag selection, VoiceOver, largest supported text size, all shipped light/dark themes, reduced motion, dynamic option changes and external selection updates. Confirm Android behavior remains equivalent without porting UIKit code. Desktop/web keeps its own control.",
+    "effort": "M to L for the native adapter, packaging and device verification.",
+    "risk": "MED: native packaging, selection events, theme contrast and accessibility could regress; upstream has a known drag-contrast limitation.",
+    "confidence": "high"
+  },
+  {
+    "number": 20379,
+    "disposition": "reject",
+    "finding": "Do not port the T3 web ChatView implementation into Solus. The native diagnostic pilot is now complete and supplies a baseline for #20967/#20292; this PR adds no separate implementation task.",
+    "evidence": [
+      "apps/mobile/babel.config.js:3",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json"
+    ],
+    "proof": "Current app.json has no reactCompiler experiment. Installed Expo CLI converts its absence to false; the preset returns no compiler plugin. Enabling the reconstructed caller in memory produces232 successes/31 skipped functions across117 files.",
+    "next_step": "Use this baseline in the single staged native compiler project (#20967/#20292). No separate ChatView port. Transform success does not establish a latency benefit.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 20384,
+    "disposition": "defer",
+    "finding": "The Android fingerprint bug is present locally, but no current Solus OTA/fingerprint release workflow uses it. Fix and guard it before adopting fingerprint-based native compatibility.",
+    "evidence": [
+      "node_modules/@expo/fingerprint/build/sourcer/Expo.js:371",
+      "node_modules/expo-widgets/expo-module.config.json:9",
+      "apps/mobile/package.json:57",
+      "apps/mobile/app.json:120",
+      "plans/t3-performance-review-2026-10-19/fingerprint-probe-results.json"
+    ],
+    "proof": "Installed fingerprint0.21.4 resolves33 Expo modules but returns0 Android sources. expo-widgets declares a Maven plugin with no sourceDir. A sourceDir guard applied only in probe memory returns35 sources, including34 native directories. The repo has no eas.json, expo-updates dependency, runtimeVersion, or mobile EAS workflow in the inspected app/workflow files.",
+    "next_step": "When adding native fingerprint/OTA release policy, use a fixed Expo version or a narrow dependency patch and reject a zero-native-source result before publishing. Test Android native input hash changes and iOS stability then. No current runtime performance change.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 20392,
+    "disposition": "ready",
+    "finding": "Equal ready host facts replace both the fact wrapper and data and notify same-key readers. The issue is within one fact key; desktop/web already partition subscriptions by key.",
+    "evidence": [
+      "packages/client-core/src/host-facts.ts:149",
+      "packages/client-core/src/host-facts.ts:250",
+      "packages/workspace-ui/src/contexts/hosts/host.svelte.ts:43"
+    ],
+    "proof": "Isolated production-class probe: two equal usage reads produce two notifications and distinct equal wrappers. Existing HostFacts tests pass.",
+    "next_step": "In the single HostFacts write boundary, retain equal bounded DTO values and their ready wrapper. Preserve readAt updates, errors, loading, capability revocation, changed fields, and stale-generation guards. Add identity/notification tests. Measure desktop, web and native consumers before claiming a frame-rate gain.",
+    "effort": "M",
+    "risk": "medium",
+    "confidence": "high"
+  },
+  {
+    "number": 20396,
+    "disposition": "reject",
+    "finding": "Do not port the T3 web Sidebar compiler rewrite. The native Sidebar has specific measured failures and is addressed by the direct mobile change #21145.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx:225",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "Native Sidebar outer wrapper and container compile; SidebarPane skips on render-time reset-key ref access at226\u2013227. An in-memory state-reset rewrite exposes four subsequent manual-cache preservation diagnostics.",
+    "next_step": "Apply the native Sidebar work under #21145 with clock and interaction checks. A separate web Sidebar migration would duplicate work and use the wrong framework.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 20397,
+    "disposition": "reject",
+    "finding": "Do not port the T3 web ChatComposer rewrite. The native ThreadComposer has a smaller local send-cleanup blocker and is addressed by #21142.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:388",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "Native SendActionButton and ComposerSurface compile. ThreadComposer skips on try/finally in handleSend. An in-memory promise-finalization rewrite exposes a second ref-inference diagnostic at composerDraftView line307.",
+    "next_step": "Use the exact native compiler diagnostics in #21142. Keep send locking, draft persistence and queued-edit behavior; no separate web composer migration.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 20440,
+    "disposition": "decision",
+    "finding": "The missing bare-repository guard is real, but the review did not establish an unintended command execution or option-injection path. A harmless fixture confirms that Git reads configuration from an implicitly discovered bare folder and that safe.bareRepository=explicit blocks that discovery. The suspected gitCommitExists argument comes from stored commit checkpoints or provider base SHAs, not a free-form branch entry; the checkout RPC checks membership in listBranches before invoking Git. Treat the guard as an explicit hardening decision, not a confirmed exploit or performance fix.",
+    "evidence": [
+      "packages/server/src/git/exec.ts:19",
+      "packages/server/src/git/exec.ts:65",
+      "packages/server/src/git/git-helpers.ts:236",
+      "packages/server/src/transport/handlers/worktree-handlers.ts:257",
+      "packages/server/src/git/interdiff.ts:289",
+      "packages/server/src/review/review-context.ts:96",
+      "packages/server/src/git/worktree-manager.ts:701"
+    ],
+    "proof": [
+      "python3 plans/t3-performance-review-2026-10-19/investigation-git-safety.py: 4 checks pass with isolated synthetic bare repository, no hooks or network, and user/system Git config disabled. Git 2.50.1 reads harmless marker via implicit discovery; guarded discovery exits 128; explicit --git-dir succeeds. Results in investigation-git-safety.json.",
+      "Read three gitCommitExists callers and checkout RPC validation. No arbitrary shell interpolation is used by the central execFile wrappers. An initial in-process wrapper probe was unsuitable because test process Git discovery state differed; it is not evidence of a product defect and was replaced by the isolated subprocess proof."
+    ],
+    "next_step": "Decide whether implicitly discovered bare repositories should be unsupported in Solus. If yes, add the central Git config guard with inherited-config and platform tests, and test deliberate bare use, hooks, worktree operations and old Git. Keep option-marker audits separate; do not claim the whole upstream security bundle is required.",
+    "effort": "M",
+    "risk": "medium \u2014 the guard reaches Git subprocesses, hooks and credential helpers and can reject intentional bare workflows.",
+    "confidence": "high"
+  },
+  {
+    "number": 20445,
+    "disposition": "covered",
+    "finding": "The upstream credential-borrowing defect is absent in the inspected Solus discovery path: withNearbyRoutes refuses to change any host with a saved pairing token, and a directory merge preserves a paired host address. Explicit HTTP pairing remains allowed by design. Solus SSH bootstrap is an explicit connection action that saves a token; normal reconnect uses the saved token rather than rerunning an SSH pairing broker. Identity verification runs beside ticket exchange, so it must not be described as a pre-credential security gate, but this is not the T3 learned-route or repeated-SSH-session defect.",
+    "evidence": [
+      "packages/client-core/src/uplink-session.ts:247",
+      "packages/client-core/src/uplink-session.ts:214",
+      "packages/client-core/src/server-connection.ts:141",
+      "packages/client-core/src/ws-transport.ts:285",
+      "packages/client-core/src/pairing.ts:145",
+      "packages/server/src/transport/handlers/connections-handlers.ts:150",
+      "packages/server/src/transport/ssh-bootstrap.ts:72"
+    ],
+    "proof": [
+      "bun test tests/unit/server-registry-uplink.test.ts with six other focused suites: aggregate 78 pass, 0 fail (investigation-existing-tests.log); tests cover paired host route retention and directory-only discovered routes.",
+      "bun test plans/t3-performance-review-2026-10-19/investigation-platform-probes.test.ts plans/t3-performance-review-2026-10-19/investigation-claude-late-child.test.ts: 5 pass, 0 fail; synthetic secure paired host rejects learned plain-HTTP address."
+    ],
+    "next_step": "No port for these two upstream behaviors. Preserve paired-address retention tests. A separate proposal to require TLS or change host identity preflight would change the current trust model and needs its own threat model; it is not justified by this PR alone.",
+    "effort": "none",
+    "risk": "low \u2014 no implementation change recommended.",
+    "confidence": "high"
+  },
+  {
+    "number": 20446,
+    "disposition": "decision",
+    "finding": "The raw BrowserSnapshot includes password-input and CSS-masked input values, but the ordinary browser_snapshot agent text does not serialize element.value. The synthetic end-to-end driver proves both facts. The raw browserSnapshot RPC returns the same object, with an owner-only drives check; no first-party caller of that RPC was found in the inspected mapped client regions. Labels are copied separately with no secret-value redaction, so a page that itself reflects a masked value into its accessibility label can still expose that label. This is a concrete data-minimization gap, not proof that ordinary passwords reach provider transcripts or other people. The other upstream fixes do not transfer: Solus has no OpenCode setting and standalone pairing prints directly to stdout already.",
+    "evidence": [
+      "packages/server/src/browser/page-script.ts:40",
+      "packages/server/src/browser/page-script.ts:63",
+      "packages/server/src/browser/browser-registry.ts:553",
+      "packages/server/src/browser/browser-tools.ts:753",
+      "packages/server/src/transport/handlers/browser-handlers.ts:83",
+      "packages/server/src/transport/handlers/browser-handlers.ts:132",
+      "apps/standalone-server/src/index.ts:178"
+    ],
+    "proof": [
+      "Synthetic password and CSS-mask markers are included in registry.snapshot().elements[].value, while browserSnapshotAgentTool result.text contains neither. Runs without a real browser using FixtureDriver and a small VM DOM fixture. See investigation-platform-probes.test.ts and passing log.",
+      "Read formatter and owner gate. Narrow search for browserSnapshot consumers in workspace browser regions, mobile browser region and client-core returned no first-party call. No real credentials or live pages were accessed."
+    ],
+    "next_step": "Decide the snapshot contract: omit values from password/CSS-masked controls at extraction and avoid carrying unnecessary secrets over RPC. If a stronger guarantee against reflected labels is required, implement bounded per-frame capture/redaction as separate work with frame-change and timeout tests. Do not add the whole T3 CDP protocol merely to fix an unused raw property.",
+    "effort": "S for omission; M\u2013L for a strong cross-frame guarantee",
+    "risk": "low for masked-value omission; medium for broader redaction because capture failures and labels may change.",
+    "confidence": "high"
+  },
+  {
+    "number": 20449,
+    "disposition": "ready",
+    "finding": "A project-relative create or delete follows an intermediate symlink outside the project. The handler resolves only the root, and toRootRelativePath performs lexical containment; the mutation then uses the unresolved child path. A fixture creates a symlink from the project to a sibling fixture folder and proves createFile creates there and delete removes its file while returning success. This violates the project-mutation function\u2019s stated containment behavior. It is not an authorization bypass: the RPC requires host.files.write, and general writeFile intentionally permits outside-project saves.",
+    "evidence": [
+      "packages/server/src/transport/handlers/filesystem-handlers.ts:231",
+      "packages/server/src/files/project-mutations.ts:20",
+      "packages/server/src/files/project-mutations.ts:41",
+      "packages/server/src/files/project-mutations.ts:45",
+      "packages/server/src/files/project-mutations.ts:78",
+      "packages/server/src/paths.ts:28",
+      "packages/contracts/src/permissions.ts:167",
+      "packages/server/src/transport/handlers/filesystem-handlers.ts:360"
+    ],
+    "proof": [
+      "Existing project-file-mutations suite passes in the 78-test baseline but has only lexical ../ containment coverage.",
+      "Synthetic create/delete probe passes while observing external sibling file creation/deletion through an intermediate symlink; every target is under a temporary directory owned by the probe and removed afterward. See investigation-platform-probes.test.ts and log."
+    ],
+    "next_step": "Add resolved-parent containment for project-relative create/rename/delete, including deepest-existing-parent handling. Preserve deletion of a symlink itself without traversing its target. Add tests for intermediate and final symlinks, dangling links, valid within-root links, create/rename destinations and case-only renames. Keep intentional host-destination/general saves unchanged; do not import T3\u2019s registered-workspace-only policy.",
+    "effort": "M",
+    "risk": "medium \u2014 legitimate linked project folders and rename/delete semantics must be explicit.",
+    "confidence": "high"
+  },
+  {
+    "number": 20730,
+    "disposition": "ready",
+    "finding": "An unchanged native project refresh replaces the projects array during loading and again at completion, and replaces each equal project wrapper. Project-only readers see new snapshots even when only session data changes.",
+    "evidence": [
+      "apps/mobile/src/features/threads/thread-directory.ts:135",
+      "apps/mobile/src/features/threads/thread-directory.ts:147",
+      "apps/mobile/src/features/threads/thread-directory.ts:204",
+      "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx:120",
+      "apps/mobile/src/app/app-context.tsx:18"
+    ],
+    "proof": "Production ThreadDirectory with in-memory host fixtures: one equal reload changes the project array twice and the project wrapper once. No real hosts used.",
+    "next_step": "Reuse project DTOs/wrappers by host plus project path only when every visible field and host label is equal. Preserve the merged projects array when order and items match. Keep loading/error notifications and session updates independent. Tests must cover add/remove, rename, remote/repository changes, host relabel, and stale results.",
+    "effort": "M",
+    "risk": "medium",
+    "confidence": "high"
+  },
+  {
+    "number": 20812,
+    "disposition": "decision",
+    "finding": "Solus has the same visible design tradeoff: focusing the composer sets isExpanded and gives the card a 140-point minimum height even for one word. This is explicit current behavior, not a failed wrap calculation. The local ComposerEditor is an expo-paste-input/TextInput adapter and exposes no content-size callback; T3 relies on custom iOS/Android text measurement that reports natural width for one line and stops after a second line. Raw TextInput content width is not established as an equivalent. The proposed Android split-sidebar hiding is also a layout change; the existing bottom tab bar already hides with the soft keyboard.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:326",
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:474",
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:537",
+      "apps/mobile/src/components/ComposerEditor.tsx:29",
+      "apps/mobile/src/components/ComposerEditor.tsx:87",
+      "apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx:133",
+      "apps/mobile/src/features/workspace/AndroidWorkspaceNavigation.android.tsx:25"
+    ],
+    "proof": "Read upstream native measurement and composer/layout patches, plus local focus, sizing and editor contracts. Source proves focus controls card height and the upstream native API is absent. It does not prove clipping, typing latency or a smaller layout being better. Upstream remains open and reports a model-label transition overlap. No device or simulator test was run. Existing native-mobile-thread-composer tests cover logic, not text measurement.",
+    "next_step": "Recommended default: leave this UX unchanged during the performance batch. If compact-until-wrap is selected, isolate it from rail/sidebar redesign. First establish a native measurement contract for the local TextInput; do not use text.length as a width estimate or assume contentSize.width means natural width. Keep only the row/card verdict in state. Verify on physical iOS and Android: explicit/trailing newlines, paste, IME composition, emoji/RTL text, wrap then delete back, pane narrowing/widening, largest font, attachments, queued edits, hardware vs soft keyboard and caret/focus continuity. A return-to-row check is required to avoid feedback between the wider card and narrow row. Any sidebar suppression must preserve the user preference. No phone composer layout belongs in desktop/web.",
+    "effort": "L for measurement spike plus both native surfaces; smaller only if existing TextInput events prove sufficient.",
+    "risk": "HIGH: measurement feedback, caret/IME behavior, focus and keyboard/layout changes can regress together.",
+    "confidence": "high"
+  },
+  {
+    "number": 20813,
+    "disposition": "defer",
+    "finding": "Do not port the combined Android navigation redesign in the performance batch. Solus explicitly specifies two root tabs and a Material navigation bar; Settings is a stack destination, and tab changes intentionally clear search. T3 adds a third Settings destination and a 72-point expandable rail, changes route reset rules, and still reports transition gaps. One isolated idea has a real local target: HomeRouteScreen conditionally mounts Chats versus PRs, so Android tab switches replace list components. However, PR data already lives in a shared directory and refreshes with a freshness guard; this is not proof of expensive refetching or visible blank frames. iOS already retains native tab trees.",
+    "evidence": [
+      "docs/plans/mobile-pull-requests.md:106",
+      "docs/plans/mobile-pull-requests.md:122",
+      "apps/mobile/src/features/workspace/workspace-tabs-state.ts:3",
+      "apps/mobile/src/features/workspace/workspace-tabs-state.ts:35",
+      "apps/mobile/src/features/workspace/AndroidWorkspaceNavigation.android.tsx:11",
+      "apps/mobile/src/features/home/HomeRouteScreen.tsx:261",
+      "apps/mobile/src/features/prs/use-pull-request-list.ts:28",
+      "apps/mobile/src/features/workspace/WorkspaceNativeTabs.ios.tsx:21"
+    ],
+    "proof": "Read current navigation routes, tabs reducer, Android navigation, conditional list branches and PR read lifetime. Also read upstream Activity panes and Android route-reset logic. Static inspection proves Android list component replacement, but not its measured cost. The local iOS retained-tree solution is not interchangeable with Android Activity. No physical-device measurement, native transition check or test execution was done; native-mobile-workspace-stack tests cover route/dismissal rules, not frame timing.",
+    "next_step": "Leave navigation design unchanged. If Android list returns are slow, measure a narrow experiment with at most the two visited list panes retained, preserving the existing search-reset policy. Verify that hidden panes release effects, host refresh registrations, headers, Back and keyboard handlers; preserve memory bounds and offline refresh correctness. Physical Android checks must cover first/second tab visit, long-list scroll return, memory after repeated switches, split/fold resize, keyboard visibility, route Back/deep links and Settings opened above a conversation. A third tab or rail needs a separate product decision and updated navigation plan; do not copy upstream history-dropping behavior or known blank transitions. Desktop/web wide-workspace navigation is outside this change.",
+    "effort": "M for a bounded retention experiment and measurement; L for the full navigation redesign.",
+    "risk": "HIGH for the combined port; MED for isolated retention because hidden subscriptions and header ownership can remain active.",
+    "confidence": "high"
+  },
+  {
+    "number": 20835,
+    "disposition": "covered",
+    "finding": "Solus keeps the Claude SDK query and its normalizer alive while background task IDs remain. A synthetic root result followed by a nested Agent launch is emitted immediately with the original parentToolUseId before any next root turn; later nested progress retains its own parent and the stream remains open until the task-notification continuation settles. There is no T3 idle-run launch buffer in this path to port. The probe proves adapter delivery and ownership fields, not authenticated provider timing or every UI projection.",
+    "evidence": [
+      "packages/server/src/execution/agents/claude/claude-agent.ts:335",
+      "packages/server/src/execution/agents/claude/claude-agent.ts:372",
+      "packages/server/src/execution/agents/claude/claude-agent.ts:403",
+      "packages/server/src/execution/agents/claude/claude-backend.ts:351",
+      "packages/server/src/execution/agents/claude/claude-event-normalizer.ts:328"
+    ],
+    "proof": [
+      "Existing claude-steering and claude-event-normalizer tests pass within 78-test baseline.",
+      "investigation-claude-late-child.test.ts replays init \u2192 task start \u2192 root result \u2192 nested Agent launch \u2192 parent settle \u2192 nested progress \u2192 nested settle \u2192 notification result. Assertions confirm immediate correctly parented events and stream lifetime. Included in 5 pass, 0 fail probe run."
+    ],
+    "next_step": "No upstream adapter port. Keep the synthetic late-child scenario as regression coverage if future Claude lifetime changes are made. Investigate only if an actual provider/UI trace shows loss beyond the proved adapter boundary.",
+    "effort": "none",
+    "risk": "low \u2014 no implementation change recommended.",
+    "confidence": "high"
+  },
+  {
+    "number": 20850,
+    "disposition": "ready",
+    "finding": "Native PR refetches replace equal data. The real list directory emits loading, partial, and loaded notifications and changes equal PR object identity. Consumers that read only rows need stable values, while loading/error UI still needs state changes. usePullRequestList also keys hosts and rows on the directory-wide revision, so data sharing alone cannot stop row-array rebuilds.",
+    "evidence": [
+      "apps/mobile/src/features/prs/pull-request-reads.ts:110",
+      "apps/mobile/src/features/prs/pull-request-reads.ts:144",
+      "apps/mobile/src/features/prs/pull-request-directory.ts:256",
+      "apps/mobile/src/features/prs/detail/use-pull-request-view.ts:20",
+      "apps/mobile/src/features/prs/use-pull-request-list.ts:45",
+      "apps/mobile/src/features/prs/lib/pull-request-list.ts:77"
+    ],
+    "proof": "HostReads probe: 2 state notifications and 1 displayed-value identity change per equal refetch. Real PullRequestDirectory probe: 3 notifications per equal list refresh and distinct equal PR DTOs. 33 tests pass across the probe and three existing suites.",
+    "next_step": "Preserve equal PR subrecords at the PR domain boundary, then use value-only selectors in row/content readers. Retain full load state for spinners, reconnect/error state, progressive answers and explicit refresh. Preserve permission/check changes and cache freshness. Verify rendered row counts on native before claiming a speed gain. Replace the directory-wide revision dependency for content rows with a stable selected-data snapshot; pullRequestRows currently creates new row wrappers. Keep separate status subscriptions. Merely retaining PR DTOs is insufficient.",
+    "effort": "M",
+    "risk": "medium",
+    "confidence": "high"
+  },
+  {
+    "number": 20855,
+    "disposition": "ready",
+    "finding": "A recovered connection already avoids repeat reads for ready facts. A fresh session correctly reloads requested facts but publishes equal data again. This is the same work item as #20392, not a second cache.",
+    "evidence": [
+      "packages/client-core/src/host-facts.ts:159",
+      "packages/client-core/src/host-facts.ts:195",
+      "packages/client-core/src/host-facts.ts:250"
+    ],
+    "proof": "Probe: recovered adds zero reads; fresh adds one usage read and one same-key notification for equal data. Existing stale-generation and capability invalidation tests pass.",
+    "next_step": "Group with #20392. Keep the fresh-session read and lost-session clearing of capabilities/serverInfo. Reuse equal data only after the fresh answer arrives; never suppress access-state transitions.",
+    "effort": "M",
+    "risk": "medium",
+    "confidence": "high"
+  },
+  {
+    "number": 21119,
+    "disposition": "ready",
+    "finding": "Scope settings migration to the local hooks that actually skip. About and NotificationSettings already compile in the enabled probe; blanket settings memo removal is unnecessary.",
+    "evidence": [
+      "apps/mobile/src/features/settings/use-github-connection.ts:78",
+      "apps/mobile/src/features/settings/use-agent-profile.ts:106",
+      "apps/mobile/src/features/settings/use-integrations.ts:285",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json"
+    ],
+    "proof": "AboutScreen:2 compiled functions/no skips. NotificationSettingsScreen:1/no skips. useGithubConnection skips on finally; useAgentProfile skips on a conditional inside try/catch; useIntegrations skips on try/finally/throw and useIntegrationConnect has a local/context-reference diagnostic.",
+    "next_step": "Use supported settlement or focused module helpers only at diagnosed sites. Preserve rejected host request errors, busy reset and stale-result checks. Keep unresolved hooks in a baseline until exact compilation is proved; verify sign-in, failure and cancellation in the staged mobile project.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21124,
+    "disposition": "ready",
+    "finding": "FileMarkdownPreview has the exact refresh try/finally compiler blocker. SourceFileSurface already compiles in the enabled probe.",
+    "evidence": [
+      "apps/mobile/src/features/files/FileMarkdownPreview.tsx:46",
+      "apps/mobile/src/features/files/SourceFileSurface.tsx:1",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "FileMarkdownPreview skips at51. An in-memory async refresh wrapper with finalization compiles the function without removing memos. SourceFileSurface compiles2 functions with no diagnostic.",
+    "next_step": "Adapt only refresh settlement, preserving synchronous throws, rejected promises and the optional void-returning callback. Verify refresh indicator clears on failure and retry, and file/media navigation is unchanged. Leave the already compiling source viewer alone.",
+    "effort": "S",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21133,
+    "disposition": "ready",
+    "finding": "Home, overlay, status animation and pane helpers have measured compiler blockers; AdaptiveWorkspaceLayout itself already compiles.",
+    "evidence": [
+      "apps/mobile/src/features/home/HomeScreen.tsx:266",
+      "apps/mobile/src/components/OverlayPortal.tsx:25",
+      "apps/mobile/src/features/home/WorkspaceConnectionTitle.tsx:61",
+      "apps/mobile/src/features/layout/workspace-inspector-pane.tsx:72",
+      "apps/mobile/src/features/layout/workspace-pane-divider.tsx:23",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "AdaptiveWorkspaceLayout compiles with98 memo slots. Home skips on reset-key ref reads/writes; state reset exposes six memo-preservation diagnostics. StatusFadeIn compiles after lazy-state Animated.Value initialization in memory. Overlay lazy state alone still fails on the module counter increment, so allocate through a focused helper. Pane divider refs and inspector SharedValue assignment also skip.",
+    "next_step": "Migrate these owners in stages; retain real timestamp state before changing Home memo dependencies. Use SharedValue setters and handlers that read current committed values. Verify snooze expiry without a rapid timer loop, shelf reset, overlay removal, divider drag and animation cancellation on native devices.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21136,
+    "disposition": "ready",
+    "finding": "Fix a local hook-order violation first, then migrate the PR action cleanup that actually skips. This is a correctness prerequisite as well as compiler work.",
+    "evidence": [
+      "apps/mobile/src/features/prs/detail/PullRequestGuide.tsx:43",
+      "apps/mobile/src/features/prs/detail/PullRequestGuide.tsx:65",
+      "apps/mobile/src/features/prs/detail/PullRequestGuide.tsx:69",
+      "apps/mobile/src/features/prs/detail/use-pull-request-action.ts:21",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "GuideNoticeCard is mounted across notice changes but returns for ready before useState. Compiler rejects conditional hook order. Moving the hook before the guard in probe memory compiles all4 functions in the file. usePullRequestAction skips on finally; a promise-finalization variant preserving catch/boolean result compiles. No runtime crash was reproduced.",
+    "next_step": "Make hook order unconditional and test ready/non-ready transitions. For PR mutations, preserve the pending lock, busy reset and failure alert for both synchronous throws and rejected writes. Other diagnosed PR screens need the same targeted cleanup; do not replace their rejecting promises with assumed nonthrowing T3 commands.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21137,
+    "disposition": "ready",
+    "finding": "The local ComposerEditor skips because props.ref makes other props reads look like ref reads to the compiler. The inspected video modals already compile.",
+    "evidence": [
+      "apps/mobile/src/components/ComposerEditor.tsx:52",
+      "apps/mobile/src/components/ComposerEditor.tsx:65",
+      "apps/mobile/src/components/VideoPreviewModal.tsx:1",
+      "apps/mobile/src/components/VideoPreviewModal.ios.tsx:1",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "ComposerEditor emits17 ref diagnostics. Destructuring ref once and passing that variable to useImperativeHandle in probe memory compiles the function without changing behavior or removing memos. Each inspected video modal compiles2 functions/no skips.",
+    "next_step": "Use the narrow ref-destructuring fix and verify focus/blur/selection, paste and retained editor handle. Treat the diagnostics as a compiler alias-analysis limit, not proof that current unrelated props reads violate React. Leave video lease lifetime unchanged.",
+    "effort": "S",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21141,
+    "disposition": "ready",
+    "finding": "Limit draft/settings migration to actual local failures. Several direct upstream counterparts already compile, while draft content and settings context still skip.",
+    "evidence": [
+      "apps/mobile/src/features/threads/NewTaskRouteScreen.tsx:478",
+      "apps/mobile/src/features/threads/NewTaskRouteScreen.tsx:616",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:180",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:318",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json"
+    ],
+    "proof": "NewTaskContextPickerScreens compiles4 functions/no skips. NewTaskRouteScreen has a PlanModeToggle ref read/write and NewTaskDraftContent conditional-in-try diagnostic. ThreadSettingsSheet compiles8 functions but skips its session provider and catalog hook on manual-cache preservation.",
+    "next_step": "Keep draft/outbox failure ownership local to Solus. Remove render-time latest-ref writes only with an equivalent current-value handler, and isolate throwing draft work from compiler-managed render functions. Prove provider/catalog identities before removing any manual cache. Verify failed draft preparation keeps the draft and clears pending state.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21142,
+    "disposition": "ready",
+    "finding": "ThreadComposer has a confirmed compiler blocker in send cleanup; ThreadRouteScreen already compiles. Treat this as one stage of the mobile compiler project.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:377",
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:388",
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:307",
+      "apps/mobile/src/features/threads/ThreadRouteScreen.tsx:1",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "ThreadComposer skips on try without catch/finally; its2 child functions compile. Moving only send cleanup to in-memory promise finalization removes that diagnostic but exposes ref inference through composerDraftView. ThreadRouteScreen compiles4 functions/no skips.",
+    "next_step": "Resolve the send cleanup and then the precise queued-edit/ref alias boundary, retaining current manual caches until the function compiles. Verify send rejection and synchronous callback throws release the lock, failed queued-edit uploads remain recoverable, and drafts are not cleared for the wrong session. Device streaming/typing proof remains required.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21145,
+    "disposition": "ready",
+    "finding": "ThreadDetail and native Sidebar have reproducible compiler skips. The local fixes must retain end-follow state and a live snooze clock.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadDetailScreen.tsx:377",
+      "apps/mobile/src/features/threads/ThreadDetailScreen.tsx:389",
+      "apps/mobile/src/features/threads/ThreadDetailScreen.tsx:267",
+      "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx:225",
+      "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx:261",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "ThreadDetail skips on two answer-cleanup try/finally blocks; finalization rewrites reveal a render-time endFollowEnabledRef write. SidebarPane skips on its reset-key ref; a state reset reveals four memo-preservation diagnostics. Sidebar currently uses explicit minute/wake memo dependencies around Date.now.",
+    "next_step": "Convert answer settlement with failure cleanup intact and update end-follow references after commit or use current-value handlers. Use keyed state for Sidebar reset. Make the actual clock a state input before any memo removal, then resolve only the diagnosed callback dependencies. Verify permission failure, tab switch, scroll-follow, tablet Sidebar and snooze boundary behavior.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21147,
+    "disposition": "defer",
+    "finding": "The parser is repeated, but no material local cost was found. A synthetic Bun probe took a median 0.112 ms for 100 link identities. A WeakMap keyed only by a mutable link object can return stale URL/title/fallback-scope results.",
+    "evidence": [
+      "packages/workspace-ui/src/contexts/prs/linked-pr.ts:20",
+      "packages/contracts/src/providers.ts:27",
+      "packages/workspace-ui/src/contexts/prs/prs.store.svelte.ts:210"
+    ],
+    "proof": "Nine timed samples after warm-up: 0.109\u20130.125 ms per 100 links; 90,000 timed calls. Mutation and changed-fallback assertions pass. This is a host microbenchmark, not a Svelte or device profile.",
+    "next_step": "Do not add the cache in the first implementation batch. Reconsider only if an actual large-stack renderer profile attributes material time to parsing. Any future cache must validate URL and other live inputs, or cache only the pure URL parse by bounded string key.",
+    "effort": "S",
+    "risk": "medium",
+    "confidence": "high"
+  },
+  {
+    "number": 21250,
+    "disposition": "decision",
+    "finding": "The original missing Copy link issue is already covered in both Solus detail menu paths. Native Share is absent and would be a new convenience, not a correction to an existing list/detail asymmetry: current Solus PR list rows only open the detail screen and have no long-press share menu. Copy link and Open on GitHub already provide access to the URL. The addition requires no server/provider behavior and has no performance justification.",
+    "evidence": [
+      "apps/mobile/src/features/prs/PullRequestScreen.tsx:131",
+      "apps/mobile/src/features/prs/PullRequestScreen.tsx:145",
+      "apps/mobile/src/features/prs/PullRequestScreen.tsx:201",
+      "apps/mobile/src/features/prs/PullRequestListRow.tsx:58",
+      "apps/mobile/src/features/prs/PullRequestsScreen.tsx:113"
+    ],
+    "proof": "Read the upstream shared copy/share helper and list/detail changes, plus both local detail menus and the list row caller. Source proves Copy link exists and the list has no corresponding Share command. No system share sheet was opened and no device behavior was verified. The upstream PR itself had no simulator/device verification.",
+    "next_step": "Recommended default: no change in the performance batch. If native Share is selected, add it to both iOS and Android detail menus with the same URL eligibility as Copy link. Use the platform share contract (URL field on iOS, message URL on Android), handle errors without treating user cancellation as failure, and preserve accessibility/focus after return. Decide separately whether list long-press actions are wanted; they are not required to port the detail action. Verify physical iPhone/iPad share-sheet anchoring and a receiving app, Android receiving-app payload, cancel/return, unavailable/offline cached PR states and menu discoverability. Desktop/web can retain Copy link as the surface-appropriate equivalent; do not add a mobile layout.",
+    "effort": "S for detail actions and focused tests; M if list actions are also chosen.",
+    "risk": "LOW to MED: payload differences, iPad presentation and failed/cancelled share handling.",
+    "confidence": "high"
+  },
+  {
+    "number": 21260,
+    "disposition": "reject",
+    "finding": "No current local hookless-use violation justifies a new lint rule or naming pass. The upstream lexical rule also needs explicit platform-stub and alias handling.",
+    "evidence": [
+      "plans/t3-performance-review-2026-10-19/hook-name-probe-results.json"
+    ],
+    "proof": "A syntax-only scan matching the upstream rule checks484 native .ts/.tsx files and87 use-prefixed function definitions; it finds0 functions without a direct hook call. The rule detects callee spelling, not binding identity: aliased hook imports can be false positives, and legitimate platform stubs require an exception.",
+    "next_step": "Do not add this rule now. If a concrete false hook appears later, rename that helper and verify compiler output. Any future rule should resolve imports and have fixtures for platform stubs and aliased React hooks; a name-only lint must not be treated as a compiler success check.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 21268,
+    "disposition": "ready",
+    "finding": "ThreadFeed has the same props.listRef alias-analysis issue as upstream, followed by a narrower manual-callback preservation blocker.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadFeed.tsx:529",
+      "apps/mobile/src/features/threads/ThreadFeed.tsx:625",
+      "apps/mobile/src/features/threads/ThreadFeed.tsx:548",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "The file compiles8 functions but skips ThreadFeed with7 ref diagnostics. Destructuring listRef once in probe memory removes those7 diagnostics and leaves1 memo-preservation diagnostic in setEndFollow. The per-item subscription architecture remains intact.",
+    "next_step": "Destructure the ref and current callbacks at the component boundary, then resolve the single callback dependency before selectively removing manual memoization. Do not rebuild the transcript store. Verify scroll-follow, history prepend, disclosure expansion, keyboard insets and unchanged-row renders on iOS/Android; no measured streaming speedup is claimed.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21319,
+    "disposition": "decision",
+    "finding": "There are exact local affordance matches, but the icon style is an optional UX refinement. AppSheet labels a dismiss-only action Done, while its accessible name says Close. Session settings has Cancel and Save/Done text buttons. The existing toolbar already supports prominent buttons, so this needs no new native module. Crucial semantic limit: only a pending model and its pending options are staged; changing reasoning/fast mode for the current model or permission mode can apply immediately. An X must not be described as undoing all settings. AppSheet owners can also cancel active authentication or integration work on close, so their callbacks must remain intact.",
+    "evidence": [
+      "apps/mobile/src/components/AppSheet.tsx:25",
+      "apps/mobile/src/components/AppSheet.tsx:59",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:180",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:187",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:232",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:769",
+      "apps/mobile/src/native/NativeHeaderToolbar.tsx:254",
+      "apps/mobile/src/features/conversation/components/AgentAuthSheet.tsx:44"
+    ],
+    "proof": "Read upstream sheet/icon changes, local AppSheet and all three immediate owner types (worktree details, provider auth and integration connect), plus pending model state and its apply callbacks. Source establishes which actions dismiss and which apply a staged model. This is not evidence of an execution defect. No visual, accessibility, gesture or device test was run. Existing run-settings tests cover run values, not sheet affordances.",
+    "next_step": "Recommended default: keep the current presentation during the performance batch. If this UX refinement is chosen, first change the iOS generic dismiss control to X with its Close accessible name; preserve current callbacks. In session settings, show a prominent checkmark only for an actual pending apply action and make dismissal semantics clear without promising rollback of immediate changes. Android already distinguishes Back from Save; keep its native pattern unless a separate consistency decision is made. Do not bulk-replace every Done string. Verify physical iOS/Android: pending model cancel/apply, immediate option changes, sheet swipe and Back dismissal, active-auth cancellation, worktree detail close, VoiceOver/TalkBack names, largest font and light/dark contrast. Desktop/web can retain their existing close/apply patterns with the same semantics.",
+    "effort": "S for generic dismiss; M for a consistent sheet pass with behavior checks.",
+    "risk": "MED: inaccurate cancel semantics or changed dismissal callbacks can lose state or stop active authentication.",
+    "confidence": "high"
+  },
+  {
+    "number": 21366,
+    "disposition": "ready",
+    "finding": "T3\u2019s stuck-running/blocked-queue symptom is already avoided: Solus emits exit code 1 and removes the failed root from activeRuns immediately. A different defect is confirmed: finishCompletedTurn deletes child-thread routing and the parent normalizer owner even if a native child is still running. Its later turn/completed event then has no session and returns without emitting a child report. The same cleanup also affects successful roots. The retained normalizer in the probe can interpret the exact event, proving loss occurs at routing/lifetime rather than event parsing.",
+    "evidence": [
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1179",
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1214",
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1499",
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1574",
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1607",
+      "packages/server/src/execution/agents/base-backend.ts:81"
+    ],
+    "proof": [
+      "Existing codex-subagent-routing, codex-subagent-completion and background-command tests pass within 78-test baseline; they do not cover root completion before native child completion.",
+      "Synthetic probe registers a spawned child, confirms routing to parent, invokes real finishCompletedTurn with failed exit, verifies immediate exit/removal, then delivers a real child-completed frame through onNotification. No report emits. Feeding that same frame to the retained normalizer does produce a tool_result. Included in 5 pass, 0 fail probe run."
+    ],
+    "next_step": "Retain a bounded child-lifetime owner/normalizer independently of the active root run until known native children settle or are stopped. Do not keep the failed root active or block its queue. Define stop, new root-turn overlap, reconnect/history reconciliation and provider shutdown cleanup. Test failed and successful root completion followed by child output/completion, plus no duplicate reports and stale-owner release.",
+    "effort": "M\u2013L",
+    "risk": "high \u2014 child event ownership must remain correct while a new root turn starts and old descendants settle.",
+    "confidence": "high"
+  }
+]

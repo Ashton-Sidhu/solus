@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, View } from "react-native";
-import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationToolSummary } from "@solus/contracts/integration-types";
@@ -18,6 +17,7 @@ import { IntegrationConnectPanel } from "./components/IntegrationConnectPanel";
 import { IntegrationOAuthClientPanel } from "./components/IntegrationOAuthClientPanel";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { ListFilterMenu } from "../workspace/ListFilterMenu";
+import { ServerIcon } from "./components/ServerIcon";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -41,7 +41,6 @@ import {
   urlHost,
   type IntegrationCandidate,
   type IntegrationToolsState,
-  serverIconUrl,
 } from "./integrations";
 import { useIntegrations } from "./use-integrations";
 
@@ -240,7 +239,7 @@ function InstalledRow(props: {
           onPress={() => integrations.toggle(integration.id)}
           className="min-w-0 flex-1 flex-row items-center gap-4 py-4 pl-4 active:opacity-70"
         >
-          <EntryIcon url={integration.url} name={integration.name} />
+          <ServerIcon url={integration.url} name={integration.name} />
           <View className="min-w-0 flex-1 gap-0.5">
             <Text className="text-lg text-foreground" numberOfLines={1}>{integration.name}</Text>
             <Text className="text-sm text-foreground-muted" numberOfLines={1} ellipsizeMode="middle">{host}</Text>
@@ -521,7 +520,7 @@ function AddRow(props: {
   return (
     <View className={cn(!props.first && "border-t border-border-subtle")}>
       <View className="flex-row items-center gap-3 p-4">
-        <EntryIcon icon={props.icon ?? undefined} url={candidate.url} name={candidate.name} />
+        <ServerIcon icon={props.icon ?? undefined} url={candidate.url} name={candidate.name} />
         <View className="min-w-0 flex-1 gap-0.5">
           <Text className="text-lg text-foreground" numberOfLines={1} ellipsizeMode="middle">{props.title}</Text>
           {failed ? (
@@ -541,28 +540,6 @@ function AddRow(props: {
           <PillButton label={failed ? "Retry" : "Add"} accessibilityLabel={`${failed ? "Retry adding" : "Add"} ${candidate.name}`} disabled={!canAdd} onPress={() => props.onAdd(candidate)} />
         )}
       </View>
-    </View>
-  );
-}
-
-/** The catalog's icon, else the service's logo by address, else the first letter of the name. */
-function EntryIcon(props: { readonly icon?: string; readonly url: string; readonly name: string }) {
-  const [failed, setFailed] = useState(false);
-  const uri = props.icon ?? serverIconUrl(props.url);
-  if (!failed) {
-    return (
-      <Image
-        source={{ uri }}
-        accessibilityIgnoresInvertColors
-        contentFit="contain"
-        onError={() => setFailed(true)}
-        style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: "#ffffff" }}
-      />
-    );
-  }
-  return (
-    <View className="h-7 w-7 items-center justify-center rounded-md bg-subtle">
-      <Text className="text-sm font-t3-bold text-foreground-muted">{props.name.trim().charAt(0).toUpperCase() || "?"}</Text>
     </View>
   );
 }

@@ -4,10 +4,9 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { missingGoogleScopes } from "@solus/contracts/google-auth";
   import { LogOut as SignOutIcon } from "@lucide/svelte";
-    import { requestInputFocus } from "../../lib/inputFocus";
+  import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import { ensureIconCollections } from "../diagram/iconify";
-  import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import ProviderConnectedCheck from "../settings/ProviderConnectedCheck.svelte";
   import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
@@ -92,37 +91,35 @@
   }
 </script>
 
-<SettingsSection label="Google Drive">
+<!-- Rows of the Integrations page's Connections card. -->
+<SettingsRow label="Google Drive" {description}>
   {#snippet icon()}
-    <Icon icon={PROVIDER_LOGOS.google} width={13} height={13} />
+    <Icon icon={PROVIDER_LOGOS.google} width={16} height={16} />
   {/snippet}
-
-  <SettingsRow label="Google account" description={description}>
-    {#snippet labelExtra()}
-      <ProviderConnectedCheck connected={loaded && connected} provider="Google" />
-    {/snippet}
-    {#snippet control()}
-      {#if connected}
-        <Button variant="outline" size="sm" onclick={() => void disconnect()}>
-          <SignOutIcon size={13} />
-          Disconnect
-        </Button>
-      {:else if configured}
-        <Button size="sm" disabled={connecting} onclick={() => void connect()}>
-          {connecting ? "Waiting for browser…" : "Connect"}
-        </Button>
-      {/if}
-    {/snippet}
-  </SettingsRow>
-  <SettingsRow
-    label="Drive access"
-    description="Reconnect to let Solus search and read Google Docs it did not create. Publishing already works."
-    visible={needsDriveReadScope}
-  >
-    {#snippet control()}
-      <Button variant="outline" size="sm" disabled={connecting} onclick={() => void connect()}>
-        {connecting ? "Waiting for browser…" : "Reconnect"}
+  {#snippet labelExtra()}
+    <ProviderConnectedCheck connected={loaded && connected} provider="Google" />
+  {/snippet}
+  {#snippet control()}
+    {#if connected}
+      <Button variant="outline" size="sm" onclick={() => void disconnect()}>
+        <SignOutIcon size={13} />
+        Disconnect
       </Button>
-    {/snippet}
-  </SettingsRow>
-</SettingsSection>
+    {:else if configured}
+      <Button size="sm" disabled={connecting} onclick={() => void connect()}>
+        {connecting ? "Waiting for browser…" : "Connect"}
+      </Button>
+    {/if}
+  {/snippet}
+</SettingsRow>
+<SettingsRow
+  label="Drive access"
+  description="Reconnect to let Solus search and read Google Docs it did not create. Publishing already works."
+  visible={needsDriveReadScope}
+>
+  {#snippet control()}
+    <Button variant="outline" size="sm" disabled={connecting} onclick={() => void connect()}>
+      {connecting ? "Waiting for browser…" : "Reconnect"}
+    </Button>
+  {/snippet}
+</SettingsRow>

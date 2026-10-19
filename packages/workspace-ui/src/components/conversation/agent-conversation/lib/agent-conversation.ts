@@ -253,9 +253,10 @@ export async function openAgentSession(
   if (options.split) opener.openInSplit(tabId)
 }
 
-/** Display title: the CLI slug wins once the indexer has it. */
+/** Display title: the session's name (typed, given by its starter, or
+ *  generated) wins, then the CLI slug once the indexer has it. */
 export function agentConversationTitle(ref: AgentConversationRef, meta: SessionMeta | undefined): string {
-  return meta?.slug || ref.title
+  return meta?.customTitle || meta?.slug || ref.title
 }
 
 /**
@@ -288,4 +289,65 @@ export function agentConversationLink(
     case 'closed':
       return { tone: 'idle', label: 'Stopped', detail: 'Closed its session' }
   }
+}
+
+// ─── Group ───
+
+/** What a person must decide in the card itself: a question, a permission,
+ *  or a plan the other agent brought back. */
+export function needsPersonDecision(ref: AgentConversationRef): boolean {
+  const state = agentConversationCardState(ref)
+  if (state === 'waiting') return pendingRequest(ref) !== null
+  return !isLiveAgentConversationState(state) && planAwaitingDecision(ref) !== null
+}
+
+type AgentGroupTone = 'working' | 'waiting' | 'done' | 'failed' | 'stopped'
+
+const GROUP_TONE = {
+  dispatching: 'working',
+  replying: 'working',
+  children: 'working',
+  limited: 'waiting',
+  waiting: 'waiting',
+  replied: 'done',
+  failed: 'failed',
+  lost: 'stopped',
+  closed: 'stopped',
+} as const satisfies { readonly [state in AgentConversationCardState]: AgentGroupTone }
+
+export interface AgentConversationGroupSummary {
+  /** `7 agents`, as mobile names the same group. */
+  title: string
+  /** `3 working · 1 waiting · 2 done`, in a fixed order. */
+  status: string
+  live: boolean
+  failed: boolean
+  needsPerson: boolean
+}
+
+/** The header of several sessions one turn talks to. */
+export function agentConversationGroupSummary(refs: readonly AgentConversationRef[]): AgentConversationGroupSummary {
+  const counts = { working: 0, waiting: 0, done: 0, failed: 0, stopped: 0 } satisfies { [tone in AgentGroupTone]: number }
+  for (const ref of refs) counts[GROUP_TONE[agentConversationCardState(ref)]] += 1
+  const order: readonly AgentGroupTone[] = ['working', 'waiting', 'done', 'failed', 'stopped']
+  return {
+    title: `${refs.length} agent${refs.length === 1 ? '' : 's'}`,
+    status: order.filter((tone) => counts[tone] > 0).map((tone) => `${counts[tone]} ${tone}`).join(' · '),
+    live: refs.some((ref) => isLiveAgentConversationState(agentConversationCardState(ref))),
+    failed: counts.failed > 0,
+    needsPerson: refs.some(needsPersonDecision),
+  }
+}
+
+/** Wall time from the first dispatch to the last end, or to now while any runs. */
+export function agentConversationGroupElapsedMs(refs: readonly AgentConversationRef[], now: number): number {
+  let start = Infinity
+  let end = -Infinity
+  for (const ref of refs) {
+    const first = ref.exchanges[0]
+    if (!first) continue
+    start = Math.min(start, first.dispatchedAt)
+    end = Math.max(end, first.dispatchedAt + agentConversationElapsedMs(ref, now))
+  }
+  return start === Infinity ? 0 : Math.max(0, end - start)
 }

@@ -10,9 +10,9 @@ import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDi
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from './session-pull-requests'
-import type { SessionChange, SessionPlace } from './session-state'
+import type { SessionChange, SessionChanged } from './session-state'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
-import type { SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
+import type { SessionSubagentRequest, SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
 import type { ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusRequest, ReviewTarget, ReviewLensSnapshot, ReviewLensGenerateRequest, ReviewLensEditRequest, ReviewLensCommentChange, ReviewLensCommentsResult } from './review'
 import type { PrChecksSnapshot } from './checks-rpc-types'
@@ -23,6 +23,7 @@ import type { NotificationCount, NotificationHubCapability, NotificationListRequ
 import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserFrameCaps, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { DeviceActionRequest, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
+import type { McpAppCallRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
@@ -32,6 +33,7 @@ import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 
 import type { AccountState, SignInEnd } from './account-types'
 import type { ConnectionTokenResource } from './auth/clients'
+import type { SolusApiRequest, SolusApiResponse } from './solus-api/request'
 import type { DesktopUpdateStatus } from './desktop-update-types'
 import type { HostUpdateStatus } from './host-update-types'
 import type { Permission } from './permissions'
@@ -213,7 +215,7 @@ export interface SolusAPI {
   /** Collaboration plane, at the session's home (`/v1/sessions/:sessionId`;
    *  docs/plans/session-archive.md): settle a session for everyone, or archive
    *  and snooze it in the caller's own list. Answers where it is now. */
-  sessionUpdate(sessionId: string, change: SessionChange): Promise<SessionPlace>
+  sessionUpdate(sessionId: string, change: SessionChange): Promise<SessionChanged>
   /** The pull requests a session works on (`/v1/sessions/:sessionId/pull-requests`). */
   sessionPullRequests(sessionId: string): Promise<SessionPullRequestLink[]>
   /** Link a pull request to a session by its URL. The same link again changes nothing. */
@@ -229,6 +231,7 @@ export interface SolusAPI {
   workspaceProjectRemove(projectId: string): Promise<void>
   workspaceProjectUpdate(projectId: string, patch: WorkspaceProjectPatch): Promise<WorkspaceProject>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number, options?: { deferToolInputs?: boolean }): Promise<WireSessionLoadMessage[]>
+  loadSessionSubagent(request: SessionSubagentRequest): Promise<SessionHistoryPage>
   loadSessionPage(request: SessionHistoryPageRequest): Promise<SessionHistoryPage>
   loadSessionToolInputs(request: SessionToolInputsRequest): Promise<SessionToolInput[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
@@ -305,6 +308,8 @@ export interface SolusAPI {
    * socket's access does not change. `delegated` is true when every one is held now.
    */
   accountPresent(request: { accessToken: string; organizationId?: string }): Promise<{ delegated: boolean }>
+  /** One Solus API request, with the socket's principal as its authority: no credential exchange. */
+  solusApiRequest(request: SolusApiRequest): Promise<SolusApiResponse>
   /** The hosts this host paired with (host administrator only). */
   /** The hosts this host was introduced to, and the ones the person forgot (host-reach.md §4). */
   hostIntroductionsList(): Promise<IntroducedHostsSummary>
@@ -375,6 +380,14 @@ export interface SolusAPI {
   integrationCatalogList(request: IntegrationCatalogListRequest): Promise<CatalogPage>
   /** The anonymous check of one server address. Creates nothing. */
   integrationProbe(request: IntegrationProbeRequest): Promise<IntegrationProbeResult>
+  /** An MCP App card's saved document and tool data (docs/plans/conversation-card-parity.md). */
+  mcpAppRead(request: McpAppRequest): Promise<McpAppSnapshot>
+  /** Whether the app may call a tool now, and whether that tool only reads. */
+  mcpAppToolInfo(request: McpAppToolRequest): Promise<McpAppToolInfo>
+  /** Calls a tool of the app's integration with the caller's connection; a write needs `approved`. Returns the result as JSON. */
+  mcpAppCallTool(request: McpAppCallRequest): Promise<string>
+  /** Reads a resource of the app's integration with the caller's connection. Returns the result as JSON. */
+  mcpAppReadResource(request: McpAppResourceRequest): Promise<string>
   integrationList(): Promise<Integration[]>
   integrationGet(request: IntegrationIdRequest): Promise<Integration | null>
   /** Host administrator: probes the address, then writes the record. Changes arrive as `integration.changed`. */

@@ -168,12 +168,10 @@ link is watched.
 
 ## Clients
 
-- **Desktop and web** (shared Svelte): a row of the rail's Linked card
-  (`project-panel/LinkedSection.svelte`) shows an eye while the pull request is
-  watched, and its tooltip says so. The row's menu has Watch Checks and
-  Reviews, or Stop Watching; a merged, closed or missing row offers neither. A
-  refused watch shows a toast with the reason (`watchRefusal`). A wake shows in
-  the transcript with the "Pull request watch" origin label.
+- **Desktop and web** (shared Svelte): there is no watch control. The rail's
+  Linked card held it, and that card is removed. An agent still starts and
+  stops a watch with its tool. A wake shows in the transcript with the "Pull
+  request watch" origin label.
 - **Mobile**: the phone has no Linked card. The thread row's pull request badge
   shows an eye when a link of the session is watched. The row's long-press menu
   has Watch #N, or Stop Watching #N for the watched link

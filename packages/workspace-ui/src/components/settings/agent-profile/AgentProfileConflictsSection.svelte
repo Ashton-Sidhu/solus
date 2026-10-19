@@ -8,6 +8,8 @@
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { Button } from "../../ui/button";
   import SettingsSection from "../SettingsSection.svelte";
+  import ProfileEntryRow from "./ProfileEntryRow.svelte";
+  import { GitCompare } from "@lucide/svelte";
   import { conflictRows } from "./lib/agent-profile-entries";
   import type { AgentProfileKey } from "@solus/contracts/agent-profile";
 
@@ -24,18 +26,15 @@
   description="This device and another changed the same entry. Pick the one to keep; the other devices and every host follow."
   visible={conflicts.length > 0}
 >
-  <ul class="flex flex-col gap-2 p-3" aria-label="Entries changed on two devices" data-testid="agent-profile-conflicts">
-    {#each conflicts as conflict (conflict.key)}
-      <li class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2">
-        <span class="min-w-0 text-xs text-foreground">
-          <span class="font-medium">{conflict.label}</span>
-          <span class="text-muted-foreground"> · This device: {conflict.mine} · Synced: {conflict.theirs}</span>
-        </span>
-        <span class="flex gap-1.5">
-          <Button variant="outline" size="xs" onclick={() => resolve(conflict.key, "keep-mine")}>Keep mine</Button>
-          <Button variant="outline" size="xs" onclick={() => resolve(conflict.key, "take-theirs")}>Take theirs</Button>
-        </span>
-      </li>
-    {/each}
-  </ul>
+  {#each conflicts as conflict (conflict.key)}
+    <ProfileEntryRow label={conflict.label} detail="This device: {conflict.mine} · Synced: {conflict.theirs}" testId="agent-profile-conflict">
+      {#snippet mark()}
+        <span class="grid size-8 shrink-0 place-items-center rounded-lg border border-border/50 bg-muted text-(--solus-status-permission)" aria-hidden="true"><GitCompare size={15} /></span>
+      {/snippet}
+      {#snippet action()}
+        <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" onclick={() => resolve(conflict.key, "keep-mine")} aria-label="Keep this device's {conflict.label}">Keep mine</Button>
+        <Button variant="outline" size="sm" class="text-workspace-chrome shadow-xs pointer-coarse:min-h-11" onclick={() => resolve(conflict.key, "take-theirs")} aria-label="Take the synced {conflict.label}">Take theirs</Button>
+      {/snippet}
+    </ProfileEntryRow>
+  {/each}
 </SettingsSection>

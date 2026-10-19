@@ -240,6 +240,62 @@ export function costAxisMax(buckets: VolumeBucket[]): number {
   return step ? step * magnitude : 10 * magnitude
 }
 
+/**
+ * How many of the drawn rows each backend ran, summed off the bars themselves
+ * so the header's breakdown always agrees with the plot under it.
+ */
+export function providerTotals(
+  buckets: VolumeBucket[],
+): Pick<VolumeBucket, 'claudeCode' | 'codex' | 'unknownProvider'> {
+  const totals = { claudeCode: 0, codex: 0, unknownProvider: 0 }
+  for (const bucket of buckets) {
+    totals.claudeCode += bucket.claudeCode
+    totals.codex += bucket.codex
+    totals.unknownProvider += bucket.unknownProvider
+  }
+  return totals
+}
+
+/**
+ * The count axis's rungs: zero, the midpoint, and the top, each a whole row.
+ *
+ * Counts are whole numbers, so a top of 1 with a midpoint of 0.5 rounds into
+ * two labels that both read "1". The top rises to the next even count so the
+ * midpoint is whole too; a window whose tallest bar is one row gets no midpoint.
+ */
+export function countAxisTicks(tallestBar: number): number[] {
+  if (tallestBar <= 1) return [0, 1]
+  const top = 2 * Math.ceil(tallestBar / 2)
+  return [0, top / 2, top]
+}
+
+/**
+ * The surface gap between a bar's stacked segments, in CSS pixels.
+ *
+ * Two fills that touch read as one shape with a seam; a sliver of the card
+ * between them is what makes the stack read as two quantities. The gap is a
+ * pixel size the reader sees, but the bar accessors work in rows, so the chart
+ * converts it with `stackGapUnits` once it knows how tall its plot is.
+ */
+export const STACK_GAP_PX = 2
+
+export function stackGapUnits(axisTop: number, plotHeightPx: number): number {
+  if (!(axisTop > 0) || !(plotHeightPx > 0)) return 0
+  return (axisTop * STACK_GAP_PX) / plotHeightPx
+}
+
+/**
+ * An upper segment of a stacked bar, lifted off the one below it by the gap.
+ *
+ * A segment too thin to show through the gap keeps its full height and touches
+ * the segment under it: a one-row sliver drawn as a gap and nothing else would
+ * say the bucket had no such rows, and a negative height is not a rectangle.
+ */
+export function stackedSegment(from: number, to: number, gap: number): [number, number] {
+  if (to - from <= gap * 2) return [from, to]
+  return [from + gap, to]
+}
+
 export function pointsWithinSelection(
   points: VolumePoint[],
   selection: TimeSelection | null,

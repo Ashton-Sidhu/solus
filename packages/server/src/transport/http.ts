@@ -1,5 +1,5 @@
-import { createSolusApiRouter } from './solus-api/router'
-import { workspaceCredentialsForHttp } from './solus-api/admission'
+import { createSolusApiRouter, type SolusApiRouter } from './solus-api/router'
+import { organizationMemberFor, workspaceCredentialsForHttp } from './solus-api/admission'
 import type { WorkspaceOperations } from '../data/workspace/operations'
 import { solusApiOpenApi } from '@solus/contracts/solus-api/openapi'
 import { createServer, type RequestListener, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'http'
@@ -22,7 +22,8 @@ import { listReachableEndpoints } from './endpoints'
 import type { TokenVerdict } from '../admission/access-tokens'
 import { runnerPrincipalFor, type Principal } from '../admission/principal'
 import type { ResolvedLinkShare } from '../sharing/share-manager'
-import { SHARE_LINK_UNKNOWN, shareLinkRequestSchema, type ShareLinkTarget } from '@solus/contracts/sharing'
+import type { ShareLinkResolver } from '../sharing/share-link-resolver'
+import { SHARE_LINK_UNKNOWN, shareLinkRequestSchema } from '@solus/contracts/sharing'
 import { hostReachAudience, normalizeDisplayName, tokenAudiences, type AccessTokenClaims, type DelegatedAccessTokenClaims, type PersonAccessTokenClaims } from '@solus/contracts/uplink'
 import { RUNNER_OUTBOX_PATH, RUNNER_SESSION_RECORDS_PATH, runnerOutboxRequestSchema, runnerSessionRecordsRequestSchema, type RunnerOutboxRequest, type RunnerOutboxResponse, type RunnerSessionRecordsRequest, type RunnerSessionRecordsResponse } from '../sync/runner-protocol'
 import { RUNNER_MIRROR_PATH, runnerMirrorRequestSchema, type RunnerMirrorRequest, type RunnerMirrorResponse } from '../sync/runner-protocol'
@@ -86,8 +87,8 @@ export interface HttpServerOptions {
   establishDelegation?: (subjectToken: string, scope: DelegationScope) => Promise<void>
   /** A guest is admitted by the share secret alone, to the one resource it names (host-sharing.md §4.1). */
   resolveShareSecret?: (secret: string) => Promise<ResolvedLinkShare | null>
-  /** The Solus API only (host-sharing.md §4.2): the host behind a link, for its guest page to dial first. */
-  resolveShareLink?: (secret: string) => Promise<ShareLinkTarget | null>
+  /** The Solus API only (instant-share-open.md): what a link opens, as whom, and the host to dial. */
+  shareLinks?: ShareLinkResolver
   /** The workspace service's runner routes (cloud-service-model.md §16); mounted in API mode only, so the routes exist nowhere else. */
   runner?: {
     applyOutbox: (runner: RunnerPrincipal, request: RunnerOutboxRequest) => Promise<RunnerOutboxResponse>
@@ -127,6 +128,8 @@ export interface BuiltHttpServer {
   requestListener: RequestListener
   /** Every route registered, so a server that shares an origin can check who owns each path. */
   routes: readonly { method: string; path: string }[]
+  /** The `/v1` routes, which also answer a client's socket (`solusApiRequest`); null without a Solus API. */
+  solusApiRouter: SolusApiRouter | null
 }
 
 /** Slow clients cannot hold a request open: every listener of these routes uses the same limits. */
@@ -211,15 +214,17 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/auth/ws-ticket' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/') || pathname === '/oauth/integration/callback' || pathname === '/oauth/google/callback'
     return offered ? next() : c.notFound()
   })
+  let solusApiRouter: SolusApiRouter | null = null
   if (opts.solusApi) {
     const spec = JSON.stringify(solusApiOpenApi())
-    app.route('/v1', createSolusApiRouter({
+    solusApiRouter = createSolusApiRouter({
       credentials: workspaceCredentialsForHttp(opts), operations: opts.solusApi.operations,
       capabilities: { serviceId: opts.solusApi.serviceId, mode: opts.isApiMode ? 'solus-api' : 'combined-host',
         apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'notifications', ...(opts.isApiMode ? ['insights' as const] : [])],
         events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } },
       openApi: () => spec,
-    }))
+    })
+    app.route('/v1', solusApiRouter)
   }
   /** Auth demanded of this particular caller: the bind policy, relaxed for
    *  trusted requesters (loopback, the host's own tailnet). A tunnel caller is
@@ -450,14 +455,15 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     return c.json({ ticket })
   })
 
-  // Where a share link's guest page dials (host-sharing.md §4.2): the Solus API answers
-  // the host that runs the session, with its routes; the secret alone asks. A wrong
-  // secret learns nothing but "not found".
-  if (opts.resolveShareLink) {
-    const resolveShareLink = opts.resolveShareLink
+  // What a share link opens and as whom (instant-share-open.md): the secret names the
+  // resource; the page's own access token, when it sends one, makes a member of the
+  // resource's organization open it as themselves. A wrong secret learns nothing but "not found".
+  if (opts.shareLinks) {
+    const shareLinks = opts.shareLinks
     app.post('/auth/share-link', async (c) => {
       const body = await readJson(c, shareLinkRequestSchema)
-      const target = body ? await resolveShareLink(body.shareSecret) : null
+      const bearer = readBearer(c)
+      const target = body ? await shareLinks.resolve(body.shareSecret, organizationId => organizationMemberFor(opts, bearer, organizationId)) : null
       // Named, so a page can tell "no such link" from a host's plain 404 on this path.
       if (!target) return c.json({ error: { code: SHARE_LINK_UNKNOWN } }, 404)
       return c.json(target, { headers: { 'cache-control': 'no-store' } })
@@ -548,7 +554,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
 
   const requestListener = getRequestListener(app.fetch, { overrideGlobalObjects: false })
   const server = createServer(HTTP_SERVER_TIMEOUTS, requestListener)
-  return { server, host, port, requestListener, routes: app.routes.map(({ method, path }) => ({ method, path })) }
+  return { server, host, port, requestListener, routes: app.routes.map(({ method, path }) => ({ method, path })), solusApiRouter }
 }
 
 const wsTicketRequestSchema = z.object({

@@ -1,0 +1,56 @@
+{
+  "number": 20384,
+  "title": "fix(mobile): Android fingerprint covers Expo native modules again",
+  "body": "Play build 93 (2.0.0) crashed on launch with a missing `ExpoUI_TopAppBarView`. #19994 added that view natively in the `@expo/ui` patch, but the Android runtime fingerprint did not change, so production OTAs from #19999 through #20084 were published to build 93's runtime (`035e46c0\u2026`).\n\nThe Android fingerprint had stopped hashing any Expo native module. `expo-widgets` declares a Maven-resolved gradle plugin (`io.github.expo.peek.glance-fork`) with no `sourceDir`. `@expo/fingerprint` runs `path.relative(root, plugin.sourceDir)` on it, throws, and its `catch { return [] }` drops all ~56 `expoAutolinkingAndroid` sources. Build 93's stored fingerprint has 0 of them. iOS was unaffected. The bug is still present in `@expo/fingerprint` 0.21.5 and the current canary.\n\nChanges:\n- Patch `@expo/fingerprint@0.21.5` to skip gradle plugins without a `sourceDir`. Upstream fix: [expo/expo#51710](https://github.com/expo/expo/pull/51710); drop the patch once it ships.\n- Add a `Verify fingerprints hash Expo native modules` step to the production workflow. It runs before both the automatic reconcile and manual `mode=update` dispatches, and fails the job when a fingerprint hashes zero Expo native modules, so a silently swallowed sourcer error stops the OTA instead of shipping it.\n\nVerified locally (in `apps/mobile`):\n- Android fingerprint now has 56 `expoAutolinkingAndroid` sources, including `@expo/ui/android`.\n- Appending a line to `@expo/ui`'s `ExpoUIModule.kt` changes the Android hash, and reverting restores it.\n- The iOS hash is identical with and without the patch, so iOS OTA reach is unchanged.\n- Ran the guard step's script under Linux bash with `eas` stubbed to emit real fingerprints. Healthy Android + iOS pass. Build 93's stored Android fingerprint fails the step with `all` or `android`, and passes with `ios` only. Empty `eas` output fails closed.\n\nMerging changes the Android fingerprint, so Android needs a new production build before it gets OTAs again (the workflow cuts one). Build 93 has already been rolled back to the last pre-#19994 update (group `ce2c419c`, republished as `7d8cd43f`).\n\n\ud83e\udd16 Generated with [Claude Code](https://claude.com/claude-code)\n\n<!-- devin-review-badge-begin -->\n\n---\n\n<a href=\"https://app.devin.ai/review/pingdotgg/t3code/pull/20384\" target=\"_blank\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://static.devin.ai/assets/gh-devin-review-dark.svg?v=4\"><img src=\"https://static.devin.ai/assets/gh-devin-review-light.svg?v=4\" alt=\"Devin Review\"></picture></a>\n<!-- devin-review-badge-end -->\n\n",
+  "head": "524a4b08b688a4637a749c5e7b596d75a0dd074f",
+  "files": [
+    {
+      "sha": "16be6ee5f2968ecdb37f69ae7968739c356044f8",
+      "filename": ".github/workflows/mobile-eas-production.yml",
+      "status": "modified",
+      "additions": 23,
+      "deletions": 0,
+      "changes": 23,
+      "blob_url": "https://github.com/pingdotgg/t3code/blob/524a4b08b688a4637a749c5e7b596d75a0dd074f/.github%2Fworkflows%2Fmobile-eas-production.yml",
+      "raw_url": "https://github.com/pingdotgg/t3code/raw/524a4b08b688a4637a749c5e7b596d75a0dd074f/.github%2Fworkflows%2Fmobile-eas-production.yml",
+      "contents_url": "https://api.github.com/repos/pingdotgg/t3code/contents/.github%2Fworkflows%2Fmobile-eas-production.yml?ref=524a4b08b688a4637a749c5e7b596d75a0dd074f",
+      "patch": "@@ -234,6 +234,29 @@ jobs:\n           MOBILE_BUILD_PROFILE: ${{ inputs.profile || 'production' }}\n         run: eas build --platform ${{ inputs.platform }} --profile \"$MOBILE_BUILD_PROFILE\" --auto-submit --non-interactive --no-wait\n \n+      # @expo/fingerprint swallows autolinking errors and returns no Expo module\n+      # sources, so native changes stop moving the hash and OTAs reach binaries\n+      # that lack them. Refuse to publish any OTA from such a fingerprint.\n+      - name: Verify fingerprints hash Expo native modules\n+        if: steps.expo-token.outputs.present == 'true' && (github.event_name == 'push' || inputs.mode == 'update')\n+        working-directory: apps/mobile\n+        env:\n+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}\n+          PLATFORM: ${{ inputs.platform || 'all' }}\n+        run: |\n+          if [ \"$PLATFORM\" = \"all\" ]; then platforms=\"ios android\"; else platforms=\"$PLATFORM\"; fi\n+          failed=0\n+          for platform in $platforms; do\n+            # eas-cli prints an environment-loaded notice to stdout before the\n+            # JSON even with --json, so discard everything before the document.\n+            expo_modules=\"$(eas fingerprint:generate --platform \"$platform\" --environment production --json --non-interactive | sed -n '/^{/,$p' | jq --arg reason \"expoAutolinking${platform^}\" '[.sources[] | select((.reasons // []) | index($reason))] | length')\"\n+            if [ \"${expo_modules:-0}\" -eq 0 ]; then\n+              failed=1\n+              echo \":x: $platform: the native fingerprint hashes no Expo native modules \u2014 OTAs and builds skipped\" >> \"$GITHUB_STEP_SUMMARY\"\n+            fi\n+          done\n+          exit \"$failed\"\n+\n       - name: Publish OTA update (manual)\n         if: steps.expo-token.outputs.present == 'true' && github.event_name == 'workflow_dispatch' && inputs.mode == 'update'\n         working-directory: apps/mobile"
+    },
+    {
+      "sha": "8045438709c65cf45309089c1cc81bbe4c7f6066",
+      "filename": "patches/@expo__fingerprint@0.21.5.patch",
+      "status": "added",
+      "additions": 16,
+      "deletions": 0,
+      "changes": 16,
+      "blob_url": "https://github.com/pingdotgg/t3code/blob/524a4b08b688a4637a749c5e7b596d75a0dd074f/patches%2F%40expo__fingerprint%400.21.5.patch",
+      "raw_url": "https://github.com/pingdotgg/t3code/raw/524a4b08b688a4637a749c5e7b596d75a0dd074f/patches%2F%40expo__fingerprint%400.21.5.patch",
+      "contents_url": "https://api.github.com/repos/pingdotgg/t3code/contents/patches%2F%40expo__fingerprint%400.21.5.patch?ref=524a4b08b688a4637a749c5e7b596d75a0dd074f",
+      "patch": "@@ -0,0 +1,16 @@\n+diff --git a/build/sourcer/Expo.js b/build/sourcer/Expo.js\n+index 785ec516921af68ea5922462a0177112e15c6bb1..8ce5ce7937b83b3677416bf18f4c60d759ba4fcf 100644\n+--- a/build/sourcer/Expo.js\n++++ b/build/sourcer/Expo.js\n+@@ -368,6 +368,11 @@ async function getExpoAutolinkingAndroidSourcesAsync(projectRoot, options, expoA\n+             }\n+             if (module1.plugins) {\n+                 for (const plugin of module1.plugins){\n++                    // Gradle plugins resolved from Maven (e.g. expo-widgets' glance fork) have no\n++                    // sourceDir; hashing them would throw and drop every Expo module source.\n++                    if (typeof plugin.sourceDir !== 'string') {\n++                        continue;\n++                    }\n+                     const filePath = (0, _Path.toPosixPath)(_path().default.relative(realProjectRoot, plugin.sourceDir));\n+                     plugin.sourceDir = filePath; // use relative path for the dir\n+                     debug(`Adding expo-modules-autolinking android dir - ${_chalk().default.dim(filePath)}`);"
+    },
+    {
+      "sha": "2352964b28d6bbca8da0ec120f0788fd2d733947",
+      "filename": "pnpm-lock.yaml",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 2,
+      "changes": 5,
+      "blob_url": "https://github.com/pingdotgg/t3code/blob/524a4b08b688a4637a749c5e7b596d75a0dd074f/pnpm-lock.yaml",
+      "raw_url": "https://github.com/pingdotgg/t3code/raw/524a4b08b688a4637a749c5e7b596d75a0dd074f/pnpm-lock.yaml",
+      "contents_url": "https://api.github.com/repos/pingdotgg/t3code/contents/pnpm-lock.yaml?ref=524a4b08b688a4637a749c5e7b596d75a0dd074f",
+      "patch": "@@ -151,6 +151,7 @@ packageExtensionsChecksum: sha256-EowbsmlBFaoO0Ypufw901RnvdyjKG5dcdk2FRbc7Dr0=\n patchedDependencies:\n   '@clerk/expo-native-components@0.2.0': 7a808b92da8460750b85818552e13be3fb73d111691c7db76965970351e124e4\n   '@effect/vitest@4.0.5': 2731c9c3761c595f25ddc625a7d61ca376b389d5b3049ecb837c8940f21cfa02\n+  '@expo/fingerprint@0.21.5': 8fba80d6bbce46c72de427fe8c7907462d262a0bfe50c6b2b7ee9c4e0c61e5e1\n   '@expo/metro-config@58.0.14': 90fa980e8b6480631fb2fbb04559834e3c612db40c550cd828f11be297d8d760\n   '@expo/ui@58.0.20': 5a26480373850c1a7943919aa21f904151b335a0cb01042109e0746def37923e\n   '@ff-labs/fff-node@0.11.0': cc71fcec015f4d39bc96ae2e2bf6b0ca678124c722c66a7841efce9d34b5983c\n@@ -14630,7 +14631,7 @@ snapshots:\n     transitivePeerDependencies:\n       - supports-color\n \n-  '@expo/fingerprint@0.21.5':\n+  '@expo/fingerprint@0.21.5(patch_hash=8fba80d6bbce46c72de427fe8c7907462d262a0bfe50c6b2b7ee9c4e0c61e5e1)':\n     dependencies:\n       '@expo/env': 2.5.2\n       '@expo/spawn-async': 1.8.0\n@@ -19629,7 +19630,7 @@ snapshots:\n       '@expo/config': 58.0.6(typescript@7.0.2)\n       '@expo/config-plugins': 58.0.9(typescript@7.0.2)\n       '@expo/devtools': 58.0.2(expo@58.0.14)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7)(bufferutil@4.1.0)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(utf-8-validate@6.0.6))(react@19.3.0)\n-      '@expo/fingerprint': 0.21.5\n+      '@expo/fingerprint': 0.21.5(patch_hash=8fba80d6bbce46c72de427fe8c7907462d262a0bfe50c6b2b7ee9c4e0c61e5e1)\n       '@expo/local-build-cache-provider': 58.0.6(typescript@7.0.2)\n       '@expo/log-box': 58.0.12(@expo/dom-webview@58.0.2)(expo@58.0.14)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7)(bufferutil@4.1.0)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(utf-8-validate@6.0.6))(react@19.3.0)\n       '@expo/log-box-utils': 58.0.2"
+    },
+    {
+      "sha": "bed729eb98a3ed683953c9de412d71016c0ec668",
+      "filename": "pnpm-workspace.yaml",
+      "status": "modified",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/pingdotgg/t3code/blob/524a4b08b688a4637a749c5e7b596d75a0dd074f/pnpm-workspace.yaml",
+      "raw_url": "https://github.com/pingdotgg/t3code/raw/524a4b08b688a4637a749c5e7b596d75a0dd074f/pnpm-workspace.yaml",
+      "contents_url": "https://api.github.com/repos/pingdotgg/t3code/contents/pnpm-workspace.yaml?ref=524a4b08b688a4637a749c5e7b596d75a0dd074f",
+      "patch": "@@ -332,6 +332,9 @@ patchedDependencies:\n   # Android: a nested WebView hands a vertical drag to its scrolling parent at the page's edge.\n   react-native-webview@14.0.1: patches/react-native-webview@14.0.1.patch\n   \"@expo/ui@58.0.20\": patches/@expo__ui@58.0.20.patch\n+  # Android: Maven-resolved gradle plugins (expo-widgets) have no sourceDir; without this\n+  # skip, the fingerprint silently drops every Expo native module and OTAs reach stale binaries.\n+  \"@expo/fingerprint@0.21.5\": patches/@expo__fingerprint@0.21.5.patch\n \n peerDependencyRules:\n   allowAny:"
+    }
+  ]
+}

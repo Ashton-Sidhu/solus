@@ -1,7 +1,9 @@
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
+import { useMemo } from "react";
 import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { sameNameHostAddresses } from "@solus/client-core/host-address";
 
 import { useApp, useListened } from "../../app/app-context";
 import type { ScreenProps } from "../../navigation/routes";
@@ -31,6 +33,10 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
   const app = useApp();
   const insets = useSafeAreaInsets();
   const hosts = useListened(app.registry.changes, app.registry.hosts);
+  const hostAddresses = useMemo(
+    () => sameNameHostAddresses(hosts.map((host) => ({ id: host.id, label: host.label, url: host.routes[0]?.url ?? "" }))),
+    [hosts],
+  );
   const account = useListened(app.account.changes, () => app.account.view);
   const directory = useListened(app.account.changes, () => app.account.directory);
   const organizationId = useListened(app.account.changes, () => app.account.organizationId);
@@ -140,6 +146,8 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
                 key={host.id}
                 icon={ENVIRONMENT_MACHINE_SYMBOLS[hostMachineKind(host)]}
                 label={host.label}
+                value={hostAddresses.get(host.id)}
+                valuePosition="below"
                 onPress={() => navigation.navigate("HostSettings", { hostId: host.id })}
               />
             ))}

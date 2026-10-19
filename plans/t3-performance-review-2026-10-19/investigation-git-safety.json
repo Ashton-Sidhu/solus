@@ -1,0 +1,37 @@
+{
+  "version": {
+    "code": 0,
+    "stdout": "git version 2.50.1 (Apple Git-155)",
+    "stderr": ""
+  },
+  "init": {
+    "code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "setMarker": {
+    "code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "implicitConfig": {
+    "code": 0,
+    "stdout": "fixture-only",
+    "stderr": ""
+  },
+  "implicitRoot": {
+    "code": 0,
+    "stdout": ".",
+    "stderr": ""
+  },
+  "guardedRoot": {
+    "code": 128,
+    "stdout": "",
+    "stderr": "fatal: cannot use bare repository '<fixture>' (safe.bareRepository is 'explicit')"
+  },
+  "explicitRoot": {
+    "code": 0,
+    "stdout": "<fixture>",
+    "stderr": ""
+  }
+}

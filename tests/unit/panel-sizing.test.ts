@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { gutterWidth } from '@solus/workspace-ui/components/conversation/lib/minimap'
+import { readFileSync } from 'node:fs'
+import type { ConversationWidth } from '@solus/contracts/settings'
+import { gutterWidth, hasRoomForRail } from '@solus/workspace-ui/components/conversation/lib/minimap'
 import {
   defaultWorkspaceRailWidth,
   MIN_PRIMARY_PANE_WIDTH,
@@ -37,6 +39,11 @@ function conversationWidth(displayWidth: number): number {
   return isProjectRailOpen(true, beside)
     ? beside - projectRailWidth(displayWidth, beside)
     : beside
+}
+
+/** The rendered reading column in a conversation pane. */
+function column(pane: number, width: ConversationWidth): number {
+  return pane - gutterWidth(pane, width) * 2
 }
 
 describe('panel sizing across displays', () => {
@@ -87,7 +94,7 @@ describe('panel sizing across displays', () => {
     // display, by less than the display moves, then stop at a readable cap.
     const measure = (displayWidth: number) => {
       const pane = conversationWidth(displayWidth)
-      return pane - gutterWidth(pane) * 2
+      return pane - gutterWidth(pane, 'comfortable') * 2
     }
     const laptop = measure(1440)
     const fiveK = measure(2560)
@@ -102,10 +109,51 @@ describe('panel sizing across displays', () => {
     // WHY: widening the 5K layout must not introduce a desktop-sized fixed
     // column into a tablet, a narrow window, or a split. The max-width can sit
     // above the pane, but the rendered column must never exceed its inner box.
-    for (const pane of [360, 480, 600, 800]) {
-      expect(pane - gutterWidth(pane) * 2).toBeLessThanOrEqual(pane - 32)
+    for (const width of ['narrow', 'comfortable', 'full'] as const) {
+      for (const pane of [360, 480, 600, 800]) {
+        expect(pane - gutterWidth(pane, width) * 2).toBeLessThanOrEqual(pane - 32)
+      }
     }
-    expect(800 - gutterWidth(800) * 2).toBeCloseTo((800 - 32) * 0.65, 6)
+  })
+
+  test('a narrow pane gives its width to the text, not to margins', () => {
+    // WHY: a share of the pane reads well on a laptop, but in a small window or
+    // a split it left a third of the width empty. Below the 46rem floor the
+    // column fills the pane less a 3rem margin each side (t3code's margin), and
+    // no navigator rail takes the space back.
+    for (const pane of [360, 480, 600, 800]) {
+      expect(column(pane, 'comfortable')).toBe(pane - 96)
+      expect(hasRoomForRail(pane, 'comfortable')).toBe(false)
+    }
+    expect(column(900, 'comfortable')).toBe(46 * 16)
+  })
+
+  test('each conversation width keeps its own measure on a wide pane', () => {
+    // WHY: the setting is the person's choice of measure. Narrow holds the
+    // comfortable rule's floor, Full fills the pane, and Comfortable sits
+    // between them on every display, so Narrow is never the wider choice.
+    for (const display of DISPLAYS) {
+      const pane = conversationWidth(display.width)
+      expect(column(pane, 'narrow')).toBeLessThanOrEqual(column(pane, 'comfortable'))
+      expect(column(pane, 'comfortable')).toBeLessThanOrEqual(column(pane, 'full'))
+    }
+    const pane = conversationWidth(1728)
+    expect(column(pane, 'narrow')).toBe(40 * 16)
+    expect(column(pane, 'full')).toBe(pane - 32)
+    expect(column(pane, 'comfortable')).toBeGreaterThan(column(pane, 'narrow'))
+    expect(column(pane, 'comfortable')).toBeLessThan(column(pane, 'full'))
+    // A full column leaves no gutter for the navigator rail.
+    expect(hasRoomForRail(pane, 'full')).toBe(false)
+    expect(hasRoomForRail(pane, 'narrow')).toBe(true)
+  })
+
+  test('the stylesheet paints the widths the navigator assumes', () => {
+    // WHY: the navigator rail places itself in the gutter it computes. If the
+    // CSS rule changes alone, the rail sits on the text or leaves a hole.
+    const css = readFileSync(new URL('../../packages/workspace-ui/src/workspace.css', import.meta.url), 'utf8')
+    expect(css).toContain('--solus-reading-max: min(68rem, max(65%, min(100% - 4rem, 46rem)));')
+    expect(css).toMatch(/\[data-conversation-width='narrow'\] \{\s*--solus-reading-max: min\(100% - 4rem, 40rem\);/)
+    expect(css).toMatch(/\[data-conversation-width='full'\] \{\s*--solus-reading-max: 100%;/)
   })
 
   test('a laptop lands inside the band rather than on either bound', () => {

@@ -23,6 +23,16 @@ export function startsHistoryTurn(message: Pick<SessionLoadMessage, 'role' | 'pa
   return message.role === 'user' && !message.parentToolUseId
 }
 
+/** Read a provider child through the parent tool that owns it. The host resolves
+ * the child identity; clients cannot name an unrelated provider thread. */
+export interface SessionSubagentRequest {
+  sessionId: string
+  toolId: string
+  provider: AgentId
+  projectPath?: string
+  before?: string
+}
+
 export interface SessionHistoryPage {
   messages: WireSessionLoadMessage[]
   before: string | null

@@ -95,7 +95,7 @@ const transcriptStub = runes.module('record-transcript-stub', `
   }
 `)
 const metaStub = runes.module('record-meta-stub', `
-  export async function readSessionMeta(_serverId, sessionId) { return { sessionId } }
+  export async function readSessionRecordMeta(_serverId, sessionId) { return { meta: { sessionId }, runnerHostId: null } }
 `)
 const connectionsStub = runes.module('record-connections-stub', `
   export const serverConnections = {

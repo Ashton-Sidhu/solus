@@ -57,6 +57,23 @@ export function accountConnectionText(status: AccountConnectionStatus | null): s
   }
 }
 
+/** The row's line: who it is connected as, what is wrong, or what connecting gives. */
+export function accountConnectionDescription(status: AccountConnectionStatus | null, purpose: string | undefined): string {
+  const text = accountConnectionText(status)
+  if (!purpose || (status && status.kind !== 'not-connected')) return text
+  return status ? `${text}. ${purpose}` : `${purpose} ${text}`
+}
+
+/** The row's one verb, named for what the account page will do. */
+export function accountConnectionAction(status: AccountConnectionStatus | null): string {
+  switch (status?.kind) {
+    case 'connected': return 'Manage'
+    case 'needs-sign-in': return 'Sign in again'
+    case 'not-connected': return 'Connect'
+    default: return 'Open account'
+  }
+}
+
 /** The words for an account read that did not answer. */
 export function accountReadFailureText(result: SettingsRequestFailure): string {
   switch (result.kind) {

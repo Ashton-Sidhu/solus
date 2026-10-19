@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { getSettingsContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     hasRoomForRail,
@@ -34,7 +35,10 @@
   let activeIndex = $state(0);
   let hovered = $state(false);
 
-  const visible = $derived(items.length >= 3 && hasRoomForRail(paneWidth));
+  const settings = getSettingsContext();
+  const visible = $derived(
+    items.length >= 3 && hasRoomForRail(paneWidth, settings.conversationWidth),
+  );
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 

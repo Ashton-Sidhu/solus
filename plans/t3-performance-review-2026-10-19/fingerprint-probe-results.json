@@ -1,0 +1,19 @@
+{
+  "note": "Read-only source enumeration; patched library exists only in this Node process. No native build, full fingerprint hash, EAS command or package change.",
+  "fingerprintVersion": "0.21.4",
+  "autolinkingVersion": "58.0.11",
+  "moduleCount": 33,
+  "originalSourceCount": 0,
+  "guardedSourceCount": 35,
+  "guardedNativeSourceCount": 34,
+  "missingPluginSourceDir": [
+    {
+      "packageName": "expo-widgets",
+      "plugin": {
+        "id": "io.github.expo.peek.glance-fork",
+        "group": "io.github.expo.peek",
+        "version": "0.3.2"
+      }
+    }
+  ]
+}

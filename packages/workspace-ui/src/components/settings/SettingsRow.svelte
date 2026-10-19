@@ -10,6 +10,8 @@
   interface Props {
     label: string;
     description?: string;
+    /** A 16px mark ahead of the label — a brand logo for a row that names a product. */
+    icon?: Snippet;
     visible?: boolean;
     /** Inline badge rendered immediately after the label. */
     labelExtra?: Snippet;
@@ -33,6 +35,7 @@
   let {
     label,
     description,
+    icon,
     visible = true,
     labelExtra,
     control,
@@ -60,6 +63,9 @@
     >
       <div class="min-w-0 flex-1 space-y-1">
         <div class="flex min-h-5 items-center gap-1.5">
+          {#if icon}
+            <span class="mr-0.5 flex size-4 shrink-0 items-center justify-center">{@render icon()}</span>
+          {/if}
           <h3 class="text-sm font-medium tracking-[-0.005em] text-foreground">
             {label}{@render labelExtra?.()}
           </h3>

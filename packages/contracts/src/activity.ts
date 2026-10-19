@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod'
+import { mcpAppReferenceSchema, type McpAppReference } from './mcp-apps'
 import type { TaskEventKind, TaskLinkKind } from './task-types'
 import type { AgentId, PermissionDecision, RateLimitDecisionAction } from './types'
 import { attributionSchema, userIdSchema, userSchema, type Attribution, type User, type UserId } from './user'
@@ -24,6 +25,7 @@ export interface TaskEventTarget {
 }
 
 export type ActivityKind =
+  | { kind: 'mcp_app'; app: McpAppReference }
   // sessions
   | { kind: 'stopped' }
   /** `sourceSessionId` is the source's provider thread, which opens it; `midRun`
@@ -86,6 +88,7 @@ const worktreeOfferResolutionSchema: z.ZodType<WorktreeOfferResolution> = z.disc
 
 /** An activity's kind and its fields, as a row stores them (`kind` plus `data`). */
 export const activityKindSchema: z.ZodType<ActivityKind> = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('mcp_app'), app: mcpAppReferenceSchema }),
   z.object({ kind: z.literal('stopped') }),
   z.object({ kind: z.literal('forked'), sourceSessionId: z.string(), sourceTitle: z.string().optional(), midRun: z.boolean().optional() }),
   z.object({ kind: z.literal('moved_to_worktree'), path: z.string(), branch: z.string().optional() }),

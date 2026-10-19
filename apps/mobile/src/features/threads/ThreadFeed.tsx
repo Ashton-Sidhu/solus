@@ -47,6 +47,7 @@ import {
   type ThreadFeedRow,
 } from "./thread-feed-presentation";
 import { resolveThreadFeedLiveFollow, type ThreadFeedLiveFollowEvent } from "./thread-feed-live-follow";
+import { streamingMessageRowId, threadFeedItemType } from "./thread-feed-item-type";
 import {
   THREAD_DISCLOSURE_TRANSITION_MS,
   ThreadDisclosureChevron,
@@ -66,6 +67,8 @@ import { CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOrigin
 import type { SessionOrigin } from "@solus/contracts/types";
 import { ThreadTurnImages } from "./ThreadTurnImages";
 import { ThreadArtifact } from "./ThreadArtifact";
+import { WorktreeSetupCard } from "./WorktreeSetupCard";
+import { ThreadMcpApp } from "./ThreadMcpApp";
 
 // A long prompt is cut here, as desktop cuts it (`.user-message-collapsed`: 13rem, 2.5rem fade).
 const USER_MESSAGE_COLLAPSED_HEIGHT = 208;
@@ -171,16 +174,14 @@ const UserMessageRow = memo(function UserMessageRow(props: {
         />
         {item.text.trim().length > 0 ? (
           <View>
-            <View style={collapsed ? { maxHeight: USER_MESSAGE_COLLAPSED_HEIGHT, overflow: "hidden" } : undefined}>
-              {/* Measured at full height; the cut is on the parent. The native
-                  markdown measures within the cut, so a collapsed height at the
-                  cut only says the text is still too tall: keep the full one. */}
+            <View style={collapsed ? { height: USER_MESSAGE_COLLAPSED_HEIGHT, overflow: "hidden" } : undefined}>
+              {/* The text is measured free of the cut in both states: collapsed,
+                  it is absolute, so no height limit reaches the native markdown.
+                  A text measured within the cut reports only the lines that fit,
+                  and the fold then opens and closes in a loop. */}
               <View
-                onLayout={(event) => {
-                  const height = event.nativeEvent.layout.height;
-                  if (collapsed && height >= USER_MESSAGE_COLLAPSED_HEIGHT) return;
-                  setTextHeight(height);
-                }}
+                style={collapsed ? { position: "absolute", top: 0, left: 0, right: 0 } : undefined}
+                onLayout={(event) => setTextHeight(event.nativeEvent.layout.height)}
               >
                 <ThreadMarkdown markdown={item.text} tone="user" store={props.store} />
               </View>
@@ -358,6 +359,8 @@ const WorktreeOfferRow = memo(function WorktreeOfferRow(props: { readonly store:
 });
 
 function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
+  if (row.type === "mcp-app") return <ThreadMcpApp store={context.store} id={row.id} />;
+  if (row.type === "setup") return <WorktreeSetupCard store={context.store} id={row.id} />;
   if (row.type === "run-fold") {
     return (
       <Pressable
@@ -525,7 +528,9 @@ function ThreadFeedListHeader(props: {
 }
 
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
-  const { store } = props;
+  // The list ref is read apart from the other props: the React Compiler treats
+  // every read of an object that holds a ref as a ref read during render.
+  const { store, listRef, onEndFollowEnabledChange } = props;
   const copyFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userScrollSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { width: windowWidth, fontScale } = useWindowDimensions();
@@ -550,9 +555,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       }
       endFollowEnabledRef.current = enabled;
       setEndFollowEnabled(enabled);
-      props.onEndFollowEnabledChange?.(enabled);
+      onEndFollowEnabledChange?.(enabled);
     },
-    [props.onEndFollowEnabledChange],
+    [onEndFollowEnabledChange],
   );
   const transitionEndFollow = useCallback(
     (event: ThreadFeedLiveFollowEvent) => {
@@ -617,10 +622,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       }),
     [entries, expandedTurnIds, expandedWorkGroups, props.handoffPending, props.turnActive, props.working],
   );
+  // LegendList keeps a container's type until the rows or this function change,
+  // which is when the streaming reply can change too.
+  const streamingRowId = useMemo(
+    () => streamingMessageRowId(presentedFeed, props.turnActive),
+    [presentedFeed, props.turnActive],
+  );
+  const getItemType = useCallback(
+    (row: ThreadFeedRow) => threadFeedItemType(row, store.item(row.id), row.id === streamingRowId),
+    [store, streamingRowId],
+  );
 
   const handleScroll = useCallback(
     (_event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const listState = props.listRef.current?.getState();
+      const listState = listRef.current?.getState();
       if (listState) {
         transitionEndFollow({
           type: "scroll",
@@ -629,7 +644,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         });
       }
     },
-    [props.listRef, transitionEndFollow],
+    [listRef, transitionEndFollow],
   );
   const clearUserScrollSettle = useCallback(() => {
     if (userScrollSettleTimerRef.current !== null) {
@@ -649,19 +664,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       userScrollSessionRef.current = false;
       transitionEndFollow({
         type: "user-scroll-end",
-        isAtEnd: releaseIsAtEnd ?? props.listRef.current?.getState().isAtEnd ?? false,
+        isAtEnd: releaseIsAtEnd ?? listRef.current?.getState().isAtEnd ?? false,
         userScrollSessionActive,
       });
     },
-    [clearUserScrollSettle, props.listRef, transitionEndFollow],
+    [clearUserScrollSettle, listRef, transitionEndFollow],
   );
   // Finger-lift velocity is not a reliable momentum signal: give native
   // momentum a short window to announce itself before ending the session.
   const handleScrollEndDrag = useCallback(() => {
     clearUserScrollSettle();
-    const releaseIsAtEnd = props.listRef.current?.getState().isAtEnd ?? false;
+    const releaseIsAtEnd = listRef.current?.getState().isAtEnd ?? false;
     userScrollSettleTimerRef.current = setTimeout(() => finishUserScroll(releaseIsAtEnd), 160);
-  }, [clearUserScrollSettle, finishUserScroll, props.listRef]);
+  }, [clearUserScrollSettle, finishUserScroll, listRef]);
   const handleMomentumScrollBegin = useCallback(() => {
     if (userScrollSessionRef.current) {
       clearUserScrollSettle();
@@ -699,9 +714,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   useLayoutEffect(() => {
     const bottom = props.contentInsetEndAdjustment.value;
     if (bottom > 0) {
-      props.listRef.current?.reportContentInset({ bottom });
+      listRef.current?.reportContentInset({ bottom });
     }
-  }, [listMountKey, props.contentInsetEndAdjustment, props.listRef]);
+  }, [listMountKey, props.contentInsetEndAdjustment, listRef]);
 
   useEffect(
     () => () => {
@@ -717,7 +732,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const settleDisclosure = useCallback(() => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const listState = props.listRef.current?.getState();
+        const listState = listRef.current?.getState();
         if (listState) {
           transitionEndFollow({
             type: "disclosure-settled",
@@ -728,7 +743,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         setDisclosureToggleSettling(false);
       });
     });
-  }, [props.listRef, transitionEndFollow]);
+  }, [listRef, transitionEndFollow]);
 
   const onCopyWorkRow = useCallback((rowId: string, value: string) => {
     copyTextWithHaptic(value, { target: "thread-work-row", feedback: "selection" });
@@ -848,7 +863,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       <View className="flex-1">
         <MarkdownImageAvailableWidthContext value={markdownContentWidth}>
           <KeyboardAwareLegendList
-            ref={props.listRef}
+            ref={listRef}
             key={listMountKey}
             style={{ flex: 1 }}
             // RN 0.81+ drops touches inside the contentInset area; the end space
@@ -872,7 +887,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             extraData={rowContext}
             renderItem={renderItem}
             keyExtractor={(row) => row.id}
-            getItemType={(row) => (row.type === "message" ? `message:${row.role}` : row.type)}
+            getItemType={getItemType}
             drawDistance={500}
             keyboardShouldPersistTaps="always"
             keyboardDismissMode="none"

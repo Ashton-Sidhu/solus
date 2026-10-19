@@ -1,6 +1,6 @@
 <script lang="ts">
-  /** The sidebar footer: one row. Settings and keyboard shortcuts sit on
-   *  the left as icon buttons; the account sits on the right. Signed in, that is
+  /** The sidebar footer: one row. Settings, saved sessions, and
+   *  notifications sit on the left as icon buttons; the account sits on the right. Signed in, that is
    *  a quiet user icon that matches the row (the avatar waits in the menu, so a
    *  bright profile picture does not pull the eye), and its menu holds the
    *  organization picker, the account and organization pages, and sign-out. Signed out it is a small "Sign in" button — the desktop app is
@@ -12,7 +12,6 @@
   import {
     Bell as BellIcon,
     Settings as GearIcon,
-    Keyboard as KeyboardIcon,
     UserRound as UserIcon,
     Building2 as OrganizationIcon,
     ArrowUpRight as ExternalIcon,
@@ -35,6 +34,11 @@
   import * as TooltipUI from "../ui/tooltip";
   import { Button } from "../ui/button";
   import { accountInitial, consolePageUrl } from "./lib/account-menu";
+  import type { Snippet } from "svelte";
+
+  // The saved sessions button and its popover. The sidebar owns them, because
+  // a pinned row needs the sidebar's context menu.
+  let { savedSessions }: { savedSessions?: Snippet } = $props();
 
   const session = getWorkspaceContext();
   const account = $derived(accountStore.state);
@@ -95,17 +99,11 @@
   {@render utilityButton(
     "Settings",
     comboHint("global.settings"),
-    settingsOpen && session.settingsTab !== "keybindings",
+    settingsOpen,
     () => session.showSettings(),
     GearIcon,
   )}
-  {@render utilityButton(
-    "Keyboard shortcuts",
-    undefined,
-    settingsOpen && session.settingsTab === "keybindings",
-    () => session.showSettings("keybindings"),
-    KeyboardIcon,
-  )}
+  {@render savedSessions?.()}
   {@render utilityButton(
     notificationCountLabel
       ? `Notifications, ${notificationCountLabel} unread`

@@ -100,6 +100,8 @@ const PERMISSION_OF_METHOD = {
   connectionsGetServerInfo: 'host.connect',
   authRenew: 'host.connect',
   accountPresent: 'host.connect',
+  // A `/v1` request over the socket: each operation checks its own scope and access, as over HTTP.
+  solusApiRequest: 'host.connect',
   serverGetCapabilities: 'host.connect',
   activityLease: 'host.connect',
   listAttention: 'host.connect',
@@ -228,7 +230,8 @@ export function isResourceVerb(value: string): value is ResourceVerb {
 export const RESOURCE_VERB_OF_METHOD = {
   // Sessions — reading
   watchSession: 'read', unwatchSession: 'read', bindRuntimeSession: 'read', loadSession: 'read', loadSessionPage: 'read',
-  loadSessionToolInputs: 'read', loadSessionPreview: 'read', loadSessionMessageWindow: 'read', getSessionInfo: 'read',
+  loadSessionSubagent: 'read', loadSessionToolInputs: 'read', loadSessionPreview: 'read', loadSessionMessageWindow: 'read', getSessionInfo: 'read',
+  mcpAppRead: 'read', mcpAppToolInfo: 'drive', mcpAppCallTool: 'drive', mcpAppReadResource: 'drive',
   getSessionInfos: 'read', describeSession: 'read', loadPlanContent: 'read', loadPlanAnnotations: 'read', getThreadGoal: 'read',
   listTurnSnapshots: 'read', diff: 'read', diffFileContents: 'read', diffStats: 'read', tasksForSession: 'read',
   metricsSessionSummary: 'read', setSessionReadState: 'read', togglePinnedSession: 'read',

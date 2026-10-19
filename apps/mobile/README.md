@@ -18,6 +18,10 @@ desktop and web clients. It adds no server code and no mobile protocol.
   under `patchedDependencies`, and its `overrides` keep one React Native: Expo
   packages do not accept a prerelease as a peer, and without the override Bun
   installs a second React Native for them.
+- The React Compiler, on through `expo.experiments.reactCompiler` in
+  `app.json`. `bun scripts/check-mobile-compiler-coverage.ts` keeps each
+  component's and hook's outcome at its reviewed baseline
+  (`docs/plans/mobile-compiler-coverage.md`).
 - React Navigation 7 native stack, on T3 Code's react-native-screens 5 fork
   (`deps/README.md`). iOS draws it with the fork's v5 `Stack`, `Split` (iPad
   columns), and `Tabs` (system tab bar); Android uses the native stack. The

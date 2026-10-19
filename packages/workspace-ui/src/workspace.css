@@ -139,14 +139,18 @@
      status bars and the input dock so the whole thread lines up as one column.
      It takes 65% of the available conversation pane, then caps at 68rem so a
      5K or ultrawide display gains useful
-     width without turning the transcript into a full-width wall of text. The
-     percentage resolves against each consumer's container, so splits and side
-     panels resize the column with the pane rather than with the outer window.
+     width without turning the transcript into a full-width wall of text. A
+     narrow pane fills its width less a 2rem gutter each side (3rem with the
+     scroll padding, as t3code) until the column reaches 46rem, so a small
+     window or split does not waste a third of its width on margins. The percentage resolves against each consumer's
+     container, so splits and side panels resize the column with the pane
+     rather than with the outer window. The "Conversation width" setting
+     replaces this rule below.
 
      Keep `conversation/lib/minimap.ts` in step — it mirrors this in TypeScript
-     to place the message navigator, and `tests/unit/panel-sizing.test.ts` reads
-     this line back to prove the two agree. */
-  --solus-reading-max: min(65%, 68rem);
+     to place the message navigator, and `tests/unit/panel-sizing.test.ts` pins
+     the widths it gives. */
+  --solus-reading-max: min(68rem, max(65%, min(100% - 4rem, 46rem)));
   /* SF Pro Text first-paint defaults. Runtime font preferences replace these
      with the selected face's named Regular or Medium instance. */
   --solus-font-weight-body: 400;
@@ -506,6 +510,15 @@
   --solus-render-4: #a15e9c; /* plum */
   --solus-render-5: #628835; /* moss */
   --solus-render-6: #cb7f00; /* amber: lighter and stronger than the rest, a yellow at the series lightness reads as olive */
+}
+
+/* "Conversation width" (Appearance). Comfortable keeps the rule above. */
+:root[data-conversation-width='narrow'] {
+  --solus-reading-max: min(100% - 4rem, 40rem);
+}
+
+:root[data-conversation-width='full'] {
+  --solus-reading-max: 100%;
 }
 
 
@@ -936,15 +949,17 @@
     0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(60, 45, 30, 0.06),
     0 0.5rem 1.125rem -0.875rem rgba(60, 45, 30, 0.22);
 
-  /* The spend line drawn over the volume bars. It is a second measure, not a
-     third backend, so it takes the ramp's plum — off both bar hues — and sits
-     at the opposite end of the lightness range from the bars, which are mixed
-     72% toward the card. The weighting has to differ per theme rather than
-     relying on --foreground to self-invert: on paper the plum must darken, and
-     on a dark page it must lift, so one mix cannot serve both. Lead with the
-     plum here; 55% foreground crushed the chroma to 0.056 and the line read as
-     a near-black bar. */
-  --insights-cost-line: color-mix(in oklch, var(--foreground) 30%, var(--solus-art-6));
+  /* Insights provider colours: orange for Claude, charcoal for Codex. The
+     fills are the marks' colours washed toward the card: a bar of solid
+     charcoal beside a bar of orange is the loudest thing on the plot, and the
+     legend's swatch, not the bar, carries the full hue. */
+  --insights-provider-claude: #e57453;
+  --insights-provider-codex: #292929;
+  --insights-provider-claude-fill: color-mix(in srgb, var(--insights-provider-claude) 85%, var(--card));
+  --insights-provider-codex-fill: color-mix(in srgb, var(--insights-provider-codex) 62%, var(--card));
+
+  /* Blue distinguishes the spend line from the provider counts. */
+  --insights-cost-line: var(--solus-art-5);
 }
 
 /* LayerChart reads four variables off its own root container for axis text,
@@ -984,12 +999,8 @@
   --insights-card-shadow:
     0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.4),
     0 0.625rem 1.375rem -1rem rgba(0, 0, 0, 0.6);
-  /* Inverted: the bars go dark here, so the line lifts instead of darkening.
-     Leading with the plum again keeps it a colour — 55% of the near-white
-     foreground washed it to chroma 0.028, a grey. Deliberately lighter than the
-     categorical fill band: the line is a different measure and must not read as
-     a peer of the bars it crosses. */
-  --insights-cost-line: color-mix(in oklch, var(--solus-art-6) 85%, var(--foreground));
+  /* Codex stays neutral and visible against the dark card. */
+  --insights-provider-codex: #e6e6e6;
 }
 
 @theme inline {

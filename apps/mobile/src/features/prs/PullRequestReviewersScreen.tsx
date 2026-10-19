@@ -64,14 +64,16 @@ export function PullRequestReviewersScreen({ route }: ScreenProps<'PullRequestRe
     if (!permissions.canRequestReviewers || pending) return
     setPending(user.login)
     setError(null)
-    try {
+    // The React Compiler cannot compile try/finally. The async wrapper turns a
+    // synchronous throw into a rejection, so catch and finally see both.
+    await (async () => {
       if (requested.has(user.login.toLowerCase())) await app.pullRequestActions.removeReviewer(ref, user.login, 'user')
       else await app.pullRequestActions.requestReviewers(ref, [user.login])
-    } catch (cause) {
+    })().catch((cause) => {
       setError(cause instanceof Error ? cause.message : 'Could not change this review request. Try again.')
-    } finally {
+    }).finally(() => {
       setPending(null)
-    }
+    })
   }
 
   return (

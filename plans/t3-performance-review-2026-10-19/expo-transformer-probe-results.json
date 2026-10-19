@@ -1,0 +1,18 @@
+{
+  "note": "Calls the installed Expo Metro Babel transformer directly with the actual local Babel config. Transform only; no Metro server, graph, bundling, build, source write or device run.",
+  "file": "apps/mobile/src/features/files/SourceFileSurface.tsx",
+  "results": [
+    {
+      "enabled": false,
+      "compilerRuntime": false,
+      "memoCacheCalls": 0,
+      "codeBytes": 4482
+    },
+    {
+      "enabled": true,
+      "compilerRuntime": true,
+      "memoCacheCalls": 2,
+      "codeBytes": 6993
+    }
+  ]
+}

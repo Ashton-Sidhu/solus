@@ -1,0 +1,401 @@
+{
+  "note": "In-memory source experiments only; input files, config and dependencies unchanged. Memo wrappers retained. A successful transform does not prove runtime equivalence.",
+  "results": [
+    {
+      "variant": "feed-destructure-list-ref",
+      "file": "src/features/threads/ThreadFeed.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "UserMessageRow",
+          "line": 141,
+          "memoSlots": 47
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "AssistantMessageRow",
+          "line": 277,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NoticeRow",
+          "line": 304,
+          "memoSlots": 18
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PlanRow",
+          "line": 348,
+          "memoSlots": 3
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "WorktreeOfferRow",
+          "line": 354,
+          "memoSlots": 3
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadFeedPlaceholder",
+          "line": 489,
+          "memoSlots": 14
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadFeedListHeader",
+          "line": 520,
+          "memoSlots": 5
+        },
+        {
+          "kind": "CompileError",
+          "line": 529,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 549
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadFeedLoadEarlierControl",
+          "line": 929,
+          "memoSlots": 11
+        }
+      ]
+    },
+    {
+      "variant": "composer-editor-destructure-ref",
+      "file": "src/components/ComposerEditor.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerEditor",
+          "line": 52,
+          "memoSlots": 39
+        }
+      ]
+    },
+    {
+      "variant": "sidebar-state-reset",
+      "file": "src/features/threads/ThreadNavigationSidebar.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadNavigationSidebar",
+          "line": 90,
+          "memoSlots": 4
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NativeSidebarContainer",
+          "line": 97,
+          "memoSlots": 7
+        },
+        {
+          "kind": "CompileError",
+          "line": 111,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 366
+        },
+        {
+          "kind": "CompileError",
+          "line": 111,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 421
+        },
+        {
+          "kind": "CompileError",
+          "line": 111,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 462
+        },
+        {
+          "kind": "CompileError",
+          "line": 111,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 566
+        }
+      ]
+    },
+    {
+      "variant": "sidebar-state-reset-and-clock",
+      "file": "src/features/threads/ThreadNavigationSidebar.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadNavigationSidebar",
+          "line": 90,
+          "memoSlots": 4
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NativeSidebarContainer",
+          "line": 97,
+          "memoSlots": 7
+        },
+        {
+          "kind": "CompileError",
+          "line": 111,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 366
+        },
+        {
+          "kind": "CompileError",
+          "line": 111,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 421
+        },
+        {
+          "kind": "CompileError",
+          "line": 111,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 462
+        },
+        {
+          "kind": "CompileError",
+          "line": 111,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 566
+        }
+      ]
+    },
+    {
+      "variant": "home-state-reset",
+      "file": "src/features/home/HomeScreen.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HomeEmptyButton",
+          "line": 100,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HomeTopContentSpacer",
+          "line": 126,
+          "memoSlots": 1
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 244
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 250
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 256
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 277
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 278
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 371
+        }
+      ]
+    },
+    {
+      "variant": "home-state-reset-and-clock",
+      "file": "src/features/home/HomeScreen.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HomeEmptyButton",
+          "line": 100,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HomeTopContentSpacer",
+          "line": 126,
+          "memoSlots": 1
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 244
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 250
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 256
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 277
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 278
+        },
+        {
+          "kind": "CompileError",
+          "line": 134,
+          "reason": "Existing memoization could not be preserved",
+          "diagnosticLine": 371
+        }
+      ]
+    },
+    {
+      "variant": "composer-cleanup",
+      "file": "src/features/threads/ThreadComposer.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SendActionButton",
+          "line": 146,
+          "memoSlots": 19
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerSurface",
+          "line": 187,
+          "memoSlots": 28
+        },
+        {
+          "kind": "CompileError",
+          "line": 252,
+          "reason": "Cannot access refs during render",
+          "diagnosticLine": 307
+        }
+      ]
+    },
+    {
+      "variant": "thread-detail-cleanup",
+      "file": "src/features/threads/ThreadDetailScreen.tsx",
+      "events": [
+        {
+          "kind": "CompileError",
+          "line": 105,
+          "reason": "Cannot access refs during render",
+          "diagnosticLine": 267
+        }
+      ]
+    },
+    {
+      "variant": "file-preview-cleanup",
+      "file": "src/features/files/FileMarkdownPreview.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "FileMarkdownPreview",
+          "line": 32,
+          "memoSlots": 50
+        }
+      ]
+    },
+    {
+      "variant": "pr-action-cleanup",
+      "file": "src/features/prs/detail/use-pull-request-action.ts",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "usePullRequestAction",
+          "line": 12,
+          "memoSlots": 8
+        }
+      ]
+    },
+    {
+      "variant": "guide-unconditional-state",
+      "file": "src/features/prs/detail/PullRequestGuide.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestGuideTab",
+          "line": 27,
+          "memoSlots": 47
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "GuideNoticeCard",
+          "line": 63,
+          "memoSlots": 35
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "GuideOutline",
+          "line": 118,
+          "memoSlots": 25
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "GuideStop",
+          "line": 165,
+          "memoSlots": 61
+        }
+      ]
+    },
+    {
+      "variant": "overlay-lazy-key",
+      "file": "src/components/OverlayPortal.tsx",
+      "events": [
+        {
+          "kind": "CompileError",
+          "line": 23,
+          "reason": "(BuildHIR::lowerExpression) Support UpdateExpression where argument is a global",
+          "diagnosticLine": 24
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "OverlayPortalHost",
+          "line": 45,
+          "memoSlots": 4
+        }
+      ]
+    },
+    {
+      "variant": "status-animation-state",
+      "file": "src/features/home/WorkspaceConnectionTitle.tsx",
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useDelayedConnectionStatus",
+          "line": 32,
+          "memoSlots": 5
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "StatusFadeIn",
+          "line": 56,
+          "memoSlots": 15
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "WorkspaceConnectionTitle",
+          "line": 102,
+          "memoSlots": 30
+        }
+      ]
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import type {
 import type { HostApi } from './host-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { normalizeHostCapabilities } from './host-capabilities'
+import { keepEqual } from './keep-equal'
 
 /** One host fact: not read yet, read, or failed. A fact that has not loaded is
  *  never a guessed value (docs/plans/host-model.md §3.2). */
@@ -247,7 +248,13 @@ export class HostFacts {
     }
   }
 
+  /** The one place a fact changes. An answer equal to the ready value held
+   *  keeps that value and says nothing: its readers have nothing new. The
+   *  read time still moves (the callers set it), and any change of state —
+   *  loading, an error, a drop — still reaches every listener. */
   private write(key: HostFactKey, fact: AnyFact): void {
+    const held = this.facts.get(key)
+    if (fact.state === 'ready' && held?.state === 'ready' && keepEqual(fact.value, held.value) === held.value) return
     this.facts.set(key, fact)
     for (const listener of Array.from(this.listeners)) listener(key)
   }

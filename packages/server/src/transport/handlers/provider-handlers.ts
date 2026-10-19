@@ -120,19 +120,21 @@ async function writePullRequest<T>(
   return result
 }
 
-/** Resolve the exact host revision. Reading a PR must not mutate local git state. */
+/** Resolve the revision to review. Reading a PR must not mutate local git state. */
 export async function openPrReview(ctx: IpcContext, number: number): Promise<PrReviewTarget> {
   const { repo, provider } = await reviewTargetFor(ctx)
-  // Fresh, not remembered: the `headSha` on the target this returns becomes the
-  // revision every later write is checked against, so it has to be the host's.
+  // Remembered, not fresh: opening a pull request is a read, and the click
+  // waits on it. The `headSha` here is only what the reviewer looks at. Every
+  // write and checkout reads the host fresh and refuses a revision that moved,
+  // and the client asks again when PR sync reports a new head.
   const pullRequest = prIndex.pullRequest(repo, provider, number)
   // The diff base only depends on the two revisions. Where a list row already
-  // named them, ask for it beside the fresh read: an unchanged pull request
-  // then gets its base from that answer, and only a moved one waits for a
-  // second compare after the read.
+  // named them, ask for it beside the read: an unchanged pull request then
+  // gets its base from that answer, and only a moved one waits for a second
+  // compare after the read.
   const known = pullRequest.lastRead()
   if (known) void provider.review.getPullRequestDiffBase(repo, known).catch(() => {})
-  const detail = await pullRequest.readFresh()
+  const detail = await pullRequest.read()
   const baseSha = await provider.review.getPullRequestDiffBase(repo, detail)
   const target = buildPrReviewTarget(repo, detail, baseSha)
   log.info('pr_review_opened_host_only', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: number, headSha: detail.headSha })
@@ -556,8 +558,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     }
     const { repo, provider } = await reviewTargetFor(ctx)
     // Remembered, not fresh: the guard inside compares against the `headSha`
-    // the client got from `prOpenReview`, which forced this same field moments
-    // ago. A push since then surfaces on the next open, not on every diff page.
+    // the client got from `prOpenReview`, which read this same field. A push
+    // since then surfaces through PR sync, not on every diff page.
     const detail = await prIndex.pullRequest(repo, provider, request.number).read()
     return provider.review.getPullRequestDiff(repo, detail, request)
   })

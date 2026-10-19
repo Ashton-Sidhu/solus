@@ -54,6 +54,11 @@ controls for things a click cannot do:
   answered. On a headless host an unanswered dialog is dismissed, as before; on
   the desktop it stays open for the user. `browser_status` shows an open dialog.
 
+A snapshot does not record the value of a field the page masks: a password
+field, or a field the page draws as dots (`-webkit-text-security`). Other field
+values stay in the snapshot. A label is copied as the page wrote it, so a page
+that puts a secret in a label still shows it.
+
 The Devices group holds `device_list`, `device_open`, `device_screenshot`,
 `device_close` and `device_install`. They work only when device support and
 agent access are on for the host, and each call checks both again.

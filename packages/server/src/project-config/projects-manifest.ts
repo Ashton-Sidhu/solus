@@ -12,6 +12,7 @@ import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { resolveProjectKey, resolveProjectRoot } from './project-config'
 import { setupProjectsRoot } from '../workspace'
+import { isMemberFolder } from '../host/member-folders'
 import { z } from 'zod'
 
 const log = createLogger('main', 'projects-manifest')
@@ -73,11 +74,14 @@ async function readManifest(): Promise<ManifestProject[]> {
   return rows.map(fromRow)
 }
 
-/** No folder, a chat, or the projects root: the folder that holds the host's
- *  projects and chats is never a project of its own. */
+/** No folder, a chat, or a host/member projects root: folders that hold
+ *  projects and chats are never projects of their own. */
 function isOutsideProjects(cwd: string): boolean {
-  return !cwd || cwd === '~' || isChat(cwd)
-    || path.resolve(cwd) === path.resolve(setupProjectsRoot())
+  if (!cwd || cwd === '~' || isChat(cwd)) return true
+  const folder = path.resolve(cwd)
+  const projectsRoot = path.resolve(setupProjectsRoot())
+  return folder === projectsRoot
+    || (path.dirname(folder) === projectsRoot && isMemberFolder(basename(folder)))
 }
 
 /** Add the project of a folder to the list (docs/plans/project-model.md §2).

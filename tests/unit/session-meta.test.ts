@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
   readSessionMeta,
+  readSessionRecordMeta,
   stampSessionMeta,
   stampSessionMetas,
 } from '@solus/client-core/session-meta'
+import { connectedRunnerFor } from '@solus/client-core/session-runner'
 import type { SessionMeta } from '@solus/contracts/types'
+import { solusApiId } from '@solus/contracts/uplink'
 
 function meta(sessionId: string): SessionMeta {
   return {
@@ -84,5 +87,39 @@ describe('scoped session metadata', () => {
 
     expect(batches).toEqual([['one', 'two']])
     expect([one?.sessionId, two?.sessionId, oneAgain?.sessionId]).toEqual(['one', 'two', 'one'])
+  })
+})
+
+describe('the runner a cloud record names', () => {
+  // WHY: a member link opens a session's record on the organization's workspace
+  // service. The record names the machine that runs the session by its account
+  // host id, and the page must find that machine to open the live session there.
+  // Stamping the meta with the workspace's own id used to erase it, so the page
+  // stayed read only while the machine was connected.
+  const workspace = solusApiId('org-1')
+  const hostsAnswering = (answer: SessionMeta) => ({
+    resolveId: (serverId: string) => serverId,
+    apiFor: () => ({ getSessionInfos: async () => [answer] }),
+  })
+
+  test('the workspace service\'s answer keeps its runner beside the stamped meta', async () => {
+    const read = await readSessionRecordMeta(workspace, 'target', hostsAnswering({ ...meta('target'), serverId: 'host-raiders' }))
+    expect(read.runnerHostId).toBe('host-raiders')
+    expect(read.meta?.serverId).toBe(workspace)
+  })
+
+  test('a machine\'s own answer names no runner: it is the runner', async () => {
+    const read = await readSessionRecordMeta('laptop', 'target', hostsAnswering({ ...meta('target'), serverId: 'laptop-self' }))
+    expect(read.runnerHostId).toBeNull()
+  })
+
+  test('the runner is the saved server with that host id, and only while it is connected', () => {
+    const saved = [
+      { id: 'server-a', uplink: { hostId: 'host-a', directoryUrl: 'https://app.solus.sh' } },
+      { id: 'server-raiders', uplink: { hostId: 'host-raiders', directoryUrl: 'https://app.solus.sh' } },
+    ]
+    expect(connectedRunnerFor('host-raiders', saved, () => 'connected')).toBe('server-raiders')
+    expect(connectedRunnerFor('host-raiders', saved, () => 'reconnecting')).toBeNull()
+    expect(connectedRunnerFor('host-unknown', saved, () => 'connected')).toBeNull()
   })
 })

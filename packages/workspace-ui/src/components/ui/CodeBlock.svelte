@@ -9,8 +9,10 @@
     /** Actions the block's own content earns, shown in the head beside Copy.
      *  An html snippet's Render is the one caller today. */
     actions?: Snippet;
+    /** A review card supplies its own file header. */
+    showHeader?: boolean;
   }
-  let { text, lang, actions }: Props = $props();
+  let { text, lang, actions, showHeader = true }: Props = $props();
 
   // Strip a single trailing newline so the block doesn't render an empty last line.
   let code = $derived(text.replace(/\n$/, ""));
@@ -87,7 +89,8 @@
   }
 </script>
 
-<div class="solus-code-block group/code">
+<div class={showHeader ? "solus-code-block group/code" : "solus-code-block group/code !m-0 !rounded-none !border-0"}>
+  {#if showHeader}
   <div class="solus-code-head">
     <span class="solus-code-lang">{lang || "text"}</span>
     {@render actions?.()}
@@ -118,6 +121,7 @@
       <span class="solus-code-copy-label">{copied ? "Copied" : "Copy"}</span>
     </button>
   </div>
+  {/if}
   <div class="solus-code-body">
     <pre use:edgeFade><code class="shiki {lang ? `language-${lang}` : ''}">{#each highlighted as line, index (index)}<span class="code-line">{@html line}</span>{#if index < highlighted.length - 1}{"\n"}{/if}{/each}</code></pre>
   </div>

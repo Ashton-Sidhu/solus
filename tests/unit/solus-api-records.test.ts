@@ -9,6 +9,8 @@ import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
 import { workspaceTaskSchema, workspaceWorkSchema, workspaceTranscriptPageSchema } from '@solus/contracts/solus-api'
 import { installTestIdentities } from './helpers/acting-identities'
+import type { SolusApiRequest } from '@solus/contracts/solus-api/request'
+import type { Principal } from '@solus/server/admission/principal'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 let operations: WorkspaceOperations
 let dataDir: string
@@ -115,7 +117,7 @@ test('HTTP works without a socket; credentials bind scope and strict inputs reje
   const actual = new Set(router.routes.filter(route => route.method !== 'ALL').map(route => route.method.toLowerCase() + ' ' + route.path))
   expect(actual).toEqual(new Set(Object.values(metadata).map(route => route.method + ' ' + route.path)))
 
-  const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
+  const { SolusApiClient, SolusApiHttp } = await import('@solus/contracts/solus-api/client')
   const original = globalThis.fetch
   let exchanges = 0, selected = 'A'
   globalThis.fetch = mock(async (input, init) => {
@@ -124,7 +126,7 @@ test('HTTP works without a socket; credentials bind scope and strict inputs reje
     return app.fetch(new Request(url, init))
   }) as typeof fetch
   try {
-    const client = new SolusApiClient({ baseUrl: () => 'https://api.example', contextKey: () => selected, acquireSource: async () => 'paired-source' })
+    const client = new SolusApiClient(new SolusApiHttp({ baseUrl: () => 'https://api.example', contextKey: () => selected, acquireSource: async () => 'paired-source' }))
     const [first, second] = await Promise.all([client.request('getTask', { id: task.id }), client.request('getTask', { id: task.id })])
     expect(first.id).toBe(second.id); expect(exchanges).toBe(1)
     const work = await client.request('createWork', { body: { title: 'Poll', type: 'doc', content: '# Content' }, key: 'conditional-work-key-01' })
@@ -135,6 +137,38 @@ test('HTTP works without a socket; credentials bind scope and strict inputs reje
     await client.request('getTask', { id: task.id })
     expect(exchanges).toBe(2)
   } finally { globalThis.fetch = original }
+})
+
+// A client with a socket sends its records there: the socket's principal is their
+// authority, so a cold request costs one round trip and no credential exchange.
+test('records over a socket take its principal as authority and never exchange a credential', async () => {
+  const { Hono } = await import('hono')
+  const { WorkspaceCredentials } = await import('@solus/server/admission/workspace-credentials')
+  const { answerSocketRequest, createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
+  const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
+  const credentials = new WorkspaceCredentials({ audience: 'api', authenticateSource: async () => null,
+    isRevoked: async principal => principal.kind !== 'system' && principal.deviceId === 'revoked-device', homeFor: () => context.home })
+  const router = createSolusApiRouter({ credentials, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  // Mounted at /v1 over HTTP too: the socket must not open a door HTTP keeps shut.
+  const http = new Hono().route('/v1', router)
+  const requests = (request: SolusApiRequest, principal: Principal) => answerSocketRequest(router, request, principal)
+  const client = new SolusApiClient({ contextKey: () => 'A', send: request => requests(request, context.principal) })
+
+  const task = await client.request('createTask', { body: { title: 'Over the socket' }, key: 'socket-create-key-001' })
+  expect(task.role).toBe('owner')
+  const work = await client.request('createWork', { body: { title: 'Socket notes', type: 'doc', content: '# One' }, key: 'socket-work-key-0001' })
+  expect(await client.request('getWork', { id: work.id, ifNoneMatch: work.version })).toBeUndefined()
+  const renamed = await client.request('updateTask', { id: task.id, body: { title: 'Renamed' }, version: task.version })
+  expect(renamed.title).toBe('Renamed')
+
+  // The socket's principal is held to the API's rules: a revoked device, an expired
+  // token, and the host itself are refused, as an exchange would refuse them.
+  const listTasks: SolusApiRequest = { method: 'GET', path: '/tasks?limit=1' }
+  expect((await requests(listTasks, { ...context.principal, deviceId: 'revoked-device' })).status).toBe(401)
+  expect((await requests(listTasks, { ...context.principal, expiresAt: Date.now() - 1 })).status).toBe(401)
+  expect((await requests(listTasks, { kind: 'system' })).status).toBe(401)
+  // An admitted socket request leaves no authority behind for an HTTP request.
+  expect((await http.request('/v1/tasks?limit=1')).status).toBe(401)
 })
 
 test('rolled-back writes emit no task change and reserve no retry receipt', async () => {
@@ -195,12 +229,12 @@ test('a link guest opens only its shared work with the secret alone, with the li
   const { Hono } = await import('hono')
   const { workspaceCredentialsForHttp } = await import('@solus/server/transport/solus-api/admission')
   const { createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
-  const { SolusApiClient, WorkspaceRequestError } = await import('@solus/contracts/solus-api/client')
+  const { SolusApiClient, SolusApiHttp, WorkspaceRequestError } = await import('@solus/contracts/solus-api/client')
   const credentials = workspaceCredentialsForHttp({ isApiMode: true, solusApi: { operations, serviceId: 'api' }, resolveShareSecret: secret => shares.resolveLinkSecret(secret) })
   const router = createSolusApiRouter({ credentials, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   const app = new Hono().route('/v1', router)
   const fetchImpl = (input: string | URL, init?: RequestInit) => app.fetch(new Request(String(input), init))
-  const guestOf = (shareSecret: string) => new SolusApiClient({ baseUrl: () => 'https://api.example', contextKey: () => 'maya', acquireSource: async () => null, fetchImpl, shareSecret, guestIdentity: { guestId: 'maya-guest-0000001', displayName: 'Maya' } })
+  const guestOf = (shareSecret: string) => new SolusApiClient(new SolusApiHttp({ baseUrl: () => 'https://api.example', contextKey: () => 'maya', acquireSource: async () => null, fetchImpl, shareSecret, guestIdentity: { guestId: 'maya-guest-0000001', displayName: 'Maya' } }))
 
   const work = await operations.createWork(context, { title: 'Linked', type: 'doc', content: 'One' }, 'linked-work-key-0001')
   const other = await operations.createWork(context, { title: 'Not linked', type: 'doc', content: 'Secret' }, 'linked-work-key-0002')
@@ -229,7 +263,7 @@ test('a link guest opens only its shared work with the secret alone, with the li
   await expect(again.request('getWork', { id: work.id })).rejects.toMatchObject({ status: 404 })
 
   // No secret, no token: nothing is asked of the API.
-  const nobody = new SolusApiClient({ baseUrl: () => 'https://api.example', contextKey: () => 'nobody', acquireSource: async () => null, fetchImpl })
+  const nobody = new SolusApiClient(new SolusApiHttp({ baseUrl: () => 'https://api.example', contextKey: () => 'nobody', acquireSource: async () => null, fetchImpl }))
   await expect(nobody.request('getWork', { id: work.id })).rejects.toBeInstanceOf(WorkspaceRequestError)
 })
 

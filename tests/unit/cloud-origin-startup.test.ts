@@ -57,7 +57,7 @@ async function bootDirectory(origin: string, isSignedIn: boolean) {
   const adopt = (at: string) => adoptCloudOriginIfPresent(at, session(isSignedIn))
   const boot = new Function('adoptCloudOriginIfPresent', 'uplinkAccountSource', 'cloudOrigin',
     'location', 'loadServers', 'saveServers', 'mergeDirectoryIntoSaved', 'saveDirectoryWorkspaces', 'startupAccountRead', 'markDirectoryAnswered',
-    `${compiled}\nreturn adoptCloudDirectory();`)
+    `${compiled}\nreturn adoptCloudDirectory({ waitsForAccount: true });`)
   await boot(adopt, uplinkAccountSource, state, { origin }, () => saved, save, mergeDirectoryIntoSaved, saveWorkspaces, startupAccountRead, answered)
   // Only a merged directory makes the saved hosts authoritative (workspace-and-machines.md §6).
   expect(answered).toHaveBeenCalledTimes(save.mock.calls.length)

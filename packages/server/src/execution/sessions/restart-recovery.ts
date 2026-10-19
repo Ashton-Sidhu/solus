@@ -4,8 +4,7 @@ import { hostUser } from '../../host/host-user'
 import { type QueuedRequest } from './session-request-queue'
 import { createLogger } from '../../logger'
 import { settledSessionIds } from '../../data/sessions/session-states'
-import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
-import { organizationOfSession } from '../../data/sessions/session-records'
+import { sessionIsOrganizationWork } from '../../data/sessions/session-records'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import type { NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
@@ -25,9 +24,9 @@ export class RestartRecovery {
     this.restartRuns = runLedger?.activeRuns
   }
 
-  saveRestartRun(request: SessionRunRequest, organizationId: string | undefined): void {
-    if (!this.restartRuns || this.rt.isShuttingDown || !restartRecoveryEnabled()
-      || (organizationId !== undefined && organizationId !== LOCAL_ORGANIZATION_ID)
+  /** `isOrganizationWork`: the organization's work continues only from its Solus API. */
+  saveRestartRun(request: SessionRunRequest, isOrganizationWork: boolean): void {
+    if (!this.restartRuns || this.rt.isShuttingDown || !restartRecoveryEnabled() || isOrganizationWork
       || request.delegation || request.options.automationId) return
     const authority = restartAuthority(request.actor)
     if (request.input.agentSessionId && getIndexedSession(request.input.agentSessionId)?.delegation) return
@@ -69,7 +68,9 @@ export class RestartRecovery {
         this.restartRuns.remove(saved.sessionId, saved.runId)
         continue
       }
-      if (await organizationOfSession(saved.sessionId) !== LOCAL_ORGANIZATION_ID) {
+      // The organization's work continues only from its Solus API. A session
+      // that only names its person's organization is this machine's own.
+      if (await sessionIsOrganizationWork(saved.sessionId)) {
         this.restartRuns.remove(saved.sessionId, saved.runId)
         continue
       }

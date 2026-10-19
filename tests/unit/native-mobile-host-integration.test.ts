@@ -25,7 +25,8 @@ let url = ''
 let closeTransport: () => void = () => {}
 let publishToAll: (sessionId: string, text: string) => Promise<number> = async () => 0
 const pairedLabels: string[] = []
-const recordReads: string[] = []
+const socketRecordReads: { path: string; principal: string }[] = []
+const httpRecordRequests: string[] = []
 
 async function readBody(request: IncomingMessage): Promise<string> {
   let body = ''
@@ -40,7 +41,6 @@ beforeAll(async () => {
   const { HostEventPublisher } = await import('@solus/server/transport/events/host-event-publisher')
   const { attachWebSocketTransport } = await import('@solus/server/transport/websocket')
 
-  const sessionTokens = new Set<string>()
   http = createServer(async (request, response) => {
     const json = (status: number, body: object) => {
       response.statusCode = status
@@ -54,42 +54,37 @@ beforeAll(async () => {
       if (body.pairToken !== PAIR_CODE) return json(401, { error: 'Invalid or expired pair token' })
       pairedLabels.push(body.deviceLabel)
       const { token } = auth.issueSessionToken(body.deviceLabel)
-      sessionTokens.add(token)
       return json(200, { sessionToken: token, installationId: INSTALLATION_ID, os: 'linux' })
     }
     if (request.method === 'POST' && request.url === '/auth/ws-ticket') {
       const ticket = auth.issueWsTicket(bearer)
       return ticket ? json(200, { ticket }) : json(401, { error: 'unauthorized' })
     }
-    if (request.method === 'POST' && request.url === '/v1/auth/session') {
-      if (!sessionTokens.has(bearer)) return json(401, { error: { code: 'UNAUTHENTICATED', message: 'no' } })
-      return json(200, {
-        accessToken: 'records-token', tokenType: 'Bearer', expiresAt: new Date(Date.now() + 300_000).toISOString(),
-        scopes: ['sessions:read'], home: { kind: 'local', hostId: INSTALLATION_ID },
-        subject: { kind: 'user', userId: 'local:owner', displayName: 'Owner', sessionId: null },
-      })
-    }
-    if (request.method === 'GET' && request.url?.startsWith('/v1/sessions')) {
-      recordReads.push(request.url)
-      if (bearer !== 'records-token') return json(401, { error: { code: 'UNAUTHENTICATED', message: 'no' } })
-      return json(200, {
+    if (request.url?.startsWith('/v1/')) httpRecordRequests.push(request.url)
+    response.statusCode = 404
+    response.end()
+  })
+  const server = new SolusServer()
+  server.register('listProjects', async () => [{ key: 'app', path: '/work/app', folderName: 'app', addedAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-10-01T00:00:00Z', repositoryKey: null }])
+  // Records go over the socket, with the paired socket's principal as their authority.
+  server.register('solusApiRequest', async ([request], ctx) => {
+    socketRecordReads.push({ path: request.path, principal: ctx.principal.kind })
+    return {
+      status: 200, etag: null, retryAfter: null,
+      body: JSON.stringify({
         items: [{
           id: 'thread-1', home: { kind: 'local', hostId: INSTALLATION_ID }, organizationId: null, ownerKey: 'local:owner', role: 'owner',
           version: 'v1', createdAt: '2026-10-01T10:00:00Z', updatedAt: '2026-10-01T11:00:00Z',
           provider: 'claude-code', title: 'Fix the build', customTitle: null, projectId: null, projectPath: '/work/app',
           projectRemote: null, runnerHostId: null, status: 'idle', model: null, reasoningEffort: null, parentSessionId: null,
           rootSessionId: null, publication: 'local', size: 10, cwd: '/work/app', slug: null, isWorktree: false, branch: null,
-          projectRoot: '/work/app', delegation: null,
+          projectRoot: '/work/app', delegation: null, state: null, view: null, listed: true, pullRequests: [],
         }],
         nextCursor: null,
         indexing: false,
-      })
+      }),
     }
-    response.statusCode = 404
-    response.end()
   })
-  const server = new SolusServer()
-  server.register('listProjects', async () => [{ key: 'app', path: '/work/app', folderName: 'app', addedAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-10-01T00:00:00Z', repositoryKey: null }])
   const clientEvents = new ClientEventRegistry()
   const events = new HostEventPublisher(clientEvents)
   const transport = attachWebSocketTransport(http, server, { clientEvents, requireAuth: true })
@@ -128,7 +123,7 @@ function untilConnected(app: SolusApp, hostId: string): Promise<void> {
 }
 
 describe('native client against a disposable host', () => {
-  test('pairs, calls a typed RPC, receives an event, and reads a record over HTTP', async () => {
+  test('pairs, calls a typed RPC, receives an event, and reads a record over its socket', async () => {
     const app = new SolusApp({
       storage: memoryKeyValueStore(),
       secrets: memorySecretStore(),
@@ -164,10 +159,12 @@ describe('native client against a disposable host', () => {
     expect(await publishToAll('thread-1', 'hello phone')).toBe(1)
     expect(await received).toBe('hello phone')
 
-    // One record read over the host's HTTP API with the paired credential.
+    // One record read over the socket: no credential is exchanged and nothing goes over HTTP.
     await app.threads.load(host.id)
     expect(app.threads.threads().map((thread) => [thread.record.sessionId, thread.record.title])).toEqual([['thread-1', 'Fix the build']])
-    expect(recordReads).toHaveLength(1)
+    expect(socketRecordReads.length).toBeGreaterThan(0)
+    for (const read of socketRecordReads) expect(read).toEqual({ path: expect.stringMatching(/^\/sessions\?/), principal: 'local-owner' })
+    expect(httpRecordRequests).toEqual([])
 
     await app.registry.forget(host.id)
     expect(app.connections.state(host.id)).toBeNull()

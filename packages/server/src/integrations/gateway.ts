@@ -8,6 +8,7 @@ import {
   ToolListChangedNotificationSchema,
   type ElicitRequest,
   type ElicitResult,
+  type ReadResourceResult,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
 import type { Integration, IntegrationConnectNeeded, IntegrationToolSummary } from '@solus/contracts/integration-types'
@@ -47,7 +48,19 @@ class ConnectionRequiredError extends Error {
 }
 
 /** One upstream tool as `tools/list` reported it, kept whole: the tool bridge needs its input schema. */
-export type UpstreamTool = Pick<Tool, 'name' | 'title' | 'description' | 'inputSchema' | 'annotations'>
+export type UpstreamTool = Pick<Tool, 'name' | 'title' | 'description' | 'inputSchema' | 'annotations' | '_meta'>
+
+/** A `tools/call` result as the SDK returns it. */
+type AppToolResult = Awaited<ReturnType<Client['callTool']>>
+
+/** A successful call of a tool that may declare an MCP App. */
+export interface IntegrationAppCapture {
+  integration: Integration
+  tool: UpstreamTool
+  input: ToolArguments
+  result: AppToolResult
+  context: AgentToolContext
+}
 
 type ElicitationAnswers = Parameters<typeof mcpElicitationResponse>[1]
 /** A `tools/call` input as the SDK takes it. */
@@ -100,6 +113,7 @@ export class IntegrationGateway {
   private readonly connectNeededListeners: Array<(request: IntegrationConnectNeeded) => void> = []
   private readonly opening = new Map<string, Promise<UpstreamSession>>()
   private credentials: IntegrationCredentials | null = null
+  private captureApp: ((call: IntegrationAppCapture) => Promise<void>) | null = null
 
   /** The integration records; the tool bridge lists a scope's integrations through it. */
   constructor(readonly store: Pick<IntegrationStore, 'get' | 'list'>) {}
@@ -107,6 +121,30 @@ export class IntegrationGateway {
   /** Installed once at boot: how a session reads a person's sign-in. */
   useCredentials(credentials: IntegrationCredentials): void {
     this.credentials = credentials
+  }
+
+  /** Installed once at boot: what saves the MCP App a successful tool call declares. */
+  useAppCapture(capture: (call: IntegrationAppCapture) => Promise<void>): void {
+    this.captureApp = capture
+  }
+
+  /** Reads one resource with the current person's connection. It never starts an agent turn. */
+  async readAppResource(integrationId: string, uri: string, options: { signal?: AbortSignal; timeout?: number } = {}): Promise<ReadResourceResult> {
+    return this.withAppSession(integrationId, (client) => client.readResource({ uri }, { timeout: options.timeout ?? CALL_TIMEOUT_MS, signal: options.signal }))
+  }
+
+  /** Calls one tool for an MCP App with the current person's connection. It never starts an agent turn. */
+  async callAppTool(integrationId: string, name: string, input: ToolArguments): Promise<AppToolResult> {
+    return this.withAppSession(integrationId, (client) => client.callTool({ name, arguments: input }, undefined, { timeout: CALL_TIMEOUT_MS }))
+  }
+
+  private async withAppSession<T>(integrationId: string, use: (client: Client) => Promise<T>): Promise<T> {
+    const session = await this.session(integrationId, currentPersonKey())
+    try {
+      return await use(session.client)
+    } finally {
+      this.touch(sessionKey(integrationId, session.personKey))
+    }
   }
 
   /** The current person's tools of an integration, as Settings shows them. */
@@ -162,6 +200,7 @@ export class IntegrationGateway {
         undefined,
         { signal: AbortSignal.any([context.abortSignal, timeout.signal]), timeout: SDK_TIMEOUT_OFF_MS },
       )
+      if (this.captureApp && !('isError' in result && result.isError)) await this.saveApp(this.captureApp, { integration, tool, input, result, context })
       return mapCallResult(result)
     } catch (error) {
       if (error instanceof ConnectionRequiredError) return this.connectionRequired(integration, context)
@@ -284,7 +323,7 @@ export class IntegrationGateway {
         throw new ConnectionRequiredError()
       }
       for (const tool of page.tools) {
-        tools.push({ name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations })
+        tools.push({ name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations, _meta: tool._meta })
       }
       cursor = page.nextCursor
     } while (cursor)
@@ -338,7 +377,7 @@ export class IntegrationGateway {
     }
     this.retire(key)
     if (integration.auth.kind !== 'none' && !authorization && !allowAnonymous) throw new ConnectionRequiredError()
-    const client = new Client({ name: 'solus', version: '1.0.0' }, { capabilities: { elicitation: { form: {}, url: {} } } })
+    const client = new Client({ name: 'solus', version: '1.0.0' }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {} } } })
     const session: UpstreamSession = {
       integrationId, personKey, client, connected: Promise.resolve(), idleTimer: null, calls: [],
       authorized: !!authorization, openedAt: Date.now(), retired: false,
@@ -403,6 +442,16 @@ export class IntegrationGateway {
   private signInRefused(session: UpstreamSession, integration: Pick<Integration, 'name'>, error: StreamableHTTPError): void {
     void this.closeSession(sessionKey(session.integrationId, session.personKey))
     if (session.personKey !== null) this.credentials?.markNeedsSignIn(session.integrationId, session.personKey, refusedMessage(integration, error))
+  }
+
+  /** A capture that fails is logged; it never fails the tool call that already succeeded. */
+  private async saveApp(capture: (call: IntegrationAppCapture) => Promise<void>, call: Omit<IntegrationAppCapture, 'tool'> & { tool: string }): Promise<void> {
+    try {
+      const tool = (await this.toolsFor(call.integration.id, currentPersonKey())).find((entry) => entry.name === call.tool)
+      if (tool) await capture({ ...call, tool })
+    } catch (error) {
+      log.warn('integration_app_capture_failed', { integrationId: call.integration.id, tool: call.tool, error: errorText(error) })
+    }
   }
 
   private connectionRequired(integration: Pick<Integration, 'id' | 'name'>, context: AgentToolContext): AgentToolResult {

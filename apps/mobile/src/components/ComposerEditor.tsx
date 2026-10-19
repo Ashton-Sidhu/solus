@@ -49,20 +49,30 @@ export interface ComposerEditorProps {
   readonly textStyle?: TextStyle;
 }
 
+/** The editor's font: the measurement below must lay text out exactly as the editor does. */
+function editorFont(textStyle: TextStyle | undefined): TextStyle {
+  return {
+    fontFamily: MOBILE_FONTS.regular,
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
+    ...textStyle,
+  };
+}
+
 export function ComposerEditor(props: ComposerEditorProps) {
+  // Read apart from the other props: the React Compiler treats every read of
+  // an object that holds a ref as a ref read during render.
+  const { ref } = props;
   const inputRef = useRef<TextInputInstance>(null);
   const inputStyle = {
-    fontFamily: MOBILE_FONTS.regular,
     paddingHorizontal: 0,
     paddingTop: props.contentInsetVertical ?? 0,
     paddingBottom: props.contentInsetVertical ?? 0,
-    ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
-    ...props.textStyle,
+    ...editorFont(props.textStyle),
     ...StyleSheet.flatten(props.style),
   };
 
   useImperativeHandle(
-    props.ref,
+    ref,
     () => ({
       focus: () => inputRef.current?.focus(),
       blur: () => inputRef.current?.blur(),
@@ -126,5 +136,45 @@ export function ComposerEditor(props: ComposerEditorProps) {
         ) : null}
       </View>
     </TextInputWrapper>
+  );
+}
+
+/**
+ * A hidden copy of an editor's text, laid out by the platform text engine
+ * (TextKit on iOS, StaticLayout on Android) in the editor's font, inside a
+ * frame the caller positions. `onLines` receives each layout's lines with
+ * their exact substrings, so a caller can tell which text a layout measured.
+ * Fabric sends a text layout only when the lines change.
+ */
+export function ComposerTextMeasure(props: {
+  readonly text: string;
+  readonly textStyle?: TextStyle;
+  readonly frameStyle: ViewStyle;
+  readonly onLines: (lines: ReadonlyArray<{ readonly text: string }>) => void;
+}) {
+  const font = editorFont(props.textStyle);
+  return (
+    <View
+      pointerEvents="none"
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[props.frameStyle, { opacity: 0 }]}
+    >
+      <Text
+        accessible={false}
+        style={{
+          fontFamily: font.fontFamily,
+          fontSize: font.fontSize,
+          fontStyle: font.fontStyle,
+          fontWeight: font.fontWeight,
+          letterSpacing: font.letterSpacing,
+          includeFontPadding: font.includeFontPadding,
+        }}
+        onTextLayout={(event) => props.onLines(event.nativeEvent.lines)}
+      >
+        {props.text}
+      </Text>
+    </View>
   );
 }

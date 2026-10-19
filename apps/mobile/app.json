@@ -6,6 +6,9 @@
     "version": "0.0.0",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
+    "experiments": {
+      "reactCompiler": true
+    },
     "icon": "../../resources/icon.png",
     "ios": {
       "icon": "./assets/icon-ios.png",

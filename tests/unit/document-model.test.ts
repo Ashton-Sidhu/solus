@@ -252,6 +252,17 @@ describe('the markdown codec', () => {
     expect(aligns).toEqual(['left', 'center', 'right'])
   })
 
+  test('a line break in a table cell survives the host codec', () => {
+    // WHY: the table writer stores a cell's line breaks as `<br>`. The host
+    // seeds a live work with no DOM, where raw HTML is literal text, so the
+    // cell showed "<br>" to everyone editing the work.
+    const markdown = '| Where |\n| ----- |\n| [one.ts:60](/a/one.ts:60)<br>[two.tsx:266](/a/two.tsx:266) |'
+    const cell = parseDocumentMarkdown(markdown).content?.[0].content?.[1].content?.[0].content?.[0]
+    expect(cell?.content?.map((node: JSONContent) => node.type)).toEqual(['text', 'hardBreak', 'text'])
+    expect(serializeDocumentMarkdown(parseDocumentMarkdown(markdown))).toBe(markdown)
+    expect(parseDocumentMarkdown('one<br/>two').content?.[0].content?.[1].type).toBe('hardBreak')
+  })
+
   // Known limit: without a DOM, raw HTML in markdown (not an ```html fence) is
   // literal text on the host, while the editor parses it as HTML. The host
   // must not write such content until the codec handles it.

@@ -3,6 +3,7 @@ import { contextPreferences } from '../agents/run-input'
 import { taskIdForSession } from '../../data/tasks/task-sessions'
 import { pendingAsyncQuestions } from '../../data/sessions/async-questions'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
+import { settleSetupCard } from '@solus/contracts/setup-card'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
@@ -52,10 +53,37 @@ export class SessionWatchers {
     log.info('session_watched', { sessionId, clientId, watchers: clients.size })
     const pendingQuestions = pendingAsyncQuestions(sessionId).map(({ questionId, questions, responseMode }) => ({ questionId, questions, responseMode }))
     const pending = pendingQuestions.length ? { pendingQuestions } : {}
+    const setupRuntime = this.replaySetup(sessionId, clientId)
     if (!input.attachRuntime) return pending
     const agentSessionId = this.rt.agentSessionIdFor(sessionId)
     // Same order a separate bind would follow: drained, joined, then replayed.
-    return { runtime: agentSessionId ? this.attachRuntime(sessionId, agentSessionId, clientId) : null, ...pending }
+    return { runtime: setupRuntime ?? (agentSessionId ? this.attachRuntime(sessionId, agentSessionId, clientId) : null), ...pending }
+  }
+
+  /**
+   * Setup can run before there is a provider runtime to attach to. The joining
+   * client gets the latest setup card; a card whose setup no longer runs is
+   * settled first, so it never replays a stage as still running.
+   */
+  private replaySetup(sessionId: string, clientId: string): RuntimeSessionInfo | null {
+    if (this.rt.activeSessions.has(sessionId)) return null
+    const events = this.rt.turnLog.get(sessionId) ?? []
+    const setup = events.findLast((event) => event.type === 'status_card')
+    if (!setup) return null
+    const isStarting = setup.card.status === 'active'
+      && (this.rt.launcher.pendingSetupControllers.has(sessionId) || this.rt.activeRunRequests.has(sessionId))
+    const lastStatus = events.findLast((event) => event.type === 'status_change')?.status
+    const card = setup.card.status === 'active' && !isStarting ? settleSetupCard(setup.card, lastStatus) : setup.card
+    this.rt.publish(sessionId, { type: 'status_card', card }, { only: clientId })
+    if (!isStarting) return null
+    this.rt.publish(sessionId, { type: 'status_change', status: 'connecting', oldStatus: 'connecting' }, { only: clientId })
+    return {
+      modelConfig: null,
+      permissionMode: null,
+      status: 'connecting',
+      queuedPrompts: this.rt.scheduler.queuedPromptsForSession(sessionId),
+      rateLimitInfo: null,
+    }
   }
 
   unwatchSession(sessionId: string, clientId: string): void {

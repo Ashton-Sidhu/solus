@@ -5,10 +5,12 @@ import { OAuthSession, type PendingSignIn, type StoredGrant, type TokenStore } f
 /**
  * The web client's sign-in on the account origin (docs/adr/0001-standard-authentication.md
  * §2.2 rule 1). The page is a public client (`solus-web`) that signs in with the
- * authorization code and PKCE through a top-level redirect: the website's cookie
- * session approves it with no page (`prompt=none`), and the callback comes back to
- * `/auth/callback` on the same origin. The cookie stays the website's own; the page
- * calls `/v1` with access tokens.
+ * authorization code and PKCE. The website's cookie session approves it with no page
+ * (`prompt=none`), and the page asks for that approval with one same-origin fetch that
+ * accepts JSON: the provider answers the callback address instead of redirecting to
+ * it, so no page loads (docs/plans/instant-share-open.md). Only this origin can read
+ * that answer. The cookie stays the website's own; the page calls `/v1` with access
+ * tokens.
  *
  * Token storage: the refresh token is kept in page memory. When the page goes away it
  * is written to `sessionStorage`, and the next page of the same tab takes it from
@@ -19,12 +21,9 @@ import { OAuthSession, type PendingSignIn, type StoredGrant, type TokenStore } f
  * silently while the website's cookie session lives.
  */
 
+/** The callback the provider names in its answer; the page never loads it. */
 export const WEB_CALLBACK_PATH = '/auth/callback'
 const GRANT_KEY = 'solus.account.grant'
-const PENDING_KEY = 'solus.account.pending'
-const SILENT_ATTEMPT_KEY = 'solus.account.silent-attempt'
-/** A silent sign-in is not tried again in the same tab sooner than this, so an answer that does not sign the page in cannot loop. */
-export const SILENT_RETRY_AFTER_MS = 60_000
 
 /** The part of `Storage` this module uses. */
 export interface KeyValueStorage {
@@ -80,81 +79,68 @@ export function webTokenStore(storage: KeyValueStorage, page: PageLifecycle): To
   }
 }
 
-const pendingSchema = z.object({
-  pending: z.object({ state: z.string(), nonce: z.string(), codeVerifier: z.string(), redirectUri: z.string() }),
-  /** Where the page was when the sign-in began: path, query, and fragment. */
-  returnTo: z.string().startsWith('/'),
-})
-
 export interface WebSignInDeps {
   session: OAuthSession
-  storage: KeyValueStorage
-  location: { origin: string; pathname: string; search: string; hash: string; href: string }
+  location: { origin: string; pathname: string; search: string; hash: string }
   /** A top-level navigation away from this page. */
   navigate(url: string): void
-  /** Replaces the address without a navigation. */
-  replaceAddress(path: string): void
   /**
    * When the website has no session for a silent sign-in begun at `returnTo`:
    * `sign-in` sends the person to the website's sign-in page; `stay` keeps the page
    * signed out (a share link that a guest opens).
    */
   whenSignedOut(returnTo: string): 'sign-in' | 'stay'
-  now(): number
+  /** The callback address the provider answers for this authorize request, or null when it does not answer one. */
+  authorize(authorizeUrl: URL): Promise<URL | null>
 }
 
 export type WebSignInOutcome = 'signed-in' | 'signed-out' | 'redirecting'
 
 /**
- * Brings the page to a sign-in, when one can be had: completes a callback, keeps a
- * sign-in the tab already holds, or starts one silent sign-in per tab. The page must
- * stop its boot on `redirecting`: it is leaving.
+ * Brings the page to a sign-in, when one can be had: keeps a sign-in the tab already
+ * holds, or makes one silently. The page must stop its boot on `redirecting`: it is
+ * leaving for the website's sign-in, which brings it back to this address.
  */
 export async function resumeWebSignIn(deps: WebSignInDeps): Promise<WebSignInOutcome> {
-  const { session, storage, location } = deps
-  if (location.pathname === WEB_CALLBACK_PATH) {
-    const saved = readPending(storage)
-    storage.removeItem(PENDING_KEY)
-    if (!saved) {
-      deps.replaceAddress('/')
-      return session.state().kind === 'signed-in' ? 'signed-in' : 'signed-out'
-    }
-    const callback = new URL(location.href)
-    const end = await session.completeSignIn(callback, saved.pending)
-    deps.replaceAddress(saved.returnTo)
-    if (end === 'approved') {
-      storage.removeItem(SILENT_ATTEMPT_KEY)
-      return 'signed-in'
-    }
-    if (callback.searchParams.get('error') === 'login_required' && deps.whenSignedOut(saved.returnTo) === 'sign-in') {
-      // After the website's sign-in, the page comes back and tries again at once.
-      storage.removeItem(SILENT_ATTEMPT_KEY)
-      deps.navigate(`${location.origin}/sign-in?next=${encodeURIComponent(saved.returnTo)}`)
-      return 'redirecting'
-    }
-    return 'signed-out'
-  }
+  const { session, location } = deps
   if (session.state().kind === 'signed-in') return 'signed-in'
-  const attemptedAt = Number(storage.getItem(SILENT_ATTEMPT_KEY) ?? '0')
-  if (deps.now() - attemptedAt < SILENT_RETRY_AFTER_MS) return 'signed-out'
-  storage.setItem(SILENT_ATTEMPT_KEY, String(deps.now()))
   let begun: { authorizeUrl: URL; pending: PendingSignIn }
   try {
     begun = await session.beginSignIn(`${location.origin}${WEB_CALLBACK_PATH}`, { prompt: 'none' })
   } catch {
     return 'signed-out'
   }
+  const callback = await deps.authorize(begun.authorizeUrl)
+  if (!callback) return 'signed-out'
+  if (await session.completeSignIn(callback, begun.pending) === 'approved') return 'signed-in'
   const returnTo = `${location.pathname}${location.search}${location.hash}`
-  storage.setItem(PENDING_KEY, JSON.stringify({ pending: begun.pending, returnTo }))
-  deps.navigate(begun.authorizeUrl.toString())
-  return 'redirecting'
+  if (callback.searchParams.get('error') === 'login_required' && deps.whenSignedOut(returnTo) === 'sign-in') {
+    deps.navigate(`${location.origin}/sign-in?next=${encodeURIComponent(returnTo)}`)
+    return 'redirecting'
+  }
+  return 'signed-out'
 }
 
-function readPending(storage: KeyValueStorage): z.infer<typeof pendingSchema> | null {
+const authorizeAnswerSchema = z.object({ redirect: z.literal(true), url: z.string().url() })
+
+/**
+ * The provider's answer to an authorize request a page sends with `fetch`: the
+ * callback address, with a code or an error, on the page's own origin. Null for any
+ * other answer, so a page never follows an address it did not ask for.
+ */
+export async function fetchAuthorize(authorizeUrl: URL, fetchImpl: typeof fetch = fetch): Promise<URL | null> {
   try {
-    const raw = storage.getItem(PENDING_KEY)
-    const parsed = pendingSchema.safeParse(raw ? JSON.parse(raw) : null)
-    return parsed.success ? parsed.data : null
+    const response = await fetchImpl(authorizeUrl, {
+      headers: { accept: 'application/json' },
+      credentials: 'same-origin',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(8_000),
+    })
+    if (!response.ok) return null
+    const answer = authorizeAnswerSchema.safeParse(await response.json().catch(() => null))
+    if (!answer.success) return null
+    const callback = new URL(answer.data.url)
+    return callback.origin === authorizeUrl.origin && callback.pathname === WEB_CALLBACK_PATH ? callback : null
   } catch {
     return null
   }

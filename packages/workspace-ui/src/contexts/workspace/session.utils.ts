@@ -1,5 +1,6 @@
 import type { AgentId, Attachment, Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RequestExpiry, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
+import { formatReviewComment } from '@solus/contracts/review-comment'
 import { attributionLabel } from '@solus/contracts/user'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { videoMimeType } from '@solus/contracts/media-types'
@@ -106,6 +107,7 @@ export function toPermissionRequest(event: Extract<NormalizedEvent, { type: 'per
     })),
   }
   if (event.turnAuthor) request.turnAuthor = event.turnAuthor
+  if (event.guestTurn) request.guestTurn = true
   return request
 }
 
@@ -287,10 +289,19 @@ export function formatDiffInlineComments(comments: DiffComment[]): string {
     .map((c) => {
       const range = c.startLine === c.endLine ? `${c.startLine}` : `${c.startLine}-${c.endLine}`
       const selectedCode = normalizeDiffSelectedCode(c.selectedCode)
-      const codeBlock = selectedCode ? `\n\`\`\`\n${selectedCode}\n\`\`\`` : ''
-      // `@path:line` is the file-mention token: the message renders it as a
-      // file chip that opens the file at that line.
-      return `- @${c.filePath}:${range}${codeBlock}\n  ${c.comment}`
+      const extension = /\.([^./\\]+)$/.exec(c.filePath)?.[1]
+      // Desktop feedback has no diff rows, so the indexes hold file line numbers.
+      return formatReviewComment({
+        sectionId: 'changes',
+        sectionTitle: 'Changes',
+        filePath: c.filePath,
+        startIndex: c.startLine,
+        endIndex: c.endLine,
+        rangeLabel: range,
+        text: c.comment,
+        diff: selectedCode,
+        fenceLanguage: extension ?? 'text',
+      })
     })
     .join('\n')
 }

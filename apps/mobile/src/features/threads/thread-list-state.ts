@@ -1,7 +1,7 @@
 import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
-import type { SessionState, SessionView } from "@solus/contracts/session-state";
+import { UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from "@solus/contracts/session-state";
 import type { SessionStatus } from "@solus/contracts/types";
 
 import { Listeners } from "../../lib/listeners";
@@ -100,18 +100,30 @@ export class ThreadListState {
     if (connection) this.watch(hostId, connection);
   }
 
-  /** Settle a session for everyone, or make a settled one active again. */
+  /** Settle a session for everyone, or make a settled one active again. The list
+   *  changes at once; a refusal from the host puts the previous state back. */
   async setSettled(hostId: string, sessionId: string, settled: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    this.write(this.states, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { settled })).state);
+    const key = threadKey(hostId, sessionId);
+    const previous = this.states.get(key);
+    this.states.set(key, settled ? { settledAt: Date.now(), settledBy: "person" } : UNSETTLED_SESSION_STATE);
+    this.publish();
+    try {
+      this.write(this.states, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { settled })).state ?? null);
+    } catch (error) {
+      if (previous) this.states.set(key, previous);
+      else this.states.delete(key);
+      this.publish();
+      throw error;
+    }
   }
 
   /** Snooze a session in this person's list until a wake time; null wakes it now. */
   async snooze(hostId: string, sessionId: string, until: number | null): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    this.write(this.views, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { snoozedUntil: until })).view);
+    this.write(this.views, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { snoozedUntil: until })).view ?? null);
   }
 
   /** Take a session out of this person's list, or return it. Archive keeps
@@ -119,7 +131,7 @@ export class ThreadListState {
   async setArchived(hostId: string, sessionId: string, archived: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    this.write(this.views, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { archived })).view);
+    this.write(this.views, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { archived })).view ?? null);
   }
 
   /** A read boundary belongs to one session on one host. Watch before writing

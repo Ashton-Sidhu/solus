@@ -11,12 +11,14 @@ import {
   formatReviewSelectedRangeLabel,
   getReviewCommentTarget,
   getSelectedReviewCommentLines,
-  parseReviewCommentMessageSegments,
-  parseReviewInlineComments,
   setReviewCommentTarget,
   subscribeReviewCommentTarget,
   type ReviewCommentTarget,
 } from "../../apps/mobile/src/features/review/reviewCommentSelection";
+import {
+  parseReviewCommentMessageSegments,
+  parseReviewInlineComments,
+} from "@solus/contracts/review-comment";
 
 function makeTarget(): ReviewCommentTarget {
   return {

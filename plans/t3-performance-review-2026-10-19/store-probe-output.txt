@@ -1,0 +1,52 @@
+bun test v1.3.14 (0d9b296a)
+
+tests/unit/host-facts.test.ts:
+(pass) HostFacts > a fact reads as loading until its host answers, never as a guess [0.48ms]
+(pass) HostFacts > concurrent readers share one request [0.09ms]
+(pass) HostFacts > a live topic writes only this host's fact [0.25ms]
+(pass) HostFacts > an unreadable capability record is empty, which reads as unsupported [0.69ms]
+(pass) HostFacts > voice reads as unsupported on a host that does not transcribe, without asking for status [0.09ms]
+(pass) HostFacts > a dropped connection clears capabilities but keeps the last machine facts [0.11ms]
+(pass) HostFacts > a fresh server session reloads every fact a reader asked for [0.06ms]
+(pass) HostFacts > an answer from before a session change never overwrites the new session [0.07ms]
+(pass) HostFacts > refresh with a max age keeps a recent read [0.06ms]
+(pass) HostFacts > a waiting reader retries a failed fact once [0.09ms]
+(pass) HostFacts > listeners hear which fact changed [0.05ms]
+
+tests/unit/linked-pr-store.test.ts:
+(pass) linked PR ownership > URL identity wins; number-only legacy links retain their host-resolved scope [0.26ms]
+(pass) linked PR ownership > links ask PR sync for their pull requests, one request per repository [34.85ms]
+(pass) linked PR ownership > a link the code host says does not exist reads as not found, not as unknown [0.77ms]
+
+tests/unit/native-mobile-prs-progressive.test.ts:
+(pass) pull request detail paints part by part > the list row shows at once, and a slow part does not hold back the others [2.90ms]
+(pass) pull request detail paints part by part > the checks come from the review interest, not from a read of their own [1.01ms]
+(pass) pull request detail paints part by part > checks the interest answered before the detail had anything to show still reach it [0.26ms]
+(pass) pull request detail paints part by part > a refused interest names the checks missing [0.32ms]
+(pass) pull request detail paints part by part > screens that read one pull request together share one read; a refresh reads anew [0.26ms]
+(pass) pull request detail paints part by part > a failed overview still fails the read; a part that answers late does not hide the error [0.21ms]
+(pass) pull request list paints in one read > rows carry their own checks, so the list asks for no checks [0.19ms]
+(pass) pull request list paints in one read > a list read again starts with the projects it showed, and reads once when they are the same [0.21ms]
+(pass) pull requests kept fresh by PR sync > the screens of one project send one interest set, and the last release clears it [0.19ms]
+(pass) pull requests kept fresh by PR sync > a pushed change updates the list row and the open detail without a read [0.37ms]
+(pass) pull requests kept fresh by PR sync > a host connection accepted again is told the interest again [0.18ms]
+(pass) pull requests kept fresh by PR sync > a list on screen reads again when the host says its repository changed; a list off screen reads at the next focus [0.44ms]
+(pass) pull requests kept fresh by PR sync > a changed repository reads again only its own projects [0.26ms]
+(pass) pull requests kept fresh by PR sync > a focus within the fresh time does not read again; a refresh always does [0.17ms]
+
+plans/t3-performance-review-2026-10-19/store-investigation.test.ts:
+{"probe":"host-facts","equalRefreshNotifications":1,"equalRefreshWrapperRetained":false,"recoveredExtraReads":0,"freshExtraReads":1,"freshExtraNotifications":1}
+(pass) count equal HostFacts refresh and reconnect notifications [0.21ms]
+{"probe":"thread-directory","equalRefreshProjectArrayChanges":2,"equalProjectWrapperRetained":false,"loadingAndLoadedStatesPreserved":true}
+(pass) count project snapshot changes during an equal thread directory refresh [0.47ms]
+{"probe":"pr-reads","equalRefetchStateChanges":2,"equalRefetchDisplayedValueChanges":1}
+(pass) count PR state changes separately from displayed value changes [0.20ms]
+{"probe":"linked-pr","linksPerPass":100,"medianMillisecondsPerPass":0.1115829100000002,"minimumMillisecondsPerPass":0.10857042000000035,"maximumMillisecondsPerPass":0.12516374999999982,"checksum":5050000,"benchmark":"synthetic Bun on host; not a renderer profile"}
+(pass) measure linked PR identity cost and verify live fields remain visible [112.87ms]
+{"probe":"pr-directory","equalListRefreshNotifications":3,"equalListValueRetained":false,"equalPrObjectRetained":false}
+(pass) measure equal PR list refresh through the real directory [0.67ms]
+
+ 33 pass
+ 0 fail
+ 87 expect() calls
+Ran 33 tests across 4 files. [482.00ms]

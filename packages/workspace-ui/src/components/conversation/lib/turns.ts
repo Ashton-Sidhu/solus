@@ -3,6 +3,7 @@ import type { User } from '@solus/contracts/user'
 import type { Activity } from '@solus/contracts/activity'
 import type { Message, SessionStatus } from '@solus/contracts/types'
 import { isAgentNotice, isNoReplyNotice } from '../../../contexts/workspace/session.utils'
+import { isAgentConversationTool } from '../../../contexts/workspace/agent-conversation-cards'
 import { dividesThread } from '../../activity/lib/activity-line'
 
 export type GroupedItem =
@@ -27,6 +28,7 @@ export type GroupedItem =
   | { kind: 'agent-conversation-group'; messages: Message[] }
   | { kind: 'artifact'; message: Message }
   | { kind: 'review-guide'; message: Message }
+  | { kind: 'mcp-app'; message: Message }
 
 /** The card kinds that gather a whole turn's members into one card. */
 type CardGroupKind = 'subagent-group' | 'agent-conversation-group' | 'document'
@@ -66,9 +68,17 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
     activity = []
   }
   for (const msg of messages) {
-    if (msg.questionAnswer || (msg.role === 'tool' && isQuestionTool(msg.toolName) && msg.toolStatus !== 'running')) {
+    if (msg.activity?.kind === 'mcp_app') {
+      flushActivity()
+      result.push({ kind: 'mcp-app', message: msg })
+    } else if (msg.questionAnswer || (msg.role === 'tool' && isQuestionTool(msg.toolName) && msg.toolStatus !== 'running')) {
       flushActivity()
       result.push({ kind: 'question', message: msg })
+    } else if (msg.role === 'tool' && isAgentConversationTool(msg.toolName) && msg.toolStatus !== 'error') {
+      // The agent card shows what the call did; the call shows only if it
+      // failed, as on mobile. It closes no row, so a turn that starts seven
+      // sessions keeps one activity row and one card group.
+      continue
     } else if (msg.role === 'tool' && msg.subMessages) {
       flushActivity()
       openOrGrowCard('subagent-group', msg)
@@ -287,6 +297,7 @@ function messageDividesThread(message: Message): boolean {
 
 const OUTPUT_KINDS = new Set<GroupedItem['kind']>(['assistant'])
 const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
+  'mcp-app',
   'artifact',
   'automation',
   'document',

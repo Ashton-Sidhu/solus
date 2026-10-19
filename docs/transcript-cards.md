@@ -306,3 +306,13 @@ and web modal and returns focus to the chip.
 
 The full image gallery card opens its preview, including the filename, file type,
 and padding. Each card has one keyboard and accessibility target.
+
+### T3 conversation cards
+
+Review feedback can appear as file-and-code cards inside a user message. MCP
+Apps appear as sandboxed interactive documents with close/reopen and full-screen
+actions. Worktree setup uses compact stage rows and a Details view. Provider
+subagent rows can open recorded child activity, including a separate Codex
+history read through the parent tool. These surfaces follow the T3 reference
+with Solus colors; they are deliberate exceptions to the general transcript
+card shell. See [the capability and protocol rules](plans/conversation-card-parity.md).

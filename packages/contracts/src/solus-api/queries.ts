@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { NOTIFICATION_KINDS } from '../notification-hub'
 import { workspaceIdSchema } from './schemas'
 
-export const WORKSPACE_TOKEN_TTL_MS = 5 * 60 * 1000
+export const WORKSPACE_TOKEN_TTL_MS = 8 * 60 * 60 * 1000
 export const INSIGHT_MAX_WINDOW_MS = 31 * 24 * 60 * 60 * 1000
 export const INSIGHT_DEFAULT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 

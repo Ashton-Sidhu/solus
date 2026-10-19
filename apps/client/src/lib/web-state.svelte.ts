@@ -4,6 +4,8 @@ class WebState {
   connectionStatus: ConnectionStatus = $state('disconnected')
   connectionAttempt: number = $state(0)
   hasConnected = $state(false)
+  /** This page load opened a share link as a member: it shows the resource, so nothing covers it while the account loads. */
+  openedFromLink = false
 
   serverSetupOpen: boolean = $state(false)
 

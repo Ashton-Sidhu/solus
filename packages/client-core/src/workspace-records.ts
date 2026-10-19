@@ -6,7 +6,6 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import type { WorkspaceSessionSearchResult, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { pullRequestIdentityOf, sessionPullRequestId } from '@solus/contracts/session-pull-requests'
-import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 
 type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordSearch' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
 type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 'snippet' | 'timestamp' | 'messageId' | 'rank'>
@@ -103,10 +102,7 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
       return { records: filter?.limit === undefined ? sorted : sorted.slice(0, filter.limit), indexing }
     },
     // A session's home keeps its list state and its pull requests (docs/plans/session-archive.md).
-    async sessionUpdate(sessionId, change) {
-      const record = sessionRecord(await client.request('updateSession', { id: sessionId, body: change }))
-      return { state: record.state ?? UNSETTLED_SESSION_STATE, view: record.view ?? EMPTY_SESSION_VIEW }
-    },
+    sessionUpdate: (sessionId, change) => client.request('updateSession', { id: sessionId, body: change }),
     async sessionPullRequests(sessionId) {
       return (await client.request('listSessionPullRequests', { id: sessionId })).items
     },

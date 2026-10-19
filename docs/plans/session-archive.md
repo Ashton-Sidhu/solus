@@ -18,8 +18,11 @@ snoozed session came back to the active list on each reload.
 ## Vocabulary
 
 - **home** — the host that keeps a session's records: its list state, its pull
-  requests, and its record. An organization session's home is the
-  organization's Solus API. A personal session's home is its machine.
+  requests, and its record. A published organization session's home is the
+  organization's Solus API. Every other session's home is its machine: a
+  personal session, and an organization session that is not published. Such a
+  session belongs to the organization only for its Insights; its record never
+  leaves the machine, so the Solus API does not know it.
 - **machine** — where the session runs: prompt, stop, the live transcript,
   permission answers, and PR watches that wake the agent. It does not change.
 - **settled** — the session's work is finished. Shared: every person sees one
@@ -41,8 +44,9 @@ tab is a different action: it changes nothing on the home.
 1. **Every call about a session goes to its home, except execution.** The
    machines that run organization sessions rotate and go offline, so the Solus
    API keeps their state. `sessionHomeId` (`client-core/session-home.ts`)
-   names the home: the organization's Solus API when the client is connected
-   to it, else the machine.
+   names the home: for a published organization session, the organization's
+   Solus API when the client is connected to it; else the machine. The server
+   uses the same rule (`workspaceToolContext`, `RunnerDelivery.reportSession`).
 2. **Shared and personal state are apart.** `session_states` keeps the shared
    settle (`SessionShelf`). `session_views` keeps each person's archive and
    snooze (`SessionViewer`, keyed by `ownerKeyOf`). An archive keeps the settle
@@ -108,9 +112,10 @@ tab is a different action: it changes nothing on the home.
 
 ## Limits
 
-- Mobile does not connect to an organization's Solus API. Its home for an
-  organization session is the machine the session came from, so its archive and
-  snooze of one land on that machine until mobile connects to the API.
+- Mobile does not connect to an organization's Solus API. Its home for a
+  published organization session is the machine the session came from, so its
+  archive and snooze of one land on that machine until mobile connects to the
+  API. For every other session mobile, desktop, and web use the same home.
 - A Solus API with no `accountCredential` (local development) runs no PR sync.
 - Read state, titles, branches, pins, and the thread goal are not on the home's
   routes yet. Each needs its own route.

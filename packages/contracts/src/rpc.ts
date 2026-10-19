@@ -156,8 +156,13 @@ export const RPC_INVOKE_METHODS = [
   'workspaceProjectRemove',
   'workspaceProjectUpdate',
   'loadSession',
+  'loadSessionSubagent',
   'loadSessionPage',
   'loadSessionToolInputs',
+  'mcpAppRead',
+  'mcpAppToolInfo',
+  'mcpAppCallTool',
+  'mcpAppReadResource',
   'loadSessionPreview',
   'loadSessionMessageWindow',
   'getSessionInfo',
@@ -250,6 +255,7 @@ export const RPC_INVOKE_METHODS = [
   'authRenew',
   // A signed-in client's account token on a route that did not dial with it: the host keeps the person's delegation (ADR 0001 §6 item 5)
   'accountPresent',
+  'solusApiRequest',
   // Introductions: hosts this host's agents reach with no account (docs/plans/host-reach.md §4)
   'hostIntroductionsList',
   'hostIntroductionIssue',

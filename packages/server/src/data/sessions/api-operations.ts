@@ -6,7 +6,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import { encodePathAsFolder, isSolusWorktreePath, SOLUS_WORKTREE_ENCODED_MARKER, type SessionRecord } from '@solus/contracts/types'
 import { CHAT_ROOT_NAME } from '@solus/contracts/chat'
 import { workspaceSessionAdmissionRequestSchema, workspaceSessionPullRequestPutSchema, workspaceUpdateSessionSchema } from '@solus/contracts/solus-api'
-import type { WorkspaceSession, WorkspaceSessionPullRequest, WorkspaceSessionPullRequestList, WorkspaceSessionPullRequestPut, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
+import type { WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequest, WorkspaceSessionPullRequestList, WorkspaceSessionPullRequestPut, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
 import { getDatabase } from '../../db/database'
 import { searchIndexFor } from '../../db/search-index'
 import { sessionMessagesRebuilding } from '../../db/session-indexer'
@@ -25,6 +25,7 @@ import { resolveSessionLineageById } from './session-lineage'
 import { linkSessionPullRequest, readSessionPullRequests, unlinkSessionPullRequest } from './session-pull-requests'
 import { SessionShelf, SessionViewer } from './session-states'
 import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
+import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { requestAttribution, type WorkspaceRequestContext } from '../../admission/workspace-credentials'
 
@@ -123,23 +124,29 @@ export class SessionApiOperations {
 
   /**
    * Settle a session for every person (editor), or archive and snooze it in
-   * the caller's own list (viewer). Every check runs before any write, so a
-   * refused change writes nothing.
+   * the caller's own list (viewer). The access check runs before any write, so
+   * a refused change writes nothing. The answer is what the change left: the
+   * state when it settled or unsettled, the caller's view when it changed that.
    */
-  async update(context: WorkspaceRequestContext, sessionId: string, input: WorkspaceUpdateSession): Promise<WorkspaceSession> {
+  async update(context: WorkspaceRequestContext, sessionId: string, input: WorkspaceUpdateSession): Promise<WorkspaceSessionChanged> {
     input = workspaceUpdateSessionSchema.parse(input)
     requireScope(context, 'sessions:write')
-    await this.readOne(context, sessionId)
-    const changesView = input.archived !== undefined || input.snoozedUntil !== undefined
     await requireResource(this.shares, context, { kind: 'session', id: sessionId }, input.settled === undefined ? 'read' : 'edit')
-    const viewer = changesView ? new SessionViewer(sessionId, this.personKey(context)) : null
+    const changed: WorkspaceSessionChanged = {}
     const shelf = new SessionShelf(sessionId)
-    if (input.settled === true) await shelf.settle('person')
-    if (input.settled === false) await shelf.unsettle()
-    if (input.archived === true) await viewer?.archive()
-    if (input.archived === false) await viewer?.unarchive()
-    if (input.snoozedUntil !== undefined) await viewer?.snooze(input.snoozedUntil, input.snoozeNote)
-    return this.readOne(context, sessionId)
+    if (input.settled === true) changed.state = await shelf.settle('person') ?? await shelf.state()
+    if (input.settled === false) {
+      await shelf.unsettle()
+      changed.state = UNSETTLED_SESSION_STATE
+    }
+    if (input.archived !== undefined || input.snoozedUntil !== undefined) {
+      const viewer = new SessionViewer(sessionId, this.personKey(context))
+      if (input.archived === true) await viewer.archive()
+      if (input.archived === false) await viewer.unarchive()
+      if (input.snoozedUntil !== undefined) await viewer.snooze(input.snoozedUntil, input.snoozeNote)
+      changed.view = await viewer.view()
+    }
+    return changed
   }
 
   async pullRequests(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionPullRequestList> {

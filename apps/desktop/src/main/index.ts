@@ -399,6 +399,14 @@ function createMainWindow(): BrowserWindow {
   // reload. It is not present in every menu shape.
   preserveApplicationReloadShortcut(mainContents, reloadMain)
 
+  // A link clicked in page content would otherwise load in this window and
+  // replace the workspace with a blank page.
+  mainContents.on('will-navigate', (event) => {
+    if (event.url.startsWith(new URL(mainContents.getURL()).origin)) return
+    event.preventDefault()
+    if (/^https?:\/\//i.test(event.url)) void shell.openExternal(event.url)
+  })
+
   // A browser guest is untrusted page content: it renders whatever the dev
   // server serves. Strip any preload or Node access the tag asked for, whatever
   // the renderer wrote on the element.

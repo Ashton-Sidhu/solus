@@ -188,6 +188,10 @@
       publishDialogOpen = true;
       return;
     }
+    if (primaryAction.kind === "sync") {
+      void actions.sync();
+      return;
+    }
     if (primaryAction.kind !== "run") return;
     void actions.run(primaryAction.action, {
       createFeatureBranch: primaryAction.createFeatureBranch,
@@ -200,8 +204,15 @@
   //     by-hand version of the steps its primary action bundles. ---
   const actionDefs = $derived.by<ActionDef[]>(() => {
     const commitPrimary = model.commit.primary;
-    const defs: ActionDef[] = [
-      {
+    const defs: ActionDef[] = [];
+    // The commit row shows only while there is something to commit or push —
+    // or while its own action is still reporting.
+    if (
+      model.commit.hasWork ||
+      isCommitActionRunning ||
+      commitPhase !== "idle"
+    )
+      defs.push({
         key: "commit",
         label:
           isCommitActionRunning && actions.activeLabel
@@ -223,7 +234,8 @@
           void actions.run(commitPrimary.action);
         },
         caretAction: { ariaLabel: "More commit actions", menu: "commit" },
-      },
+      });
+    defs.push(
       {
         key: "changes",
         label: "Changes",
@@ -243,45 +255,55 @@
         disabled: !canGit,
         run: () => openReviewView("diff"),
       },
-      {
-        key: "sync",
-        label: actions.synced
-          ? "Synced"
-          : actions.syncing
-            ? "Syncing…"
-            : "Sync with remote",
-        icon: GitPullIcon,
-        phase: actions.syncing
-          ? "loading"
-          : actions.synced
-            ? "success"
-            : actions.syncError
-              ? "error"
-              : "idle",
-        hint: comboHint("orb.sync"),
-        disabled: !canGit || actions.syncing || model.sync.disabled,
-        tooltip: model.sync.reason,
-        run: () => {
-          void actions.sync();
-        },
-      },
-      {
-        key: "pull-requests",
-        label:
-          isPullRequestActionRunning && actions.activeLabel
-            ? actions.activeLabel
-            : primaryAction.label,
-        icon: GitPullRequestIcon,
-        phase: prPhase,
-        disabled: primaryAction.kind === "disabled" || actions.running,
-        tooltip:
-          primaryAction.kind === "disabled" ? primaryAction.reason : undefined,
-        run: runPrimaryAction,
-        caretAction: {
-          ariaLabel: "More pull request actions",
-          menu: "pull-requests",
-        },
-      },
+      // An open PR is reported by the row that already stands for it: the
+      // branch's PR becomes the label, its number the trailing metric, the
+      // glyph takes the colour of its checks, and the click opens it. Pushing
+      // its updates is the commit row's job. A branch behind its upstream
+      // syncs from here first: the commit row may have nothing to show.
+      activePr && prPhase === "idle" && primaryAction.kind !== "sync"
+        ? {
+            key: "pull-requests",
+            label: activePr.title,
+            icon: GitPullRequestIcon,
+            badge: activePrBadge,
+            iconTone: activePrTone,
+            phase: prPhase,
+            tooltip: prChecks
+              ? `${prChecks.label} — ${prChecks.tooltip}`
+              : undefined,
+            run: () => openPr(activePr),
+            caretAction: {
+              ariaLabel: "More pull request actions",
+              menu: "pull-requests",
+            },
+          }
+        : {
+            key: "pull-requests",
+            label:
+              isPullRequestActionRunning && actions.activeLabel
+                ? actions.activeLabel
+                : primaryAction.kind === "sync" && actions.syncing
+                  ? "Syncing…"
+                  : primaryAction.label,
+            icon: primaryAction.kind === "sync" ? GitPullIcon : GitPullRequestIcon,
+            phase:
+              primaryAction.kind === "sync" && actions.syncing
+                ? "loading"
+                : prPhase,
+            disabled:
+              primaryAction.kind === "disabled" ||
+              actions.running ||
+              (primaryAction.kind === "sync" && (!canGit || actions.syncing)),
+            tooltip:
+              primaryAction.kind === "disabled"
+                ? primaryAction.reason
+                : undefined,
+            run: runPrimaryAction,
+            caretAction: {
+              ariaLabel: "More pull request actions",
+              menu: "pull-requests",
+            },
+          },
       {
         key: "review",
         label: reviewing
@@ -300,7 +322,7 @@
           menu: "review",
         },
       },
-    ];
+    );
     // Discard arms in place: the row itself becomes the confirmation, so the
     // irreversible action still needs a second, deliberate click, and the caret
     // beside it is the way back out.
@@ -739,25 +761,6 @@
 <div class="menu-list">
   <BranchRow {sourceId} />
   {#each actionDefs as def (def.key)}
-    <!-- An open PR is reported by the row that already stands for it: the
-         branch's PR becomes the label, its number the trailing metric, and the
-         glyph takes the colour of its checks. Nothing is added to the column,
-         and the row's menu still opens from the same click. -->
-    {@const item =
-      def.key === "pull-requests" &&
-      activePr &&
-      prPhase === "idle" &&
-      primaryAction.kind === "view"
-        ? {
-            ...def,
-            label: activePr.title,
-            badge: activePrBadge,
-            iconTone: activePrTone,
-            tooltip: prChecks
-              ? `${prChecks.label} — ${prChecks.tooltip}`
-              : undefined,
-          }
-        : def}
     <div class="row-wrap">
       {#if def.caretAction}
         {@const caret = def.caretAction}
@@ -765,7 +768,7 @@
         {@const menuOpen =
           !!caret.menu && rowMenuOpen && openMenuKey === caret.menu}
         <div class="split-row">
-          <MenuRow {item} split onActivate={() => def.run()} />
+          <MenuRow item={def} split onActivate={() => def.run()} />
           <button
             type="button"
             class="split-caret"
@@ -785,7 +788,7 @@
           </button>
         </div>
       {:else}
-        <MenuRow {item} onActivate={() => def.run()} />
+        <MenuRow item={def} onActivate={() => def.run()} />
       {/if}
     </div>
   {/each}
@@ -840,6 +843,19 @@
           title: step.reason,
         })}
       {/each}
+      {@render menuItem(
+        actions.syncing ? "Syncing…" : "Sync with remote",
+        {
+          icon: GitPullIcon,
+          onclick: () => {
+            closeRowMenu();
+            void actions.sync();
+          },
+          trail: comboHint("orb.sync"),
+          disabled: !canGit || actions.syncing || model.sync.disabled,
+          title: model.sync.reason,
+        },
+      )}
     {:else if openMenuKey === "pull-requests"}
       <!-- This branch's pull request: the steps its primary action bundles,
            then the ways to reach the pull request it already has. -->

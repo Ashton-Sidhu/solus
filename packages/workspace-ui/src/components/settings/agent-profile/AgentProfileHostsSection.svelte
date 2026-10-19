@@ -27,10 +27,10 @@
 <SettingsSection
   label="Hosts"
   description={isSyncOn(accountSyncStore.profile.state)
-    ? "Each host pulls the profile from your account, and again after you change it here."
+    ? "Your skills, subagents, commands, prompts, and MCP servers. Each host pulls them from your account, and again after you change them."
     : agentProfileStore.canCopy
-      ? "Solus on this computer copies the profile to each host. A file a host already had is kept."
-      : "What each host holds. Sign in to Solus to sync, or copy from the computer you work on."}
+      ? "Your skills, subagents, commands, prompts, and MCP servers. Solus on this computer copies them to each host. A file a host already had is kept."
+      : "Your skills, subagents, commands, prompts, and MCP servers on each host. Sign in to Solus to sync, or copy from the computer you work on."}
 >
   {#if hostRows.length === 0}
     <p class="p-8 text-center text-workspace-chrome text-muted-foreground">No host holds your profile yet. It applies to your seats on a shared host, and to a host you own.</p>

@@ -152,12 +152,8 @@ export function createMobileThemeVariables(
     // under it. The palette tone was beige on the light card and the card
     // color itself in dark mode.
     "--color-subtle-strong": appearance === "dark" ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
-    // Pull request tabs and cards. The selected tab is the page color, so it
-    // is lighter than its track in light mode and darker in dark mode, as in
-    // T3 Code. In light mode a neutral hairline: the beige border reads as sand
-    // on the light card.
-    "--color-pr-tab-track": groupedCard,
-    "--color-pr-tab-selected": c.canvas,
+    // Pull request cards. In light mode a neutral hairline: the beige border
+    // reads as sand on the light card.
     "--color-pr-card": groupedCard,
     "--color-pr-card-border": appearance === "light" ? "rgba(0, 0, 0, 0.06)" : withAlpha(c.border, 0.7),
     "--color-inline-skill-background": c.accentSurface,
@@ -236,7 +232,9 @@ export function createMobileThemeVariables(
     "--color-adaptive-amber-700-400": c.amber,
     "--color-adaptive-amber-500-a10-400-a10": withAlpha(c.amber, 0.1),
     "--color-adaptive-amber-500-a25-400-a25": withAlpha(c.amber, 0.25),
-    "--color-adaptive-sky-600-400": c.blue,
+    // mobile: working text is desktop's status text tone (`statTintColor`):
+    // the blue 58% over the foreground, lighter in dark and darker in light.
+    "--color-adaptive-sky-600-400": mixColors(c.blue, c.text, 0.58),
     "--color-adaptive-violet-600-400": c.purple,
     "--color-adaptive-rose-600-400": c.red,
   };

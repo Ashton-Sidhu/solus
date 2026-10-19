@@ -44,11 +44,13 @@ export function newGuestId(): string {
 }
 
 /**
- * `POST /auth/share-link` (docs/plans/host-sharing.md §4.2): what the secret opens
- * and the host to dial first. Only the Solus API has this door, and its 404 for an
- * unknown secret names `SHARE_LINK_UNKNOWN`; a host answers the path with its own
- * unnamed 404, which is how a page learns a host serves it (`no-door`).
- * `unknown-link` is the API saying no such link, or not answering at all.
+ * `POST /auth/share-link` (docs/plans/instant-share-open.md): what the secret opens,
+ * whom it opens it as, and the host to dial. A signed-in page sends its Solus API
+ * access token, so a member learns in this one request that they open it as
+ * themselves. Only the Solus API has this door, and its 404 for an unknown secret
+ * names `SHARE_LINK_UNKNOWN`; a host answers the path with its own unnamed 404, which
+ * is how a page learns a host serves it (`no-door`). `unknown-link` is the API saying
+ * no such link, or not answering at all.
  */
 const unknownLinkAnswerSchema = z.object({ error: z.object({ code: z.literal(SHARE_LINK_UNKNOWN) }) })
 
@@ -57,11 +59,13 @@ export type ShareLinkResolution =
   | { kind: 'unknown-link' }
   | { kind: 'no-door' }
 
-export async function resolveShareLink(origin: string, secret: string, fetchImpl: typeof fetch = fetch): Promise<ShareLinkResolution> {
+export async function resolveShareLink(origin: string, secret: string, accessToken: string | null, fetchImpl: typeof fetch = fetch): Promise<ShareLinkResolution> {
   try {
+    const headers = new Headers({ accept: 'application/json', 'content-type': 'application/json' })
+    if (accessToken) headers.set('authorization', `Bearer ${accessToken}`)
     const response = await fetchImpl(`${origin}/auth/share-link`, {
       method: 'POST',
-      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify({ shareSecret: secret }),
       signal: AbortSignal.timeout(8_000),
     })

@@ -24,6 +24,7 @@
   import ConversationArtifact from "./ConversationArtifact.svelte";
   import { getArtifactRevisions, provideArtifactMessage } from "./lib/artifact-revisions-context";
   import ReviewGuideCard from "../review/ReviewGuideCard.svelte";
+  import McpAppCard from "./McpAppCard.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
   import ReplyImage from "./ReplyImage.svelte";
@@ -120,7 +121,16 @@
   </div>
 {/snippet}
 
-{#if item.kind === "user"}
+{#if item.kind === "mcp-app" && item.message.activity?.kind === "mcp_app"}
+  {@const activity = item.message.activity}
+  <McpAppCard
+    {tabId}
+    activityId={activity.id}
+    app={activity.app}
+    sessionId={activity.subject.id}
+    onSend={(text) => session.dispatch.sendMessage(text, undefined, tabId, "queue")}
+  />
+{:else if item.kind === "user"}
   <UserMessageBubble message={item.message} {skipMotion} {tabId} />
 {:else if item.kind === "assistant"}
   {@const displayContent = item.message.content}

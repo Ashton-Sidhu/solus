@@ -1,10 +1,7 @@
 <script lang="ts">
   import EditorInputCard from "@solus/workspace-ui/components/input/EditorInputCard.svelte";
   import WorkspaceBody from "@solus/workspace-ui/components/layout/WorkspaceBody.svelte";
-  import { connectionStatusLabel } from "@solus/client-core/connection-display";
-  import { serversStore } from "@solus/workspace-ui/contexts";
-  import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { webState } from "../../lib/web-state.svelte";
+  import ConnectionStatusOverlay from "@solus/workspace-ui/components/servers/ConnectionStatusOverlay.svelte";
 
   interface Props {
     onAttachFile: (tabId?: string) => void | Promise<void>;
@@ -12,15 +9,9 @@
     readOnlyReason?: string | null;
   }
   let { onAttachFile, readOnlyReason = null }: Props = $props();
-
-  const connectionLabel = $derived(
-    connectionStatusLabel(webState.connectionStatus, {
-      attempt: webState.connectionAttempt,
-      hasConnected: webState.hasConnected,
-    }),
-  );
-  const showConnectionStatus = $derived(webState.connectionStatus !== "connected");
 </script>
+
+<ConnectionStatusOverlay />
 
 <div class="web-frame">
   <div class="workspace" data-solus-ui>
@@ -35,32 +26,7 @@
         class="mx-auto max-w-(--solus-reading-max)"
         onAttachFile={() => onAttachFile()}
         {readOnlyReason}
-      >
-        {#snippet trailingActions()}
-          {#if showConnectionStatus}
-            <TooltipUI.Root>
-              <TooltipUI.Trigger>
-                {#snippet child({ props: tooltipProps })}
-                  <button {...tooltipProps}
-              class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg bg-(--solus-surface-hover) px-2 text-xs tabular-nums text-(--solus-text-tertiary)"
-              onclick={() => serversStore.retryActive()}
-              aria-label="Retry connection now"
-            >
-              <span
-                class="h-1.5 w-1.5 rounded-full bg-(--solus-accent)"
-                class:animate-pulse={webState.connectionStatus === "connecting" || webState.connectionStatus === "reconnecting"}
-              ></span>
-              <span class="max-w-[9rem] truncate">
-                {connectionLabel}
-              </span>
-            </button>
-                {/snippet}
-              </TooltipUI.Trigger>
-              <TooltipUI.Content value={`${connectionLabel} — click to retry now`} />
-            </TooltipUI.Root>
-          {/if}
-        {/snippet}
-      </EditorInputCard>
+      />
     {/snippet}
     </WorkspaceBody>
   </div>

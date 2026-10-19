@@ -2114,6 +2114,21 @@ export class WorkspaceContext implements SurfaceContext {
 
   // ─── Arriving from outside ───
 
+  /** Read ahead for a route a pointer is resting on, so `openRoute` finds it
+   *  loaded. Only a pull request has a slow host read to start early. */
+  warmRoute(ref: RouteRef, opts: { sourceUrl?: string } = {}): void {
+    if (ref.name !== 'prReview') return
+    this.prReview.warmPullRequest({
+      number: ref.params.number,
+      title: ref.params.title,
+      expectedRepo: ref.params.expectedRepo,
+      url: opts.sourceUrl,
+    }, {
+      serverId: ref.params.serverId,
+      ctx: ref.params.cwd ? this.ctxForDirectory(ref.params.cwd) : this.ctx,
+    })
+  }
+
   /**
    * Enter a route that came from somewhere other than a click in the UI: an
    * agent-emitted `plan://` link, a notification payload, a deep link. The
@@ -2145,9 +2160,6 @@ export class WorkspaceContext implements SurfaceContext {
           expectedRepo: ref.params.expectedRepo,
           url: opts.sourceUrl,
         }, {
-          // URL-backed PRs, from a transcript or task menu, check access before
-          // moving a pane so an unreadable PR opens in the browser instead.
-          preflight: opts.sourceUrl !== undefined,
           tab: opts.tab,
           via: opts.via,
           serverId: ref.params.serverId,

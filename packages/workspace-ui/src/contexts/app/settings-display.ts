@@ -7,7 +7,7 @@
  */
 
 import type { AppCodeFontFamily, AppFontFamily } from '@solus/contracts/types'
-import type { DocumentFontFamily, FontFamilyPreference, FontPreferenceKey, PersonalSettings, PromptFontFamily } from '@solus/contracts/settings'
+import type { ConversationWidth, DocumentFontFamily, FontFamilyPreference, FontPreferenceKey, PersonalSettings, PromptFontFamily } from '@solus/contracts/settings'
 import { localApi } from '@solus/client-core/local-api'
 import { customFamilyStack } from '../../lib/font-family'
 
@@ -202,6 +202,11 @@ export function applyFontSmoothing(enabled: boolean): void {
 
 export function applyAssistantTextOpacity(percent: number): void {
   document.documentElement.style.setProperty('--solus-assistant-text-opacity', `${percent}%`)
+}
+
+/** workspace.css swaps `--solus-reading-max` on this attribute. */
+export function applyConversationWidth(width: ConversationWidth): void {
+  document.documentElement.dataset.conversationWidth = width
 }
 
 const DEFAULT_CODE_FONT_SIZE = 12

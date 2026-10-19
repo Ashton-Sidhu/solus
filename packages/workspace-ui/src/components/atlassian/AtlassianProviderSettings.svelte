@@ -4,7 +4,6 @@
   import { atlassianStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { ensureIconCollections } from "../diagram/iconify";
-  import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import ProviderConnectedCheck from "../settings/ProviderConnectedCheck.svelte";
   import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
@@ -42,33 +41,31 @@
   <AtlassianConnectForm {serverId} onconnected={() => requestInputFocus()} />
 {/snippet}
 
-<SettingsSection label="Atlassian">
+<!-- One row of the Integrations page's Connections card. -->
+<SettingsRow
+  label="Atlassian"
+  description={siteDescription}
+  body={atlassianStore.statusLoaded(serverId) && !atlassianStore.connected(serverId)
+    ? connectForm
+    : undefined}
+>
   {#snippet icon()}
-    <Icon icon={PROVIDER_LOGOS.atlassian} width={13} height={13} />
+    <Icon icon={PROVIDER_LOGOS.atlassian} width={16} height={16} />
   {/snippet}
-
-  <SettingsRow
-    label="Atlassian site"
-    description={siteDescription}
-    body={atlassianStore.statusLoaded(serverId) && !atlassianStore.connected(serverId)
-      ? connectForm
-      : undefined}
-  >
-    {#snippet labelExtra()}
-      <ProviderConnectedCheck
-        connected={atlassianStore.statusLoaded(serverId) && atlassianStore.connected(serverId)}
-        provider="Atlassian"
-      />
-    {/snippet}
-    {#snippet control()}
-      {#if atlassianStore.connected(serverId)}
-        <!-- Disconnect drops Solus's copy of the grant. Revoking it at
-             Atlassian is a separate, deliberate act in the user's account. -->
-        <Button variant="outline" size="sm" onclick={() => void disconnect()}>
-          <SignOutIcon size={13} />
-          Disconnect
-        </Button>
-      {/if}
-    {/snippet}
-  </SettingsRow>
-</SettingsSection>
+  {#snippet labelExtra()}
+    <ProviderConnectedCheck
+      connected={atlassianStore.statusLoaded(serverId) && atlassianStore.connected(serverId)}
+      provider="Atlassian"
+    />
+  {/snippet}
+  {#snippet control()}
+    {#if atlassianStore.connected(serverId)}
+      <!-- Disconnect drops Solus's copy of the grant. Revoking it at
+           Atlassian is a separate, deliberate act in the user's account. -->
+      <Button variant="outline" size="sm" onclick={() => void disconnect()}>
+        <SignOutIcon size={13} />
+        Disconnect
+      </Button>
+    {/if}
+  {/snippet}
+</SettingsRow>

@@ -444,20 +444,12 @@
         "keybinding",
       );
   });
+  // Next/previous session walks the sidebar rows in the order they are listed.
   useKeybinding("global.next-session", () => {
-    const idx = visualTabOrder.indexOf(activeTabId);
-    if (idx !== -1)
-      session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length], "keybinding");
+    void sessionSidebarStore.selectAdjacentRow(1).then(() => requestInputFocus());
   });
   useKeybinding("global.prev-session", () => {
-    const idx = visualTabOrder.indexOf(activeTabId);
-    if (idx !== -1)
-      session.selectTab(
-        visualTabOrder[
-          (idx - 1 + visualTabOrder.length) % visualTabOrder.length
-        ],
-        "keybinding",
-      );
+    void sessionSidebarStore.selectAdjacentRow(-1).then(() => requestInputFocus());
   });
   useKeybinding("global.session-picker", () =>
     void window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")),
@@ -817,10 +809,11 @@
 
 <!-- First run only. Mounted over everything, and never lazily pre-warmed: a
      client that has already been through it must not pay for the chunk. -->
-{#if !skipOnboarding && cloudOnboardingStore.isAwaitingAccount}
+{#if !skipOnboarding && !webState.openedFromLink && cloudOnboardingStore.isAwaitingAccount}
   <!-- At a cloud origin, until the account says whether onboarding is due: an
        opaque cover, not the workspace, so the draft composer never flashes
-       before onboarding. Same composite as the onboarding surface. -->
+       before onboarding. Same composite as the onboarding surface. A share link
+       shows its resource, not the composer, and is not covered. -->
   <div
     class="fixed inset-0 z-[10005]"
     style="background: linear-gradient(var(--background), var(--background)) var(--solus-edge-bg)"

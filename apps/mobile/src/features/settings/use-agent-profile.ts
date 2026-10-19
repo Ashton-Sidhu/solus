@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native'
 import type { AgentProfileKey } from '@solus/contracts/agent-profile'
 import type { RemoteSkill } from '@solus/contracts/types'
+import { sameNameHostAddresses } from '@solus/client-core/host-address'
 import { useApp, useListened } from '../../app/app-context'
 import type { AgentProfileSetOutcome } from './agent-profile-local'
 import type { AgentProfileHostState } from '../account/account-sync'
@@ -16,6 +17,8 @@ import {
 export interface AgentProfileHostRow {
   hostId: string
   label: string
+  /** Shown beside the name when another host has the same name. */
+  address: string | null
   connected: boolean
   state: AgentProfileHostState
 }
@@ -44,7 +47,8 @@ export function useAgentProfileHosts() {
     registered.filter((host) => app.connections.state(host.id)?.phase === 'connected').map((host) => host.id).join('\0'))
   const hosts = useMemo<AgentProfileHostRow[]>(() => {
     const connected = new Set(connectedIds.split('\0').filter(Boolean))
-    return registered.map((host) => ({ hostId: host.id, label: host.label, connected: connected.has(host.id), state: hostStates.get(host.id) ?? { status: null, error: null, busy: false } }))
+    const addresses = sameNameHostAddresses(registered.map((host) => ({ id: host.id, label: host.label, url: host.routes[0]?.url ?? '' })))
+    return registered.map((host) => ({ hostId: host.id, label: host.label, address: addresses.get(host.id) ?? null, connected: connected.has(host.id), state: hostStates.get(host.id) ?? { status: null, error: null, busy: false } }))
   }, [registered, connectedIds, hostStates])
 
   // The screen opened: every connected host's copy is read.
@@ -63,6 +67,7 @@ export function useAgentProfile() {
   const status = useListened(sync.changes, sync.currentProfile)
   const entries = useListened(app.agentProfile.changes, app.agentProfile.entries)
   const extraInstructions = useListened(app.personal.changes, () => app.personal.current().extraInstructions)
+  const modelInstructions = useListened(app.personal.changes, () => app.personal.current().modelInstructions)
   const [chosenHostId, setChosenHostId] = useState<string | null>(null)
 
   const parts = useMemo(() => agentProfileParts(entries), [entries])
@@ -85,6 +90,10 @@ export function useAgentProfile() {
   /** The person's own instructions: a personal setting every prompt carries, synced like the rest of the profile. */
   const saveExtraInstructions = (text: string) => app.personal.set({ extraInstructions: text })
 
+  /** Instructions added when one model runs, beside the other models' instructions. */
+  const saveModelInstructions = (model: string, text: string) =>
+    app.personal.set({ modelInstructions: { ...modelInstructions, [model]: text } })
+
   const removeKeys = (keys: readonly AgentProfileKey[]) => { app.agentProfile.removeKeys(keys) }
 
   const searchSkills = (query: string): Promise<RemoteSkill[]> => toolApi().skillsSearch(query)
@@ -94,16 +103,16 @@ export function useAgentProfile() {
   /** Checks the address on the tool host and adds the server it finds. Answers why when it could not. */
   const addServer = async (url: string): Promise<string | null> => {
     if (!isIntegrationUrl(url)) return 'Use an HTTPS address with no credentials or fragment.'
-    try {
+    // The React Compiler cannot compile branches inside try/catch. The async
+    // wrapper turns a synchronous throw into a rejection that catch answers.
+    return await (async () => {
       const probe = await toolApi().integrationProbe({ url: url.trim() })
       const refusal = probeRefusal(probe)
       if (refusal) return refusal
       const entry = integrationEntryFromProbe(url, probe)
       if (!entry) return 'This address could not be checked.'
       return app.agentProfile.setEntry(entry) === 'saved' ? null : 'This server could not be added.'
-    } catch (cause) {
-      return errorMessage(cause)
-    }
+    })().catch(errorMessage)
   }
 
   return {
@@ -116,6 +125,8 @@ export function useAgentProfile() {
     chooseToolHost: setChosenHostId,
     extraInstructions,
     saveExtraInstructions,
+    modelInstructions,
+    saveModelInstructions,
     removeKeys,
     searchSkills,
     addSkill,

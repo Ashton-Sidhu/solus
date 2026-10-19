@@ -44,15 +44,18 @@ export function FileMarkdownPreview(props: {
   const [videoPreview, setVideoPreview] = useState<VideoPreviewSource | null>(null);
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const handlePullToRefresh = useCallback(async () => {
-    if (!props.onRefresh) {
+    const refresh = props.onRefresh;
+    if (!refresh) {
       return;
     }
     setIsPullRefreshing(true);
-    try {
-      await props.onRefresh();
-    } finally {
+    // The React Compiler cannot compile try/finally. The promise's finally
+    // clears the indicator after a rejection and after a synchronous throw.
+    await (async () => {
+      await refresh();
+    })().finally(() => {
       setIsPullRefreshing(false);
-    }
+    });
   }, [props.onRefresh]);
   const ctx = useMemo(
     () => projectContext(props.projectPath, app.account.organizationId),

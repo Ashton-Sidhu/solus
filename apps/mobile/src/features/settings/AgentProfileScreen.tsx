@@ -66,7 +66,7 @@ export function AgentProfileScreen({ navigation }: ScreenProps<"AgentProfile">) 
 
         <InstructionsSection profile={profile} />
         <SkillsSection profile={profile} />
-        <ServersSection profile={profile} />
+        <ServersSection profile={profile} onOpenHostMcp={(hostId) => navigation.navigate("Integrations", { hostId })} />
         <FilesSection profile={profile} />
       </ScrollView>
     </SettingsScreen>

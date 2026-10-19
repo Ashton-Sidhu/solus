@@ -147,6 +147,7 @@
   testId="permission-card"
 >
   {#snippet rail()}
+    {#if permission.guestTurn}<span data-testid="permission-guest-turn">Guest turn · Ask mode</span>{/if}
     {#if queueLength > 1}<span>1 of {queueLength}</span>{/if}
     <span>{waiting}</span>
   {/snippet}

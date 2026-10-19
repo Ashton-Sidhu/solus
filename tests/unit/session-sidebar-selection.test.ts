@@ -85,3 +85,52 @@ describe('selecting a sidebar row', () => {
     expect(calls).toEqual(['restore:task-1', 'task:task-1'])
   })
 })
+
+// WHY: the next/previous-session keys must walk the rows in the order the
+// sidebar lists them — tasks, then sessions, then working — not the order tabs
+// were opened. Otherwise the key jumps to a row that is not the one below.
+describe('next and previous session keys', () => {
+  function harness(onScreenTaskId: string | null) {
+    const opened: string[] = []
+    const store = Object.create(SidebarStoreClass.prototype) as SessionSidebarStore
+    const row = (id: string) => ({ id }) as SidebarTask
+    Object.defineProperties(store, {
+      taskRows: { value: [row('task')] },
+      sessionRows: { value: [row('session-a'), row('session-b')] },
+      workingRows: { value: [row('working')] },
+      onScreenTaskId: { value: onScreenTaskId },
+    })
+    store.selectTask = async (task) => { opened.push(task.id) }
+    return { store, opened }
+  }
+
+  test('moves to the row listed below, across sections, and wraps to the top', async () => {
+    const { store, opened } = harness('session-b')
+    await store.selectAdjacentRow(1)
+    expect(opened).toEqual(['working'])
+
+    const last = harness('working')
+    await last.store.selectAdjacentRow(1)
+    expect(last.opened).toEqual(['task'])
+  })
+
+  test('moves to the row listed above and wraps to the bottom', async () => {
+    const { store, opened } = harness('session-a')
+    await store.selectAdjacentRow(-1)
+    expect(opened).toEqual(['task'])
+
+    const first = harness('task')
+    await first.store.selectAdjacentRow(-1)
+    expect(first.opened).toEqual(['working'])
+  })
+
+  test('with no row on screen, starts from the top or the bottom', async () => {
+    const down = harness(null)
+    await down.store.selectAdjacentRow(1)
+    expect(down.opened).toEqual(['task'])
+
+    const up = harness(null)
+    await up.store.selectAdjacentRow(-1)
+    expect(up.opened).toEqual(['working'])
+  })
+})

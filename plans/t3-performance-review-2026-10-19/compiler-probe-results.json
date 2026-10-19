@@ -1,0 +1,4189 @@
+{
+  "createdAt": "2026-10-19T15:59:29.179Z",
+  "versions": {
+    "babel": "7.29.0",
+    "expoPreset": "58.0.12",
+    "compiler": "1.0.0"
+  },
+  "caller": {
+    "name": "metro",
+    "bundler": "metro",
+    "platform": "ios",
+    "isDev": false,
+    "isServer": false,
+    "isNodeModule": false,
+    "isHMREnabled": false,
+    "projectRoot": "/Users/sidhu/solus/apps/mobile",
+    "engine": "hermes",
+    "supportsStaticESM": false
+  },
+  "config": "Same Expo preset as current babel.config.js; logger only. Current caller supportsReactCompiler=false; enabled variant true. No files modified.",
+  "results": [
+    {
+      "file": "apps/mobile/src/components/ComposerAttachmentStrip.tsx",
+      "enabled": false,
+      "ms": 839,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/components/ComposerAttachmentStrip.tsx",
+      "enabled": true,
+      "ms": 172,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useDataUrlPreviewUri",
+          "line": 69,
+          "memoSlots": 4
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "useComposerImagePreviewUri",
+          "line": 93,
+          "memoSlots": 0
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerImageAttachment",
+          "line": 97,
+          "memoSlots": 17
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerFileAttachment",
+          "line": 122,
+          "memoSlots": 20
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerVideoAttachment",
+          "line": 150,
+          "memoSlots": 25
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerAttachmentThumbnail",
+          "line": 183,
+          "memoSlots": 5
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerUploadingThumbnail",
+          "line": 195,
+          "memoSlots": 6
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerAttachmentStrip",
+          "line": 214,
+          "memoSlots": 19
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/components/ComposerEditor.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/components/ComposerEditor.tsx",
+      "enabled": true,
+      "ms": 16,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 84,
+          "detailLines": [
+            {
+              "line": 84,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 86,
+          "detailLines": [
+            {
+              "line": 86,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 86,
+          "detailLines": [
+            {
+              "line": 86,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 95,
+          "detailLines": [
+            {
+              "line": 95,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 84,
+          "detailLines": [
+            {
+              "line": 84,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 85,
+          "detailLines": [
+            {
+              "line": 85,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 87,
+          "detailLines": [
+            {
+              "line": 87,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 88,
+          "detailLines": [
+            {
+              "line": 88,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 89,
+          "detailLines": [
+            {
+              "line": 89,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 90,
+          "detailLines": [
+            {
+              "line": 90,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 91,
+          "detailLines": [
+            {
+              "line": 91,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 93,
+          "detailLines": [
+            {
+              "line": 93,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 94,
+          "detailLines": [
+            {
+              "line": 94,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 98,
+          "detailLines": [
+            {
+              "line": 98,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 98,
+          "detailLines": [
+            {
+              "line": 98,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 103,
+          "detailLines": [
+            {
+              "line": 103,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ComposerEditor",
+          "line": 52,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 123,
+          "detailLines": [
+            {
+              "line": 123,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/components/ComposerToolbar.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/components/ComposerToolbar.tsx",
+      "enabled": true,
+      "ms": 33,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerInlineControl",
+          "line": 22,
+          "memoSlots": 36
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerToolbarRow",
+          "line": 91,
+          "memoSlots": 10
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerActionButton",
+          "line": 115,
+          "memoSlots": 24
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/components/MediaActionsMenu.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/components/MediaActionsMenu.tsx",
+      "enabled": true,
+      "ms": 13,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "MediaActionsMenu",
+          "line": 11,
+          "memoSlots": 14
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/components/OverlayPortal.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/components/OverlayPortal.tsx",
+      "enabled": true,
+      "ms": 10,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "OverlayPortal",
+          "line": 23,
+          "reason": "(BuildHIR::lowerExpression) Handle ??= operators in AssignmentExpression",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 25
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "OverlayPortalHost",
+          "line": 47,
+          "memoSlots": 4
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/components/VideoPreviewModal.ios.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/components/VideoPreviewModal.ios.tsx",
+      "enabled": true,
+      "ms": 22,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "NativeVideoPreview",
+          "line": 19,
+          "memoSlots": 10
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "VideoPreviewModal",
+          "line": 64,
+          "memoSlots": 10
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/components/VideoPreviewModal.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/components/VideoPreviewModal.tsx",
+      "enabled": true,
+      "ms": 25,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "OpenVideoPreviewModal",
+          "line": 19,
+          "memoSlots": 43
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "VideoPreviewModal",
+          "line": 110,
+          "memoSlots": 10
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/files/FileMarkdownPreview.tsx",
+      "enabled": false,
+      "ms": 10,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/files/FileMarkdownPreview.tsx",
+      "enabled": true,
+      "ms": 12,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "FileMarkdownPreview",
+          "line": 32,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement without a catch clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 51
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/files/FileScreen.tsx",
+      "enabled": false,
+      "ms": 12,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/files/FileScreen.tsx",
+      "enabled": true,
+      "ms": 84,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "FilePreviewLoading",
+          "line": 32,
+          "memoSlots": 3
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "FilePreviewNotice",
+          "line": 41,
+          "memoSlots": 7
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HostFileMedia",
+          "line": 56,
+          "memoSlots": 46
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "FileScreen",
+          "line": 123,
+          "memoSlots": 74
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/files/FilesScreen.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/files/FilesScreen.tsx",
+      "enabled": true,
+      "ms": 49,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "FileTreeRow",
+          "line": 16,
+          "memoSlots": 28
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "FilesScreen",
+          "line": 63,
+          "memoSlots": 63
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/files/SourceFileSurface.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/files/SourceFileSurface.tsx",
+      "enabled": true,
+      "ms": 33,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HighlightedSourceLine",
+          "line": 33,
+          "memoSlots": 24
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "SourceFileSurface",
+          "line": 103,
+          "memoSlots": 38
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/files/WorkspaceFileImagePreview.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/files/WorkspaceFileImagePreview.tsx",
+      "enabled": true,
+      "ms": 13,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "ResolvedWorkspaceFileImagePreview",
+          "line": 9,
+          "memoSlots": 23
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "WorkspaceFileImagePreview",
+          "line": 61,
+          "memoSlots": 5
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/AndroidHomeFab.android.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/AndroidHomeFab.android.tsx",
+      "enabled": true,
+      "ms": 17,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AndroidHomeFabLayout",
+          "line": 17,
+          "memoSlots": 19
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/AndroidHomeFab.shared.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/AndroidHomeFab.shared.tsx",
+      "enabled": true,
+      "ms": 3,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AndroidHomeFabLayout",
+          "line": 5,
+          "memoSlots": 2
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/AndroidHomeFab.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/AndroidHomeFab.tsx",
+      "enabled": true,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/HomeHeader.android.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/HomeHeader.android.tsx",
+      "enabled": true,
+      "ms": 19,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HomeHeader",
+          "line": 14,
+          "memoSlots": 27
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/HomeHeader.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/HomeHeader.tsx",
+      "enabled": true,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/HomeRouteScreen.tsx",
+      "enabled": false,
+      "ms": 11,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/HomeRouteScreen.tsx",
+      "enabled": true,
+      "ms": 76,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HomeRouteScreen",
+          "line": 40,
+          "memoSlots": 111
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/HomeScreen.tsx",
+      "enabled": false,
+      "ms": 16,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/HomeScreen.tsx",
+      "enabled": true,
+      "ms": 111,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HomeEmptyButton",
+          "line": 100,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HomeTopContentSpacer",
+          "line": 126,
+          "memoSlots": 1
+        },
+        {
+          "kind": "CompileError",
+          "name": "HomeScreen",
+          "line": 134,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 267,
+          "detailLines": [
+            {
+              "line": 267,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "HomeScreen",
+          "line": 134,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 268,
+          "detailLines": [
+            {
+              "line": 268,
+              "message": "Cannot update ref during render"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/MaterialThreadListToolbar.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/MaterialThreadListToolbar.tsx",
+      "enabled": true,
+      "ms": 23,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "MaterialThreadListToolbar",
+          "line": 20,
+          "memoSlots": 42
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/ThreadListFilters.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/ThreadListFilters.tsx",
+      "enabled": true,
+      "ms": 20,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadListFilters",
+          "line": 7,
+          "memoSlots": 47
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/WorkspaceConnectionTitle.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/WorkspaceConnectionTitle.tsx",
+      "enabled": true,
+      "ms": 24,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useDelayedConnectionStatus",
+          "line": 32,
+          "memoSlots": 5
+        },
+        {
+          "kind": "CompileError",
+          "name": "StatusFadeIn",
+          "line": 56,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 61,
+          "detailLines": [
+            {
+              "line": 61,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "StatusFadeIn",
+          "line": 56,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 61,
+          "detailLines": [
+            {
+              "line": 61,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "StatusFadeIn",
+          "line": 56,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 61,
+          "detailLines": [
+            {
+              "line": 61,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "StatusFadeIn",
+          "line": 56,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 61,
+          "detailLines": [
+            {
+              "line": 61,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "StatusFadeIn",
+          "line": 56,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 61,
+          "detailLines": [
+            {
+              "line": 61,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "WorkspaceConnectionTitle",
+          "line": 102,
+          "memoSlots": 30
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/thread-swipe-actions.tsx",
+      "enabled": false,
+      "ms": 111,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/thread-swipe-actions.tsx",
+      "enabled": true,
+      "ms": 142,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SwipeableScrollGateProvider",
+          "line": 132,
+          "memoSlots": 6
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "useSwipeableScrollGate",
+          "line": 157,
+          "memoSlots": 17
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSwipeable",
+          "line": 276,
+          "memoSlots": 17
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadSwipeableRow",
+          "line": 297,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 501,
+          "detailLines": [
+            {
+              "line": 501,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "SwipeActionButton",
+          "line": 508,
+          "memoSlots": 52
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSwipeActions",
+          "line": 702,
+          "memoSlots": 29
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/use-workspace-state.ts",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/use-workspace-state.ts",
+      "enabled": true,
+      "ms": 10,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useWorkspaceState",
+          "line": 12,
+          "memoSlots": 8
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/home/useThreadListActions.ts",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/home/useThreadListActions.ts",
+      "enabled": true,
+      "ms": 10,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "useThreadListActions",
+          "line": 28,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement without a catch clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 54
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx",
+      "enabled": false,
+      "ms": 20,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx",
+      "enabled": true,
+      "ms": 88,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AdaptiveWorkspaceLayout",
+          "line": 122,
+          "memoSlots": 98
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/layout/WorkspaceEmptyDetail.tsx",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/layout/WorkspaceEmptyDetail.tsx",
+      "enabled": true,
+      "ms": 7,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "WorkspaceEmptyDetail",
+          "line": 9,
+          "memoSlots": 3
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/layout/createWorkspaceStackNavigator.ios.tsx",
+      "enabled": false,
+      "ms": 12,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/layout/createWorkspaceStackNavigator.ios.tsx",
+      "enabled": true,
+      "ms": 60,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "ColumnScreen",
+          "line": 54,
+          "memoSlots": 38
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "WorkspaceColumns",
+          "line": 109,
+          "memoSlots": 42
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "WorkspaceStackView",
+          "line": 214,
+          "memoSlots": 29
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "WorkspaceStackNavigator",
+          "line": 305,
+          "memoSlots": 30
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/layout/createWorkspaceStackNavigator.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/layout/createWorkspaceStackNavigator.tsx",
+      "enabled": true,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/layout/workspace-inspector-pane.tsx",
+      "enabled": false,
+      "ms": 9,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/layout/workspace-inspector-pane.tsx",
+      "enabled": true,
+      "ms": 24,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "WorkspaceInspectorPane",
+          "line": 27,
+          "reason": "This value cannot be modified",
+          "description": "Modifying component props or hook arguments is not allowed. Consider using a local variable instead",
+          "category": "Immutability",
+          "diagnosticLine": 72,
+          "detailLines": [
+            {
+              "line": 72,
+              "message": "`renderedInspectorWidth` cannot be modified"
+            }
+          ]
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "InspectorRenderer",
+          "line": 162,
+          "memoSlots": 4
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/layout/workspace-pane-divider.tsx",
+      "enabled": false,
+      "ms": 10,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/layout/workspace-pane-divider.tsx",
+      "enabled": true,
+      "ms": 15,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "WorkspacePaneDivider",
+          "line": 21,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 23,
+          "detailLines": [
+            {
+              "line": 23,
+              "message": "Cannot update ref during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "WorkspacePaneDivider",
+          "line": 21,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 41,
+          "detailLines": [
+            {
+              "line": 41,
+              "message": "Passing a ref to a function may read its value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "WorkspacePaneDivider",
+          "line": 21,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 44,
+          "detailLines": [
+            {
+              "line": 44,
+              "message": "Passing a ref to a function may read its value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "WorkspacePaneDivider",
+          "line": 21,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 47,
+          "detailLines": [
+            {
+              "line": 47,
+              "message": "Passing a ref to a function may read its value during render"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/layout/workspace-sidebar-toolbar.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/layout/workspace-sidebar-toolbar.tsx",
+      "enabled": true,
+      "ms": 5,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AndroidWorkspaceSidebarButton",
+          "line": 7,
+          "memoSlots": 4
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestAskScreen.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestAskScreen.tsx",
+      "enabled": true,
+      "ms": 17,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestAskScreen",
+          "line": 15,
+          "memoSlots": 9
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "AskForm",
+          "line": 29,
+          "memoSlots": 24
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestDiscussionScreen.tsx",
+      "enabled": false,
+      "ms": 8,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestDiscussionScreen.tsx",
+      "enabled": true,
+      "ms": 17,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "PullRequestDiscussionScreen",
+          "line": 27,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement with a finalizer ('finally') clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 48
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadLocation",
+          "line": 131,
+          "memoSlots": 13
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestFilesScreen.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestFilesScreen.tsx",
+      "enabled": true,
+      "ms": 65,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestFilesScreen",
+          "line": 19,
+          "memoSlots": 31
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestInlineCommentScreen.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestInlineCommentScreen.tsx",
+      "enabled": true,
+      "ms": 9,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "PullRequestInlineCommentScreen",
+          "line": 20,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement without a catch clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 45
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestLabelsScreen.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestLabelsScreen.tsx",
+      "enabled": true,
+      "ms": 12,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "PullRequestLabelsScreen",
+          "line": 20,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement with a finalizer ('finally') clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 57
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestListFilters.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestListFilters.tsx",
+      "enabled": true,
+      "ms": 35,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestListFilters",
+          "line": 65,
+          "memoSlots": 76
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestListRow.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestListRow.tsx",
+      "enabled": true,
+      "ms": 38,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestListRow",
+          "line": 37,
+          "memoSlots": 66
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestReviewSheet.tsx",
+      "enabled": false,
+      "ms": 12,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestReviewSheet.tsx",
+      "enabled": true,
+      "ms": 27,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "PullRequestReviewSheet",
+          "line": 28,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement with a finalizer ('finally') clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 59
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ReviewBodyField",
+          "line": 125,
+          "memoSlots": 13
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PendingComments",
+          "line": 148,
+          "memoSlots": 10
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ReviewNotes",
+          "line": 187,
+          "memoSlots": 17
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestReviewersScreen.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestReviewersScreen.tsx",
+      "enabled": true,
+      "ms": 17,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "PullRequestReviewersScreen",
+          "line": 22,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement with a finalizer ('finally') clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 67
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestScreen.tsx",
+      "enabled": false,
+      "ms": 16,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestScreen.tsx",
+      "enabled": true,
+      "ms": 86,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestTabScrollView",
+          "line": 44,
+          "memoSlots": 7
+        },
+        {
+          "kind": "CompileError",
+          "name": "PullRequestScreen",
+          "line": 72,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 109,
+          "detailLines": [
+            {
+              "line": 109,
+              "message": "Cannot update ref during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "TabPane",
+          "line": 286,
+          "memoSlots": 8
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestIdentity",
+          "line": 299,
+          "memoSlots": 53
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestsHeader.android.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestsHeader.android.tsx",
+      "enabled": true,
+      "ms": 16,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestsHeader",
+          "line": 14,
+          "memoSlots": 26
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestsHeader.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestsHeader.tsx",
+      "enabled": true,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestsScreen.tsx",
+      "enabled": false,
+      "ms": 10,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/PullRequestsScreen.tsx",
+      "enabled": true,
+      "ms": 114,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useDebouncedValue",
+          "line": 23,
+          "memoSlots": 4
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestScrollView",
+          "line": 38,
+          "memoSlots": 7
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestsScreen",
+          "line": 73,
+          "memoSlots": 121
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/components/PrStateBadge.tsx",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/components/PrStateBadge.tsx",
+      "enabled": true,
+      "ms": 8,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PrStateBadge",
+          "line": 27,
+          "memoSlots": 20
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestActionToolbar.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestActionToolbar.tsx",
+      "enabled": true,
+      "ms": 33,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestActionToolbar",
+          "line": 26,
+          "memoSlots": 77
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestActivity.tsx",
+      "enabled": false,
+      "ms": 10,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestActivity.tsx",
+      "enabled": true,
+      "ms": 49,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "TimelineEvent",
+          "line": 21,
+          "memoSlots": 9
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "EventHeader",
+          "line": 39,
+          "memoSlots": 19
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "TimelineComment",
+          "line": 53,
+          "memoSlots": 22
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestActivityFilters",
+          "line": 169,
+          "memoSlots": 55
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestAgentActions.tsx",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestAgentActions.tsx",
+      "enabled": true,
+      "ms": 8,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "usePullRequestAgent",
+          "line": 15,
+          "memoSlots": 15
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestDescription.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestDescription.tsx",
+      "enabled": true,
+      "ms": 32,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestDescription",
+          "line": 24,
+          "memoSlots": 20
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "Attachments",
+          "line": 84,
+          "memoSlots": 15
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "AttachmentTile",
+          "line": 98,
+          "memoSlots": 21
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestFiles.tsx",
+      "enabled": false,
+      "ms": 15,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestFiles.tsx",
+      "enabled": true,
+      "ms": 101,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "PullRequestFiles",
+          "line": 52,
+          "reason": "Existing memoization could not be preserved",
+          "description": "React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This dependency may be mutated later, which could cause the value to change unexpectedly",
+          "category": "PreserveManualMemo",
+          "diagnosticLine": 154,
+          "detailLines": [
+            {
+              "line": 154,
+              "message": "This dependency may be modified later"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "PullRequestFiles",
+          "line": 52,
+          "reason": "Existing memoization could not be preserved",
+          "description": "React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output",
+          "category": "PreserveManualMemo",
+          "diagnosticLine": 142,
+          "detailLines": [
+            {
+              "line": 142,
+              "message": "Could not preserve existing memoization"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "PullRequestFiles",
+          "line": 52,
+          "reason": "Existing memoization could not be preserved",
+          "description": "React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. The inferred dependencies did not match the manually specified dependencies, which could cause the value to change more or less frequently than expected. The inferred dependency was `setCollapsedIds`, but the source dependencies were [data.files, viewed]. Inferred different dependency than source",
+          "category": "PreserveManualMemo",
+          "diagnosticLine": 156,
+          "detailLines": [
+            {
+              "line": 156,
+              "message": "Could not preserve existing manual memoization"
+            }
+          ]
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "FilesHeader",
+          "line": 266,
+          "memoSlots": 24
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "SelectionBar",
+          "line": 306,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ViewedNotes",
+          "line": 317,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "FilesFooter",
+          "line": 330,
+          "memoSlots": 13
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "FilesBody",
+          "line": 354,
+          "memoSlots": 27
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NeedsNewBuild",
+          "line": 403,
+          "memoSlots": 6
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestGuide.tsx",
+      "enabled": false,
+      "ms": 12,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestGuide.tsx",
+      "enabled": true,
+      "ms": 74,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestGuideTab",
+          "line": 27,
+          "memoSlots": 47
+        },
+        {
+          "kind": "CompileError",
+          "name": "GuideNoticeCard",
+          "line": 63,
+          "reason": "Hooks must always be called in a consistent order, and may not be called conditionally. See the Rules of Hooks (https://react.dev/warnings/invalid-hook-call-warning)",
+          "description": null,
+          "category": "Hooks",
+          "diagnosticLine": 69
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "GuideOutline",
+          "line": 118,
+          "memoSlots": 25
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "GuideStop",
+          "line": 165,
+          "memoSlots": 61
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestMarkdown.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestMarkdown.tsx",
+      "enabled": true,
+      "ms": 33,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestMedia",
+          "line": 27,
+          "memoSlots": 20
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestMarkdown",
+          "line": 46,
+          "memoSlots": 40
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestMergeControls.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestMergeControls.tsx",
+      "enabled": true,
+      "ms": 49,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestMergeControls",
+          "line": 27,
+          "memoSlots": 58
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "StackMergeButton",
+          "line": 90,
+          "memoSlots": 36
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "MergeButtonContent",
+          "line": 132,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "MergeNotes",
+          "line": 149,
+          "memoSlots": 8
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestOverview.tsx",
+      "enabled": false,
+      "ms": 8,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestOverview.tsx",
+      "enabled": true,
+      "ms": 39,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestOverview",
+          "line": 21,
+          "memoSlots": 17
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestLabels",
+          "line": 41,
+          "memoSlots": 10
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestStackCard",
+          "line": 72,
+          "memoSlots": 21
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ChangedFilesSummary",
+          "line": 116,
+          "memoSlots": 28
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestSheetContent.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestSheetContent.tsx",
+      "enabled": true,
+      "ms": 10,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestSheetContent",
+          "line": 16,
+          "memoSlots": 30
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestStatusRows.tsx",
+      "enabled": false,
+      "ms": 16,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/PullRequestStatusRows.tsx",
+      "enabled": true,
+      "ms": 83,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestStatusMenu",
+          "line": 43,
+          "memoSlots": 38
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestChecksRow",
+          "line": 96,
+          "memoSlots": 12
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestWorkflowRunsRow",
+          "line": 157,
+          "memoSlots": 24
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestReviewersRow",
+          "line": 199,
+          "memoSlots": 31
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestBranchRow",
+          "line": 248,
+          "memoSlots": 43
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/ReviewGuideExcerpt.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/ReviewGuideExcerpt.tsx",
+      "enabled": true,
+      "ms": 21,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "ReviewGuideExcerpt",
+          "line": 23,
+          "memoSlots": 34
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/pull-request-ui.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/pull-request-ui.tsx",
+      "enabled": true,
+      "ms": 33,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestCardGroup",
+          "line": 29,
+          "memoSlots": 2
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestCardRow",
+          "line": 33,
+          "memoSlots": 39
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "CardRowIcon",
+          "line": 80,
+          "memoSlots": 4
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "CardRowChevron",
+          "line": 86,
+          "memoSlots": 2
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestSectionHeading",
+          "line": 96,
+          "memoSlots": 2
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestDiffStats",
+          "line": 100,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestAvatar",
+          "line": 115,
+          "memoSlots": 4
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PullRequestReadStatus",
+          "line": 133,
+          "memoSlots": 6
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "DisabledReason",
+          "line": 140,
+          "memoSlots": 2
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/use-pull-request-action.ts",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/use-pull-request-action.ts",
+      "enabled": true,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "usePullRequestAction",
+          "line": 12,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement with a finalizer ('finally') clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 21
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/use-pull-request-files-viewed.ts",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/use-pull-request-files-viewed.ts",
+      "enabled": true,
+      "ms": 32,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "usePullRequestFilesViewed",
+          "line": 27,
+          "memoSlots": 3
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "useHostFilesViewed",
+          "line": 36,
+          "memoSlots": 35
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "useDeviceFilesViewed",
+          "line": 74,
+          "memoSlots": 25
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/use-pull-request-media-url.ts",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/use-pull-request-media-url.ts",
+      "enabled": true,
+      "ms": 14,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "usePullRequestMediaUrl",
+          "line": 24,
+          "memoSlots": 17
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "usePullRequestMarkdownMedia",
+          "line": 54,
+          "memoSlots": 3
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/use-pull-request-view.ts",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/detail/use-pull-request-view.ts",
+      "enabled": true,
+      "ms": 16,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "usePullRequestView",
+          "line": 18,
+          "memoSlots": 40
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/use-pull-request-host-fallback.ts",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/use-pull-request-host-fallback.ts",
+      "enabled": true,
+      "ms": 13,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "usePullRequestHostFallback",
+          "line": 12,
+          "memoSlots": 14
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/prs/use-pull-request-list.ts",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/prs/use-pull-request-list.ts",
+      "enabled": true,
+      "ms": 30,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "usePullRequestList",
+          "line": 19,
+          "memoSlots": 44
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AboutScreen.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AboutScreen.tsx",
+      "enabled": true,
+      "ms": 12,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AboutScreen",
+          "line": 20,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HostVersionRow",
+          "line": 64,
+          "memoSlots": 7
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AccountSyncScreen.tsx",
+      "enabled": false,
+      "ms": 8,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AccountSyncScreen.tsx",
+      "enabled": true,
+      "ms": 40,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AccountSyncScreen",
+          "line": 30,
+          "memoSlots": 53
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AgentDefaultsScreen.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AgentDefaultsScreen.tsx",
+      "enabled": true,
+      "ms": 34,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AgentDefaultsScreen",
+          "line": 28,
+          "memoSlots": 69
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AgentProfileScreen.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AgentProfileScreen.tsx",
+      "enabled": true,
+      "ms": 16,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AgentProfileScreen",
+          "line": 24,
+          "memoSlots": 23
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AgentProfileSections.tsx",
+      "enabled": false,
+      "ms": 18,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AgentProfileSections.tsx",
+      "enabled": true,
+      "ms": 131,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "InstructionsSection",
+          "line": 38,
+          "memoSlots": 9
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ModelInstructionsSection",
+          "line": 57,
+          "memoSlots": 20
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "InstructionsEditor",
+          "line": 91,
+          "memoSlots": 20
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "FilesSection",
+          "line": 123,
+          "memoSlots": 24
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "FileRow",
+          "line": 145,
+          "memoSlots": 16
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "SkillsSection",
+          "line": 159,
+          "memoSlots": 49
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "RegistrySkillRow",
+          "line": 244,
+          "memoSlots": 16
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HandWrittenSkillRow",
+          "line": 256,
+          "memoSlots": 18
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "RemoteSkillRow",
+          "line": 268,
+          "memoSlots": 20
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ServersSection",
+          "line": 283,
+          "memoSlots": 46
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ServerRow",
+          "line": 348,
+          "memoSlots": 18
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HostsSection",
+          "line": 363,
+          "memoSlots": 10
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HostRow",
+          "line": 377,
+          "memoSlots": 42
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ToolHostPicker",
+          "line": 402,
+          "memoSlots": 4
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "EntryTitle",
+          "line": 423,
+          "memoSlots": 3
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "RemoveButton",
+          "line": 432,
+          "memoSlots": 3
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ShowMoreRow",
+          "line": 437,
+          "memoSlots": 3
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PillButton",
+          "line": 453,
+          "memoSlots": 14
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AppearanceScreen.tsx",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/AppearanceScreen.tsx",
+      "enabled": true,
+      "ms": 8,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AppearanceScreen",
+          "line": 16,
+          "memoSlots": 7
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/GitHubConnectionScreen.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/GitHubConnectionScreen.tsx",
+      "enabled": true,
+      "ms": 21,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "GitHubConnectionScreen",
+          "line": 23,
+          "memoSlots": 30
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/HostAccessScreen.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/HostAccessScreen.tsx",
+      "enabled": true,
+      "ms": 13,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HostAccessScreen",
+          "line": 25,
+          "memoSlots": 25
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/HostAccessSections.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/HostAccessSections.tsx",
+      "enabled": true,
+      "ms": 37,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HostOrganizationsSection",
+          "line": 29,
+          "memoSlots": 36
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HostNetworkSection",
+          "line": 87,
+          "memoSlots": 28
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HostPairingSection",
+          "line": 132,
+          "memoSlots": 20
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HostDevicesSection",
+          "line": 176,
+          "memoSlots": 6
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/HostCloudLinkSection.tsx",
+      "enabled": false,
+      "ms": 9,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/HostCloudLinkSection.tsx",
+      "enabled": true,
+      "ms": 17,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HostCloudLinkSection",
+          "line": 21,
+          "memoSlots": 31
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/HostSettingsScreen.tsx",
+      "enabled": false,
+      "ms": 8,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/HostSettingsScreen.tsx",
+      "enabled": true,
+      "ms": 33,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "HostSettingsScreen",
+          "line": 32,
+          "memoSlots": 32
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/IntegrationsScreen.tsx",
+      "enabled": false,
+      "ms": 19,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/IntegrationsScreen.tsx",
+      "enabled": true,
+      "ms": 134,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "IntegrationsScreen",
+          "line": 59,
+          "memoSlots": 32
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "InstalledSection",
+          "line": 139,
+          "memoSlots": 25
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "InstalledRow",
+          "line": 211,
+          "memoSlots": 81
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "OwnerOnlyNote",
+          "line": 325,
+          "memoSlots": 1
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "IntegrationTools",
+          "line": 335,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ToolLine",
+          "line": 366,
+          "memoSlots": 25
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "Badge",
+          "line": 394,
+          "memoSlots": 10
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "CustomAddressSection",
+          "line": 403,
+          "memoSlots": 26
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "CatalogSection",
+          "line": 429,
+          "memoSlots": 45
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "AddRow",
+          "line": 504,
+          "memoSlots": 27
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "EntryIcon",
+          "line": 549,
+          "memoSlots": 13
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PillButton",
+          "line": 570,
+          "memoSlots": 13
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/NotificationSettingsScreen.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/NotificationSettingsScreen.tsx",
+      "enabled": true,
+      "ms": 20,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "NotificationSettingsScreen",
+          "line": 30,
+          "memoSlots": 37
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/OrganizationSettingsScreen.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/OrganizationSettingsScreen.tsx",
+      "enabled": true,
+      "ms": 43,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "OrganizationSettingsScreen",
+          "line": 27,
+          "memoSlots": 48
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "RetryNotice",
+          "line": 221,
+          "memoSlots": 10
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/SettingsScreen.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/SettingsScreen.tsx",
+      "enabled": true,
+      "ms": 36,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SettingsScreen",
+          "line": 23,
+          "memoSlots": 2
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "SettingsIndex",
+          "line": 32,
+          "memoSlots": 74
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/AppearancePreferencesProvider.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/AppearancePreferencesProvider.tsx",
+      "enabled": true,
+      "ms": 20,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AppearancePreferencesProvider",
+          "line": 86,
+          "memoSlots": 41
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/components/AppearancePreviews.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/components/AppearancePreviews.tsx",
+      "enabled": true,
+      "ms": 20,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "AppearancePreviewSeparator",
+          "line": 18,
+          "memoSlots": 1
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "TextAppearancePreview",
+          "line": 23,
+          "memoSlots": 13
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "CodeAppearancePreview",
+          "line": 75,
+          "memoSlots": 23
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/components/FontSizeSliderRow.android.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/components/FontSizeSliderRow.android.tsx",
+      "enabled": true,
+      "ms": 20,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "FontSizeSliderRow",
+          "line": 13,
+          "memoSlots": 55
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/components/FontSizeSliderRow.shared.tsx",
+      "enabled": false,
+      "ms": 27,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/components/FontSizeSliderRow.shared.tsx",
+      "enabled": true,
+      "ms": 39,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "FontSizeSliderRow",
+          "line": 28,
+          "reason": "This value cannot be modified",
+          "description": "Modifying a value used previously in an effect function or as an effect dependency is not allowed. Consider moving the modification before calling useEffect()",
+          "category": "Immutability",
+          "diagnosticLine": 92,
+          "detailLines": [
+            {
+              "line": 92,
+              "message": "`dragging` cannot be modified"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "FontSizeSliderRow",
+          "line": 28,
+          "reason": "This value cannot be modified",
+          "description": "Modifying a value used previously in an effect function or as an effect dependency is not allowed. Consider moving the modification before calling useEffect()",
+          "category": "Immutability",
+          "diagnosticLine": 94,
+          "detailLines": [
+            {
+              "line": 94,
+              "message": "`progress` cannot be modified"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "FontSizeSliderRow",
+          "line": 28,
+          "reason": "This value cannot be modified",
+          "description": "Modifying a value used previously in an effect function or as an effect dependency is not allowed. Consider moving the modification before calling useEffect()",
+          "category": "Immutability",
+          "diagnosticLine": 100,
+          "detailLines": [
+            {
+              "line": 100,
+              "message": "`dragging` cannot be modified"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "FontSizeSliderRow",
+          "line": 28,
+          "reason": "This value cannot be modified",
+          "description": "Modifying a value used previously in an effect function or as an effect dependency is not allowed. Consider moving the modification before calling useEffect()",
+          "category": "Immutability",
+          "diagnosticLine": 102,
+          "detailLines": [
+            {
+              "line": 102,
+              "message": "`progress` cannot be modified"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "FontSizeSliderRow",
+          "line": 28,
+          "reason": "This value cannot be modified",
+          "description": "Modifying a value used previously in an effect function or as an effect dependency is not allowed. Consider moving the modification before calling useEffect()",
+          "category": "Immutability",
+          "diagnosticLine": 114,
+          "detailLines": [
+            {
+              "line": 114,
+              "message": "`progress` cannot be modified"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "FontSizeSliderRow",
+          "line": 28,
+          "reason": "This value cannot be modified",
+          "description": "Modifying a value previously passed as an argument to a hook is not allowed. Consider moving the modification before calling the hook",
+          "category": "Immutability",
+          "diagnosticLine": 171,
+          "detailLines": [
+            {
+              "line": 171,
+              "message": "`trackWidth` cannot be modified"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/components/FontSizeSliderRow.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/components/FontSizeSliderRow.tsx",
+      "enabled": true,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/sections/CodeAppearanceSection.tsx",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/sections/CodeAppearanceSection.tsx",
+      "enabled": true,
+      "ms": 9,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "CodeAppearanceSection",
+          "line": 18,
+          "memoSlots": 25
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/sections/TextAppearanceSection.tsx",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/sections/TextAppearanceSection.tsx",
+      "enabled": true,
+      "ms": 5,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "TextAppearanceSection",
+          "line": 15,
+          "memoSlots": 11
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/sections/ThemeAppearanceSection.tsx",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/sections/ThemeAppearanceSection.tsx",
+      "enabled": true,
+      "ms": 27,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PreviewPane",
+          "line": 27,
+          "memoSlots": 12
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ModePreview",
+          "line": 56,
+          "memoSlots": 34
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ModeCard",
+          "line": 92,
+          "memoSlots": 19
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "SectionLabel",
+          "line": 128,
+          "memoSlots": 2
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThemeAppearanceSection",
+          "line": 132,
+          "memoSlots": 8
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/useAppearanceCodeSurface.ts",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/useAppearanceCodeSurface.ts",
+      "enabled": true,
+      "ms": 5,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useAppearanceCodeSurface",
+          "line": 12,
+          "memoSlots": 9
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/useScaledTextRole.ts",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/appearance/useScaledTextRole.ts",
+      "enabled": true,
+      "ms": 3,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useScaledTextRole",
+          "line": 17,
+          "memoSlots": 3
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/IntegrationConnectPanel.tsx",
+      "enabled": false,
+      "ms": 4,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/IntegrationConnectPanel.tsx",
+      "enabled": true,
+      "ms": 29,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "IntegrationConnectPanel",
+          "line": 16,
+          "memoSlots": 76
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/IntegrationOAuthClientPanel.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/IntegrationOAuthClientPanel.tsx",
+      "enabled": true,
+      "ms": 37,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "IntegrationOAuthClientPanel",
+          "line": 17,
+          "memoSlots": 79
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/PairQrCode.tsx",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/PairQrCode.tsx",
+      "enabled": true,
+      "ms": 8,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "PairQrCode",
+          "line": 9,
+          "memoSlots": 12
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsActionRow.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsActionRow.tsx",
+      "enabled": true,
+      "ms": 9,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SettingsActionRow",
+          "line": 10,
+          "memoSlots": 24
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsChoiceRow.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsChoiceRow.tsx",
+      "enabled": true,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsNote.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsNote.tsx",
+      "enabled": true,
+      "ms": 4,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SettingsNote",
+          "line": 6,
+          "memoSlots": 6
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsRow.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsRow.tsx",
+      "enabled": true,
+      "ms": 5,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SettingsRow",
+          "line": 11,
+          "memoSlots": 8
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsScreen.tsx",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsScreen.tsx",
+      "enabled": true,
+      "ms": 7,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SettingsScreen",
+          "line": 12,
+          "memoSlots": 14
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsSection.tsx",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsSection.tsx",
+      "enabled": true,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsSwitchRow.tsx",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsSwitchRow.tsx",
+      "enabled": true,
+      "ms": 4,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SettingsSwitchRow",
+          "line": 6,
+          "memoSlots": 6
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsValueRow.tsx",
+      "enabled": false,
+      "ms": 6,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/components/SettingsValueRow.tsx",
+      "enabled": true,
+      "ms": 8,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SettingsValueRow",
+          "line": 13,
+          "memoSlots": 21
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-agent-profile.ts",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-agent-profile.ts",
+      "enabled": true,
+      "ms": 31,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useAgentProfileHosts",
+          "line": 40,
+          "memoSlots": 15
+        },
+        {
+          "kind": "CompileError",
+          "name": "useAgentProfile",
+          "line": 64,
+          "reason": "Support value blocks (conditional, logical, optional chaining, etc) within a try/catch statement",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 112
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-github-connection.ts",
+      "enabled": false,
+      "ms": 5,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-github-connection.ts",
+      "enabled": true,
+      "ms": 10,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "useGithubConnection",
+          "line": 27,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement with a finalizer ('finally') clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 78
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-host-access.ts",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-host-access.ts",
+      "enabled": true,
+      "ms": 12,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useHostAccess",
+          "line": 8,
+          "memoSlots": 28
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-host-cloud-link.ts",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-host-cloud-link.ts",
+      "enabled": true,
+      "ms": 15,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useHostCloudLink",
+          "line": 8,
+          "memoSlots": 23
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-host-settings.ts",
+      "enabled": false,
+      "ms": 2,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-host-settings.ts",
+      "enabled": true,
+      "ms": 9,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useHostSettings",
+          "line": 9,
+          "memoSlots": 20
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-host-update-status.ts",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-host-update-status.ts",
+      "enabled": true,
+      "ms": 10,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useHostUpdateStatus",
+          "line": 14,
+          "memoSlots": 14
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-integrations.ts",
+      "enabled": false,
+      "ms": 19,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-integrations.ts",
+      "enabled": true,
+      "ms": 55,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "useIntegrations",
+          "line": 52,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement without a catch clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 285
+        },
+        {
+          "kind": "CompileError",
+          "name": "useIntegrations",
+          "line": 52,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement with a finalizer ('finally') clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 307
+        },
+        {
+          "kind": "CompileError",
+          "name": "useIntegrations",
+          "line": 52,
+          "reason": "(BuildHIR::lowerStatement) Support ThrowStatement inside of try/catch",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 309
+        },
+        {
+          "kind": "CompileError",
+          "name": "useIntegrationConnect",
+          "line": 413,
+          "reason": "Expected all references to a variable to be consistently local or context references",
+          "description": "Identifier <unknown> cause_1$811 is referenced as a context variable, but was previously referenced as a local variable",
+          "category": "Invariant",
+          "diagnosticLine": 533,
+          "detailLines": [
+            {
+              "line": 533,
+              "message": "this is local"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-organization-settings.ts",
+      "enabled": false,
+      "ms": 3,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/settings/use-organization-settings.ts",
+      "enabled": true,
+      "ms": 7,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "useOrganizationSettings",
+          "line": 9,
+          "memoSlots": 12
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/threads/NewTaskContextPickerScreens.tsx",
+      "enabled": false,
+      "ms": 7,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/threads/NewTaskContextPickerScreens.tsx",
+      "enabled": true,
+      "ms": 36,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SelectionRow",
+          "line": 40,
+          "memoSlots": 40
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PickerSurface",
+          "line": 105,
+          "memoSlots": 2
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "useNewTaskEnvironments",
+          "line": 134,
+          "memoSlots": 14
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NewTaskEnvironmentPickerRouteScreen",
+          "line": 169,
+          "memoSlots": 26
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/threads/NewTaskRouteScreen.tsx",
+      "enabled": false,
+      "ms": 29,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/threads/NewTaskRouteScreen.tsx",
+      "enabled": true,
+      "ms": 140,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "NewTaskRouteScreen",
+          "line": 61,
+          "memoSlots": 15
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NewTaskHeader",
+          "line": 97,
+          "memoSlots": 14
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NewTaskProjectScreen",
+          "line": 135,
+          "memoSlots": 44
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "useDraftConversation",
+          "line": 415,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NewTaskDraftScreen",
+          "line": 436,
+          "memoSlots": 14
+        },
+        {
+          "kind": "CompileError",
+          "name": "PlanModeToggle",
+          "line": 469,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 478,
+          "detailLines": [
+            {
+              "line": 478,
+              "message": "Cannot update ref during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "PlanModeToggle",
+          "line": 469,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 482,
+          "detailLines": [
+            {
+              "line": 482,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "NewTaskDraftContent",
+          "line": 496,
+          "reason": "Support value blocks (conditional, logical, optional chaining, etc) within a try/catch statement",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 616
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "HeroProjectMark",
+          "line": 911,
+          "memoSlots": 4
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadComposer.tsx",
+      "enabled": false,
+      "ms": 27,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadComposer.tsx",
+      "enabled": true,
+      "ms": 53,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "SendActionButton",
+          "line": 146,
+          "memoSlots": 19
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ComposerSurface",
+          "line": 187,
+          "memoSlots": 28
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadComposer",
+          "line": 252,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement without a catch clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 388
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadDetailScreen.tsx",
+      "enabled": false,
+      "ms": 29,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadDetailScreen.tsx",
+      "enabled": true,
+      "ms": 44,
+      "compilerRuntime": false,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "ThreadDetailScreen",
+          "line": 105,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement without a catch clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 377
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadDetailScreen",
+          "line": 105,
+          "reason": "(BuildHIR::lowerStatement) Handle TryStatement without a catch clause",
+          "description": null,
+          "category": "Todo",
+          "diagnosticLine": 389
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadFeed.tsx",
+      "enabled": false,
+      "ms": 30,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadFeed.tsx",
+      "enabled": true,
+      "ms": 235,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "UserMessageRow",
+          "line": 141,
+          "memoSlots": 47
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "AssistantMessageRow",
+          "line": 277,
+          "memoSlots": 11
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NoticeRow",
+          "line": 304,
+          "memoSlots": 18
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "PlanRow",
+          "line": 348,
+          "memoSlots": 3
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "WorktreeOfferRow",
+          "line": 354,
+          "memoSlots": 3
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadFeedPlaceholder",
+          "line": 489,
+          "memoSlots": 14
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadFeedListHeader",
+          "line": 520,
+          "memoSlots": 5
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadFeed",
+          "line": 529,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 897,
+          "detailLines": [
+            {
+              "line": 897,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadFeed",
+          "line": 529,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 898,
+          "detailLines": [
+            {
+              "line": 898,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadFeed",
+          "line": 529,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 853,
+          "detailLines": [
+            {
+              "line": 853,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadFeed",
+          "line": 529,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 862,
+          "detailLines": [
+            {
+              "line": 862,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadFeed",
+          "line": 529,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 864,
+          "detailLines": [
+            {
+              "line": 864,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadFeed",
+          "line": 529,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 909,
+          "detailLines": [
+            {
+              "line": 909,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadFeed",
+          "line": 529,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 914,
+          "detailLines": [
+            {
+              "line": 914,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadFeedLoadEarlierControl",
+          "line": 929,
+          "memoSlots": 11
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx",
+      "enabled": false,
+      "ms": 19,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx",
+      "enabled": true,
+      "ms": 121,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadNavigationSidebar",
+          "line": 90,
+          "memoSlots": 4
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "NativeSidebarContainer",
+          "line": 97,
+          "memoSlots": 7
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadNavigationSidebarPane",
+          "line": 111,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 226,
+          "detailLines": [
+            {
+              "line": 226,
+              "message": "Cannot access ref value during render"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadNavigationSidebarPane",
+          "line": 111,
+          "reason": "Cannot access refs during render",
+          "description": "React refs are values that are not needed for rendering. Refs should only be accessed outside of render, such as in event handlers or effects. Accessing a ref value (the `current` property) during render can cause your component not to update as expected (https://react.dev/reference/react/useRef)",
+          "category": "Refs",
+          "diagnosticLine": 227,
+          "detailLines": [
+            {
+              "line": 227,
+              "message": "Cannot update ref during render"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadRouteScreen.tsx",
+      "enabled": false,
+      "ms": 8,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadRouteScreen.tsx",
+      "enabled": true,
+      "ms": 59,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileSuccess",
+          "name": "OpeningThreadLoadingScreen",
+          "line": 46,
+          "memoSlots": 1
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadUnavailableScreen",
+          "line": 51,
+          "memoSlots": 5
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadRouteScreen",
+          "line": 83,
+          "memoSlots": 63
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadRouteContent",
+          "line": 174,
+          "memoSlots": 62
+        }
+      ]
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx",
+      "enabled": false,
+      "ms": 18,
+      "compilerRuntime": false,
+      "events": []
+    },
+    {
+      "file": "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx",
+      "enabled": true,
+      "ms": 130,
+      "compilerRuntime": true,
+      "events": [
+        {
+          "kind": "CompileError",
+          "name": "ThreadSettingsSessionProvider",
+          "line": 139,
+          "reason": "Existing memoization could not be preserved",
+          "description": "React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. The inferred dependencies did not match the manually specified dependencies, which could cause the value to change more or less frequently than expected. The inferred dependency was `props`, but the source dependencies were [pendingEffort, pendingFastMode, pendingModel, props.onSelectModel]. Inferred less specific property than source",
+          "category": "PreserveManualMemo",
+          "diagnosticLine": 180,
+          "detailLines": [
+            {
+              "line": 180,
+              "message": "Could not preserve existing manual memoization"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadSettingsSessionProvider",
+          "line": 139,
+          "reason": "Existing memoization could not be preserved",
+          "description": "React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. The inferred dependencies did not match the manually specified dependencies, which could cause the value to change more or less frequently than expected. The inferred dependency was `props`, but the source dependencies were [pendingModel, props.onUpdateReasoningEffort]. Inferred less specific property than source",
+          "category": "PreserveManualMemo",
+          "diagnosticLine": 189,
+          "detailLines": [
+            {
+              "line": 189,
+              "message": "Could not preserve existing manual memoization"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "ThreadSettingsSessionProvider",
+          "line": 139,
+          "reason": "Existing memoization could not be preserved",
+          "description": "React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. The inferred dependencies did not match the manually specified dependencies, which could cause the value to change more or less frequently than expected. The inferred dependency was `props`, but the source dependencies were [pendingModel, props.onUpdateFastMode]. Inferred less specific property than source",
+          "category": "PreserveManualMemo",
+          "diagnosticLine": 196,
+          "detailLines": [
+            {
+              "line": 196,
+              "message": "Could not preserve existing manual memoization"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "useThreadSettingsCatalogItems",
+          "line": 315,
+          "reason": "Existing memoization could not be preserved",
+          "description": "React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. The inferred dependencies did not match the manually specified dependencies, which could cause the value to change more or less frequently than expected. The inferred dependency was `session`, but the source dependencies were [session.autoOption, session.isDisplayed, session.providerExpansionOverrides, session.providerGroups, session.searchQuery, session.showLegacy]. Inferred less specific property than source",
+          "category": "PreserveManualMemo",
+          "diagnosticLine": 318,
+          "detailLines": [
+            {
+              "line": 318,
+              "message": "Could not preserve existing manual memoization"
+            }
+          ]
+        },
+        {
+          "kind": "CompileError",
+          "name": "useThreadSettingsCatalogItems",
+          "line": 315,
+          "reason": "Existing memoization could not be preserved",
+          "description": "React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. The inferred dependencies did not match the manually specified dependencies, which could cause the value to change more or less frequently than expected. The inferred dependency was `session`, but the source dependencies were [session.autoOption, session.isDisplayed, session.providerExpansionOverrides, session.providerGroups, session.searchQuery, session.showLegacy]. Inferred less specific property than source",
+          "category": "PreserveManualMemo",
+          "diagnosticLine": 318,
+          "detailLines": [
+            {
+              "line": 318,
+              "message": "Could not preserve existing manual memoization"
+            }
+          ]
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSettingsOptionsItem",
+          "line": 383,
+          "memoSlots": 42
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSettingsMainContent",
+          "line": 445,
+          "memoSlots": 22
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSettingsChoiceContent",
+          "line": 585,
+          "memoSlots": 27
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSettingsModelsScreen",
+          "line": 672,
+          "memoSlots": 41
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSettingsChoiceScreen",
+          "line": 808,
+          "memoSlots": 12
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSettingsPickerNavigator",
+          "line": 832,
+          "memoSlots": 18
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSettingsRouteScreen",
+          "line": 885,
+          "memoSlots": 14
+        },
+        {
+          "kind": "CompileSuccess",
+          "name": "ThreadSettingsRouteContent",
+          "line": 897,
+          "memoSlots": 28
+        }
+      ]
+    }
+  ]
+}

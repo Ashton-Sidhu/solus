@@ -347,6 +347,26 @@ describe('whose turn asks, and what was chosen', () => {
     expect(decided()?.activity).toMatchObject({ kind: 'permission_decided', questionId: 'q1', tool: 'Bash', decision: 'approved_for_session', by: { kind: 'user', user: cara } })
   })
 
+  test('a link guest\'s request says it runs in Ask mode; the owner\'s does not', () => {
+    // WHY: a guest's turn runs in Ask mode whatever the session's mode is
+    // (host-sharing.md §4.1). Without the mark, an owner in full access sees an
+    // approval and cannot tell why it asks.
+    const guest = {
+      principal: { kind: 'guest', guestId: 'g1', displayName: 'Gail', deviceId: 'g1' },
+      user: { id: { kind: 'guest', guestId: 'g1' }, displayName: 'Gail' },
+    }
+    const runs = new Map([['s-guest', { actor: guest }], ['s-owner', { actor: actors.memberActor('bob', 'Bob') }]])
+    // SAFETY: `stampTurnAuthor` reads only the running turn's actor.
+    const requests = new inputRequestsModule.InputRequests({ activeRunRequests: runs } as never)
+    const request = (): Extract<NormalizedEvent, { type: 'permission_request' }> => ({ type: 'permission_request', questionId: 'q', toolName: 'Bash', options: [] })
+    const fromGuest = request()
+    requests.stampTurnAuthor('s-guest', fromGuest)
+    expect(fromGuest).toMatchObject({ guestTurn: true, turnAuthor: { displayName: 'Gail' } })
+    const fromMember = request()
+    requests.stampTurnAuthor('s-owner', fromMember)
+    expect(fromMember.guestTurn).toBeUndefined()
+  })
+
   test('the decision is read from the option\'s kind; an option the request did not offer names none', () => {
     const request = {
       type: 'permission_request' as const, questionId: 'q', toolName: 'Bash',

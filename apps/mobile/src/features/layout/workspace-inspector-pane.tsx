@@ -58,8 +58,10 @@ export function WorkspaceInspectorPane(props: {
   const renderedContentWidth = useSharedValue(inspectorWidth ?? 0);
 
   const onClosed = props.onClosed;
+  // Shared values are written with `set`: the React Compiler reads a `.value`
+  // assignment as a mutation of a hook's result.
   useEffect(() => {
-    inspectorProgress.value = withTiming(
+    inspectorProgress.set(withTiming(
       inspectorVisible ? 1 : 0,
       WORKSPACE_PANE_TIMING,
       (finished) => {
@@ -67,11 +69,11 @@ export function WorkspaceInspectorPane(props: {
           runOnJS(onClosed)();
         }
       },
-    );
+    ));
     const targetWidth = inspectorVisible ? (inspectorWidth ?? 0) : 0;
-    renderedInspectorWidth.value = resizing
+    renderedInspectorWidth.set(resizing
       ? targetWidth
-      : withTiming(targetWidth, WORKSPACE_PANE_TIMING);
+      : withTiming(targetWidth, WORKSPACE_PANE_TIMING));
   }, [
     inspectorProgress,
     inspectorVisible,
@@ -86,10 +88,10 @@ export function WorkspaceInspectorPane(props: {
     if (!inspectorVisible || resizing) {
       // Hidden panes re-measure silently; during a divider drag the content
       // tracks the finger directly.
-      renderedContentWidth.value = targetWidth;
+      renderedContentWidth.set(targetWidth);
       return;
     }
-    renderedContentWidth.value = withTiming(targetWidth, WORKSPACE_PANE_TIMING);
+    renderedContentWidth.set(withTiming(targetWidth, WORKSPACE_PANE_TIMING));
   }, [inspectorVisible, inspectorWidth, renderedContentWidth, resizing]);
 
   const inspectorStyle = useAnimatedStyle(

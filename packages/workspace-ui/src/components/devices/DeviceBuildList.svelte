@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, ChevronRight, CircleAlert, Download, Ellipsis, LoaderCircle, Smartphone, Trash2 } from "@lucide/svelte";
+  import { Check, ChevronRight, CircleAlert, Download, Ellipsis, LoaderCircle, RefreshCw, Smartphone, Trash2 } from "@lucide/svelte";
   import type { DeviceBuild, DeviceState, DeviceSummary } from "@solus/contracts/device-types";
   import { buildRunsOn } from "@solus/client-core/device-builds";
   import { getWorkspaceContext } from "../../contexts";
@@ -19,7 +19,7 @@
    * Every app build on the host, newest first, whoever made it. Open one to
    * pick the devices it can go on and install it on all of them at once; each
    * device shows how its install went, and a toast sums it up. A build's menu
-   * downloads an APK or deletes the build.
+   * finds the host's devices again, downloads an APK, or deletes the build.
    */
   interface Props { serverId: string; sessionId: string | null; deviceState: DeviceState; runApp: RunApp; onInstalled: () => void }
   let { serverId, sessionId, deviceState, runApp, onInstalled }: Props = $props();
@@ -54,6 +54,11 @@
     try { await devicesStore.pair(serverId, device); }
     catch (cause) { toasts.error(`Could not pair ${device.name}`, { description: deviceErrorMessage(cause) }); }
     finally { pairing = null; }
+  }
+
+  async function findDevices() {
+    try { await devicesStore.refresh(serverId); }
+    catch (cause) { toasts.error("Could not find devices", { description: deviceErrorMessage(cause) }); }
   }
 
   async function download(build: DeviceBuild) {
@@ -111,6 +116,7 @@
                 {/snippet}
               </DropdownMenu.Trigger>
               <DropdownMenu.Content align="end" class="w-max">
+                <DropdownMenu.Item onSelect={() => void findDevices()}><RefreshCw />Find devices again</DropdownMenu.Item>
                 {#if build.assetId}<DropdownMenu.Item onSelect={() => void download(build)}><Download />Download APK</DropdownMenu.Item>{/if}
                 <DropdownMenu.Item variant="destructive" onSelect={() => void remove(build)}><Trash2 />Delete build</DropdownMenu.Item>
               </DropdownMenu.Content>

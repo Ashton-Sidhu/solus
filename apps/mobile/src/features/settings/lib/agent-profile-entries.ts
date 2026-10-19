@@ -10,9 +10,9 @@ import {
 } from '@solus/contracts/agent-profile'
 import { integrationSlug, type IntegrationProbeResult } from '@solus/contracts/integration-types'
 import type { SeatProvider } from '@solus/contracts/seats'
-import type { RemoteSkill } from '@solus/contracts/types'
+import { MODEL_PROFILES, type RemoteSkill } from '@solus/contracts/types'
 import type { DocumentSyncUnavailable } from '@solus/client-core/document-sync'
-import { urlHost } from '../integrations'
+import { installedStatus, urlHost, type ConnectionListState, type InstalledStatus, type IntegrationListState } from '../integrations'
 
 /**
  * The agent profile as the phone shows and edits it (plans/020-agent-profile.md
@@ -185,4 +185,50 @@ export function syncUnavailableText(outcome: DocumentSyncUnavailable): string {
 
 export function skillFileCountText(count: number): string {
   return count === 1 ? '1 file' : `${count} files`
+}
+
+// ─── Per-model instructions ───
+
+/** A model the person can give its own instructions. */
+export interface ModelInstructionChoice {
+  model: string
+  label: string
+  providerLabel: string
+}
+
+/**
+ * The models the per-model instructions list offers: each agent's models from
+ * the shared model profiles, in agent order. Instructions are keyed by model id
+ * alone, so an id an earlier agent lists is not listed again. A legacy model
+ * stays listed while it has instructions, so they can still be seen and cleared.
+ */
+export function modelInstructionChoices(saved: Readonly<Record<string, string>>): ModelInstructionChoice[] {
+  const seen = new Set<string>()
+  const choices: ModelInstructionChoice[] = []
+  for (const provider of SEAT_PROVIDERS) {
+    for (const [model, profile] of Object.entries(MODEL_PROFILES[provider] ?? {})) {
+      if (seen.has(model) || (profile.isLegacy && !saved[model]?.trim())) continue
+      seen.add(model)
+      choices.push({ model, label: profile.label, providerLabel: PROVIDER_LABELS[provider] })
+    }
+  }
+  return choices
+}
+
+/**
+ * A profile server on one host: the status of the host's record of it, found
+ * by address, or "Not added yet" until the profile reaches the host. Connect
+ * opens that host's MCP screen, which adds the server on the way, so only a
+ * server that asks for a sign-in offers it. Null when the host cannot say.
+ */
+export function profileServerStatus(
+  entry: AgentProfileIntegrationEntry,
+  list: IntegrationListState,
+  connections: ConnectionListState,
+): InstalledStatus | null {
+  if (list.kind === 'loading') return { text: 'Checking…', tone: 'muted', action: null }
+  if (list.kind !== 'loaded') return null
+  const integration = list.integrations.find((item) => item.url === entry.url)
+  if (!integration) return { text: 'Not added yet', tone: 'muted', action: entry.auth.kind === 'none' ? null : 'connect' }
+  return installedStatus(integration, connections)
 }

@@ -1,0 +1,16 @@
+{
+  "extends": "../../apps/mobile/tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": [
+    "../../apps/mobile/uniwind-types.d.ts",
+    "../../apps/mobile/src/components/AppSymbol.tabler.d.ts",
+    "../../apps/mobile/src/features/threads/ThreadComposer.tsx",
+    "../../apps/mobile/src/features/threads/ThreadDetailScreen.tsx",
+    "../../apps/mobile/src/features/threads/ThreadSettingsSheet.tsx",
+    "../../apps/mobile/src/features/threads/composer-layout.ts",
+    "../../apps/mobile/src/features/threads/android-keyboard-resume.ts",
+    "../../apps/mobile/src/components/ComposerEditor.tsx",
+    "../../apps/mobile/src/components/AppSheet.tsx",
+    "../../apps/mobile/src/components/MaterialMenuPopup.android.tsx"
+  ]
+}

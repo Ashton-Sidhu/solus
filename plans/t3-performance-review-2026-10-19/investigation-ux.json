@@ -1,0 +1,113 @@
+[
+  {
+    "number": 20149,
+    "disposition": "covered",
+    "finding": "The iPad Chats sidebar already has a continuous drawer-colored parent. The native primary-column wrapper paints bg-drawer across its full area. WorkspaceTabsFrame adds top inset and tabs without a screen-colored background, and Home sets drawer content color plus the drawer header color on non-glass iOS. The upstream one-line background fix has no missing equivalent in this path. PR-list content deliberately uses its own screen surface; this is not proof of the original Chats header seam.",
+    "evidence": [
+      "apps/mobile/src/native/NativeColumnContent.ios.tsx:18",
+      "apps/mobile/src/features/layout/createWorkspaceStackNavigator.ios.tsx:88",
+      "apps/mobile/src/features/workspace/WorkspaceTabsFrame.tsx:33",
+      "apps/mobile/src/features/home/HomeRouteScreen.tsx:250",
+      "apps/mobile/src/features/home/HomeScreen.tsx:594"
+    ],
+    "proof": "Read the upstream patch and followed the current column -> Home -> frame -> list hierarchy. The source proves the backing colors agree for the Chats sidebar. No screen was opened and no physical-device or simulator check was run. Existing workspace-stack tests concern route state, not colors.",
+    "next_step": "No source change for the initial batch. At the next approved visual pass, check iPad light/dark mode with the sidebar at rest and scrolled, switch Chats/PRs, and resize between full width and split width. Check supported pre-glass and glass iPadOS versions because UIKit material cannot be proved from source. If a seam remains, capture its actual native layer before changing colors. Keep desktop/web wide layout unchanged.",
+    "effort": "None now; S for a visual check.",
+    "risk": "LOW: no implementation recommended. Blindly painting every workspace surface drawer-colored could change the intentional PR-list surface.",
+    "confidence": "high"
+  },
+  {
+    "number": 20327,
+    "disposition": "decision",
+    "finding": "This is a native iOS control migration, not a proved Solus bug or performance fix. Solus iOS uses an animated capsule with per-option labels, selected state and reduced-motion handling; Android already uses native Material segmented buttons. T3 adds UISegmentedControl through its own Expo module and reports an unresolved selected-text contrast issue during glass dragging. Its adapter also does not carry all Solus props, including per-option accessibility labels and the PR tab indicator theme. A direct copy would change the local control contract.",
+    "evidence": [
+      "apps/mobile/src/components/SegmentedControl.tsx:10",
+      "apps/mobile/src/components/SegmentedControl.tsx:26",
+      "apps/mobile/src/components/SegmentedControl.tsx:48",
+      "apps/mobile/src/components/SegmentedControl.types.ts:1",
+      "apps/mobile/src/components/MaterialSegmentedControl.android.tsx:8",
+      "apps/mobile/src/features/prs/PullRequestScreen.tsx:273"
+    ],
+    "proof": "Read both upstream Swift and React adapters and current Solus control, props and PR caller. The current implementation provides explicit accessibility state; this does not prove its VoiceOver behavior. No tap/drag/accessibility test or native build was run. No measured Solus render cost supports a migration.",
+    "next_step": "Recommended default: keep the current control during the performance batch. If native drag behavior is wanted, make that a separate iOS product choice and implement an adapter that preserves labels, selected state, compact sizing and theme overrides. Before adoption, check physical iPhone/iPad taps and drag selection, VoiceOver, largest supported text size, all shipped light/dark themes, reduced motion, dynamic option changes and external selection updates. Confirm Android behavior remains equivalent without porting UIKit code. Desktop/web keeps its own control.",
+    "effort": "M to L for the native adapter, packaging and device verification.",
+    "risk": "MED: native packaging, selection events, theme contrast and accessibility could regress; upstream has a known drag-contrast limitation.",
+    "confidence": "high"
+  },
+  {
+    "number": 20812,
+    "disposition": "decision",
+    "finding": "Solus has the same visible design tradeoff: focusing the composer sets isExpanded and gives the card a 140-point minimum height even for one word. This is explicit current behavior, not a failed wrap calculation. The local ComposerEditor is an expo-paste-input/TextInput adapter and exposes no content-size callback; T3 relies on custom iOS/Android text measurement that reports natural width for one line and stops after a second line. Raw TextInput content width is not established as an equivalent. The proposed Android split-sidebar hiding is also a layout change; the existing bottom tab bar already hides with the soft keyboard.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:326",
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:474",
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:537",
+      "apps/mobile/src/components/ComposerEditor.tsx:29",
+      "apps/mobile/src/components/ComposerEditor.tsx:87",
+      "apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx:133",
+      "apps/mobile/src/features/workspace/AndroidWorkspaceNavigation.android.tsx:25"
+    ],
+    "proof": "Read upstream native measurement and composer/layout patches, plus local focus, sizing and editor contracts. Source proves focus controls card height and the upstream native API is absent. It does not prove clipping, typing latency or a smaller layout being better. Upstream remains open and reports a model-label transition overlap. No device or simulator test was run. Existing native-mobile-thread-composer tests cover logic, not text measurement.",
+    "next_step": "Recommended default: leave this UX unchanged during the performance batch. If compact-until-wrap is selected, isolate it from rail/sidebar redesign. First establish a native measurement contract for the local TextInput; do not use text.length as a width estimate or assume contentSize.width means natural width. Keep only the row/card verdict in state. Verify on physical iOS and Android: explicit/trailing newlines, paste, IME composition, emoji/RTL text, wrap then delete back, pane narrowing/widening, largest font, attachments, queued edits, hardware vs soft keyboard and caret/focus continuity. A return-to-row check is required to avoid feedback between the wider card and narrow row. Any sidebar suppression must preserve the user preference. No phone composer layout belongs in desktop/web.",
+    "effort": "L for measurement spike plus both native surfaces; smaller only if existing TextInput events prove sufficient.",
+    "risk": "HIGH: measurement feedback, caret/IME behavior, focus and keyboard/layout changes can regress together.",
+    "confidence": "high"
+  },
+  {
+    "number": 20813,
+    "disposition": "defer",
+    "finding": "Do not port the combined Android navigation redesign in the performance batch. Solus explicitly specifies two root tabs and a Material navigation bar; Settings is a stack destination, and tab changes intentionally clear search. T3 adds a third Settings destination and a 72-point expandable rail, changes route reset rules, and still reports transition gaps. One isolated idea has a real local target: HomeRouteScreen conditionally mounts Chats versus PRs, so Android tab switches replace list components. However, PR data already lives in a shared directory and refreshes with a freshness guard; this is not proof of expensive refetching or visible blank frames. iOS already retains native tab trees.",
+    "evidence": [
+      "docs/plans/mobile-pull-requests.md:106",
+      "docs/plans/mobile-pull-requests.md:122",
+      "apps/mobile/src/features/workspace/workspace-tabs-state.ts:3",
+      "apps/mobile/src/features/workspace/workspace-tabs-state.ts:35",
+      "apps/mobile/src/features/workspace/AndroidWorkspaceNavigation.android.tsx:11",
+      "apps/mobile/src/features/home/HomeRouteScreen.tsx:261",
+      "apps/mobile/src/features/prs/use-pull-request-list.ts:28",
+      "apps/mobile/src/features/workspace/WorkspaceNativeTabs.ios.tsx:21"
+    ],
+    "proof": "Read current navigation routes, tabs reducer, Android navigation, conditional list branches and PR read lifetime. Also read upstream Activity panes and Android route-reset logic. Static inspection proves Android list component replacement, but not its measured cost. The local iOS retained-tree solution is not interchangeable with Android Activity. No physical-device measurement, native transition check or test execution was done; native-mobile-workspace-stack tests cover route/dismissal rules, not frame timing.",
+    "next_step": "Leave navigation design unchanged. If Android list returns are slow, measure a narrow experiment with at most the two visited list panes retained, preserving the existing search-reset policy. Verify that hidden panes release effects, host refresh registrations, headers, Back and keyboard handlers; preserve memory bounds and offline refresh correctness. Physical Android checks must cover first/second tab visit, long-list scroll return, memory after repeated switches, split/fold resize, keyboard visibility, route Back/deep links and Settings opened above a conversation. A third tab or rail needs a separate product decision and updated navigation plan; do not copy upstream history-dropping behavior or known blank transitions. Desktop/web wide-workspace navigation is outside this change.",
+    "effort": "M for a bounded retention experiment and measurement; L for the full navigation redesign.",
+    "risk": "HIGH for the combined port; MED for isolated retention because hidden subscriptions and header ownership can remain active.",
+    "confidence": "high"
+  },
+  {
+    "number": 21250,
+    "disposition": "decision",
+    "finding": "The original missing Copy link issue is already covered in both Solus detail menu paths. Native Share is absent and would be a new convenience, not a correction to an existing list/detail asymmetry: current Solus PR list rows only open the detail screen and have no long-press share menu. Copy link and Open on GitHub already provide access to the URL. The addition requires no server/provider behavior and has no performance justification.",
+    "evidence": [
+      "apps/mobile/src/features/prs/PullRequestScreen.tsx:131",
+      "apps/mobile/src/features/prs/PullRequestScreen.tsx:145",
+      "apps/mobile/src/features/prs/PullRequestScreen.tsx:201",
+      "apps/mobile/src/features/prs/PullRequestListRow.tsx:58",
+      "apps/mobile/src/features/prs/PullRequestsScreen.tsx:113"
+    ],
+    "proof": "Read the upstream shared copy/share helper and list/detail changes, plus both local detail menus and the list row caller. Source proves Copy link exists and the list has no corresponding Share command. No system share sheet was opened and no device behavior was verified. The upstream PR itself had no simulator/device verification.",
+    "next_step": "Recommended default: no change in the performance batch. If native Share is selected, add it to both iOS and Android detail menus with the same URL eligibility as Copy link. Use the platform share contract (URL field on iOS, message URL on Android), handle errors without treating user cancellation as failure, and preserve accessibility/focus after return. Decide separately whether list long-press actions are wanted; they are not required to port the detail action. Verify physical iPhone/iPad share-sheet anchoring and a receiving app, Android receiving-app payload, cancel/return, unavailable/offline cached PR states and menu discoverability. Desktop/web can retain Copy link as the surface-appropriate equivalent; do not add a mobile layout.",
+    "effort": "S for detail actions and focused tests; M if list actions are also chosen.",
+    "risk": "LOW to MED: payload differences, iPad presentation and failed/cancelled share handling.",
+    "confidence": "high"
+  },
+  {
+    "number": 21319,
+    "disposition": "decision",
+    "finding": "There are exact local affordance matches, but the icon style is an optional UX refinement. AppSheet labels a dismiss-only action Done, while its accessible name says Close. Session settings has Cancel and Save/Done text buttons. The existing toolbar already supports prominent buttons, so this needs no new native module. Crucial semantic limit: only a pending model and its pending options are staged; changing reasoning/fast mode for the current model or permission mode can apply immediately. An X must not be described as undoing all settings. AppSheet owners can also cancel active authentication or integration work on close, so their callbacks must remain intact.",
+    "evidence": [
+      "apps/mobile/src/components/AppSheet.tsx:25",
+      "apps/mobile/src/components/AppSheet.tsx:59",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:180",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:187",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:232",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:769",
+      "apps/mobile/src/native/NativeHeaderToolbar.tsx:254",
+      "apps/mobile/src/features/conversation/components/AgentAuthSheet.tsx:44"
+    ],
+    "proof": "Read upstream sheet/icon changes, local AppSheet and all three immediate owner types (worktree details, provider auth and integration connect), plus pending model state and its apply callbacks. Source establishes which actions dismiss and which apply a staged model. This is not evidence of an execution defect. No visual, accessibility, gesture or device test was run. Existing run-settings tests cover run values, not sheet affordances.",
+    "next_step": "Recommended default: keep the current presentation during the performance batch. If this UX refinement is chosen, first change the iOS generic dismiss control to X with its Close accessible name; preserve current callbacks. In session settings, show a prominent checkmark only for an actual pending apply action and make dismissal semantics clear without promising rollback of immediate changes. Android already distinguishes Back from Save; keep its native pattern unless a separate consistency decision is made. Do not bulk-replace every Done string. Verify physical iOS/Android: pending model cancel/apply, immediate option changes, sheet swipe and Back dismissal, active-auth cancellation, worktree detail close, VoiceOver/TalkBack names, largest font and light/dark contrast. Desktop/web can retain their existing close/apply patterns with the same semantics.",
+    "effort": "S for generic dismiss; M for a consistent sheet pass with behavior checks.",
+    "risk": "MED: inaccurate cancel semantics or changed dismissal callbacks can lose state or stop active authentication.",
+    "confidence": "high"
+  }
+]

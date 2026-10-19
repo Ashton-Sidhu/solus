@@ -11,6 +11,13 @@ orchestrator in `packages/server/src/execution/orchestration/`.
   `send_session`, a card appears in its conversation before the other session
   can answer. The card shows each message and its reply. On a reload, every
   client rebuilds the same card from the transcript.
+- **Several sessions are one card.** When one turn talks to more than one
+  session, their cards fold behind one header: the providers' avatars, "7
+  agents", a status line such as "3 working · 1 waiting · 3 done", and the
+  time. Opening it lists one row per session. A session that waits on a person
+  opens the group, so its request is not hidden. The `start_session`,
+  `send_session` and `stop_session` calls themselves show only when they fail;
+  the card shows what they did. Desktop, web, and mobile show the same group.
 - **Requests come to the card.** When the other session needs a person — a
   question, a plan to approve, or a permission — the request shows on the card
   with the same question, plan or permission card the other session shows in
@@ -154,7 +161,7 @@ a lead: any session that starts another is its parent.
 
 | Tool | Does |
 | --- | --- |
-| `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `none` (a session with no task). A task holds its sessions directly; Solus has no subtasks. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. `host` starts it on another of the owner's hosts (see below). |
+| `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `none` (a session with no task). A task holds its sessions directly; Solus has no subtasks. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. `title` (up to 120 characters) names the session and its card; without it the host names it from the prompt (see `session-titles.md`). `host` starts it on another of the owner's hosts (see below). |
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. Reaches a session the sender started on another host (see below). `attachments` (also on `start_session`) takes up to 8 files on this host (10 MB each). When the message is sent, each file is uploaded to the attachment store of the host that runs the session, with the same upload code a client uses, in one folder per message. The session reads the file as it was when sent. PNG, JPEG, GIF and WebP go as image refs that the provider sees. Other files go as `[Attached file: <path>]` lines before the text. Every client shows both kinds as chips. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |
@@ -195,8 +202,15 @@ drains the queue) settles as interrupted. Attachments go to host B first,
 through `attachUpload`, and the prompt names the paths on host B. In this version `task` must
 be `none`, `cwd` is a path on the other host (default: a new chat folder there),
 `list_agent_targets` with `host` lists that host's projects so an agent can
-pass one as `cwd`, and `read_session` does not reach another host. After a restart of this host, an
-open request to another host is reported as interrupted. The design is in
+pass one as `cwd`. After a restart of this host, an
+open request to another host is reported as interrupted.
+
+`read_session` reads a session that is not on this host. It asks the turn's
+person's other hosts (the same reach as `start_session`) and the Solus APIs of
+their organizations at the same time. A host that has the session wins over an
+API, because the host has the provider transcript with its tools and the API has
+only the stored text. The result names where the session was found and links to
+it there. The task and the pending input of a remote session are not shown. The design is in
 `docs/plans/cross-host-sessions.md`.
 
 ## Queue and provider changes

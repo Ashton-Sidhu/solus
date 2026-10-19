@@ -19,6 +19,7 @@ import {
 } from '@solus/contracts/device-types'
 import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
+import { withBareRepositoryGuard } from '../git/bare-repository-guard'
 import { DeviceDomainError, deviceErrorDetail } from './device-errors'
 import type { DeviceManager } from './device-manager'
 import { deviceHostEnvironment, findAndroidSdk } from './device-platform-probe'
@@ -91,7 +92,8 @@ export interface DeviceRunsDeps {
 const approvalsSchema = z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(1_000)
 
 // A process group of its own, so Cancel reaches xcodebuild's and Gradle's children.
-const defaultSpawn: BuildSpawner = (command, args, options) => spawn(command, args, { ...options, detached: true, stdio: ['ignore', 'pipe', 'pipe'], shell: false })
+// Exported for its test.
+export const defaultSpawn: BuildSpawner = (command, args, options) => spawn(command, withBareRepositoryGuard(command, args), { ...options, detached: true, stdio: ['ignore', 'pipe', 'pipe'], shell: false })
 
 /** The command as a person reads it in a confirmation. */
 export function commandLine(command: readonly string[]): string {

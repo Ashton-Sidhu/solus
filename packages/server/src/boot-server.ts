@@ -24,6 +24,7 @@ import { z } from 'zod'
 import { createServer as createNodeHttpServer, type IncomingMessage, type Server as HttpServer } from 'http'
 import { SolusServer } from './transport/server'
 import { buildHttpServer, type HttpServerOptions } from './transport/http'
+import { answerSocketRequest } from './transport/solus-api/router'
 import { AccessTokenVerifier, type TokenVerdict } from './admission/access-tokens'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
 import { readStoredTunnel, splitLegacyLinkRecord, UplinkLinkManager } from './transport/uplink/link'
@@ -55,6 +56,8 @@ import { registerCloudUploadHandlers } from './transport/solus-api/cloud-uploads
 import { ShareManager } from './sharing/share-manager'
 import { profileTargetFor, registerSeatHandlers } from './transport/handlers/seat-handlers'
 import { registerIntegrationHandlers } from './transport/handlers/integration-handlers'
+import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
+import { IntegrationApps } from './integrations/mcp-apps'
 import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
 import { IntegrationGateway } from './integrations/gateway'
@@ -730,6 +733,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // when it starts (`integrationAgentTools`), so nothing is listed at boot.
   const integrations = new IntegrationStore()
   const integrationGateway = new IntegrationGateway(integrations)
+  const integrationApps = new IntegrationApps(integrationGateway, opts.sessionRuntime)
+  integrationGateway.useAppCapture((call) => integrationApps.capture(call))
+  registerMcpAppHandlers(server, integrationApps)
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
@@ -888,6 +894,21 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       }
       if (principal?.kind === 'org-member') return { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
       return null
+    },
+    // The same people and scopes read their organizations' Solus APIs: the owner every
+    // organization this host holds a delegation for, a member only their own.
+    organizationApisFor: (sessionId) => {
+      const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
+      const principal = actor?.principal
+      const owner = !actor?.user || principal?.kind === 'local-owner' || principal?.kind === 'remote-owner'
+      const ownerId = owner ? delegations?.holders().find((holder) => holder.scope === 'personal')?.userId : undefined
+      return (delegations?.holders() ?? []).flatMap((holder) => {
+        if (holder.scope === 'personal') return []
+        const reads = owner
+          ? holder.userId === ownerId
+          : principal?.kind === 'org-member' && holder.userId === principal.userId && holder.scope.organizationId === principal.organizationId
+        return reads ? [{ organizationId: holder.scope.organizationId, client: delegations!.apiClient(holder.userId, holder.scope) }] : []
+      })
     },
     listAgentTargets: async () => Promise.all(
       opts.sessionRuntime
@@ -1329,7 +1350,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     delivery: () => ({ backlog: deliveryBacklog(), error: runnerDelivery?.currentStatus().error ?? null }),
   })
 
-  const { server: http, requestListener } = buildHttpServer({
+  const { server: http, requestListener, solusApiRouter } = buildHttpServer({
     solusApi: { operations: refreshingSessionIndexOnList(workspaceOperations, () => opts.sessionRuntime.requestSessionIndexRefresh()), ...apiSettings },
     isVerifyingUpdate: () => server.isVerifyingUpdate,
     host,
@@ -1357,6 +1378,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     transcribeAudio: opts.transcribeAudio,
     completeIntegrationOAuth: (params) => integrationOAuth.complete(params),
   })
+  // A client's records go over its socket, with the socket's principal as their authority (docs/api/README.md).
+  if (solusApiRouter) server.register('solusApiRequest', ([request], ctx) => answerSocketRequest(solusApiRouter, request, ctx.principal))
   const responseReceiptBudget = new ResponseReceiptBudget()
   // Everyone who can see the resource learns of the change; a removed guest link
   // ends its sockets at once, a removed member fails on their next call (§3.4).

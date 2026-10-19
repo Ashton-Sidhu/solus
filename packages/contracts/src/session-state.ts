@@ -34,10 +34,11 @@ export const EMPTY_SESSION_VIEW: SessionView = { archivedAt: null, snoozedUntil:
  *  that person snoozed it or it waits on an open pull request. */
 export const SESSION_LIST_IDLE_MS = 30 * 24 * 60 * 60_000
 
-/** Where a session is in the caller's list: its shared state and their own view. */
-export interface SessionPlace {
-  state: SessionState
-  view: SessionView
+/** What a change to a session left: the state when it settled or unsettled the
+ *  session, the caller's own view when it changed that. */
+export interface SessionChanged {
+  state?: SessionState
+  view?: SessionView
 }
 
 /** A change to one session. `settled` changes it for every person; the other

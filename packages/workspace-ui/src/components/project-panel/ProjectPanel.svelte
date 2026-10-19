@@ -6,7 +6,6 @@
     getSettingsContext,
     type ProjectPanelSectionId,
     getSessionEnvironmentStore,
-    getSessionSidebarStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { isProjectRailOpen, projectRailWidth } from "./lib/rail-width";
@@ -20,7 +19,6 @@
   import {
     RefreshCw as ArrowsClockwiseIcon,
     Check as CheckIcon,
-    Plus as PlusIcon,
     PanelLeft as SidebarSimpleIcon,
     CircleAlert as WarningCircleIcon,
   } from "@lucide/svelte";
@@ -30,15 +28,12 @@
   import EnvironmentSection from "./EnvironmentSection.svelte";
   import GitSection from "./GitSection.svelte";
   import GitSetupSection from "./GitSetupSection.svelte";
-  import LinkedSection from "./LinkedSection.svelte";
   import AgentsSection from "./AgentsSection.svelte";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { sessionAgentMessages } from "./lib/rail-agents";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { canDriveSession } from "../../contexts/sharing/resource-roles";
-  import { runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** The tab or draft this rail describes — it lives inside that view. The
@@ -79,7 +74,6 @@
   const pullRequests = getPullRequestsContext();
   const settings = getSettingsContext();
   const environmentStore = getSessionEnvironmentStore();
-  const sessionSidebar = getSessionSidebarStore();
   const outerScrollbar = getOuterScrollbarContext();
   let sectionsElement = $state<HTMLDivElement | null>(null);
 
@@ -164,18 +158,10 @@
 
   const panelSession = $derived(session.sessionFor(sourceId));
   const panelRun = $derived(session.runFor(sourceId));
-  // Linking a pull request is an editor's; a member who may only read sees the links.
-  const canDrive = $derived(canDriveSession(runHost(panelRun), panelSession?.id));
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
 
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
-
-  // The Linked card exists only while the session links a pull request. A
-  // draft has no session and therefore no links.
-  const panelLinks = $derived(
-    panelSession ? sessionSidebar.pullRequestLinksForTab(sourceId) : [],
-  );
 
   // The Agents card exists only once the conversation has dispatched a
   // sub-agent or started a session, so the read that decides it belongs here
@@ -264,23 +250,6 @@
   }
 
 </script>
-
-{#snippet linkedHeaderExtra()}
-  <span class="header-extra">
-    <button
-      class="tiny-icon"
-      type="button"
-      title="Link a pull request"
-      aria-label="Link a pull request"
-      onclick={(e) => {
-        e.stopPropagation();
-        session.ui.linkPrompt = { kind: "session-pull-request", tabId: sourceId };
-      }}
-    >
-      <PlusIcon size={12} />
-    </button>
-  </span>
-{/snippet}
 
 {#snippet environmentHeaderExtra()}
   <span class="header-extra">
@@ -393,18 +362,6 @@
         onToggle={() => toggleSection("goal")}
         onResizePointerDown={startResize}
       />
-    {/if}
-    {#if panelLinks.length > 0}
-      <PanelSection
-        title="Linked"
-        headerDetail={`${panelLinks.length}`}
-        collapsed={collapsedSections.linked}
-        onToggle={() => toggleSection("linked")}
-        headerExtra={canDrive ? linkedHeaderExtra : undefined}
-        onResizePointerDown={startResize}
-      >
-        <LinkedSection {sourceId} links={panelLinks} active={active && open} />
-      </PanelSection>
     {/if}
     {#if panelSession && panelAgents.length > 0}
       <!-- Only ever reached with a session behind it — an agent is something

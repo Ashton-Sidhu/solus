@@ -160,6 +160,16 @@ export async function getSessionRecord(scope: RecordScope, sessionId: string): P
   return readRecord(getDatabase(), scope, sessionId)
 }
 
+/**
+ * Whether a session is its organization's work: published to the
+ * organization's Solus API, which is then its home. A session's organization
+ * alone is the organization of the person who started it, and makes it
+ * neither shared nor the organization's (docs/plans/organization-scope.md §3).
+ */
+export function isOrganizationWork<T extends Pick<SessionRecord, 'organizationId' | 'publication'>>(record: T | null | undefined): record is T {
+  return !!record && record.organizationId !== LOCAL_ORGANIZATION_ID && record.publication === 'published'
+}
+
 /** The records of many sessions in one read, by session id; a session with no record is absent. */
 export async function getSessionRecords(scope: RecordScope, sessionIds: readonly string[]): Promise<Map<string, SessionRecord>> {
   const unique = [...new Set(sessionIds)]
@@ -376,6 +386,12 @@ export function admissionIdFor(sessionId: string): string | undefined {
 export function admittedHomeOf(sessionId: string): { organizationId: string; ownerKey: string | null } | null {
   const birth = admittedBirths.get(sessionId)
   return birth ? { organizationId: birth.organizationId, ownerKey: birth.ownerKey ?? null } : null
+}
+
+/** Whether a session is its organization's work (`isOrganizationWork`), also
+ *  while the record of a session the Solus API admitted is not written yet. */
+export async function sessionIsOrganizationWork(sessionId: string): Promise<boolean> {
+  return isOrganizationWork(await getSessionRecord(ANY_ORGANIZATION, sessionId)) || admittedHomeOf(sessionId) !== null
 }
 
 /** The person who started a session no record holds yet, and the organization they started it in; consumed by the write that creates the record. */

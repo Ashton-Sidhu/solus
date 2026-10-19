@@ -226,10 +226,13 @@ class PostgresDb implements RootDb {
       onnotice: () => {},
       // Every timestamp is a bigint of milliseconds; a JS number holds it exactly.
       types: { bigint: { to: 20, from: [20], serialize: (value: number) => String(value), parse: Number } },
+      // Limits on database work, lock waits included, set once for each connection, so a
+      // request sends nothing to set them. `withWorkspaceBudget` turns a limit into a retryable API error.
+      connection: { statement_timeout: 5_000, lock_timeout: 1_000, idle_in_transaction_session_timeout: 10_000 },
     })
     this.drizzle = drizzlePostgres(this.client)
     this.root = new PostgresTransaction(this.drizzle)
-    this.ready = migratePostgres(this.drizzle, { migrationsFolder: migrationsFolder('postgres') })
+    this.ready = migrateWithoutLimits(url)
   }
 
   private async executor(): Promise<Db> {
@@ -262,6 +265,16 @@ class PostgresDb implements RootDb {
   async close(): Promise<void> {
     await this.ready.catch(() => undefined)
     await this.client.end()
+  }
+}
+
+/** Migrations run on their own connection, without the request limits: one may rewrite a large table. */
+async function migrateWithoutLimits(url: string): Promise<void> {
+  const client = postgres(url, { max: 1, onnotice: () => {} })
+  try {
+    await migratePostgres(drizzlePostgres(client), { migrationsFolder: migrationsFolder('postgres') })
+  } finally {
+    await client.end()
   }
 }
 

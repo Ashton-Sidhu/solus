@@ -1,5 +1,5 @@
 import type { Tab } from '@solus/contracts/types'
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { TranscriptDisclosure } from './transcript-disclosure.svelte'
 import { TranscriptVirtualizer, type TranscriptPosition } from './transcript-virtualizer.svelte'
 
@@ -12,6 +12,8 @@ import { TranscriptVirtualizer, type TranscriptPosition } from './transcript-vir
 export class ConversationViewState {
   readonly disclosure = new TranscriptDisclosure()
   readonly turnExpansion = new SvelteMap<string, boolean>()
+  readonly closedMcpApps = new SvelteSet<string>()
+  readonly mcpAppHeights = new SvelteMap<string, number>()
   /** The row and offset the reader was at; null while they follow the end. */
   position: TranscriptPosition | null = null
   readonly virtualizer = new TranscriptVirtualizer(() => this.position === null)

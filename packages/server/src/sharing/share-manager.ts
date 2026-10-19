@@ -533,7 +533,8 @@ export class ShareManager {
       const removedUserIds = removed.filter((row) => row.subject_kind === 'user').map((row) => row.subject_id)
       log.info('share_grants_set', { kind: resource.kind, resourceId: resource.id, grants: next.size, removed: removedUserIds.length })
       const link = request.link ? await this.writeLink(access, request.link.role, false, organizationId, grantedBy) : null
-      const sharedWithOrganization = [...next.values()].some(({ subject }) => subject.kind === 'organization' && !before.has(`organization:${subject.id}`))
+      const held = await this.holdOrganizationAtLink(db, access, grantedBy)
+      const sharedWithOrganization = held === 'added' || [...next.values()].some(({ subject }) => subject.kind === 'organization' && !before.has(`organization:${subject.id}`))
       await this.announce(organizationId, access, principal, removedUserIds, link?.guestsRevoked ?? false, sharedWithOrganization)
       return this.listOf(access, this.roleIn(principal, access))
     })
@@ -592,9 +593,41 @@ export class ShareManager {
       const organizationId = access.home.organizationId
       const grantedBy = ownerKeyOf(actorFor(principal)) ?? hostUserKey()
       const change = await this.writeLink(access, request.role, request.regenerate === true, organizationId, grantedBy)
-      if (change.changed) await this.announce(organizationId, access, principal, [], change.guestsRevoked)
+      const held = await this.holdOrganizationAtLink(this.deps.db, access, grantedBy)
+      if (change.changed || held) await this.announce(organizationId, access, principal, [], change.guestsRevoked, held === 'added')
       return change.link
     })
+  }
+
+  /**
+   * The link is the widest scope: a member of the resource's organization never
+   * holds less than a stranger with its link. The link entry admits only guests, and
+   * a member reaches the resource through the organization's entry, so that entry is
+   * raised to the link's role, or made with it, whenever the link or the entries are
+   * written. Every client gets this, whatever it sends. A Local record has no
+   * organization, and a host members cannot reach gets no entry they could not use.
+   */
+  private async holdOrganizationAtLink(db: Db, access: RecordedAccess, grantedBy: string): Promise<'added' | 'raised' | null> {
+    const link = linkRowOf(access)
+    const organizationId = access.home.organizationId
+    if (!link || organizationId === LOCAL_ORGANIZATION_ID || this.deps.membersReachable?.() === false) return null
+    const { resource } = access
+    const entry = access.entries.find((row) => row.subject_kind === 'organization' && row.subject_id === organizationId)
+    if (entry) {
+      if (resourceRoleAtLeast(entry.role, link.role)) return null
+      await db.run(sql`UPDATE ${aclEntry} SET role = ${link.role} WHERE id = ${entry.id}`)
+      entry.role = link.role
+      log.info('share_organization_held_at_link', { kind: resource.kind, resourceId: resource.id, role: link.role, added: false })
+      return 'raised'
+    }
+    const row: EntryRow = { id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: 'organization', subject_id: organizationId, role: link.role, link_secret_hash: null, link_secret: null, granted_by_user_id: grantedBy, created_at: this.now() }
+    await db.run(sql`
+      INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
+      VALUES (${row.id}, ${row.resource_kind}, ${row.resource_id}, 'organization', ${organizationId}, ${row.role}, NULL, ${grantedBy}, ${row.created_at}, ${organizationId})
+    `)
+    access.entries = [...access.entries, row].sort(byCreation)
+    log.info('share_organization_held_at_link', { kind: resource.kind, resourceId: resource.id, role: link.role, added: true })
+    return 'added'
   }
 
   private assertEditor(principal: Principal, access: ResourceAccess): void {

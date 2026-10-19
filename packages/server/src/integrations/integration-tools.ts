@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { mcpAppToolMetadataSchema } from '@solus/contracts/mcp-apps'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ownerKeyOf, type Actor } from '../admission/actor'
@@ -62,6 +63,9 @@ export async function integrationAgentTools(actor: Actor): Promise<AgentTool[]> 
     const disabled = new Set(integration.disabledTools)
     for (const upstream of listed[index] ?? []) {
       if (disabled.has(upstream.name)) continue
+      // An MCP App tool whose `visibility` leaves out `model` is for the app alone.
+      const appMetadata = mcpAppToolMetadataSchema.safeParse(upstream._meta)
+      if (appMetadata.success && appMetadata.data.ui?.visibility && !appMetadata.data.ui.visibility.includes('model')) continue
       const agentTool = upstreamToolToAgentTool(integration, upstream, current)
       if (names.has(agentTool.name)) {
         if (!reportedCollisions.has(agentTool.name)) {

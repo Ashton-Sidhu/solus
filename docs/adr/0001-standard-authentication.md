@@ -403,7 +403,7 @@ these decisions where the text above was not exact:
   ends after 10 minutes, or when it is cancelled.
 - **`OAuthSession` has more than §3.2 lists.** `cancelSignIn()`; `reload()` (the
   desktop keychain can be read only after `ready`); `beginSignIn()` and
-  `completeSignIn()`, which the web client calls itself across its redirect;
+  `completeSignIn()`, which the web client calls itself around one fetch;
   `adoptTokens()` for the CLI's device grant; and `accessToken(resource, { fresh })`
   after a host refuses a kept token. All refreshes run one at a time, for every
   resource, and each one saves the rotated refresh token before it gives out the
@@ -421,10 +421,12 @@ these decisions where the text above was not exact:
   it and deletes it. A reload keeps the sign-in; a closed tab ends it; a duplicated
   tab, which copies `sessionStorage` while the page lives, finds nothing and signs in
   by itself, so two tabs never refresh one grant (replay, above). A page with no
-  sign-in makes one silent sign-in per minute (`prompt=none`) with the website's
-  cookie. The callback `/auth/callback` is a cloud route that serves the client with
-  no gate. With no cookie, a member goes to the sign-in page and a guest of a share
-  link stays a guest. Sign-out on the web ends the grant and then the cookie, because
+  sign-in makes one silent sign-in (`prompt=none`) with the website's cookie, as a
+  same-origin fetch that accepts JSON: the provider answers the callback address
+  `/auth/callback` instead of redirecting to it, and the page completes the code
+  itself, so no page loads (docs/plans/instant-share-open.md). The callback is the
+  registered redirect URI only; no route serves it. With no cookie, a member goes to
+  the sign-in page and a guest of a share link stays a guest. Sign-out on the web ends the grant and then the cookie, because
   on the account origin the page and the website are one, and the cookie would sign
   the page in again.
 - **The CLI keeps no sign-in.** `solus connect` signs in with the device grant, uses

@@ -73,10 +73,10 @@ function dividerPredicate(activity: Activity): string | null {
 /** What was done to a session; null for a kind any subject can have. */
 function sessionPredicate(activity: Activity, self: UserId | null): string | null {
   switch (activity.kind) {
+    case 'mcp_app': return `opened ${activity.app.title}`
     case 'stopped': return 'stopped the agent'
     case 'plan_decided': return `${activity.decision} the plan`
-    // A plan is approved through its permission; its card holds the plan itself.
-    case 'permission_decided': return permissionDecisionNotice(activity.decision, activity.tool === 'ExitPlanMode' ? 'the plan' : activity.tool)
+    case 'permission_decided': return permissionDecisionNotice(activity.decision, permissionSubject(activity.tool))
     case 'question_answered': return 'answered the question'
     case 'rate_limit_decided': return rateLimitDecisionNotice(activity.action)
     case 'queued_prompt_changed': return `${activity.change} ${heldPromptOwner(activity.author, self)} held prompt`
@@ -84,6 +84,20 @@ function sessionPredicate(activity: Activity, self: UserId | null): string | nul
     case 'worktree_offer_decided': return worktreeOfferPredicate(activity.resolution.decision)
     default: return null
   }
+}
+
+/**
+ * What a permission asked for, in words. A Claude permission is recorded by its
+ * tool; a Codex one by its request method (`item/commandExecution/requestApproval`).
+ */
+function permissionSubject(tool: string): string {
+  // A plan is approved through its permission; its card holds the plan itself.
+  if (tool === 'ExitPlanMode') return 'the plan'
+  if (tool === 'item/commandExecution/requestApproval') return 'a command'
+  if (tool === 'item/fileChange/requestApproval') return 'a file change'
+  if (tool === 'item/permissions/requestApproval') return 'more permissions'
+  if (tool.startsWith('item/') || tool.startsWith('mcpServer/')) return 'a tool call'
+  return tool
 }
 
 function worktreeOfferPredicate(decision: 'switched' | 'kept' | 'failed'): string {
@@ -132,6 +146,7 @@ function taskLine(
  * reader never reads as "you".
  */
 export function showsActivity(activity: Activity, self: UserId | null): boolean {
+  if (activity.kind === 'mcp_app') return true
   // No longer recorded: the refused client shows the connect card instead.
   if (activity.kind === 'seat_needed') return false
   if (activity.kind === 'stopped' || dividesThread(activity)) return true

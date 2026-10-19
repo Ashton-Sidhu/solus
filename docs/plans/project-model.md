@@ -26,6 +26,9 @@ the only record of which folders are projects. There is no client catalog.
   `registerProject`, `projectConfigSave`). A session does not add its folder.
   The host stores the project root: the repository's top folder with any
   worktree stripped, or the folder itself when it is not a repository.
+  The host's projects root and each member's projects root are containers,
+  never projects. Adding ignores them, and listing removes old entries for
+  them without deleting their files, tasks, or sessions.
 - **Last use.** `ProjectEntry.lastUsedAt` moves when the folder is added again
   or a session starts in it (or in a worktree or subfolder of it). Lists order
   by it.

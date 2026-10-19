@@ -99,8 +99,13 @@ export const RPC_PLANES = {
   workspaceProjectRemove: 'collaboration',
   workspaceProjectUpdate: 'collaboration',
   loadSession: 'collaboration',
+  loadSessionSubagent: 'execution',
   loadSessionPage: 'collaboration',
   loadSessionToolInputs: 'collaboration',
+  mcpAppRead: 'execution',
+  mcpAppToolInfo: 'execution',
+  mcpAppCallTool: 'execution',
+  mcpAppReadResource: 'execution',
   loadSessionPreview: 'collaboration',
   loadSessionMessageWindow: 'collaboration',
   getSessionInfo: 'collaboration',
@@ -185,6 +190,7 @@ export const RPC_PLANES = {
   connectionsSetTrustLocalNetwork: 'collaboration',
   authRenew: 'collaboration',
   accountPresent: 'collaboration',
+  solusApiRequest: 'collaboration',
 
   // Paired hosts
   hostIntroductionsList: 'execution',

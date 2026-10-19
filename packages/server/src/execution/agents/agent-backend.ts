@@ -63,6 +63,10 @@ export interface BackendEvents {
    *  control plane wakes the session with `prompt`. Codex only: Claude wakes
    *  itself inside its open query. */
   'background-command-completed': (sessionId: string, prompt: string) => void
+  /** The last background task of a session ended on its own and nothing wakes
+   *  the agent for it (a Codex native sub-agent that finished after its root
+   *  turn). The control plane ends the session's background wait. Codex only. */
+  'background-work-ended': (sessionId: string) => void
 }
 
 /**

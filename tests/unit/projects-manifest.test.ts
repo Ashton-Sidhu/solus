@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Database } from 'bun:sqlite'
@@ -111,6 +111,55 @@ describe('host project list (project-model §2)', () => {
       expect(await manifest.listProjects()).toEqual([])
     } finally {
       delete process.env.SOLUS_PROJECTS_ROOT
+    }
+  })
+
+  test.each(['managed', 'shared'] as const)('%s hosts exclude member project roots and keep their projects', async (kind) => {
+    // WHY: a member's named folder holds their projects; listing it creates
+    // a false project named after the person, next to their real repositories.
+    const { MemberFolders, useMemberFolders } = await import('@solus/server/host/member-folders')
+    const { MemberUsers, useMemberUsers } = await import('@solus/server/host/member-users')
+    const root = join(dataDir, 'repos')
+    const memberRoot = join(root, 'ashton-sidhu')
+    const repo = makeRepo('ashton-sidhu/solus-cloud')
+    const otherRepo = makeRepo('web')
+    const previousRoot = process.env.SOLUS_PROJECTS_ROOT
+    process.env.SOLUS_PROJECTS_ROOT = root
+    try {
+      if (kind === 'managed') {
+        const usersFile = join(root, 'member-users.json')
+        writeFileSync(usersFile, JSON.stringify({
+          layout: { switch: '/usr/bin/switch', shared: '/shared', reviews: '/reviews' },
+          users: [{ userId: 'member1', username: 'ashton-sidhu', uid: 1001, home: '/home/ashton-sidhu', secrets: '/secrets/ashton-sidhu' }],
+        }))
+        useMemberUsers(new MemberUsers(usersFile))
+      } else {
+        useMemberFolders(new MemberFolders({ db: db.getDb(), roots: () => [root] }))
+        db.getDb().prepare('INSERT INTO member_folder (user_id, folder) VALUES (?, ?)').run('member1', 'ashton-sidhu')
+      }
+
+      await manifest.recordProject(memberRoot)
+      expect(await manifest.listProjects()).toEqual([])
+      expect(changes).toBe(0)
+
+      // A pre-fix entry leaves the list without losing the member's data.
+      db.getDb().prepare('INSERT INTO projects (key, path, folder_name, added_at) VALUES (?, ?, ?, ?)').run('old-member-root', memberRoot, 'ashton-sidhu', 1)
+      db.getDb().prepare('INSERT INTO tasks (id, project_key, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('t1', 'old-member-root', 'Keep me', 1, 1)
+      manifest.recordProjectUse(memberRoot)
+      expect(changes).toBe(0)
+      expect(await manifest.listProjects()).toEqual([])
+      expect(db.getDb().prepare('SELECT key FROM projects').all()).toEqual([])
+      expect(db.getDb().prepare('SELECT title FROM tasks WHERE project_key = ?').all('old-member-root')).toEqual([{ title: 'Keep me' }])
+      expect(existsSync(repo)).toBe(true)
+
+      await manifest.recordProject(repo)
+      await manifest.recordProject(otherRepo)
+      expect((await manifest.listProjects()).map((project) => project.path).sort()).toEqual([repo, otherRepo].sort())
+    } finally {
+      useMemberUsers(null)
+      useMemberFolders(null)
+      if (previousRoot === undefined) delete process.env.SOLUS_PROJECTS_ROOT
+      else process.env.SOLUS_PROJECTS_ROOT = previousRoot
     }
   })
 

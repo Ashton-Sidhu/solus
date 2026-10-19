@@ -178,3 +178,9 @@ export function memberUserIdOf(folder: string): string {
   if (users) return users.userNamed(folder)?.userId ?? folder
   return current?.userIdOf(folder) ?? folder
 }
+
+/** Whether a folder belongs to a member, rather than naming a project. */
+export function isMemberFolder(folder: string): boolean {
+  const users = memberUsers()
+  return users ? users.userNamed(folder) !== null : current?.userIdOf(folder) != null
+}

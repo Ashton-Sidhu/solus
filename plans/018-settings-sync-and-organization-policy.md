@@ -204,7 +204,9 @@ does not automatically make it organization-managed or agent-writable.
 | `promptFontSize` | Personal | Preferred prompt text size. |
 | `fontSmoothing` | Device | Rendering option only supported by some engines; not a portable visual preference. |
 | `assistantTextOpacity` | Personal | Reply contrast preference within existing minimum bounds. Never subject to organization lock. |
+| `conversationWidth` | Personal | Reading column measure (narrow, comfortable, full). Desktop and web paint it; the phone app always fills the screen. Never subject to organization lock. |
 | `extraInstructions` | Personal | Person's instructions for future work. Capture relevant text for background operations; preserve agent-write prohibition. |
+| `modelInstructions` | Personal | Person's model-specific instructions. Same authority and capture rule as extra instructions. |
 | `analyticsEnabled` | Split: Device + Host | Replace with separate `clientAnalyticsEnabled` and `hostAnalyticsEnabled`. Current key gates two distinct emitters. Neither is part of personal sync or organization policy. |
 | `tabGroupMode` | Personal | Preferred grouping, not the current tabs or navigation state. |
 | `archivedAutomationRetentionDays` | Host | Scheduler deletes persisted archived automations. This is data retention, not a personal list display option. |

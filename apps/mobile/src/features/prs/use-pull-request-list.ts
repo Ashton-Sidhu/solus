@@ -3,9 +3,8 @@ import { useFocusEffect } from '@react-navigation/native'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useApp, useListened } from '../../app/app-context'
 import type { PullRequestListProject } from '../workspace/list-preferences'
-import { pullRequestRows } from './lib/pull-request-list'
-import { FOCUS_FRESH_MS, type HostPullRequests, type PullRequestListFilter } from './pull-request-directory'
-import { shownValue, type LoadState } from './pull-request-reads'
+import { FOCUS_FRESH_MS, type PullRequestListFilter } from './pull-request-directory'
+import { PullRequestListSelection } from './pull-request-list-selection'
 
 /**
  * The Pull Requests tab's reads: every host in `hostIds` with the host-side
@@ -42,13 +41,11 @@ export function usePullRequestList(hostIds: readonly string[], filter: PullReque
 
   const connectedHostIds = useMemo(() => new Set(connectedKey.split('\u0000')), [connectedKey])
 
-  const revision = useListened(directory.changes, () => directory.revision)
-  const hosts = useMemo(
-    (): { hostId: string; state: LoadState<HostPullRequests> }[] => targets.map((hostId) => ({ hostId, state: directory.hostOf(hostId) })),
-    // `revision` counts every directory change.
-    [directory, targets, revision],
-  )
-  const rows = useMemo(() => pullRequestRows(hosts.map(({ hostId, state: read }) => ({ hostId, listing: shownValue(read) }))), [hosts])
+  // The read states, for notices and spinners, apart from the rows they show:
+  // a read that answers what the list shows already renders no row again.
+  const selection = useMemo(() => new PullRequestListSelection(directory), [directory])
+  const hosts = useListened(directory.changes, useCallback(() => selection.hosts(targets), [selection, targets]))
+  const rows = useListened(directory.changes, useCallback(() => selection.rows(targets), [selection, targets]))
 
   // While the tab shows, a host that says a listed repository changed is read again.
   useFocusEffect(useCallback(() => directory.showList(), [directory]))

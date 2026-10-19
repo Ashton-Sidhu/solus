@@ -12,7 +12,7 @@ import {
   getCachedNativeReviewDiffData,
   type BuildNativeReviewDiffDataInput,
 } from "../../apps/mobile/src/features/review/nativeReviewDiffAdapter";
-import type { ReviewInlineComment } from "../../apps/mobile/src/features/review/reviewCommentSelection";
+import type { ReviewInlineComment } from "@solus/contracts/review-comment";
 import {
   buildReviewParsedDiff,
   getReviewFilePreviewState,

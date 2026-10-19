@@ -9,15 +9,18 @@
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { SetupStepTiming, formatStepDuration } from "./lib/setup-timing.svelte";
   import { statusCardLine } from "./lib/status-card";
+  import WorktreeSetupCard from "./WorktreeSetupCard.svelte";
+  import { isWorktreeSetupCard } from "@solus/contracts/setup-card";
 
   interface Props {
     card: StatusCardState;
     skipMotion?: boolean;
     onRetry?: () => void;
     onWorkLocally?: () => void;
+    onCancel?: () => void;
   }
 
-  let { card, skipMotion = false, onRetry, onWorkLocally }: Props = $props();
+  let { card, skipMotion = false, onRetry, onWorkLocally, onCancel }: Props = $props();
 
   const timing = new SetupStepTiming();
   // Transitions can only be observed as they arrive; nothing about "how long did
@@ -34,6 +37,11 @@
   const expanded = $derived(userExpanded ?? !isDone);
 </script>
 
+<!-- The host's worktree setup has its own card; client-side git cards
+     (continue in a worktree, PR checkout, conflict resolution) keep this one. -->
+{#if isWorktreeSetupCard(card)}
+  <WorktreeSetupCard {card} {onRetry} {onWorkLocally} {onCancel} />
+{:else}
 <div role="status" aria-live="polite">
   <TranscriptCard
     title={card.title}
@@ -126,6 +134,7 @@
     {/snippet}
   </TranscriptCard>
 </div>
+{/if}
 
 <style>
   .setup-step.is-active {

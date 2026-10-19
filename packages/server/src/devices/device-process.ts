@@ -3,6 +3,7 @@ import { delimiter, join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { resolveHomePath } from '../platform/paths'
+import { withBareRepositoryGuard } from '../git/bare-repository-guard'
 
 /** What a finished command produced. Output is bounded; a timeout reports code 124. */
 export interface DeviceCommandResult {
@@ -42,7 +43,7 @@ export const runDeviceCommand: DeviceCommandRunner = (command, args, options = {
       clearTimeout(timer)
       resolve(result)
     }
-    const child = spawn(command, [...args], {
+    const child = spawn(command, withBareRepositoryGuard(command, args), {
       cwd: resolveHomePath(options.cwd ?? homedir()),
       env: options.env ?? process.env,
       stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],

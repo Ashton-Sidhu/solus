@@ -126,6 +126,52 @@ export class ConversationController {
   private watching = false
   private closed = false
   private readonly cleanups: Array<() => void> = []
+  /** Saved artifact reads in flight, per transcript: a rebuilt transcript reads again. */
+  private readonly artifactReads = new WeakMap<TranscriptModel, Map<string, Promise<void>>>()
+
+  /**
+   * Read the HTML an `html_path` render saved: the work's body at the version
+   * the receipt names, else its revision at that version. Never the work's
+   * latest body. A reply for a transcript a reload replaced is dropped.
+   */
+  ensureArtifact(id: string): Promise<void> {
+    const model = this.model
+    const reads = this.artifactReads.get(model) ?? new Map<string, Promise<void>>()
+    this.artifactReads.set(model, reads)
+    const pending = reads.get(id)
+    if (pending) return pending
+    const item = model.items.get(id)
+    if (item?.kind !== 'artifact' || item.html || !item.workId || !item.contentVersion) return Promise.resolve()
+    const { workId, contentVersion } = item
+    const isCurrent = () => !this.closed && this.model === model
+    model.updateArtifact(id, { loading: true, error: undefined })
+    this.flush()
+    const read = (async () => {
+      try {
+        const html = await this.savedWorkBody(workId, contentVersion)
+        if (!isCurrent()) return
+        model.updateArtifact(id, html === null
+          ? { loading: false, error: 'This artifact version is no longer available.' }
+          : { html, loading: false, error: undefined })
+      } catch {
+        if (isCurrent()) model.updateArtifact(id, { loading: false, error: 'Could not load this artifact. Try again.' })
+      } finally {
+        reads.delete(id)
+        if (isCurrent()) this.flush()
+      }
+    })()
+    reads.set(id, read)
+    return read
+  }
+
+  private async savedWorkBody(workId: string, contentVersion: number): Promise<string | null> {
+    const api = this.deps.connection.api
+    const work = await api.loadWork(workId)
+    if (work?.contentVersion === contentVersion) return work.content
+    const revisions = await api.loadWorkRevisions(workId)
+    const revision = revisions.find((entry) => entry.sourceContentVersion === contentVersion)
+    return revision ? (await api.loadWorkRevision(workId, revision.revisionId)).content : null
+  }
 
   constructor(readonly target: ConversationTarget, private readonly deps: ConversationDeps) {
     this.projectPath = target.record?.projectPath ?? ''
@@ -307,12 +353,7 @@ export class ConversationController {
       this.run.agentSessionId = lineage.active.providerSessionId ?? null
       this.followThread(lineage.active.provider)
     }
-    const page = await api.loadSessionPage({
-      sessionId: this.run.sessionId,
-      projectPath: this.projectPath || this.run.workingDirectory || undefined,
-      provider: this.threadProvider ?? this.run.provider,
-      turnLimit: INITIAL_HISTORY_TURNS,
-    })
+    const page = await api.loadSessionPage({ ...this.historySource, turnLimit: INITIAL_HISTORY_TURNS })
     if (generation !== this.loadGeneration) return null
     if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
     return TranscriptModel.fromHistory(this.run.sessionId, page)
@@ -324,6 +365,16 @@ export class ConversationController {
     if (provider.success) this.auth.noteLoginRefused(provider.data)
   }
 
+  /** Where this conversation's history is read: its thread's provider, in its folder.
+   *  A provider subagent's history is read through the same parent. */
+  get historySource() {
+    return {
+      sessionId: this.run.sessionId,
+      projectPath: this.projectPath || this.run.workingDirectory || undefined,
+      provider: this.threadProvider ?? this.run.provider,
+    }
+  }
+
   async loadOlder(): Promise<void> {
     const cursor = this.model.olderCursor
     if (!cursor || this.loadingOlder || this.phase.kind !== 'ready') return
@@ -333,9 +384,7 @@ export class ConversationController {
     this.flush(true)
     try {
       const page = await this.deps.connection.api.loadSessionPage({
-        sessionId: this.run.sessionId,
-        projectPath: this.projectPath || this.run.workingDirectory || undefined,
-        provider: this.threadProvider ?? this.run.provider,
+        ...this.historySource,
         turnLimit: OLDER_HISTORY_TURNS,
         before: cursor,
       })
@@ -439,6 +488,16 @@ export class ConversationController {
     this.model.markDelivery(clientPromptId, 'sending')
     this.flush()
     await this.drainOutbox(true)
+  }
+
+  /** The host retains the failed prompt; a retry keeps its original branch. */
+  async recoverWorktreeSetup(id: string, workLocally: boolean): Promise<void> {
+    const item = this.model.items.get(id)
+    if (!this.mayDrive || item?.kind !== 'setup' || item.card.status !== 'error' || item.card.recovery !== 'worktree') return
+    await this.callWithContext((ctx) => {
+      ctx.session.worktreeBaseBranch = workLocally ? null : item.card.worktreeBaseBranch ?? null
+      return this.deps.connection.api.retry(ctx, { prompt: '' })
+    })
   }
 
   /** The `remove` decision on a failed or waiting prompt. */

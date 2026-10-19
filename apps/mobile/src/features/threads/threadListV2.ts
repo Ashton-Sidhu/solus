@@ -11,7 +11,7 @@ import { worktreeProjectRoot, type SessionRecord, type SessionStatus } from "@so
 
 import { relativeTime } from "../../lib/time";
 import type { SolusThreadShell } from "./thread-directory";
-import { effectiveSnoozed, snoozeWakeLabel } from "./thread-snooze";
+import { effectiveSnoozed } from "./thread-snooze";
 
 /**
  * Thread List v2 model on Solus data. A T3 thread is a Solus session.
@@ -278,8 +278,8 @@ export interface ThreadListV2Layout {
   /** Index in `items` where the Archived section header belongs. */
   readonly archivedHeaderIndex: number | null;
   /** Soonest wake time among snoozed threads, or null. Callers arm a timeout
-      at this boundary so the list re-partitions the moment a snooze expires
-      instead of on the next minute tick. */
+      at this boundary so the list re-partitions the moment a snooze expires;
+      no other clock re-partitions it. */
   readonly nextSnoozeWakeAt: number | null;
 }
 
@@ -292,14 +292,15 @@ export interface ThreadListV2ThreadListItem {
   readonly status: ThreadListV2Status;
   readonly unread: boolean;
   readonly pr: ThreadPrPresentation | null;
-  /** Precomputed so recycled-list equality can see a minute-tick change. */
-  readonly snoozeWakeLabelText: string | undefined;
-  /** Row timestamp precomputed against the parent clock. Blank while the row
-      renders a status label or the wake countdown instead. */
-  readonly timeLabel: string;
-  /** Minute clock feeding the row's snooze menu, carried only on rows whose
-      menu holds snooze presets. */
-  readonly snoozePresetMinute: string | undefined;
+  /** When a row on the snoozed shelf wakes. The row counts down to it from
+      the list clock. */
+  readonly snoozedUntil: number | null;
+  /** The time the row shows as an age, from the list clock. Null while the
+      row renders a status label or the wake countdown instead. */
+  readonly timeLabelAt: number | null;
+  /** The row's menu offers snooze presets, which the row reads from the list
+      clock. */
+  readonly snoozable: boolean;
   /** Inset hairline drawn under the row. */
   readonly showTrailingDivider: boolean;
 }
@@ -396,9 +397,9 @@ export function threadListV2ListItemsAreEqual(
         previous.item.archived === item.item.archived &&
         previous.status === item.status &&
         samePr(previous.pr, item.pr) &&
-        previous.snoozeWakeLabelText === item.snoozeWakeLabelText &&
-        previous.timeLabel === item.timeLabel &&
-        previous.snoozePresetMinute === item.snoozePresetMinute &&
+        previous.snoozedUntil === item.snoozedUntil &&
+        previous.timeLabelAt === item.timeLabelAt &&
+        previous.snoozable === item.snoozable &&
         previous.showTrailingDivider === item.showTrailingDivider
       );
     case "v2-snoozed-shelf":
@@ -480,8 +481,6 @@ export function buildThreadListV2ListItems(input: {
   readonly settledShelfHeaderIndex?: number | null;
   readonly archivedCount?: number;
   readonly archivedHeaderIndex?: number | null;
-  /** The minute clock, epoch milliseconds. */
-  readonly now: number;
   /** True while the shelf expansion preferences are still loading. */
   readonly shelfPreferencesLoading?: boolean;
 }): ThreadListV2ListItem[] {
@@ -490,12 +489,7 @@ export function buildThreadListV2ListItems(input: {
     const state = threadState(item.thread, input.facts);
     const view = threadView(item.thread, input.facts);
     const status = resolveThreadListV2Status(item.thread.record, input.facts.liveStatus.get(key));
-    const snoozeWakeLabelText =
-      item.snoozed && view.snoozedUntil !== null
-        ? snoozeWakeLabel(view.snoozedUntil, input.now)
-        : undefined;
-    const snoozePresetMinute =
-      !item.snoozed && !item.archived && canSnoozeThread(status) ? String(input.now) : undefined;
+    const snoozedUntil = item.snoozed ? view.snoozedUntil : null;
     return {
       type: "v2-thread",
       key: `v2-thread:${key}`,
@@ -503,9 +497,9 @@ export function buildThreadListV2ListItems(input: {
       status,
       unread: input.facts.unread?.get(key) ?? false,
       pr: presentThreadPullRequests(threadPullRequests(item.thread, input.facts)),
-      snoozeWakeLabelText,
-      timeLabel: resolveThreadListV2ItemTimeLabel(item, status, state, snoozeWakeLabelText !== undefined),
-      snoozePresetMinute,
+      snoozedUntil,
+      timeLabelAt: resolveThreadListV2ItemTimeLabelAt(item, status, state, snoozedUntil !== null),
+      snoozable: !item.snoozed && !item.archived && canSnoozeThread(status),
       showTrailingDivider: false,
     };
   });
@@ -557,16 +551,21 @@ export function buildThreadListV2ListItems(input: {
 
 /** The timestamp a row renders when it shows no status label: the settle
     stamp on settled slim rows, otherwise the latest activity. */
-function resolveThreadListV2ItemTimeLabel(
+function resolveThreadListV2ItemTimeLabelAt(
   item: ThreadListV2Item,
   status: ThreadListV2Status,
   state: SessionState,
   showSnoozeWakeLabel: boolean,
-): string {
-  if (showSnoozeWakeLabel) return "";
-  if (item.variant === "card" && status !== "ready") return "";
+): number | null {
+  if (showSnoozeWakeLabel) return null;
+  if (item.variant === "card" && status !== "ready") return null;
   const settledAt = item.variant === "slim" && !item.snoozed && !item.archived ? state.settledAt : null;
-  return relativeTime(new Date(settledAt ?? item.thread.record.lastActivityAt).toISOString());
+  return settledAt ?? item.thread.record.lastActivityAt;
+}
+
+/** A row's age label at `now`; blank when the row shows no age. */
+export function threadListV2TimeLabel(timeLabelAt: number | null, now: number): string {
+  return timeLabelAt === null ? "" : relativeTime(new Date(timeLabelAt).toISOString(), now);
 }
 
 function matchesSearch(

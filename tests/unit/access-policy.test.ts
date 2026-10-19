@@ -144,6 +144,18 @@ describe('resource calls', () => {
     await expect(assertRpcAccess('loadSession', MEMBER, ['s3'], table)).rejects.toThrow(/not shared/)
   })
 
+  test('saved app and child reads use the parent role; live integration access needs drive', async () => {
+    const table = resources({ 'session:s1': 'viewer', 'session:s2': 'editor' })
+    for (const method of ['loadSessionSubagent', 'mcpAppRead'] as const) {
+      await expect(assertRpcAccess(method, MEMBER, [{ sessionId: 's1' }], table)).resolves.toBeUndefined()
+      await expect(assertRpcAccess(method, MEMBER, [{ sessionId: 'other' }], table)).rejects.toThrow(RpcAccessError)
+    }
+    for (const method of ['mcpAppToolInfo', 'mcpAppReadResource', 'mcpAppCallTool'] as const) {
+      await expect(assertRpcAccess(method, MEMBER, [{ sessionId: 's1' }], table)).rejects.toThrow(RpcAccessError)
+      await expect(assertRpcAccess(method, MEMBER, [{ sessionId: 's2' }], table)).resolves.toBeUndefined()
+    }
+  })
+
   test('transferring a work takes the owner; an editor cannot', async () => {
     const table = resources({ 'work:w1': 'editor', 'work:w2': 'owner' })
     await expect(assertRpcAccess('shareTransfer', MEMBER, [{ resource: { kind: 'work', id: 'w1' }, toUserId: 'x' }], table)).rejects.toThrow(RpcAccessError)

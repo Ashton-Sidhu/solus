@@ -2,24 +2,30 @@
 // that lives in the workspace reading gutter). Kept out of the .svelte file so
 // the component holds only markup + thin handlers.
 
+import type { ConversationWidth } from "@solus/contracts/settings";
+
 const REM = 16;
 
-// Mirror of `--solus-reading-max: min(65%, 68rem)` in
-// workspace.css. The rail only shows when the centered reading column leaves a
-// wide-enough gutter, so we reproduce the column width here to know how much
-// empty space exists. `tests/unit/panel-sizing.test.ts` reads the token out of
-// workspace.css and fails if these drift from it.
+// Mirror of `--solus-reading-max` in workspace.css, one rule per
+// "Conversation width". The rail only shows when the centered reading column
+// leaves a wide-enough gutter, so we reproduce the column width here to know
+// how much empty space exists. `tests/unit/panel-sizing.test.ts` pins the
+// widths, so a change to one side fails until the other follows.
 const READING_MAX = 68 * REM; // 1088px
 const READING_PCT = 0.65;
+// A narrow pane fills its width less this gutter until the column reaches the floor.
+const NARROW_GUTTER = 4 * REM;
+const READING_FLOOR = 46 * REM;
+const NARROW_MEASURE = 40 * REM;
 
 // The scroll container carries `px-4` (16px each side); the percentage resolves
 // against that padded inner box.
 const SCROLL_PADDING = 32;
 
 // Minimum clear gutter (px, one side) needed before the rail is worth showing.
-// Below this the dashes would crowd the reading text. Because the column grows
-// more slowly than the pane, the gutter opens at a conversation pane of ~285px
-// and keeps widening from there.
+// Below this the dashes would crowd the reading text. At the comfortable width
+// the column fills a narrow pane, so the gutter opens only once the column
+// stops at its 46rem floor.
 export const MIN_GUTTER = 60;
 
 // Distance (px) from the scroll container's top that marks the "current"
@@ -43,17 +49,24 @@ export function indexMinimapNodes(container: HTMLElement, items: NavItem[]) {
   return { nodes, firstMountedIndex: items.findIndex((item) => nodes.has(item.id)) };
 }
 
+/** Width (px) of the centered reading column inside the scroll box's padding. */
+function readingWidth(inner: number, width: ConversationWidth): number {
+  if (width === "full") return inner;
+  const filled = Math.max(0, inner - NARROW_GUTTER);
+  if (width === "narrow") return Math.min(filled, NARROW_MEASURE);
+  return Math.min(READING_MAX, Math.max(inner * READING_PCT, Math.min(filled, READING_FLOOR)));
+}
+
 /** Width (px) of one side gutter between the centered reading column and the pane edge. */
-export function gutterWidth(paneWidth: number): number {
+export function gutterWidth(paneWidth: number, width: ConversationWidth): number {
   if (paneWidth <= 0) return 0;
   const inner = Math.max(0, paneWidth - SCROLL_PADDING);
-  const reading = Math.min(READING_MAX, inner * READING_PCT);
-  return Math.max(0, (paneWidth - reading) / 2);
+  return Math.max(0, (paneWidth - readingWidth(inner, width)) / 2);
 }
 
 /** Whether the gutter is wide enough to host the rail without crowding text. */
-export function hasRoomForRail(paneWidth: number): boolean {
-  return gutterWidth(paneWidth) >= MIN_GUTTER;
+export function hasRoomForRail(paneWidth: number, width: ConversationWidth): boolean {
+  return gutterWidth(paneWidth, width) >= MIN_GUTTER;
 }
 
 /**

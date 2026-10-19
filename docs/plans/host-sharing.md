@@ -17,14 +17,16 @@ Where it lives:
   transcript (`sync/mirror/transcript-mirror.ts`) and on every share change
   (`boot-server.ts`); `ShareManager.applyMirroredRows` is the sink
   (`sync/mirror/mirror-sinks.ts`).
-- Solus API: `POST /auth/share-link` (`transport/http.ts`, `boot-solus-api.ts`)
-  answers a secret with the resource, its organization, and the host that runs
-  it with the routes the caller's `hostRoutes` knows. The cloud application
+- Solus API: `POST /auth/share-link` (`transport/http.ts`, `ShareLinkResolver`
+  in `sharing/share-link-resolver.ts`) answers a secret, and the page's token
+  when it sends one, with the resource, its organization, whom it opens as, and
+  the host that runs it with the routes the caller's `hostRoutes` knows. The cloud application
   passes that lookup from its host directory (solus-cloud `src/server/main.ts`).
 - Client core: `resolveShareLink` (`guest-link.ts`); `WsTransport.guestIdentity`
   sends the secret with the guest's own id and name; `createSolusConnection`
   takes `guest: { shareSecret, identity }`.
-- Web guest page: `guestDial` and `openGuestPlace` in `apps/client/src/main.ts`:
+- Web guest page: `shareLinkOpening` (`apps/client/src/lib/share-link-opening.ts`)
+  and `openGuestPlace` in `apps/client/src/main.ts`:
   the page asks its own origin to resolve the link. A host has no resolve door
   and answers its unnamed 404, so the page dials the host itself; the Solus API
   answers the host to dial first (or a named 404, `SHARE_LINK_UNKNOWN`), and the
@@ -170,7 +172,9 @@ sign in on the account origin, with the member link as `next`.
    signed: the secret is the whole credential (decision §9.8).
 5. **Dial the host first.** The page dials the host's route with the secret,
    as in 4.1. The guest is live: reads and prompts go to the host, a guest's
-   prompt in supervised mode on the sharer's seat. On an organization session
+   prompt in supervised mode on the sharer's seat. A permission that a
+   guest's turn raises carries `guestTurn`, and its card says "Guest turn ·
+   Ask mode", so a session in full access does not seem to ask without a reason. On an organization session
    the prompt passes the one turn admission for the sharer, so it needs the
    sharer's authority; a guest never starts organization work
    (plans/009-organization-vms.md §9, "One admission for every turn").
@@ -181,9 +185,10 @@ sign in on the account origin, with the member link as `next`.
    says the computer is offline. A link regenerated on the host reaches the
    mirror with the next rows and ends its guests there too.
 
-A visitor signed in to Solus who is a member of the resource's organization is
-sent to the member link before any dial, by the resolve answer's organization
-and the account cookie (`guest-member.ts`).
+A visitor signed in to Solus sends their Solus API token with the resolve, and
+the answer says whom the link opens the resource as (`opensAs`). A member with at
+least the link's role opens it as themselves, in the whole app, before any dial
+and with no reload (docs/plans/instant-share-open.md).
 
 ### 4.3 The member link
 

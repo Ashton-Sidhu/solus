@@ -75,6 +75,8 @@
   } from "./lib/sidebar-list-items";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import * as TooltipUI from "../ui/tooltip";
+  import * as Popover from "../ui/popover";
+  import { Button } from "../ui/button";
   import { ownsTask } from "../tasks/lib/task-ownership";
 
   interface Props {
@@ -330,6 +332,11 @@
   function openTaskPr(choice: TaskPrChoice, tab?: PrReviewTab): void {
     const { route, sourceUrl } = taskPrNavigation(choice);
     session.openRoute(route, { sourceUrl, tab, via: "click" });
+  }
+
+  function warmTaskPr(choice: TaskPrChoice): void {
+    const { route, sourceUrl } = taskPrNavigation(choice);
+    session.warmRoute(route, { sourceUrl });
   }
 
   /** A draft row goes back to the composer it was left in, with the caret in it
@@ -883,6 +890,7 @@
     onComplete={() => completeTask(task)}
     onClose={() => removeTask(task)}
     onOpenPr={openTaskPr}
+    onWarmPr={warmTaskPr}
     onMorePr={(event, choice) =>
       (sessionContextMenu = {
         kind: "pull-request",
@@ -1335,7 +1343,7 @@
     </div>
   </div>
 
-  <!-- Separate the task list from saved sessions. -->
+  <!-- Separate the task list from the footer. -->
   <div
     class="mx-3.5 h-[0.03125rem] flex-shrink-0 bg-sidebar-border @max-[15rem]:mx-2.5"
   ></div>
@@ -1343,96 +1351,120 @@
     class="relative flex-shrink-0 px-3.5 py-2 @max-[15rem]:px-2.5"
   >
     <Sidebar.Menu class="gap-0.5">
-      {#if sidebarStore.pinnedSessions.length > 0}
-        <Sidebar.MenuItem>
-          <Sidebar.MenuButton
-            class="group flex h-8 w-full cursor-pointer items-center gap-[0.6875rem] rounded-lg bg-transparent px-[0.625rem] text-left text-[color-mix(in_oklch,var(--foreground)_88%,transparent)] transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
-            onclick={() => (savedSessionsOpen = !savedSessionsOpen)}
-          >
-            <span class="flex shrink-0 items-center"
-              ><PushPinIcon size={14} weight="fill" /></span
-            >
-            <span class="flex-1 text-left text-workspace-chrome"
-              >Saved sessions</span
-            >
-            <span
-              class="shrink-0 text-xs text-muted-foreground opacity-60 tabular-nums"
-              >{sidebarStore.pinnedSessions.length}</span
-            >
-            <CaretRightIcon
-              size={14}
-              class="shrink-0 transition-transform duration-150 {savedSessionsOpen
-                ? 'rotate-90'
-                : ''}"
-            />
-          </Sidebar.MenuButton>
-        </Sidebar.MenuItem>
-        {#if savedSessionsOpen}
-          <div class="flex flex-col gap-0.5 pb-1">
-            {#each sidebarStore.pinnedSessions as pin (`${pin.serverId ?? ""}:${pin.sessionId}`)}
-              {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
-              {@const isActive =
-                !!openTabId && openTabId === session.onScreenTabId}
-              <TooltipUI.Root>
-                <TooltipUI.Trigger>
-                  {#snippet child({ props: tooltipProps })}
-                    <div
-                      {...tooltipProps}
-                      class="group/pin flex h-[1.875rem] cursor-pointer items-center gap-2 rounded-lg pr-1.5 pl-[2.25rem] transition-[background] duration-150 hover:bg-accent"
-                      role="button"
-                      tabindex="0"
-                      onclick={() => {
-                        void sidebarStore.openPinnedSession(pin);
-                        onSessionSelect?.();
-                      }}
-                      onkeydown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          void sidebarStore.openPinnedSession(pin);
-                          onSessionSelect?.();
-                        }
-                      }}
-                      oncontextmenu={(event) =>
-                        openSessionContextMenu(event, { kind: "pinned", pin })}
-                    >
-                      <span
-                        class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap {isActive
-                          ? 'font-medium text-foreground'
-                          : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
-                        >{pin.title}</span
-                      >
-                      <button
-                        class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] group-hover/pin:flex hover:bg-accent hover:text-foreground pointer-coarse:flex"
-                        aria-label="Unpin session"
-                        title="Unpin"
-                        onclick={(event) => {
-                          event.stopPropagation();
-                          void sidebarStore.unpinSession(pin);
-                          requestInputFocus();
-                        }}
-                      >
-                        <PushPinIcon size={14} weight="fill" />
-                      </button>
-                    </div>
-                  {/snippet}
-                </TooltipUI.Trigger>
-                <SessionSidebarTooltip
-                  title={pin.title}
-                  projectKey={pin.cwd}
-                  groupKey={groupKeyFor(pin.serverId ?? "", pin.cwd)}
-                  serverId={pin.serverId}
-                  provider={pin.provider}
-                  modelId={pin.model}
-                />
-              </TooltipUI.Root>
-            {/each}
-          </div>
-        {/if}
-      {/if}
-      <SidebarAccountFooter />
+      <SidebarAccountFooter {savedSessions} />
     </Sidebar.Menu>
   </Sidebar.Footer>
 </SidePanel>
+
+<!-- The pinned sessions, behind a footer button. -->
+{#snippet savedSessions()}
+  {#if sidebarStore.pinnedSessions.length > 0}
+    <Popover.Root
+      bind:open={savedSessionsOpen}
+      onOpenChange={(next) => {
+        if (!next) requestInputFocus();
+      }}
+    >
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <Popover.Trigger {...tooltipProps}>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Saved sessions, {sidebarStore.pinnedSessions.length}"
+                  class="relative rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground data-[state=open]:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] data-[state=open]:text-foreground"
+                >
+                  <PushPinIcon size={15} />
+                  <span
+                    class="pointer-events-none absolute top-0.5 right-0.5 text-[0.5625rem] leading-none font-medium text-muted-foreground tabular-nums opacity-70"
+                    aria-hidden="true"
+                    >{sidebarStore.pinnedSessions.length}</span
+                  >
+                </Button>
+              {/snippet}
+            </Popover.Trigger>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content side="top" value="Saved sessions" />
+      </TooltipUI.Root>
+      <Popover.Content
+        side="top"
+        align="start"
+        sideOffset={6}
+        collisionPadding={8}
+        aria-label="Saved sessions"
+        class="max-h-[min(24rem,calc(100vh-2rem))] w-[min(18rem,calc(100vw-2rem))] gap-0.5 overflow-y-auto p-1.5"
+      >
+        {#each sidebarStore.pinnedSessions as pin (`${pin.serverId ?? ""}:${pin.sessionId}`)}
+          {@const openTabId = sidebarStore.openTabIdForPinned(pin)}
+          {@const isActive =
+            !!openTabId && openTabId === session.onScreenTabId}
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <div
+                  {...tooltipProps}
+                  class="group/pin flex h-[1.875rem] cursor-pointer items-center gap-2 rounded-lg px-2 transition-[background] duration-150 hover:bg-accent"
+                  role="button"
+                  tabindex="0"
+                  onclick={() => {
+                    savedSessionsOpen = false;
+                    void sidebarStore.openPinnedSession(pin);
+                    onSessionSelect?.();
+                  }}
+                  onkeydown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      savedSessionsOpen = false;
+                      void sidebarStore.openPinnedSession(pin);
+                      onSessionSelect?.();
+                    }
+                  }}
+                  oncontextmenu={(event) =>
+                    openSessionContextMenu(event, { kind: "pinned", pin })}
+                >
+                  <span
+                    class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap {isActive
+                      ? 'font-medium text-foreground'
+                      : 'text-[color-mix(in_oklch,var(--foreground)_88%,transparent)]'}"
+                    >{pin.title}</span
+                  >
+                  <button
+                    class="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] group-hover/pin:flex hover:bg-accent hover:text-foreground pointer-coarse:flex"
+                    aria-label="Unpin session"
+                    title="Unpin"
+                    onclick={(event) => {
+                      event.stopPropagation();
+                      // The popover stays open for the next pin. The
+                      // last unpin removes it, so focus goes back.
+                      const isLastPin =
+                        sidebarStore.pinnedSessions.length === 1;
+                      void sidebarStore.unpinSession(pin);
+                      if (isLastPin) requestInputFocus();
+                    }}
+                  >
+                    <PushPinIcon size={14} weight="fill" />
+                  </button>
+                </div>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <SessionSidebarTooltip
+              title={pin.title}
+              projectKey={pin.cwd}
+              groupKey={groupKeyFor(pin.serverId ?? "", pin.cwd)}
+              serverId={pin.serverId}
+              provider={pin.provider}
+              modelId={pin.model}
+            />
+          </TooltipUI.Root>
+        {/each}
+      </Popover.Content>
+    </Popover.Root>
+  {/if}
+{/snippet}
 
 {#if sessionContextMenu}
   {#if sessionContextMenu.kind === "task"}

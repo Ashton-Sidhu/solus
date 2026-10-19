@@ -8,7 +8,7 @@ import {
   type HostRegistration,
 } from '@solus/contracts/uplink'
 import { tokenResourceUri, type TokenResource } from '@solus/contracts/auth/clients'
-import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
+import { SolusApiClient, SolusApiHttp, WorkspaceRequestError, type SolusApiHttpOptions } from '@solus/contracts/solus-api/client'
 import type { FetchLike, TokenVerdict } from '../admission/access-tokens'
 import type { HostCredential } from '../host/host-credential'
 import { secretStore } from '../platform/secrets'
@@ -280,7 +280,7 @@ export class Delegations {
   /** The Solus API as the person, through this host's delegation; the API is the one the registration named. */
   apiClient(userId: string, scope: DelegationScope): SolusApiClient {
     const apiUrl = this.deps.registration()?.apiUrl
-    const options: ConstructorParameters<typeof SolusApiClient>[0] = {
+    const options: SolusApiHttpOptions = {
       baseUrl: () => {
         if (!apiUrl) throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', "This machine's registration names no Solus API. Sign in to Solus on this machine again to run organization work.")
         return new URL(apiUrl).origin
@@ -290,7 +290,7 @@ export class Delegations {
       scopes: [...DELEGATED_SCOPES],
     }
     if (this.deps.fetchImpl) options.fetchImpl = this.deps.fetchImpl
-    return new SolusApiClient(options)
+    return new SolusApiClient(new SolusApiHttp(options))
   }
 
   /** Who a session's agent acts for: set when a person's turn is admitted. */

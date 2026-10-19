@@ -544,7 +544,7 @@
     const serverId = conversation?.serverId;
     if (!conversation || !serverId) return {};
     const setArchived = (isArchived: boolean) => {
-      void sessionListStore.setArchived({ serverId, sessionId: conversation.sessionId, organizationId: conversation.organizationId }, isArchived)
+      void sessionListStore.setArchived({ serverId, sessionId: conversation.sessionId, organizationId: conversation.organizationId, publication: conversation.publication }, isArchived)
         .then(() => { conversation.archived = isArchived || undefined; })
         .catch((error) => toasts.error(isArchived ? "Couldn't archive it" : "Couldn't return it to the list", {
           description: error instanceof Error ? error.message : String(error),

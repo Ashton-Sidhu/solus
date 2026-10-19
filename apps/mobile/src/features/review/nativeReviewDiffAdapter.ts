@@ -16,7 +16,7 @@ import {
   type ReviewRenderableFile,
   type ReviewRenderableLineRow,
 } from "./reviewModel";
-import type { ReviewInlineComment } from "./reviewCommentSelection";
+import type { ReviewInlineComment } from "@solus/contracts/review-comment";
 
 const NATIVE_REVIEW_MAX_WORD_DIFF_RANGE_COUNT = 4;
 const NATIVE_REVIEW_MAX_WORD_DIFF_COVERAGE = 0.45;

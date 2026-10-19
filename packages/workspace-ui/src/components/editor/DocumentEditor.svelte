@@ -51,7 +51,8 @@
   import RawMarkdownEditor from "./RawMarkdownEditor.svelte";
   import WorkEmbedPicker from "./WorkEmbedPicker.svelte";
   import type { WorkEmbedChoice } from "./lib/work-embed";
-  import { linkActivationAction } from "./lib/link-preview";
+  import { linkActivation } from "./lib/link-preview";
+  import { requestFilePreview } from "../../lib/filePreview";
 
   interface Props {
     value: string;
@@ -76,7 +77,9 @@
     onPlanRefClick?: (planId: string) => void;
     onWorkRefClick?: (workId: string, title?: string) => void;
     onPrRefClick?: (number: number, title?: string) => void;
-    onFileRefClick?: (path: string) => void;
+    /** Opens a file chip or a file-path link. Without it, the file opens in
+     *  the file pane of the focused session. */
+    onFileRefClick?: (path: string, line?: number) => void;
     onFocus?: () => void;
     onBlur?: () => void;
     /** When set, the slash menu offers "Ask Solus to draft…". Surfaces without
@@ -265,6 +268,14 @@
       // Read-only text still needs focus for selection-based comments and copy.
       coreExtensionOptions: { tabindex: { value: "0" } },
       editorProps: {
+        handleDOMEvents: {
+          // `handleClickOn` runs on mouseup. The click after it would still
+          // follow the link in a read-only document and leave the workspace.
+          click: (_view, event) => {
+            if (event.target instanceof Element && event.target.closest("a[href]")) event.preventDefault();
+            return false;
+          },
+        },
         handlePaste: (view, event) => {
           // 1) Files → store images inline and other attachments as links.
           const files = attachmentFilesFromDataTransfer(event.clipboardData);
@@ -326,7 +337,7 @@
           }
           if (node.type.name === "fileReference") {
             event.preventDefault();
-            onFileRefClick?.(node.attrs.path);
+            openFile(node.attrs.path);
             return true;
           }
           const anchor = event.target instanceof Element
@@ -337,7 +348,12 @@
           event.preventDefault();
           const href = anchor.getAttribute("href");
           if (!href) return false;
-          if (linkActivationAction(event) === "open") {
+          const activation = linkActivation(href, event);
+          if (activation.kind === "file") {
+            openFile(activation.path, activation.line);
+            return true;
+          }
+          if (activation.kind === "open") {
             void localApi.openExternal(href);
             return true;
           }
@@ -747,6 +763,11 @@
   function closeLinkPopover() {
     linkPopover = null;
     editorInstance?.commands.focus();
+  }
+
+  function openFile(path: string, line?: number) {
+    if (onFileRefClick) onFileRefClick(path, line);
+    else requestFilePreview({ path, line });
   }
 
   function openPreviewLink() {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PrReviewTarget } from "@solus/contracts/providers";
+  import { projectScopeOf } from "@solus/contracts/types";
   import { getWorkspaceContext } from "../../contexts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
@@ -41,6 +42,21 @@
     const next = await api.prOpenReview(routeCtx, params.number);
     session.router.setResolved(ref, next);
   }
+
+  // The target is the revision under review, read once on open from what the
+  // host remembers. PR sync keeps the store's pull request current; when it
+  // reports a new head, ask for the target again. Once per head, so a store
+  // that lags the target cannot start a loop.
+  const storeHeadSha = $derived(
+    session.pullRequests.projects.at(serverId, projectScopeOf(routeCtx.session))?.prFor(params.number)?.headSha || null,
+  );
+  let askedForHeadSha: string | null = null;
+  $effect(() => {
+    const head = storeHeadSha;
+    if (!pr || !head || head === pr.headSha || head === askedForHeadSha) return;
+    askedForHeadSha = head;
+    void refreshTarget().catch(() => {});
+  });
 
   // The review's chat is whichever open tab is rooted in this PR's worktree —
   // derived rather than stored, so nothing has to be attached or torn down.

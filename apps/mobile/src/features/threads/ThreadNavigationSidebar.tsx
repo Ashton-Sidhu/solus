@@ -55,6 +55,7 @@ import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2ListItem,
 } from "./threadListV2";
+import { ThreadListClock, useThreadListClockWhile } from "./thread-list-clock";
 import { useThreadListState } from "./use-thread-list";
 
 /** The sidebar list: flat v2 rows plus a settled "Show more" pager row. */
@@ -63,8 +64,6 @@ type SidebarListItem =
   | { readonly type: "v2-show-more"; readonly key: string; readonly hiddenCount: number };
 
 const SIDEBAR_STICKY_HEADER_HEIGHT = 106;
-
-const currentMinute = () => Math.floor(Date.now() / 60_000) * 60_000;
 
 interface ThreadNavigationSidebarProps {
   readonly width: number;
@@ -222,9 +221,9 @@ function ThreadNavigationSidebarPane(
     THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   );
   const settledResetKey = `${options.selectedEnvironmentId ?? "all"}:${selectedProjectKey ?? "all"}:${props.searchQuery.trim()}`;
-  const lastSettledResetKeyRef = useRef(settledResetKey);
-  if (lastSettledResetKeyRef.current !== settledResetKey) {
-    lastSettledResetKeyRef.current = settledResetKey;
+  const [lastSettledResetKey, setLastSettledResetKey] = useState(settledResetKey);
+  if (lastSettledResetKey !== settledResetKey) {
+    setLastSettledResetKey(settledResetKey);
     setSettledVisibleCount(THREAD_LIST_V2_SETTLED_INITIAL_COUNT);
   }
   const showMoreSettled = useCallback(
@@ -235,18 +234,15 @@ function ThreadNavigationSidebarPane(
   const snoozedShelfExpanded = shelfExpansion.snoozed;
   const toggleSettledShelf = useCallback(() => list.toggleShelf("settled"), [list]);
   const toggleSnoozedShelf = useCallback(() => list.toggleShelf("snoozed"), [list]);
-  // The snooze helpers need a clock while the pane stays open.
-  const [nowMinute, setNowMinute] = useState(currentMinute);
+  // Rows read their times and snooze menus from this clock while the pane
+  // shows. The layout keeps a hidden pane mounted at zero width, so the clock
+  // follows `visible`, not the mount.
+  const [clock] = useState(() => new ThreadListClock());
   // Snooze wake times are second-precise; a counter bumped exactly at the
   // next wake boundary re-runs the partition with a fresh clock so a woken
-  // thread reappears immediately instead of on the next minute tick.
+  // thread reappears immediately. The minute clock does not partition.
   const [snoozeWakeTick, bumpSnoozeWakeTick] = useState(0);
-  useEffect(() => {
-    // Refresh immediately because the mount-time value can be hours old.
-    setNowMinute(currentMinute());
-    const id = setInterval(() => setNowMinute(currentMinute()), 60_000);
-    return () => clearInterval(id);
-  }, []);
+  useThreadListClockWhile(clock, props.visible);
   const threadListV2Layout = useMemo(
     () =>
       buildThreadListV2Items({
@@ -267,7 +263,6 @@ function ThreadNavigationSidebarPane(
       unlistedThreads,
       facts,
       knownProjectKeys,
-      nowMinute,
       snoozeWakeTick,
       snoozedShelfExpanded,
       settledShelfExpanded,
@@ -303,7 +298,6 @@ function ThreadNavigationSidebarPane(
       settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
       archivedCount: threadListV2Layout.archivedCount,
       archivedHeaderIndex: threadListV2Layout.archivedHeaderIndex,
-      now: nowMinute,
     });
     if (settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0) {
       // The pager ends the settled shelf, above any archived search results.
@@ -315,7 +309,7 @@ function ThreadNavigationSidebarPane(
       });
     }
     return items;
-  }, [facts, nowMinute, settledShelfExpanded, snoozedShelfExpanded, threadListV2Layout]);
+  }, [facts, settledShelfExpanded, snoozedShelfExpanded, threadListV2Layout]);
   const listMenuActions = useMemo<MenuAction[]>(
     () => [
       {
@@ -388,7 +382,7 @@ function ThreadNavigationSidebarPane(
         return;
       }
     },
-    [environments, projectFilterOptions, setSelectedEnvironmentId],
+    [environments, projectFilterOptions, setSelectedEnvironmentId, setSelectedProjectKey],
   );
 
   const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState<number | null>(null);
@@ -417,12 +411,15 @@ function ThreadNavigationSidebarPane(
       openSwipeableRef.current = null;
     }
   }, []);
+  // Called as a plain function: a call through `props.` makes all of props the
+  // dependency, which the React Compiler cannot match to this callback.
+  const { onSelectThread } = props;
   const handleSelectThread = useCallback(
     (thread: SolusThreadShell) => {
-      props.onSelectThread(thread);
+      onSelectThread(thread);
       openSwipeableRef.current?.close();
     },
-    [props.onSelectThread],
+    [onSelectThread],
   );
   const handleScrollBeginDrag = useCallback(() => {
     openSwipeableRef.current?.close();
@@ -434,9 +431,8 @@ function ThreadNavigationSidebarPane(
   });
   // The project shells feed row props, so they have to bust the recycler's
   // memoization — otherwise a row keeps the fallback title it was first
-  // rendered with. The minute clock deliberately stays out: its per-row text
-  // lives on the items, so a tick only re-renders rows whose displayed text
-  // actually moved.
+  // rendered with. The list clock deliberately stays out: each row reads it,
+  // so a tick only re-renders rows whose displayed text actually moved.
   const listExtraData = useMemo(
     () => ({
       selectedThreadKey: props.selectedThreadKey ?? "",
@@ -476,9 +472,10 @@ function ThreadNavigationSidebarPane(
               status={item.status}
               unread={item.unread}
               pr={item.pr}
-              snoozePresetMinute={item.snoozePresetMinute ?? ""}
-              snoozeWakeLabelText={item.snoozeWakeLabelText}
-              timeLabel={item.timeLabel}
+              snoozable={item.snoozable}
+              snoozedUntil={item.snoozedUntil}
+              timeLabelAt={item.timeLabelAt}
+              clock={clock}
               projectPath={threadFaviconRoot(thread.record, projectByKey.get(scopeKey)?.project.path ?? null)}
               projectTitle={
                 projectTitleByProjectKey.get(scopeKey) ?? threadProjectFallbackTitle(thread.record)
@@ -535,6 +532,7 @@ function ThreadNavigationSidebarPane(
       }
     },
     [
+      clock,
       environments.length,
       handleSelectThread,
       handleSnoozeThread,
@@ -550,6 +548,7 @@ function ThreadNavigationSidebarPane(
       props.selectedThreadKey,
       props.width,
       renameThread,
+      setPullRequestWatch,
       settleThread,
       showMoreSettled,
       sidebarScrollGesture,
@@ -572,7 +571,7 @@ function ThreadNavigationSidebarPane(
         onEnvironmentChange: setSelectedEnvironmentId,
         onProjectChange: setSelectedProjectKey,
       }),
-    [environments, options, projectFilterOptions, selectedProjectKey, setSelectedEnvironmentId],
+    [environments, options, projectFilterOptions, selectedProjectKey, setSelectedEnvironmentId, setSelectedProjectKey],
   );
   const nativeHeaderItems = useMemo(
     () =>

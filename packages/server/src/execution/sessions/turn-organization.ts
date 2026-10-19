@@ -1,14 +1,13 @@
 import type { SessionCtx } from '@solus/contracts/types'
 import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../../admission/principal'
 import { ANY_ORGANIZATION } from '../../admission/principal'
-import { assignSessionOrganization, claimSessionOwner, getSessionRecord, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
+import { assignSessionOrganization, claimSessionOwner, getSessionRecord, isOrganizationWork, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
 import { isOrganizationAttached } from '../../host/organization-attachment'
 import { sessionIdOfThread } from '../../data/sessions/session-lineage'
 import { isChat } from '@solus/contracts/chat'
 import { parseUserKey } from '@solus/contracts/user'
 import { isHostUserKey } from '../../host/host-user'
 import type { HostOrganizations } from '../../host/organizations'
-import { insightsEligible } from '../../sync/mirror/insight-mirror'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
 import type { TurnRefusal } from '@solus/contracts/organization-scope'
 import { z } from 'zod'
@@ -28,13 +27,13 @@ import { TurnRefusedError } from './turn-refusal'
  *    acts for them with its delegation. New personal roots are refused there; a session
  *    admitted before the attachment keeps its Local home.
  * 3. **Assignment.** Elsewhere, an unassigned Local session is assigned to the
- *    sending window's organization once — only when that organization's
- *    Insights would leave this machine, because that is what the assignment is
- *    for. A session already assigned keeps its organization whatever the window
- *    selected.
- * 4. **Allowed host.** A session of an organization that refuses personal
- *    hosts does not run on a personal machine (§3.1), not even for the owner.
- * 5. **Attribution.** The acting account behind the turn is the actor's user
+ *    sending window's organization once: the organization of the person who
+ *    started it. It is a fact about the session, not its home and not a share;
+ *    only publication makes it organization work (`isOrganizationWork`). The
+ *    Insights setting decides whether its Insights are sent
+ *    (`insightsEligible`), not whether it is assigned. A session already
+ *    assigned keeps its organization whatever the window selected.
+ * 4. **Attribution.** The acting account behind the turn is the actor's user
  *    (`admission/actor.ts`): a member's own; the host's user for its owner (§6.1).
  */
 
@@ -84,9 +83,6 @@ export async function admitTurnOrganization(ctx: TurnAdmissionContext, actor: Ac
   const organizationId = isOrganizationAttached()
     ? await admitOnAttachedMachine(ctx, principal, deps, record)
     : await admitOnPersonalMachine(ctx, principal, deps, record)
-  if (organizationId !== LOCAL_ORGANIZATION_ID && !deps.hostOrganizations.mayExecute(organizationId)) {
-    throw new TurnRefusedError('PERSONAL_HOSTS_NOT_ALLOWED', `${deps.hostOrganizations.organization(organizationId)?.name ?? 'This organization'} does not allow its work to run on a personal computer. Use a self-hosted server or a cloud host.`)
-  }
   // A new session belongs to the person its first turn is for (docs/plans/access-model.md §2.2):
   // a child session, an automation's run, and a client's new session alike. A guest starts none.
   const ownerKey = ownerKeyOf(actor)
@@ -110,7 +106,7 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
     // A continuation keeps its saved home. An organization session on the Solus API
     // is the host acting for the person, and every token refresh checks them again,
     // so a removed membership or attachment stops new work.
-    if (record.organizationId !== LOCAL_ORGANIZATION_ID && record.publication === 'published') {
+    if (isOrganizationWork(record)) {
       await actForPerson(principal, deps, { sessionId, organizationId: record.organizationId, admit: false })
     }
     return record.organizationId
@@ -177,7 +173,7 @@ async function actForPerson(principal: Principal, deps: TurnOrganizationDeps, in
   return userId
 }
 
-/** A person's own machine, and a server not attached: scratch stays Local unless its Insights assignment applies. */
+/** A person's own machine, and a server not attached: a new session takes the organization of the person who starts it. */
 async function admitOnPersonalMachine(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<string> {
   const sessionId = ctx.session.sessionId
   let organizationId = record?.organizationId ?? pendingAssignments.get(sessionId)?.organizationId ?? LOCAL_ORGANIZATION_ID
@@ -205,7 +201,7 @@ async function admitOnPersonalMachine(ctx: TurnAdmissionContext, principal: Prin
 export async function mayAnswerFor(principal: Principal, sessionId: string, deps: TurnOrganizationDeps): Promise<boolean> {
   if (!isOrganizationAttached()) return true
   const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
-  if (!record || record.organizationId === LOCAL_ORGANIZATION_ID || record.publication !== 'published') return true
+  if (!isOrganizationWork(record)) return true
   try {
     await actForPerson(principal, deps, { sessionId, organizationId: record.organizationId, admit: false })
     return true
@@ -216,16 +212,14 @@ export async function mayAnswerFor(principal: Principal, sessionId: string, deps
 
 /**
  * The organization an unassigned session would be assigned to, or null to leave
- * it Local: the window's selection when the caller may name it and that
- * organization's Insights apply here.
+ * it Local: the window's selection when the caller may name it.
  */
 function wantedOrganization(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps): string | null {
   const selected = ctx.session.organizationId
   if (!selected || selected === LOCAL_ORGANIZATION_ID) return null
-  if (principal.kind === 'org-member') return principal.organizationId === selected && insightsEligible(selected) ? selected : null
+  if (principal.kind === 'org-member') return principal.organizationId === selected ? selected : null
   if (!isHostOwner(principal) && principal.kind !== 'system') return null
-  if (!deps.hostOrganizations.organization(selected)) return null
-  return insightsEligible(selected) ? selected : null
+  return deps.hostOrganizations.organization(selected) ? selected : null
 }
 
 /**

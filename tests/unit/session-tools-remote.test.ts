@@ -16,7 +16,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // this one; list that host's projects so an agent can pick a cwd there; never
 // resolve the other host's path here; and tell the other host
 // which session started it. A message to a session it started there goes to
-// that host, with its attachments; a read names the host rather than "not found".
+// that host, with its attachments. A read of a session this host does not hold
+// looks on the person's other hosts, then on their organizations' Solus APIs.
 
 let sessionTools: typeof import('@solus/server/execution/agents/tools/session-tools')
 let hostDisplayName: typeof import('@solus/server/platform/host-display-name')['hostDisplayName']
@@ -29,6 +30,8 @@ const OWNER_REACH = { account: { userId: 'alice', scope: 'personal' as const }, 
 /** What the current turn may reach; null for a person who reaches no other host from here. */
 let turnReach: typeof OWNER_REACH | null = OWNER_REACH
 const lookups: unknown[] = []
+/** The organizations' Solus APIs the current turn may read. */
+let turnApis: Array<{ organizationId: string; client: { request: (operation: string, input: { id: string }) => Promise<unknown> } }> = []
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
 
@@ -37,6 +40,12 @@ const remoteHost = {
   api: {
     listProjects: async () => [{ key: 'k', path: '/srv/b/solus', folderName: 'solus', addedAt: '', lastUsedAt: '', repositoryKey: null }],
     start: async () => ({ agents: [{ id: 'codex', label: 'Codex', available: true, defaultModel: 'model-on-b', models: [{ id: 'model-on-b', label: 'B model' }] }] }),
+    getSessionInfo: async (sessionId: string) => sessionId === 'thread-on-b'
+      ? { provider: 'codex', sessionId: 'solus-on-b', slug: null, firstMessage: null, lastTimestamp: '2026-10-19T16:00:00Z', size: 1, cwd: '/srv/b/solus', projectPath: '/srv/b/solus', status: 'idle' }
+      : null,
+    loadSession: async (sessionId: string, _projectPath?: string, _ctx?: unknown, _provider?: string, limit?: number) => sessionId === 'solus-on-b'
+      ? [{ role: 'user', content: 'Why did Codex ask?', timestamp: 1 }, { role: 'assistant', content: 'It ran without full access.', timestamp: 2 }].slice(-(limit ?? 2))
+      : [],
   },
   call: (_what: string, request: () => Promise<unknown>) => request(),
 }
@@ -61,6 +70,7 @@ beforeAll(async () => {
   sessionTools.setSessionController({
     getSessionInfo: async () => null,
     reachRequestFor: () => turnReach,
+    organizationApisFor: () => turnApis,
     listAgentTargets: async () => [{
       provider: 'codex', label: 'Codex', available: true, defaultModel: 'model-on-a',
       models: [{ id: 'model-on-a', label: 'A model', reasoningLevels: [], defaultReasoningEffort: 'medium', defaultContextWindow: null }],
@@ -201,5 +211,52 @@ describe('a session on another host', () => {
     const result = await sessionTools.executeSessionTool('stop_session', { session_id: 'child-on-b' }, { ctx })
     expect(result.text).toContain('Asked Host B to stop session child-on-b')
     expect(stopped.at(-1)).toEqual(['solus-parent', 'child-on-b'])
+  })
+})
+
+describe('read_session of a session this host does not hold', () => {
+  const organizationApi = {
+    organizationId: 'org-1',
+    client: {
+      request: async (operation: string, input: { id: string }) => {
+        if (input.id !== 'solus-in-org') throw new Error('Not found')
+        if (operation === 'getSession') return { id: 'solus-in-org', provider: 'codex', slug: null, title: 'Cloud run', customTitle: null, projectPath: '/work/app', cwd: '/work/app', status: 'idle', size: 3, model: null, reasoningEffort: null, organizationId: 'org-1', updatedAt: '2026-10-19T16:00:00Z' }
+        // One message the API stored in two parts, then a second message.
+        return { items: [
+          { messageId: 'm1', role: 'user', timestamp: '2026-10-19T16:00:00Z', content: 'Ship ', contentOffset: 0, isLastPart: false, toolName: null, parentToolUseId: null },
+          { messageId: 'm1', role: 'user', timestamp: '2026-10-19T16:00:00Z', content: 'it.', contentOffset: 5, isLastPart: true, toolName: null, parentToolUseId: null },
+          { messageId: 'm2', role: 'assistant', timestamp: '2026-10-19T16:00:01Z', content: 'Shipped.', contentOffset: 0, isLastPart: true, toolName: null, parentToolUseId: null },
+        ], nextCursor: null }
+      },
+    },
+  }
+
+  test('reads it from the other host that holds it, with a link that opens it there', async () => {
+    // WHY: a person's sessions run on all their linked machines. A thread id from
+    // another machine must read like one here, not answer "not found".
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    turnApis = [organizationApi]
+    const result = await sessionTools.executeSessionTool('read_session', { session_id: 'thread-on-b' }, { ctx })
+    turnApis = []
+    expect(result.ok).toBe(true)
+    expect(result.text).toContain('found on: Host B')
+    expect(result.text).toContain('sessionId=solus-on-b&serverId=install-b')
+    expect(result.text).toContain('[assistant] It ran without full access.')
+  })
+
+  test('reads it from an organization\'s Solus API when no host has it', async () => {
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    turnApis = [organizationApi]
+    const result = await sessionTools.executeSessionTool('read_session', { session_id: 'solus-in-org', match: 'ship it' }, { ctx })
+    turnApis = []
+    expect(result.ok).toBe(true)
+    expect(result.text).toContain('found on: the Solus API of organization org-1')
+    expect(result.text).toContain('» [user] Ship it.')
+  })
+
+  test('says where it looked when no one has it', async () => {
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    const result = await sessionTools.executeSessionTool('read_session', { session_id: 'nowhere' }, { ctx })
+    expect(result).toEqual({ ok: false, text: "Session nowhere not found on this host, your other hosts, or your organizations' Solus APIs." })
   })
 })

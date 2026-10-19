@@ -4,7 +4,7 @@ import type { Prompt } from "@solus/contracts/types";
 import type PromptEditor from "../../ui/PromptEditor.svelte";
 import { localApi } from "@solus/client-core/local-api";
 import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../../lib/inputFocus";
-import { quotedReplyDraft } from "../../../lib/quoted-reply";
+import { quotedReplyDraft } from "@solus/client-core/quoted-reply";
 import { checkoutPlace } from "../../../contexts/workspace/run-location";
 
 interface ComposerFocusOptions {

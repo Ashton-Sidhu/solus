@@ -127,14 +127,11 @@ When `list_session_pull_requests` is also on, the block tells the agent to call
 it before it finishes pull request work and to link each pull request that is
 missing.
 
-The project rail shows a session's links in its **Linked** card
-(`project-panel/LinkedSection.svelte`). The card is present only while the
-session links a pull request. Open pull requests come first; merged, closed and
-missing ones follow, dimmed. A row opens the pull request, and its context menu
-copies the URL or unlinks it. The header's plus button opens the same link
-dialog as the session menu. The phone has no rail, so the Actions tab of its
-plus menu shows the same rows with an unlink button and a "Link a pull request"
-row.
+The project rail has no card for a session's links. The rail's Git card shows
+the branch's own pull request. On desktop and web, the session sidebar row
+shows the links and can unlink them, and the session menu opens the link
+dialog. The phone has no rail, so the Actions tab of its plus menu shows the
+links with an unlink button and a "Link a pull request" row.
 
 ### An agent on an attached machine
 

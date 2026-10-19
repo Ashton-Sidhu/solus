@@ -464,6 +464,51 @@ describe('the link and guests', () => {
     expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'editor' })
   })
 
+  test('a member never holds less than the link: the host raises or makes the organization entry', async () => {
+    // WHY: the link entry admits only guests; a member reaches the resource through the
+    // organization's entry. A dialog that raised the link to editor and left the
+    // organization at viewer made members read only where a stranger with the link
+    // could edit. The host holds the rule, so no client can store that again.
+    const { shares } = manager()
+    const session = { kind: 'session', id: 's1' } as const
+    await seed('session', 's1', 'alice', 'org1')
+    await shares.setEntries({ resource: session, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }] }, member('alice'))
+
+    // Through setLink: the organization is raised with the link.
+    await shares.setLink({ resource: session, role: 'editor' }, member('alice'))
+    expect(await shares.roleFor(member('bob'), session)).toBe('editor')
+
+    // Through setEntries: a request that lowers the organization below the link is held at it.
+    const list = await shares.setEntries({ resource: session, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }] }, member('alice'))
+    expect(list.entries).toMatchObject([{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }])
+
+    // A link on a resource with no organization entry makes one at the link's role.
+    await seed('session', 's2', 'alice', 'org1')
+    const second = { kind: 'session', id: 's2' } as const
+    await shares.setEntries({ resource: second, entries: [], link: { role: 'editor' } }, member('alice'))
+    expect(await shares.roleFor(member('bob'), second)).toBe('editor')
+
+    // A higher organization role stays when the link is lower.
+    await seed('session', 's3', 'alice', 'org1')
+    const third = { kind: 'session', id: 's3' } as const
+    await shares.setEntries({ resource: third, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }], link: { role: 'viewer' } }, member('alice'))
+    expect(await shares.roleFor(member('bob'), third)).toBe('editor')
+  })
+
+  test('a Local record\'s link names no organization, and an unreachable host gets no entry', async () => {
+    // WHY: a link moves nothing into an organization (host-sharing.md §2), and on a host
+    // members cannot reach an organization entry would admit nobody (§4.3).
+    const { shares } = manager()
+    await seed('session', 's-local', 'alice')
+    await shares.setLink({ resource: { kind: 'session', id: 's-local' }, role: 'editor' }, OWNER)
+    expect((await shares.list({ kind: 'session', id: 's-local' }, OWNER)).entries).toEqual([])
+
+    const unreachable = new ShareManager({ db: database.getDatabase(), membersReachable: () => false })
+    await seed('session', 's-org', 'alice', 'org1')
+    await unreachable.setLink({ resource: { kind: 'session', id: 's-org' }, role: 'editor' }, member('alice'))
+    expect((await unreachable.list({ kind: 'session', id: 's-org' }, member('alice'))).entries).toEqual([])
+  })
+
   test('a session is shared by its session id alone; a provider thread id names no session', async () => {
     // WHY: one session id (docs/plans/session-identity.md). An entry keyed by a
     // thread id would give access to a session nobody shared under its own id.

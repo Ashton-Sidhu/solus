@@ -1,8 +1,10 @@
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
-import type { ContextCompaction, PermissionOption, QuestionItem, RateLimitInfo, RequestExpiry, SessionStatus, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
+import type { McpAppReference } from '@solus/contracts/mcp-apps'
+import type { ContextCompaction, PermissionOption, QuestionItem, RateLimitInfo, RequestExpiry, SessionStatus, StatusCardState, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { planKey } from '@solus/contracts/types'
+import { settleSetupCard } from '@solus/contracts/setup-card'
 import { AgentCards, isAgentConversationTool, type AgentItem } from './agent-cards'
 import { promptImageAttachments, splitAttachedFiles, type MessageAttachment } from './message-attachments'
 import { AgentPlans } from './agent-plans'
@@ -41,6 +43,8 @@ export type TranscriptItem =
       report: string | null
       /** Pictures the call returned, stored on the host. */
       images?: readonly ToolResultImage[]
+      /** The provider child's own transcript, kept off the parent's feed. */
+      children?: TranscriptModel
     }
   /** Another Solus session this conversation sent work to (`agent-cards.ts`). */
   | AgentItem
@@ -74,6 +78,9 @@ export type TranscriptItem =
     }
   /** The host handed the session's thread to another provider (plans/021). */
   | { kind: 'handoff'; id: string; activity: AgentSwitch }
+  | { kind: 'setup'; id: string; card: StatusCardState }
+  /** `sessionId` is the session the app's activity belongs to: the app is read through it. */
+  | { kind: 'mcp_app'; id: string; activityId: string; sessionId: string; app: McpAppReference }
 
 /** What changed since the last read: rows replaced, rows added, or the chrome around them. */
 export interface TranscriptChanges {
@@ -87,6 +94,8 @@ export interface PendingPermission {
   toolName: string
   description: string | null
   options: PermissionOption[]
+  /** A link guest sent the turn, so it runs in Ask mode whatever the session's mode is. */
+  guestTurn?: true
   /** Set when the request can no longer be answered. */
   expired?: RequestExpiry
 }
@@ -173,9 +182,12 @@ export class TranscriptModel {
     const ids: string[] = []
     this.collecting = ids
     for (const row of rows) {
-      // A sub-agent's rows are counted on the call that started it.
-      if (row.parentToolUseId) this.countChild(row.parentToolUseId)
-      else if (row.role === 'tool_result') this.applyHistoryResult(row)
+      if (row.parentToolUseId) {
+        const { parentToolUseId, ...message } = row
+        this.childTranscript(parentToolUseId, (child) => {
+          child.order = [...child.order, ...child.rowsToItems([message])]
+        })
+      } else if (row.role === 'tool_result') this.applyHistoryResult(row)
       else if (row.activity?.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(row.activity.offerId, row.activity.resolution)
       else {
         const id = this.historyItem(row)
@@ -199,6 +211,7 @@ export class TranscriptModel {
   /** One history row as an item; null for rows this client does not render yet
    *  (reasoning, most activity). */
   private historyItem(row: WireSessionLoadMessage): string | null {
+    if (row.activity?.kind === 'mcp_app') return this.addMcpApp(row.activity, false)
     if (row.activity?.kind === 'worktree_offered') return this.addWorktreeOffer(row.activity, false)
     if (row.activity?.kind === 'agent_switched') return this.addHandoff(row.activity, false)
     if (row.activity) return null
@@ -267,12 +280,18 @@ export class TranscriptModel {
     }))
   }
 
+  updateArtifact(id: string, update: Partial<Pick<ArtifactRender, 'html' | 'loading' | 'error'>>): void {
+    const item = this.items.get(id)
+    if (item?.kind === 'artifact') this.replace({ ...item, ...update }, id)
+  }
+
   // ─── Live events ───
 
   apply(event: WireNormalizedEvent): void {
     if (this.status === 'interrupted' && DROPPED_WHILE_INTERRUPTED.has(event.type)) return
     if ('parentToolUseId' in event && event.parentToolUseId) {
-      if (event.type === 'tool_call') this.countChild(event.parentToolUseId)
+      const { parentToolUseId, ...childEvent } = event
+      this.childTranscript(parentToolUseId, (child) => child.apply(childEvent))
       return
     }
     if (event.type === 'browser_snapshot_captured') {
@@ -339,9 +358,7 @@ export class TranscriptModel {
         this.applyCompaction(event)
         return true
       case 'activity':
-        if (event.activity.kind === 'worktree_offered') this.addWorktreeOffer(event.activity, true)
-        else if (event.activity.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(event.activity.offerId, event.activity.resolution)
-        else if (event.activity.kind === 'agent_switched') this.addHandoff(event.activity, true)
+        this.applyActivity(event.activity)
         return true
       default:
         return false
@@ -362,6 +379,13 @@ export class TranscriptModel {
 
   private applyTurn(event: WireNormalizedEvent): boolean {
     switch (event.type) {
+      case 'status_card': {
+        const id = `setup:${event.card.id}`
+        const item: TranscriptItem = { kind: 'setup', id, card: event.card }
+        if (this.items.has(id)) this.replace(item)
+        else this.append(item)
+        return true
+      }
       case 'status_change':
         this.setStatus(event.status)
         return true
@@ -411,6 +435,7 @@ export class TranscriptModel {
           toolName: event.toolName,
           description: event.toolDescription ?? null,
           options: event.options,
+          ...(event.guestTurn && { guestTurn: true as const }),
         }]
         this.metaChanged = true
         return true
@@ -529,10 +554,6 @@ export class TranscriptModel {
     }, true)
   }
 
-  private countChild(parentToolUseId: string): void {
-    this.patchToolById(parentToolUseId, false, (tool) => ({ ...tool, childCount: tool.childCount + 1 }))
-  }
-
   // ─── Local state the client owns ───
 
   /** A prompt the user just sent, shown before the host echoes it. */
@@ -554,6 +575,7 @@ export class TranscriptModel {
   setStatus(status: SessionStatus): void {
     if (this.status === status) return
     this.status = status
+    if (status !== 'connecting') this.settleSetupCards(status)
     if (status === 'idle') this.clearRequests()
     if (status === 'interrupted') this.settleInterruptedSubagents()
     // A running divider must not stay after the work stops.
@@ -806,6 +828,45 @@ export class TranscriptModel {
         this.orderChanged = true
       }
     }
+  }
+
+  /** Setup ends when the session leaves `connecting`: no stage stays active. */
+  private settleSetupCards(status: SessionStatus): void {
+    for (const [id, item] of this.items) {
+      if (item.kind !== 'setup' || item.card.status !== 'active') continue
+      this.replace({ ...item, card: settleSetupCard(item.card, status) }, id)
+    }
+  }
+
+  /** A provider subagent's rows go to its own transcript on the call that
+   *  started it, never into the parent feed. */
+  private childTranscript(toolId: string, apply: (child: TranscriptModel) => void): void {
+    this.patchToolById(toolId, false, (tool) => {
+      const children = tool.children ?? new TranscriptModel(`${this.sessionId}:${toolId}`)
+      apply(children)
+      return { ...tool, children, childCount: children.order.length }
+    })
+  }
+
+  /** A live activity of a kind the feed shows. */
+  private applyActivity(activity: Activity): void {
+    if (activity.kind === 'mcp_app') this.addMcpApp(activity, true)
+    else if (activity.kind === 'worktree_offered') this.addWorktreeOffer(activity, true)
+    else if (activity.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(activity.offerId, activity.resolution)
+    else if (activity.kind === 'agent_switched') this.addHandoff(activity, true)
+  }
+
+  private addMcpApp(activity: Extract<Activity, { kind: 'mcp_app' }>, append: boolean): string | null {
+    const id = `activity:${activity.id}`
+    if (this.items.has(id)) return null
+    const item: TranscriptItem = { kind: 'mcp_app', id, activityId: activity.id, sessionId: activity.subject.id, app: activity.app }
+    if (append) {
+      this.streamTarget = null
+      this.append(item)
+    } else {
+      this.items.set(id, item)
+    }
+    return id
   }
 
   private append(item: TranscriptItem): void {

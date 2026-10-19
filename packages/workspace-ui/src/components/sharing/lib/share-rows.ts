@@ -138,7 +138,7 @@ export function scopeOptions(list: ShareList, directory: OrganizationPeople | nu
  * The one write a scope stands for: its rows, with the people named on the list
  * kept as they are, and the link when the scope changes it.
  */
-export function scopeRequestFor(scope: ShareScope, list: ShareList, organizationId: string | null): ShareSetRequest {
+export function scopeRequestFor(scope: ShareScope, list: ShareList): ShareSetRequest {
   const entries: ShareSetRequest['entries'] = list.entries
     .filter((entry) => entry.subject.kind === 'user')
     .map((entry) => ({ subject: entry.subject, role: entry.role }))
@@ -152,11 +152,10 @@ export function scopeRequestFor(scope: ShareScope, list: ShareList, organization
       entries.push({ subject: { kind: 'organization', id: scope.organizationId }, role: scope.role })
       break
     case 'link': {
-      // The link is the widest scope: the organization, when there is one, stays on
-      // the list with the role it has; one it never had starts with the link's.
+      // The organization's entry is kept as the host has it: the host holds it at the
+      // link's role or above (`ShareManager.holdOrganizationAtLink`), making it when needed.
       const existing = list.entries.find((entry) => entry.subject.kind === 'organization')
       if (existing?.subject.kind === 'organization') entries.push({ subject: existing.subject, role: existing.role })
-      else if (organizationId) entries.push({ subject: { kind: 'organization', id: organizationId }, role: scope.role })
       break
     }
   }

@@ -1,7 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionSettledBy, type SessionState, type SessionView } from '@solus/contracts/session-state'
-import { executionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
+import { storedExecutionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
 import { getDatabase } from '../../db/database'
 import { sessionPullRequests, sessionStates, sessionViews } from './schema'
 import { organizationOfSession } from './session-records'
@@ -100,15 +100,22 @@ export class SessionShelf {
     return (row && stateFromColumns(row)) ?? UNSETTLED_SESSION_STATE
   }
 
-  /** Settle the session: its work is finished. Returns false when it was settled already. */
-  async settle(by: SessionSettledBy, at = Date.now()): Promise<boolean> {
-    await ensureRow(this.sessionId)
-    const changed = await this.update(sql`settled_at = ${at}, settled_by = ${by}`, sql`settled_at IS NULL`)
-    if (!changed) return false
+  /** Settle the session: its work is finished. Returns the state it leaves, or null when it was settled already. */
+  async settle(by: SessionSettledBy, at = Date.now()): Promise<SessionState | null> {
+    // One statement makes the row when it is missing, settles it only when it is not, and returns it.
+    const row = rowSchema.nullish().parse(await getDatabase().get(sql`
+      INSERT INTO ${sessionStates}(session_id, organization_id, settled_at, settled_by)
+      VALUES (${this.sessionId}, ${await organizationOfSession(this.sessionId)}, ${at}, ${by})
+      ON CONFLICT(session_id) DO UPDATE SET settled_at = excluded.settled_at, settled_by = excluded.settled_by
+      WHERE ${sessionStates}.settled_at IS NULL
+      RETURNING ${COLUMNS}
+    `))
+    const state = row && stateFromColumns(row)
+    if (!state) return null
     // A settled session's work is finished: nothing is left to wake it for.
     await stopSessionPullRequestWatches(this.sessionId)
-    await this.announce()
-    return true
+    for (const listener of listeners) listener(this.sessionId, state)
+    return state
   }
 
   /**
@@ -249,9 +256,9 @@ export async function sessionExecutionPreferences(sessionId: string): Promise<Ex
     SELECT execution_preferences FROM ${sessionStates} WHERE session_id = ${sessionId}
   `))
   if (!row?.execution_preferences) return undefined
-  // Written by this host after the same strict parse; a value that no longer
-  // parses is no person's choice, so the run falls back to the defaults.
-  const parsed = executionPreferencesSchema.safeParse(JSON.parse(row.execution_preferences))
+  // Written by this host after the strict parse; a removed key is dropped, and a
+  // value that no longer parses is no person's choice, so the run falls back to the defaults.
+  const parsed = storedExecutionPreferencesSchema.safeParse(JSON.parse(row.execution_preferences))
   return parsed.success ? parsed.data : undefined
 }
 

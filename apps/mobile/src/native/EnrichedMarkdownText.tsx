@@ -146,7 +146,7 @@ function enrichedStyle(
 }
 
 export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
-  const { onLinkPress, onImagePress, renderImage, resolveImageSource } = props;
+  const { onLinkPress, onImagePress, onQuote, renderImage, resolveImageSource } = props;
   const markdown = useMemo(
     () => markdownWithBlockImages(markdownWithHtml(props.markdown)),
     [props.markdown],
@@ -197,6 +197,13 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
         : undefined,
     [documentAssets, onLinkPress],
   );
+  const contextMenuItems = useMemo(
+    () =>
+      onQuote
+        ? [{ text: "Quote in reply", icon: "text.quote", onPress: ({ text }: { text: string }) => onQuote(text) }]
+        : undefined,
+    [onQuote],
+  );
   const markdownStyle = useMemo(
     () => ({ ...enrichedStyle(props.textStyle, themeAppearance === "dark"), linkVariants }),
     [props.textStyle, themeAppearance, linkVariants],
@@ -240,8 +247,10 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
           admonitions: true,
         }}
         enableTaskListItemToggle={false}
+        enableCodeBlockWrapToggle={false}
         spoilerOverlay="solid"
         onLinkPress={onLinkPress ? ({ url }) => onLinkPress(url) : undefined}
+        contextMenuItems={contextMenuItems}
         linkContextMenuItems={linkContextMenuItems}
         linkPillContent={linkPillContent}
       />

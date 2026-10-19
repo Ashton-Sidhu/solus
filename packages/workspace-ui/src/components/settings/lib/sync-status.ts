@@ -34,6 +34,7 @@ const KEY_LABELS = new Map<PersonalSettingKey, string>([
   ['defaultModels', 'Default models'],
   ['modelOptionsByProvider', 'Model options'],
   ['extraInstructions', 'Custom instructions'],
+  ['modelInstructions', 'Model instructions'],
   ['savedLenses', 'Saved review lenses'],
   ['fontFamily', 'Interface font'],
   ['fontSize', 'Interface font size'],
@@ -72,4 +73,32 @@ export function conflictRows(conflicts: readonly SettingConflict[]): Array<{ key
     mine: conflictSideText(conflict.mine, conflict.key),
     theirs: conflictSideText(conflict.theirs, conflict.key),
   }))
+}
+
+/** How the status badge reads at a glance: settled, working, needs the person, or stopped. */
+export type AccountSyncTone = 'settled' | 'working' | 'attention' | 'stopped'
+
+export function accountSyncTone(state: DocumentSyncState): AccountSyncTone {
+  switch (state) {
+    case 'synced': return 'settled'
+    case 'loading':
+    case 'pending':
+    case 'signed-out': return 'working'
+    case 'offline':
+    case 'conflict': return 'attention'
+    case 'error': return 'stopped'
+  }
+}
+
+/** The badge's short word; the full sentence stays in `accountSyncStateLabel`. */
+export function accountSyncBadge(summary: AccountSyncSummary): string {
+  switch (summary.state) {
+    case 'signed-out': return 'Signed out'
+    case 'loading': return 'Checking…'
+    case 'synced': return 'Synced'
+    case 'pending': return 'Syncing'
+    case 'offline': return 'Offline'
+    case 'conflict': return 'Needs you'
+    case 'error': return 'Stopped'
+  }
 }

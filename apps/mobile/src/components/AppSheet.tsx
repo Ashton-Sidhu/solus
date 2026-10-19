@@ -58,11 +58,12 @@ export function AppSheet(props: {
                 translucent
                 headerRightBarButtonItems={[
                   {
+                    // Dismiss only: an X, as T3 Code #21319. The owner's
+                    // onClose still runs (it may cancel sign-in work).
                     type: "button",
-                    title: "Done",
-                    variant: "done",
+                    icon: { type: "sfSymbol", name: "xmark" },
                     accessibilityLabel: `Close ${props.title}`,
-                    identifier: `app-sheet-done-${screenId}`,
+                    identifier: `app-sheet-close-${screenId}`,
                     onPress: close,
                   },
                 ]}

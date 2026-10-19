@@ -1,15 +1,19 @@
 import { loadHistoryPage, type HistorySegment } from './history-page'
 import { lineageSwitchDivider } from './thread-activity'
+import { selectSubagentHistory } from './subagent-history'
 import { createLogger } from '../../logger'
 import { isRawReviewSkill } from '../agents/review-command'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import type { AgentId, AgentUsageLimits, IpcContext, PlanDescriptor, PluginCommandsResult, SessionMeta, SessionDescription, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
-import type { SessionHistoryPageRequest, ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
+import type { SessionHistoryPageRequest, SessionSubagentRequest, ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import { type TurnSeat } from '../seats/seat-manager'
 import type { SessionRuntime } from '../session-runtime'
 
 const log = createLogger('SessionRuntime', 'session-history.ts')
+
+/** User turns in one page of a provider subagent's own history. */
+const SUBAGENT_PAGE_TURNS = 20
 
 const AGENT_DISPLAY_NAMES = new Map<AgentId, string>([
   ['claude-code', 'Claude Code'],
@@ -39,6 +43,23 @@ export class SessionHistory {
     }
   }
 
+  /**
+   * One page of a provider subagent's history, found through the parent call
+   * that started it. The parent's transcript names the child; the request
+   * cannot (docs/plans/conversation-card-parity.md).
+   */
+  async loadSessionSubagent(request: SessionSubagentRequest): Promise<ProviderHistoryPage> {
+    const parent = await this.loadSession(request.provider, request.sessionId, request.projectPath)
+    const selected = selectSubagentHistory(parent, request.toolId, request.provider)
+    if (!selected.threadId) return { messages: selected.messages, before: null }
+    return loadHistoryPage(
+      JSON.stringify([request.sessionId, request.toolId, selected.threadId]),
+      [{ provider: selected.provider, sessionId: selected.threadId, projectPath: request.projectPath }],
+      SUBAGENT_PAGE_TURNS, request.before,
+      (segment, turnLimit, before) => this.readProviderPage(segment, turnLimit, before),
+    )
+  }
+
   async loadSessionPage(request: SessionHistoryPageRequest): Promise<ProviderHistoryPage> {
     const { provider, sessionId, projectPath } = request
     const lineage = resolveSessionLineageById(sessionId)
@@ -54,12 +75,14 @@ export class SessionHistory {
     return loadHistoryPage(
       JSON.stringify(lineage ? [lineage.sessionId] : [provider, sessionId]), segments,
       request.turnLimit, request.before,
-      async (segment, turnLimit, before) => {
-        const backend = this.rt.backendFor(segment.provider)
-        if (!backend.loadSessionPage) throw new Error('This provider does not support history pages.')
-        return backend.loadSessionPage(segment.sessionId!, segment.projectPath, turnLimit, before)
-      },
+      (segment, turnLimit, before) => this.readProviderPage(segment, turnLimit, before),
     )
+  }
+
+  private async readProviderPage(segment: HistorySegment, turnLimit: number, before?: string): Promise<ProviderHistoryPage> {
+    const backend = this.rt.backendFor(segment.provider)
+    if (!backend.loadSessionPage) throw new Error('This provider does not support history pages.')
+    return backend.loadSessionPage(segment.sessionId!, segment.projectPath, turnLimit, before)
   }
 
   async loadSession(agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {

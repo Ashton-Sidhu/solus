@@ -86,7 +86,7 @@ export interface AgentCardStore {
 }
 
 const sessionToolInput = (input: string | undefined): {
-  session_id?: string; prompt?: string; message?: string; model_id?: string; agent_provider?: AgentId
+  session_id?: string; prompt?: string; title?: string; message?: string; model_id?: string; agent_provider?: AgentId
 } => {
   try {
     const parsed: unknown = JSON.parse(input || '{}')
@@ -99,6 +99,7 @@ const sessionToolInput = (input: string | undefined): {
     return {
       session_id: read('session_id'),
       prompt: read('prompt'),
+      title: read('title')?.trim() || undefined,
       message: read('message'),
       model_id: read('model_id'),
       agent_provider: provider === 'claude-code' || provider === 'codex' || provider === 'opencode' ? provider : undefined,
@@ -171,6 +172,7 @@ export class AgentCards {
       messageId: result?.messageId,
       prompt: (toolName.endsWith('start_session') ? input.prompt : input.message) ?? '',
       provider: result?.provider ?? input.agent_provider,
+      title: toolName.endsWith('start_session') ? input.title : undefined,
       model: input.model_id,
       timestamp,
     })

@@ -1,3 +1,4 @@
+import { keepEqual, sameItems } from '@solus/client-core/keep-equal'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { ProjectEntry, SessionRecord } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
@@ -139,12 +140,20 @@ export class ThreadDirectory {
       ])
       const shell = (record: SessionRecord): SolusThreadShell => ({ key: threadKey(hostId, record.sessionId), hostId, hostLabel: host.label, record })
       const shells = list.records.map(shell)
+      // An unchanged project keeps its object, so a reader of projects alone sees no change.
+      const held = new Map(previous?.projects.map((project) => [project.key, project]))
+      const projectShells = projects.map((project): SolusProjectShell => {
+        const key = `${hostId}\u0000${project.path}`
+        const answered = { key, hostId, hostLabel: host.label, project }
+        const kept = held.get(key)
+        return kept ? keepEqual(answered, kept) : answered
+      })
       next = {
         kind: 'loaded',
         value: {
           threads: shells,
           unlisted: unlisted.records.filter((record) => record.listed === false).map(shell),
-          projects: projects.map((project) => ({ key: `${hostId}\u0000${project.path}`, hostId, hostLabel: host.label, project })),
+          projects: previous && sameItems(projectShells, previous.projects) ? previous.projects : projectShells,
           indexing: list.indexing,
         },
       }
@@ -212,7 +221,14 @@ export class ThreadDirectory {
     threads.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
     unlisted.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
     projects.sort((a, b) => a.project.folderName.localeCompare(b.project.folderName))
-    this.merged = { threads, unlisted, projects }
+    // A list whose items did not change keeps its array: a host that starts
+    // reading again, or a change to sessions only, leaves the project list as it was.
+    const held = this.merged
+    this.merged = {
+      threads: sameItems(threads, held.threads) ? held.threads : threads,
+      unlisted: sameItems(unlisted, held.unlisted) ? held.unlisted : unlisted,
+      projects: sameItems(projects, held.projects) ? held.projects : projects,
+    }
     this.changes.notify()
   }
 }

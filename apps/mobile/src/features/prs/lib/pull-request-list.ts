@@ -64,14 +64,18 @@ export function pullRequestRepositoryKey(pr: Pick<PullRequest, 'baseRepo'>): str
 }
 
 /** Every readable project of every host, in host order. A project that could
- *  not be read gives no rows; the host listing names it. */
-export function pullRequestRows(listings: readonly { hostId: string; listing: HostPullRequests | null }[]): PullRequestRow[] {
+ *  not be read gives no rows; the host listing names it. A row of `previous`
+ *  whose pull request and project did not change is kept, so a memoized row
+ *  does not render again. */
+export function pullRequestRows(listings: readonly { hostId: string; listing: HostPullRequests | null }[], previous: readonly PullRequestRow[] = []): PullRequestRow[] {
+  const held = new Map(previous.map((row) => [row.pr, row]))
   const rows: PullRequestRow[] = []
   for (const { hostId, listing } of listings) {
     for (const project of listing?.projects ?? []) {
       if (project.kind !== 'page') continue
       for (const pr of project.prs) {
-        rows.push({
+        const kept = held.get(pr)
+        rows.push(kept && kept.hostId === hostId && kept.projectPath === project.projectPath && kept.folderName === project.folderName ? kept : {
           hostId,
           projectPath: project.projectPath,
           folderName: project.folderName,

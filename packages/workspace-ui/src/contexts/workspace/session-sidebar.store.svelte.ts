@@ -80,7 +80,6 @@ import { isSolusApiId } from '@solus/contracts/uplink'
 import { mergeSessionHomes, type SessionHomeHosts } from '../../components/session/lib/session-home'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { sessionPrLink, sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
-import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import { sessionListStore, type ListedSession, type SessionListTarget } from './session-list.store.svelte'
 import { canDriveSession } from '../sharing/resource-roles'
 import {
@@ -1009,11 +1008,6 @@ export class SessionSidebarStore {
     await this.unlinkablePullRequest(task, choice)?.()
   }
 
-  /** The pull requests the session behind a tab links. A draft has none. */
-  pullRequestLinksForTab(tabId: string): SessionPullRequestLink[] {
-    return sessionPullRequestsStore.linksFor(this.session.tabs[tabId]?.sessionId)
-  }
-
   /** The one session a session row stands for. */
   sessionIdOfRow(task: SidebarTask): string | null {
     const tabId = task.tabIds[0]
@@ -1515,13 +1509,16 @@ export class SessionSidebarStore {
       this.closeTask(row)
       return
     }
+    // The list changes before the home answers, so the row moves at once.
     if (row.lifecycle === 'completed') {
+      const unsettling = sessionListStore.setSettled(target, false)
       if (!row.tabIds.length) await this.openListedSession(row)
-      await sessionListStore.setSettled(target, false)
+      await unsettling
       return
     }
-    await sessionListStore.setSettled(target, true)
+    const settling = sessionListStore.setSettled(target, true)
     this.closeTask(row)
+    await settling
   }
 
   /** Put a durable task and every linked attempt back into the sidebar. The
@@ -1683,6 +1680,20 @@ export class SessionSidebarStore {
     if (tabId) this.selectTab(tabId)
     else await this.openListedSession(task)
     timing?.shown()
+  }
+
+  /** The next/previous-session keys: open the open row `delta` rows from the
+   *  one on screen, in the order the column lists them, wrapping at the ends.
+   *  With no row on screen, start from the top or the bottom. */
+  async selectAdjacentRow(delta: 1 | -1): Promise<void> {
+    const rows = [...this.taskRows, ...this.sessionRows, ...this.workingRows]
+    if (!rows.length) return
+    const index = rows.findIndex((row) => row.id === this.onScreenTaskId)
+    const next = index === -1
+      ? rows[delta === 1 ? 0 : rows.length - 1]
+      : rows[(index + delta + rows.length) % rows.length]
+    if (next.id === this.onScreenTaskId) return
+    await this.selectTask(next)
   }
 
   /** Restore a picker result, then open it as clicking its sidebar row does. */

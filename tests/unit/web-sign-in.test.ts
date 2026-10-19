@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { OAuthSession, type StoredGrant } from '@solus/client-core/oauth-session'
-import { resumeWebSignIn, SILENT_RETRY_AFTER_MS, webTokenStore, type KeyValueStorage, type PageLifecycle } from '@solus/client-core/web-sign-in'
+import { fetchAuthorize, resumeWebSignIn, webTokenStore, type KeyValueStorage, type PageLifecycle } from '@solus/client-core/web-sign-in'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 
-// The web client signs in on the account origin with a top-level redirect: the
-// website's cookie approves it silently, and `/auth/callback` completes it on the same
-// page (ADR 0001 §2.2 rule 1). The refresh token lives in page memory and crosses a
-// reload through sessionStorage only, so a duplicated tab never shares it (§5 replay).
+// The web client signs in on the account origin with one same-origin fetch: the
+// website's cookie approves it silently and the provider answers the callback address
+// as JSON, so no page loads (ADR 0001 §2.2 rule 1; docs/plans/instant-share-open.md).
+// The refresh token lives in page memory and crosses a reload through sessionStorage
+// only, so a duplicated tab never shares it (§5 replay).
 
 function memoryStorage(): KeyValueStorage & { items: Map<string, string> } {
   const items = new Map<string, string>()
@@ -49,80 +50,87 @@ describe('web token store', () => {
   })
 })
 
-function world(path: string, options: { signedIn?: boolean } = {}) {
+function world(path: string, answer: 'approve' | 'login_required' | 'none' = 'approve') {
   const plane = fakeAccountPlane({ clientId: 'solus-web' })
-  const storage = memoryStorage()
   const session = new OAuthSession({ cloudOrigin: ISSUER, clientId: 'solus-web', store: webTokenStore(memoryStorage(), page()), fetch: plane.fetch, now: plane.now })
   const navigations: string[] = []
-  const location = { origin: ISSUER, pathname: path, search: '', hash: '', href: `${ISSUER}${path}` }
-  let address = path
+  const authorized: URL[] = []
+  const location = { origin: ISSUER, pathname: path, search: '', hash: '' }
   const deps = {
-    session, storage, location,
+    session, location,
     navigate: (url: string) => { navigations.push(url) },
-    replaceAddress: (next: string) => { address = next },
     whenSignedOut: (returnTo: string) => (returnTo.startsWith('/w/') ? 'stay' as const : 'sign-in' as const),
-    now: plane.now,
+    /** The website answers the authorize request from its cookie, as the provider does for a fetch that accepts JSON. */
+    authorize: async (authorizeUrl: URL) => {
+      authorized.push(authorizeUrl)
+      if (answer === 'none') return null
+      return answer === 'approve' ? plane.approve(authorizeUrl) : new URL(`${ISSUER}/auth/callback?error=login_required&state=${authorizeUrl.searchParams.get('state')}`)
+    },
   }
-  /** The browser follows the redirect: the website answers the callback, and the page loads there. */
-  const arriveAtCallback = (answer: 'approve' | 'login_required') => {
-    const authorize = new URL(navigations.at(-1)!)
-    const callback = answer === 'approve' ? plane.approve(authorize) : new URL(`${ISSUER}/auth/callback?error=login_required&state=${authorize.searchParams.get('state')}`)
-    Object.assign(location, { pathname: callback.pathname, search: callback.search, href: callback.toString() })
-  }
-  return { plane, storage, session, deps, navigations, arriveAtCallback, address: () => address }
+  return { session, deps, navigations, authorized }
 }
 
 describe('resumeWebSignIn', () => {
-  test('a page with no sign-in starts one silent sign-in, and the callback signs it in and restores the address', async () => {
-    const w = world('/tasks/42')
-    w.deps.location.search = '?view=board'
-    w.deps.location.hash = '#top'
-    expect(await resumeWebSignIn(w.deps)).toBe('redirecting')
-    const authorize = new URL(w.navigations[0]!)
+  test('a page with no sign-in signs in silently, with no page load and no change of address', async () => {
+    const w = world('/s/sess_1')
+    w.deps.location.hash = '#secret'
+    expect(await resumeWebSignIn(w.deps)).toBe('signed-in')
+    const authorize = w.authorized[0]!
     expect(authorize.searchParams.get('prompt')).toBe('none')
     expect(authorize.searchParams.get('client_id')).toBe('solus-web')
     expect(authorize.searchParams.get('redirect_uri')).toBe(`${ISSUER}/auth/callback`)
     expect(authorize.searchParams.get('code_challenge_method')).toBe('S256')
-
-    w.arriveAtCallback('approve')
-    expect(await resumeWebSignIn(w.deps)).toBe('signed-in')
     expect(w.session.state()).toMatchObject({ kind: 'signed-in', identity: { sub: 'user-1' } })
-    expect(w.address()).toBe('/tasks/42?view=board#top')
+    expect(w.navigations).toEqual([])
   })
 
-  test('no website session sends a member to sign in, and a guest stays on the share link signed out', async () => {
-    const member = world('/tasks/42')
-    await resumeWebSignIn(member.deps)
-    member.arriveAtCallback('login_required')
+  test('a tab that holds a sign-in asks for nothing', async () => {
+    const w = world('/tasks/42')
+    await resumeWebSignIn(w.deps)
+    expect(await resumeWebSignIn(w.deps)).toBe('signed-in')
+    expect(w.authorized).toHaveLength(1)
+  })
+
+  test('no website session sends a member to sign in and back, and keeps a guest on the share link signed out', async () => {
+    const member = world('/tasks/42', 'login_required')
+    member.deps.location.search = '?view=board'
     expect(await resumeWebSignIn(member.deps)).toBe('redirecting')
-    expect(member.navigations.at(-1)).toBe(`${ISSUER}/sign-in?next=${encodeURIComponent('/tasks/42')}`)
+    expect(member.navigations).toEqual([`${ISSUER}/sign-in?next=${encodeURIComponent('/tasks/42?view=board')}`])
 
-    const guest = world('/w/res_1')
+    const guest = world('/w/res_1', 'login_required')
     guest.deps.location.hash = '#secret'
-    await resumeWebSignIn(guest.deps)
-    guest.arriveAtCallback('login_required')
     expect(await resumeWebSignIn(guest.deps)).toBe('signed-out')
-    expect(guest.address()).toBe('/w/res_1#secret')
-    expect(guest.navigations).toHaveLength(1)
+    expect(guest.navigations).toEqual([])
   })
 
-  test('a silent sign-in that did not sign the page in is not tried again at once, so it cannot loop', async () => {
-    const w = world('/w/res_1')
-    await resumeWebSignIn(w.deps)
-    w.arriveAtCallback('login_required')
-    await resumeWebSignIn(w.deps)
-    Object.assign(w.deps.location, { pathname: '/w/res_1', search: '' })
+  test('no answer from the website leaves the page signed out, where it is', async () => {
+    const w = world('/tasks/42', 'none')
     expect(await resumeWebSignIn(w.deps)).toBe('signed-out')
-    expect(w.navigations).toHaveLength(1)
-    w.plane.advance(SILENT_RETRY_AFTER_MS)
-    expect(await resumeWebSignIn(w.deps)).toBe('redirecting')
+    expect(w.navigations).toEqual([])
+  })
+})
+
+describe('fetchAuthorize', () => {
+  const AUTHORIZE = new URL(`${ISSUER}/api/auth/oauth2/authorize?client_id=solus-web`)
+
+  test('asks for JSON with the page\'s own cookie, and follows no redirect', async () => {
+    let sent: RequestInit | undefined
+    const callback = `${ISSUER}/auth/callback?code=c1&state=s1`
+    const answer = await fetchAuthorize(AUTHORIZE, async (_input, init) => {
+      sent = init
+      return Response.json({ redirect: true, url: callback })
+    })
+    expect(answer?.toString()).toBe(callback)
+    expect(new Headers(sent?.headers).get('accept')).toBe('application/json')
+    expect(sent?.credentials).toBe('same-origin')
+    expect(sent?.redirect).toBe('manual')
   })
 
-  test('a callback this page did not start is refused and leaves the callback address', async () => {
-    const w = world('/auth/callback')
-    w.deps.location.href = `${ISSUER}/auth/callback?code=stolen&state=x`
-    expect(await resumeWebSignIn(w.deps)).toBe('signed-out')
-    expect(w.session.state().kind).toBe('signed-out')
-    expect(w.address()).toBe('/')
+  test('an address off this origin or off the callback, or any other answer, is no callback', async () => {
+    const answering = (body: unknown, status = 200): typeof fetch => async () => Response.json(body, { status })
+    expect(await fetchAuthorize(AUTHORIZE, answering({ redirect: true, url: 'https://evil.test/auth/callback?code=c' }))).toBeNull()
+    expect(await fetchAuthorize(AUTHORIZE, answering({ redirect: true, url: `${ISSUER}/elsewhere?code=c` }))).toBeNull()
+    expect(await fetchAuthorize(AUTHORIZE, answering({ error: 'invalid_client' }, 400))).toBeNull()
+    expect(await fetchAuthorize(AUTHORIZE, async () => { throw new TypeError('offline') })).toBeNull()
   })
 })

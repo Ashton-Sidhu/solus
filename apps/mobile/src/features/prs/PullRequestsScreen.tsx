@@ -111,7 +111,7 @@ export function PullRequestsScreen(props: {
       result.push({ ...saved, label: saved.projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? saved.projectPath })
     }
     return result
-    // `list.hosts` changes with every directory change, so the listings are current.
+    // `list.hosts` changes when a shown host's read changes; only those reads change the projects here.
   }, [app, list.hosts, scope.hostId, scope.project, pairedHostIds, hostLabels])
 
   const openPullRequest = useCallback((row: PullRequestRow) => {

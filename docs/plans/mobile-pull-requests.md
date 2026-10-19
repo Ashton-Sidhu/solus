@@ -26,8 +26,14 @@ host calls from a separate server change.
 
 ## Vocabulary
 
-- **Pull Requests tab** — the second root tab beside **Chats** in the mobile
+- **Pull Requests tab** — the second list tab beside **Chats** in the mobile
   workspace. It lists pull requests of every connected host.
+- **destination** — one of the top-level places of the Android workspace
+  navigation: **Chats**, **Pull Requests**, and **Settings**. The two list
+  tabs are workspace state; Settings is selected while its pages are on top
+  of the root stack (`workspace-destinations.ts`).
+- **navigation rail** — the Android destinations in a split layout: a 72dp
+  column at the leading edge that widens to 240dp over the panes.
 - **pull request detail** — the screen for one pull request. It has the tabs
   **Overview**, **Activity**, **Commits**, **Files**, and **Guide**.
 - **diff surface** — the native view that draws a unified diff
@@ -61,6 +67,16 @@ or a new server session made stale is dropped (`PullRequestDirectory.read`).
 
 Server mutations need a connection. Reads show the cached value when the host is
 not reachable, with the state marked as not refreshed.
+
+A read again, or a PR sync push, that answers what shows already keeps the
+shown objects (`lib/pull-request-retain.ts`, the `retain` option of
+`HostReads`): pull requests pair by number, projects by folder, and each detail
+part apart. The read state still goes from loading to loaded, so spinners,
+notices, errors, and the offline line stay true; only a value-only selector
+sees no change. The list reads its host states and its rows as two snapshots
+(`PullRequestListSelection`): an equal refresh renders no row again, and a
+changed pull request renders only its row. Diffs and guides do not use
+`retain`.
 
 Cache bounds (from T3): 30 days, 256 records, and 32 MiB for each host; a
 response larger than 4 MiB is not cached.
@@ -106,6 +122,8 @@ workspace UI. This module needs a new native build of the app.
 - `Home` becomes the workspace root with two tabs, Chats and Pull Requests
   (`src/features/workspace/`). The per-host `PullRequests` route is removed;
   a host's pull requests open as the Pull Requests tab filtered to that host.
+- Android shows Settings as a third destination (2026-10-19, T3 #20813). See
+  "Android destinations" below.
 - New stack routes for the pull request detail flows: `PullRequestReview`,
   `PullRequestInlineComment`, `PullRequestReviewers`, `PullRequestLabels`
   (sheets) and `PullRequestDiscussion` (pushed).
@@ -126,3 +144,47 @@ from `GuideSection`; each stop shows the section's `hunks` on the diff surface.
   sidebar and keeps compose in the bottom toolbar. Android keeps its Material
   navigation bar.
 - Desktop and web are not changed: they already have this capability.
+
+### Android destinations (2026-10-19)
+
+The maintainers chose T3's Android navigation (#20813) without its history
+and transition defects. This replaces the earlier rule of two root tabs on
+Android; iOS keeps its two system tabs and the Settings button in the header.
+
+- **Phone:** the Material bar has Chats, Pull Requests, and Settings. Settings
+  opens over Home without an animation, and the bar stays under Settings and
+  its pages. Settings opened over a conversation is an ordinary page: no bar,
+  and Back returns to the conversation.
+- **Split layout:** the navigation rail replaces the bar. It holds a menu
+  button, New session, and the three destinations as icons. The menu widens it
+  to 240dp over the panes with labels and a scrim; Back, the scrim, or a
+  choice closes it. The rail hides with the sidebar. The sidebar has no New
+  session button of its own. Settings opens in the content pane beside the
+  sidebar, as before; it does not hide the sidebar, so the sidebar never
+  blanks or overlaps Settings while the native screen attaches (T3's open
+  defect).
+- **History:** choosing Settings keeps the stack under it. Choosing the shown
+  list tab from Settings closes Settings and returns to where the person was.
+  Choosing the other list tab goes to Home and selects it, as the iPad sidebar
+  picker does. A tab change still clears search.
+- **Retained lists:** Chats and Pull Requests each mount on the first visit
+  and then stay mounted while hidden, behind React `Activity`
+  (`WorkspaceTabPanes`). A return shows the list as it was left. A hidden list
+  runs no effects: its search Back handler, header options, focus refresh, and
+  host reads stop, and run again with their freshness guards when it shows.
+  At most the two lists are kept. iOS already retains its native tab trees.
+
+### Pull request detail (2026-10-19)
+
+- **Segmented control:** iOS draws UIKit's segmented control through the
+  installed `@expo/ui` SwiftUI segmented Picker (T3 #20327 used its own native
+  module). UIKit supplies drag selection, VoiceOver traits, Dynamic Type, and
+  reduced motion; the control follows the app's light or dark appearance with
+  the system colors. A choice the caller refuses remounts the control on the
+  caller's value. Android keeps Material segmented buttons.
+- **Share:** both detail menus have Share… beside Copy link and Open on GitHub,
+  shown when Copy link is (T3 #21250). iOS shares the URL; Android shares the
+  URL as the message, with the title as the subject. A cancelled sheet is not
+  an error; a failure shows an alert. On iPad the sheet is a popover over the
+  window, since a native menu item is not a view it can point at. Desktop and
+  web keep Copy link and Open on GitHub as their equivalent.

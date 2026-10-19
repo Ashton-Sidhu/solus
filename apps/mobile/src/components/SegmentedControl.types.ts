@@ -6,11 +6,10 @@ export interface SegmentedControlProps<Value extends number | string> {
   }[];
   readonly selected: Value;
   readonly onSelect: (value: Value) => void;
-  /** Compact sizing applies to the non-Material control. */
+  /** Compact sizing applies to the iOS control; Material buttons keep their 48dp height. */
   readonly size?: "default" | "compact";
-  /** "tab" for the view switcher; filters stay plain buttons. */
+  /** "tab" for the view switcher; filters stay plain buttons. UIKit gives iOS segments their own traits. */
   readonly role?: "tab" | "button";
+  /** Layout around the control; the platform control draws its own track and selection. */
   readonly className?: string;
-  /** The selected option's fill, for a track whose color matches the default (`bg-secondary`). */
-  readonly indicatorClassName?: string;
 }

@@ -6,7 +6,7 @@
    * account, signed in), and Remove.
    */
   import { RefreshCw as CopyIcon, Trash2 as RemoveIcon } from "@lucide/svelte";
-  import { agentProfileStore, uplinkStore } from "../../../contexts";
+  import { agentProfileStore, serversStore, uplinkStore } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { agentProfileDescription, hostLinkLabel } from "../../seats/lib/agent-profile-copy";
   import SettingsRow from "../SettingsRow.svelte";
@@ -23,6 +23,7 @@
   const status = $derived(agentProfileStore.statuses.get(serverId));
   const busy = $derived(agentProfileStore.busy.has(serverId));
   const link = $derived(hostLinkLabel(uplinkStore.statusFor(serverId)));
+  const address = $derived(serversStore.sameNameAddress(serverId));
 
   // The row is the one reader of a host's status and its link; it asks when it appears.
   $effect(() => {
@@ -48,7 +49,8 @@
 
 <SettingsRow
   {label}
-  description={`${link} ${agentProfileDescription(status, agentProfileStore.errors.get(serverId), agentProfileStore.canCopy)}`}
+  labelExtra={hostFacts}
+  description={agentProfileDescription(status, agentProfileStore.errors.get(serverId))}
   testId="agent-profile-row"
 >
   {#snippet control()}
@@ -73,3 +75,8 @@
     </div>
   {/snippet}
 </SettingsRow>
+
+{#snippet hostFacts()}
+  {#if address}<span class="ml-1.5 font-normal text-muted-foreground">{address}</span>{/if}
+  <span class="ml-2 font-normal text-[13px] text-(--solus-text-secondary)">{link}</span>
+{/snippet}

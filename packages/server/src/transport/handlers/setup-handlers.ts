@@ -16,6 +16,7 @@ import type { Principal } from '../../admission/principal'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { launchedProcess, launchProcess } from '../../cli-env'
 import { runAsync } from '../../git/exec'
+import { withBareRepositoryGuard } from '../../git/bare-repository-guard'
 import { isGitUsable } from '../../git/git-availability'
 import { gitCommandAuth } from '../../git/git-auth-env'
 import { currentIdentity } from '../../vault/acting-scope'
@@ -446,7 +447,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       email: coerceConfigValue(email, 'Email'),
     }
     for (const [key, value] of [['user.name', identity.name], ['user.email', identity.email]]) {
-      const run = launchProcess('git', ['config', '--global', key, value])
+      const run = launchProcess('git', withBareRepositoryGuard('git', ['config', '--global', key, value]))
       execFileSync(run.file, run.args, { env: run.env, timeout: PROBE_TIMEOUT_MS })
     }
     return identity
@@ -496,7 +497,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   server.register('setupInstallGitCredentialHelper', () => {
     const helper = solusGitHelper([])
     if (!helper) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
-    const run = launchProcess('git', ['config', '--global', GITHUB_CREDENTIAL_KEY, helper])
+    const run = launchProcess('git', withBareRepositoryGuard('git', ['config', '--global', GITHUB_CREDENTIAL_KEY, helper]))
     execFileSync(run.file, run.args, {
       env: run.env,
       timeout: PROBE_TIMEOUT_MS,
@@ -661,7 +662,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const helper = solusGitHelper(['--delegation', ownerKey])
     if (!helper) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
     const config = (key: string, value: string) => {
-      const run = launchProcess('git', ['-C', checkoutPath, 'config', '--local', key, value])
+      const run = launchProcess('git', withBareRepositoryGuard('git', ['-C', checkoutPath, 'config', '--local', key, value]))
       execFileSync(run.file, run.args, { env: run.env, timeout: PROBE_TIMEOUT_MS })
     }
     // Local config is shared by linked worktrees, so every dispatched worktree inherits the caller's identity and helper.
@@ -830,7 +831,7 @@ function cloneRepoKey(cloneUrl: string): string | null {
 /** Runs a short read-only command and returns its trimmed output, or null if it can't. */
 function runProbe(command: string, args: string[]): string | null {
   try {
-    const run = launchProcess(command, args)
+    const run = launchProcess(command, withBareRepositoryGuard(command, args))
     const out = execFileSync(run.file, run.args, {
       encoding: 'utf8',
       env: run.env,
@@ -846,7 +847,7 @@ function runProbe(command: string, args: string[]): string | null {
 /** For probes whose answer is the exit code rather than anything they print. */
 function probeSucceeds(command: string, args: string[]): boolean {
   try {
-    const run = launchProcess(command, args)
+    const run = launchProcess(command, withBareRepositoryGuard(command, args))
     execFileSync(run.file, run.args, {
       env: run.env,
       timeout: PROBE_TIMEOUT_MS,
@@ -907,7 +908,7 @@ async function attemptClone(opts: {
   const spec: ProcessCommandSpec = {
     command: 'git',
     // `--` keeps a destination folder named like `-x` from being read as an option.
-    args: [...auth.args, 'clone', '--progress', ...cloneArgs, '--', attemptUrl, basename(targetPath)],
+    args: withBareRepositoryGuard('git', [...auth.args, 'clone', '--progress', ...cloneArgs, '--', attemptUrl, basename(targetPath)]),
     display: ['git clone --progress', ...cloneArgs, '--', attemptUrl, basename(targetPath)].join(' '),
   }
   emitLog({ step, line: `Cloning ${attemptUrl} into ${targetPath}` })

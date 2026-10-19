@@ -98,4 +98,24 @@ describe('background worker naming', () => {
     expect(await ensureBackgroundSessionTitle(runtime, events, { sessionId: 'older' }, ports)).toBe('Short Worker Title')
     expect(generated).toHaveLength(1)
   })
+
+  // Seven workers started from one brief share its opening line; the name the
+  // starter chose is what tells them apart, so nothing replaces it.
+  test("saves the starter's name as is, even with auto naming off", async () => {
+    records.set('named', worker('codex', 'named'))
+    expect(await ensureBackgroundSessionTitle(runtime, events, { sessionId: 'named', title: 'Server fixes', prompt: 'Full worker brief', preferences: { autoRenameSessions: false } }, ports)).toBe('Server fixes')
+    expect(generated).toEqual([])
+    expect(writes).toEqual([{ sessionId: 'named', title: 'Server fixes' }])
+    expect((events as { broadcast: typeof mock }).broadcast).toHaveBeenCalledTimes(1)
+  })
+
+  test('names a session started from another host only when its starter named it', async () => {
+    const remote = { ...worker('claude-code', 'remote'), delegation: undefined } as SessionMeta
+    const unnamed = { ...worker('claude-code', 'unnamed'), delegation: undefined } as SessionMeta
+    records.set('remote', remote)
+    records.set('unnamed', unnamed)
+    expect(await ensureBackgroundSessionTitle(runtime, events, { sessionId: 'remote', title: 'Remote build' }, ports)).toBe('Remote build')
+    expect(await ensureBackgroundSessionTitle(runtime, events, { sessionId: 'unnamed' }, ports)).toBeNull()
+    expect(generated).toEqual([])
+  })
 })

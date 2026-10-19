@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentConversationRef, AgentExchange, ExchangeProgress, Message, Session } from '@solus/contracts/types'
+import type { AgentConversationRef, AgentExchange, ExchangeProgress, Message, Session, SessionMeta } from '@solus/contracts/types'
 import { formatParentPrompt, formatSessionNotice } from '@solus/contracts/session-exchange'
 import {
   agentConversationCardState,
+  agentConversationGroupElapsedMs,
+  agentConversationGroupSummary,
   agentConversationLink,
+  agentConversationTitle,
   agentMessages,
   pendingRequest,
   planAwaitingDecision,
@@ -309,5 +312,58 @@ describe("a card's status line", () => {
       label: 'Completed',
       detail: 'Moved the diff panel',
     })
+  })
+})
+
+describe("an agent card's name", () => {
+  // WHY: one brief sent to seven workers gives seven cards the same opening
+  // sentence. The name the starter gave each session is what tells them apart,
+  // on the live card, on reload, and once the session index knows it.
+  const brief = 'You are an implementation worker. Fix the server.'
+
+  test('a rebuilt start_session card keeps the name its starter gave it', () => {
+    const named: Message[] = []
+    new TranscriptAgentConversations(named)
+      .applyToolRow('start_session', JSON.stringify({ prompt: brief, title: 'Server fixes' }), { sessionId: child, messageId: first }, 1)
+    expect(named[0]!.agentConversationRef!.title).toBe('Server fixes')
+
+    const unnamed: Message[] = []
+    new TranscriptAgentConversations(unnamed)
+      .applyToolRow('start_session', JSON.stringify({ prompt: brief }), { sessionId: child, messageId: first }, 1)
+    expect(unnamed[0]!.agentConversationRef!.title).toBe('You are an implementation worker.')
+  })
+
+  test("the session's own name wins over its slug and the prompt", () => {
+    const ref = cardRef({})
+    expect(agentConversationTitle(ref, undefined)).toBe('t')
+    expect(agentConversationTitle(ref, { slug: 'fizzy-otter', customTitle: null } as SessionMeta)).toBe('fizzy-otter')
+    expect(agentConversationTitle(ref, { slug: 'fizzy-otter', customTitle: 'Server fixes' } as SessionMeta)).toBe('Server fixes')
+  })
+})
+
+describe('a group of agent cards', () => {
+  // WHY: a turn that starts several sessions shows one header that says how
+  // many there are and where they stand, and it must not hide one that waits
+  // on a person behind a closed fold.
+  const request = { kind: 'question' as const, question: { questionId: 'q1', questions: [] } }
+  const running = cardRef({ status: 'running', dispatchedAt: 0 })
+  const waiting = { ...cardRef({ status: 'awaiting_input', request, dispatchedAt: 1_000 }), sessionId: 'b' }
+  const done = { ...cardRef({ status: 'done', reply: 'ok', dispatchedAt: 2_000, settledAt: 3_000 }), sessionId: 'c' }
+
+  test('counts where each session stands and says when one needs a person', () => {
+    expect(agentConversationGroupSummary([running, waiting, done])).toEqual({
+      title: '3 agents',
+      status: '1 working · 1 waiting · 1 done',
+      live: true,
+      failed: false,
+      needsPerson: true,
+    })
+    expect(agentConversationGroupSummary([done]).needsPerson).toBe(false)
+    expect(agentConversationGroupSummary([done]).live).toBe(false)
+  })
+
+  test('runs from the first dispatch to now while any session works, and to the last end after', () => {
+    expect(agentConversationGroupElapsedMs([running, done], 10_000)).toBe(10_000)
+    expect(agentConversationGroupElapsedMs([done], 10_000)).toBe(1_000)
   })
 })

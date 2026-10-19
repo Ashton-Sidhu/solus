@@ -139,6 +139,14 @@ describe('one sentence per activity', () => {
     expect(text({ kind: 'shared', with: 'organization' })).toBe('Bob shared this session with the organization')
   })
 
+  test('a Codex permission names what it asked for, not its protocol method', () => {
+    // WHY: Codex permissions are recorded by request method. Read raw, the
+    // divider says "approved item/commandExecution/requestApproval" and wraps.
+    expect(text({ kind: 'permission_decided', questionId: 'q', tool: 'item/commandExecution/requestApproval', decision: 'approved_for_session' })).toBe('Bob approved a command for this session')
+    expect(text({ kind: 'permission_decided', questionId: 'q', tool: 'item/fileChange/requestApproval', decision: 'denied' })).toBe('Bob denied a file change')
+    expect(text({ kind: 'permission_decided', questionId: 'q', tool: 'item/tool/call', decision: 'approved' })).toBe('Bob approved a tool call')
+  })
+
   test('"you" only for the reader; a teammate is their chip', () => {
     const own = activityLine(activity({ kind: 'stopped' }, ALICE), alice)
     expect(own).toMatchObject({ person: null, who: 'You', text: 'You stopped the agent' })

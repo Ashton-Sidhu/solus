@@ -21,6 +21,8 @@ import {
   SESSION_EVENT_LABELS,
 } from "./lib/settings-labels";
 
+type NotificationPreferences = PersonalSettings["notifications"];
+
 /**
  * What you are told about, and how: the person's own choice (plans/018), not
  * one host's. Two axes, as on the desktop: a notification goes out only when
@@ -30,16 +32,7 @@ import {
 export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSettings">) {
   const app = useApp();
   const insets = useSafeAreaInsets();
-  const { channels, events } = useListened(
-    app.personal.changes,
-    app.personal.current,
-  ).notifications;
   const liveActivities = useListened(app.liveActivity.changes, app.liveActivity.enabled);
-  const update = (change: (next: PersonalSettings["notifications"]) => void) => {
-    const next = structuredClone(app.personal.current().notifications);
-    change(next);
-    app.personal.set({ notifications: next });
-  };
 
   return (
     <SettingsScreen title="Notifications">
@@ -53,15 +46,13 @@ export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSett
         <View className="gap-3">
           <SettingsSection title="Delivery">
             {NOTIFICATION_CHANNELS.map((channel) => (
-              <SettingsSwitchRow
+              <NotificationSwitchRow
                 key={channel}
                 label={NOTIFICATION_CHANNEL_LABELS[channel]}
-                value={channels[channel]}
-                onValueChange={(on) =>
-                  update((next) => {
-                    next.channels[channel] = on;
-                  })
-                }
+                read={(notifications) => notifications.channels[channel]}
+                write={(next, on) => {
+                  next.channels[channel] = on;
+                }}
               />
             ))}
           </SettingsSection>
@@ -71,15 +62,13 @@ export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSett
         <View className="gap-3">
           <SettingsSection title="Session events">
             {SESSION_NOTIFICATION_EVENTS.map((event) => (
-              <SettingsSwitchRow
+              <NotificationSwitchRow
                 key={event}
                 label={SESSION_EVENT_LABELS[event]}
-                value={events[event]}
-                onValueChange={(on) =>
-                  update((next) => {
-                    next.events[event] = on;
-                  })
-                }
+                read={(notifications) => notifications.events[event]}
+                write={(next, on) => {
+                  next.events[event] = on;
+                }}
               />
             ))}
           </SettingsSection>
@@ -89,15 +78,13 @@ export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSett
         <View className="gap-3">
           <SettingsSection title="Workspace notices">
             {APP_NOTICE_EVENTS.map((event) => (
-              <SettingsSwitchRow
+              <NotificationSwitchRow
                 key={event}
                 label={APP_NOTICE_LABELS[event]}
-                value={events[event]}
-                onValueChange={(on) =>
-                  update((next) => {
-                    next.events[event] = on;
-                  })
-                }
+                read={(notifications) => notifications.events[event]}
+                write={(next, on) => {
+                  next.events[event] = on;
+                }}
               />
             ))}
           </SettingsSection>
@@ -122,5 +109,29 @@ export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSett
         ) : null}
       </ScrollView>
     </SettingsScreen>
+  );
+}
+
+/**
+ * One switch. It reads only its own value, so turning one on, or a change to
+ * another setting, re-renders this row and not the page.
+ */
+function NotificationSwitchRow(props: {
+  readonly label: string;
+  readonly read: (notifications: NotificationPreferences) => boolean;
+  readonly write: (next: NotificationPreferences, on: boolean) => void;
+}) {
+  const app = useApp();
+  const value = useListened(app.personal.changes, () => props.read(app.personal.current().notifications));
+  return (
+    <SettingsSwitchRow
+      label={props.label}
+      value={value}
+      onValueChange={(on) => {
+        const next = structuredClone(app.personal.current().notifications);
+        props.write(next, on);
+        app.personal.set({ notifications: next });
+      }}
+    />
   );
 }

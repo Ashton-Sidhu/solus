@@ -20,7 +20,9 @@ import { CloudSignInScreen } from '../features/account/CloudSignInScreen'
 import { HomeRouteScreen } from '../features/home/HomeRouteScreen'
 import { ThreadRouteScreen } from '../features/threads/ThreadRouteScreen'
 import { ThreadAgentsSheet } from '../features/threads/ThreadAgents'
+import { ProviderSubagentScreen } from '../features/threads/ProviderSubagentScreen'
 import { ThreadQueueSheet } from '../features/threads/ThreadQueueSheet'
+import { ThreadSettingsRouteScreen } from '../features/threads/ThreadSettingsSheet'
 import { NewTaskRouteScreen } from '../features/threads/NewTaskRouteScreen'
 import { NewTaskEnvironmentPickerRouteScreen } from '../features/threads/NewTaskContextPickerScreens'
 import { HostsScreen } from '../features/hosts/HostsScreen'
@@ -28,6 +30,8 @@ import { PairHostScreen } from '../features/hosts/PairHostScreen'
 import { AdaptiveWorkspaceLayout, type WorkspaceLocation } from '../features/layout/AdaptiveWorkspaceLayout'
 import { createWorkspaceStackNavigator } from '../features/layout/createWorkspaceStackNavigator'
 import { WorkspaceTabsProvider } from '../features/workspace/WorkspaceTabsContext'
+import { WorkspaceSettingsFrame } from '../features/workspace/WorkspaceSettingsFrame'
+import { settingsPagesOnTop } from '../features/workspace/workspace-destinations'
 import { WelcomeScreen } from '../features/onboarding/WelcomeScreen'
 import { OpenProjectScreen } from '../features/projects/OpenProjectScreen'
 import { NewProjectScreen } from '../features/projects/NewProjectScreen'
@@ -132,6 +136,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'NewTaskEnvironment',
   'ThreadAgents',
   'ThreadQueue',
+  'ThreadSettings',
   'Settings',
   'AccountSync',
   'AgentProfile',
@@ -151,7 +156,9 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
 ])
 
 /** The topmost non-overlay route, with its key so thread selection can
- *  dismiss sheets without replacing the wrong destination. */
+ *  dismiss sheets without replacing the wrong destination. Settings stays an
+ *  overlay for the layout (the sidebar stays beside it) but is the selected
+ *  Android destination while its pages are on top. */
 function workspaceLocationFromState(state: NavigationState<RootStackParamList>): WorkspaceLocation {
   const routes = state.routes.filter((route) => !WORKSPACE_OVERLAY_ROUTES.has(route.name))
   const route = routes.length > 0 ? routes[routes.length - 1] : state.routes[state.index]
@@ -160,6 +167,7 @@ function workspaceLocationFromState(state: NavigationState<RootStackParamList>):
     routeKey: route?.key,
     // SAFETY: a route named 'Thread' is only pushed with `RootStackParamList['Thread']` params.
     thread: route?.name === 'Thread' ? (route.params as RootStackParamList['Thread']) : null,
+    settingsOpen: settingsPagesOnTop(state) > 0,
   }
 }
 
@@ -235,6 +243,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             }}
           />
           <Stack.Screen name="Thread" component={ThreadRouteScreen} options={GLASS_HEADER_OPTIONS} />
+          <Stack.Screen name="ThreadSubagent" component={ProviderSubagentScreen} options={{ ...GLASS_HEADER_OPTIONS, title: 'Agent' }} />
           <Stack.Screen
             name="ThreadAgents"
             component={ThreadAgentsSheet}
@@ -246,6 +255,19 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             component={ThreadQueueSheet}
             // T3 Code's Queue sheet (Stack.tsx): 0.65 of the height, drawn up to 0.95.
             options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.65, 0.95], sheetGrabberVisible: true }}
+          />
+          <Stack.Screen
+            name="ThreadSettings"
+            component={ThreadSettingsRouteScreen}
+            // T3 Code's ThreadSettingsSheet route (Stack.tsx): a full-height form sheet that hosts the
+            // picker's own stack; a card on Android.
+            options={{
+              gestureEnabled: true,
+              headerShown: false,
+              ...(Platform.OS === 'android'
+                ? { presentation: 'card' as const }
+                : { ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [1], sheetGrabberVisible: true }),
+            }}
           />
           <Stack.Screen
             name="NewTask"
@@ -269,18 +291,27 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen name="ProjectFromGithub" component={ProjectFromGithubScreen} options={{ title: 'Get a project from GitHub' }} />
           <Stack.Screen name="CloneProject" component={CloneProjectScreen} options={{ title: 'Clone from a URL' }} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications', headerLargeTitle: true }} />
-          <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings', gestureEnabled: true }} />
-          <Stack.Screen name="AccountSync" component={AccountSyncScreen} options={{ title: 'Account & sync' }} />
-          <Stack.Screen name="AgentProfile" component={AgentProfileScreen} options={{ title: 'Agent profile' }} />
-          <Stack.Screen name="AppearanceSettings" component={AppearanceScreen} options={{ title: 'Appearance' }} />
-          <Stack.Screen name="OrganizationSettings" component={OrganizationSettingsScreen} options={{ title: 'Organization' }} />
-          <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />
-          <Stack.Screen name="HostAccess" component={HostAccessScreen} options={{ title: 'Access' }} />
-          <Stack.Screen name="Integrations" component={IntegrationsScreen} options={{ title: 'MCP' }} />
-          <Stack.Screen name="AgentDefaults" component={AgentDefaultsScreen} options={{ title: 'Agent defaults' }} />
-          <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: 'Notifications' }} />
-          <Stack.Screen name="GitHubConnection" component={GitHubConnectionScreen} options={{ title: 'GitHub' }} />
-          <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About Solus' }} />
+          {/* Settings and its pages (SETTINGS_PAGE_ROUTES). An Android phone keeps the
+              navigation bar under them when Settings was chosen from it. */}
+          <Stack.Group screenLayout={({ children }) => <WorkspaceSettingsFrame>{children}</WorkspaceSettingsFrame>}>
+            <Stack.Screen
+              name="Settings"
+              component={SettingsScreen}
+              // Android: a top-level destination, so it swaps like the list tabs.
+              options={{ title: 'Settings', gestureEnabled: true, ...(Platform.OS === 'android' ? { animation: 'none' as const } : null) }}
+            />
+            <Stack.Screen name="AccountSync" component={AccountSyncScreen} options={{ title: 'Account & sync' }} />
+            <Stack.Screen name="AgentProfile" component={AgentProfileScreen} options={{ title: 'Agent profile' }} />
+            <Stack.Screen name="AppearanceSettings" component={AppearanceScreen} options={{ title: 'Appearance' }} />
+            <Stack.Screen name="OrganizationSettings" component={OrganizationSettingsScreen} options={{ title: 'Organization' }} />
+            <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />
+            <Stack.Screen name="HostAccess" component={HostAccessScreen} options={{ title: 'Access' }} />
+            <Stack.Screen name="Integrations" component={IntegrationsScreen} options={{ title: 'MCP' }} />
+            <Stack.Screen name="AgentDefaults" component={AgentDefaultsScreen} options={{ title: 'Agent defaults' }} />
+            <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: 'Notifications' }} />
+            <Stack.Screen name="GitHubConnection" component={GitHubConnectionScreen} options={{ title: 'GitHub' }} />
+            <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About Solus' }} />
+          </Stack.Group>
           <Stack.Screen name="PullRequest" component={PullRequestScreen} options={{ title: 'Pull request' }} />
           <Stack.Screen name="PullRequestFiles" component={PullRequestFilesScreen} options={{ title: 'Changed files' }} />
           {/* T3 Code's pull request sheets (Stack.tsx): the review and the line comment are form sheets without a header. */}

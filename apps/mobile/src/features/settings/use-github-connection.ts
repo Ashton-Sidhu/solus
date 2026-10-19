@@ -75,17 +75,19 @@ export function useGithubConnection(hostId: string) {
       setView({ kind: 'connecting', prompt })
       void app.platform.openBrowser(prompt.verificationUri)
     })
-    try {
+    // The React Compiler cannot compile try/finally. The async wrapper turns a
+    // synchronous throw into a rejection, so catch and finally see both.
+    await (async () => {
       const status = await connection.api.providerConnect(context())
       setView(status.connected ? { kind: 'connected', login: status.login ?? null } : { kind: 'disconnected' })
-    } catch (cause) {
+    })().catch((cause) => {
       // A cancelled sign-in is the person's choice, not a failure to report.
       const message = cause instanceof Error ? cause.message : String(cause)
       setView(/cancel/i.test(message) ? { kind: 'disconnected' } : { kind: 'error', message })
-    } finally {
+    }).finally(() => {
       stop()
       connecting.current = false
-    }
+    })
   }
 
   const cancel = () => {

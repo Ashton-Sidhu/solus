@@ -17,7 +17,7 @@ The existing host/service split in `workspace-and-machines.md` remains valid.
 |---|---|---|
 | Canonical `organization_id` and read scopes | `admission/principal.ts` (`RecordScope`, `recordScopeOf`, `organizationForNew`), `data/scope.ts`, every ported store | — |
 | Host category and standing | `host/host-category.ts`, `host/organizations.ts` (`GET /v1/hosts/:id/organizations`) | `host.category`, `host_organization` shares, `uplink/hosts.ts readHostOrganizations` |
-| Organization policy | held against in `execution/sessions/turn-organization.ts` and `sync/mirror/insight-mirror.ts` | `organization_host_policy.allow_personal_hosts`, `sync_all_insights`; owner-only edit |
+| Organization policy | `allow_personal_hosts` decides whether a person may link their own computer to the cloud and expose it; it refuses no turn. `sync_all_insights` is held against in `sync/mirror/insight-mirror.ts` | `organization_host_policy.allow_personal_hosts`, `sync_all_insights`; owner-only edit |
 | Per-organization delivery | `sync/mirror/mirror-log.ts`, `sync/outbox/outbox-store.ts`, `sync/runner-delivery.ts` (one queue per organization and person), `sync/delegations.ts` | OAuth token endpoint: token exchange and refresh for the host's client (plans/010-standard-oauth.md) |
 | Share on a Local work or task | client upload with the person's sign-in (`cloud-sharing.md`); `workExportForCloud`, `workMarkMoved`, `taskExportForCloud`, `taskMarkMoved` | — |
 | Insights attribution | `spans.user_id/user_email/organization_id`, `insight_spans` copies, `data/insights/api-turns.ts` | — |
@@ -119,6 +119,15 @@ shows Local only. An explicit public share link opens its limited guest view.
 | Move a Local session to an organization | Changes its collaboration home to that organization |
 | Share a Local resource | Publishes that resource to a chosen organization before creating its cloud share |
 | Share a Local session with everyone in an organization | Assigns the session to that organization once, on its host; a session of another organization is refused (`ShareManager.joinNamedOrganization`) |
+
+A session's organization is not its home. On a person's own machine a new
+session takes, once, the organization of the person who starts it (the
+window's organization), whatever their Insights setting. It is a fact about the
+session, like its owner: it shares nothing and moves nothing. Only publication
+makes a session its organization's work, with the organization's cloud records
+as its home (`isOrganizationWork` in `data/sessions/session-records.ts`; the
+client's `sessionHomeId` uses the same rule). Until then its record, list
+state, and restart continuation stay on its machine.
 
 The host is a separate choice. An organization session can run on the owner's
 laptop without granting other members general access to that laptop.
@@ -243,9 +252,11 @@ Keep this separate from product analytics consent and explicit report sharing.
 organization for every turn. Organization selection is a client filter; it
 cannot assign different turns of an existing session to different organizations.
 
-An organization session uses its existing organization. For an unassigned
-Local session, use the active organization once when establishing the session's
-organization for cloud Insights, and save that association before delivery.
+An organization session uses its existing organization. An unassigned Local
+session takes the active organization once at its first turn (§3), whether or
+not Insights are sent. Insights are sent when the person is signed in and the
+setting is on (`insightsEligible`); the setting does not decide the session's
+organization.
 This does not itself publish its transcript or works. Any later publication of
 the session must use that same organization; it cannot create a second
 organization association. With no assigned organization, keep Insights Local.

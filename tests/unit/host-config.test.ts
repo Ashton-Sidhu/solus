@@ -139,6 +139,14 @@ describe('instructions on runs with no renderer', () => {
     expect(runInput.instructionsFor(undefined, 'claude-opus-4').extraInstructions).toBe('')
   })
 
+  test('model instructions are resolved for the model actually running', () => {
+    const preferences = { modelInstructions: { 'gpt-5.6-luna': 'Prefer short answers.', 'claude-opus-4': 'Show your work.' } }
+
+    expect(runInput.instructionsFor(preferences, 'gpt-5.6-luna').modelInstructions).toBe('Prefer short answers.')
+    // A model with nothing scoped to it gets nothing, not another model's text.
+    expect(runInput.instructionsFor(preferences, 'some-other-model').modelInstructions).toBeUndefined()
+  })
+
 })
 
 describe('the agent write policy', () => {

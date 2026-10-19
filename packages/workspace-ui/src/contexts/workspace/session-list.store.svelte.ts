@@ -2,7 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import type { SessionState, SessionView } from '@solus/contracts/session-state'
 import type { SessionMeta, SessionRecord } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { loadServers } from '@solus/client-core/server-registry'
+import { connectedRunnerFor } from '@solus/client-core/session-runner'
 import { sessionHomeId } from '@solus/client-core/session-home'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
@@ -14,7 +14,8 @@ export interface ListedSession {
    *  while the machine that ran it is not connected. */
   serverId: string
   /** The session's home, which keeps its list state and its pull requests:
-   *  the organization's Solus API for an organization session, else the machine. */
+   *  the organization's Solus API for a published organization session, else
+   *  the machine. */
   homeServerId: string
   /** The machine that ran this cloud session is not connected: it opens from
    *  the Solus API, read-only (docs/plans/cloud-service-model.md, R8). */
@@ -34,11 +35,12 @@ export interface ListedSession {
 export type SessionListState = SessionState & SessionView
 
 /** One session to settle, snoozed, or archive: the host a row acts through,
- *  and the session's organization when the row knows it. */
+ *  and the session's organization and publication when the row knows them. */
 export interface SessionListTarget {
   serverId: string
   sessionId: string
   organizationId?: string | null
+  publication?: SessionRecord['publication']
 }
 
 /** The connections a session's homes are on. */
@@ -49,10 +51,7 @@ export interface SessionListHosts {
 }
 
 const registryHosts: SessionListHosts = {
-  connectedRunnerFor: (runnerHostId) => {
-    const runner = loadServers().find((server) => server.uplink?.hostId === runnerHostId)
-    return runner && serverConnections.statusFor(runner.id) === 'connected' ? runner.id : null
-  },
+  connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
   connectedServerIds: () => serverConnections.connectedServerIds(),
 }
 
@@ -67,11 +66,13 @@ const NO_STATE: SessionListState = { settledAt: null, settledBy: null, archivedA
  * settle, `session.viewChanged` for this person's view. It is written here,
  * and nothing is read back.
  *
- * Each session has one home. An organization session's home is its Solus
- * API, which lists it and keeps its state while the machines that run it
- * rotate; it opens on the machine that ran it while that machine is connected
- * (docs/plans/cloud-service-model.md, R1/R8). A machine's own list does not
- * stand for an organization session while its Solus API is connected.
+ * Each session has one home. A published organization session's home is its
+ * Solus API, which lists it and keeps its state while the machines that run
+ * it rotate; it opens on the machine that ran it while that machine is
+ * connected (docs/plans/cloud-service-model.md, R1/R8). A machine's own list
+ * does not stand for a published organization session while its Solus API is
+ * connected. An unpublished one never reaches the Solus API, so its machine
+ * keeps it.
  */
 export class SessionListStore {
   /** The sessions in this person's list, by stable session id. */
@@ -96,7 +97,7 @@ export class SessionListStore {
     const answer = await api.sessionRecordList().catch(() => null)
     if (!answer || serverConnections.apiFor(serverId) !== api) return
     const isCloud = isSolusApiId(serverId)
-    // An organization session a machine lists is its Solus API's to list.
+    // A published organization session a machine lists is its Solus API's to list.
     const records = isCloud ? answer.records : answer.records.filter((record) => this.homeOf(serverId, record) === serverId)
     const answered = new Set(records.map((record) => record.sessionId))
     for (const [sessionId, listed] of this.listedBySession) {
@@ -125,8 +126,8 @@ export class SessionListStore {
     sessionPullRequestsStore.adopt(serverId, records)
   }
 
-  private homeOf(serverId: string, record: Pick<SessionRecord, 'organizationId'>): string {
-    return sessionHomeId(serverId, record.organizationId, this.hosts)
+  private homeOf(serverId: string, record: Pick<SessionRecord, 'organizationId' | 'publication'>): string {
+    return sessionHomeId(serverId, record, this.hosts)
   }
 
   /** Each home announces its own changes, so each is subscribed once. */
@@ -197,21 +198,31 @@ export class SessionListStore {
   /** The home that keeps one session's list state. */
   homeFor(target: SessionListTarget): string {
     return this.listedBySession.get(target.sessionId)?.homeServerId
-      ?? sessionHomeId(target.serverId, target.organizationId, this.hosts)
+      ?? sessionHomeId(target.serverId, target, this.hosts)
   }
 
-  /** Settle a session for everyone, or make a settled one active again. */
+  /** Settle a session for everyone, or make a settled one active again. The list
+   *  changes at once; a refusal from the home puts the previous state back. */
   async setSettled(target: SessionListTarget, isSettled: boolean): Promise<void> {
     const serverId = this.homeFor(target)
     this.watchHost(serverId)
-    this.applyState(serverId, target.sessionId, (await serverConnections.apiFor(serverId).sessionUpdate(target.sessionId, { settled: isSettled })).state)
+    const previous = this.statesBySession.get(target.sessionId)
+    this.writeState(target.sessionId, isSettled ? { settledAt: Date.now(), settledBy: 'person' } : null)
+    try {
+      const { state } = await serverConnections.apiFor(serverId).sessionUpdate(target.sessionId, { settled: isSettled })
+      if (state) this.applyState(serverId, target.sessionId, state)
+    } catch (error) {
+      this.writeState(target.sessionId, previous)
+      throw error
+    }
   }
 
   /** Snooze a session in this person's list until a wake time; null wakes it now. */
   async snooze(target: SessionListTarget, until: number | null, note = ''): Promise<void> {
     const serverId = this.homeFor(target)
     this.watchHost(serverId)
-    this.applyView(serverId, target.sessionId, (await serverConnections.apiFor(serverId).sessionUpdate(target.sessionId, { snoozedUntil: until, snoozeNote: note })).view)
+    const { view } = await serverConnections.apiFor(serverId).sessionUpdate(target.sessionId, { snoozedUntil: until, snoozeNote: note })
+    if (view) this.applyView(serverId, target.sessionId, view)
   }
 
   /** Take a session out of this person's list, or return it. It leaves the

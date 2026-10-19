@@ -1,8 +1,10 @@
 // Adapted from T3 Code apps/mobile/src/features/workspace/workspace-tabs-state.ts (MIT, see UPSTREAM.md).
 
 /**
- * The two root tabs of the mobile workspace (docs/plans/mobile-pull-requests.md).
+ * The two list tabs of the mobile workspace (docs/plans/mobile-pull-requests.md).
  * The workspace owns this state, so it stays while a detail screen is pushed.
+ * Android also shows Settings as a destination beside them; that selection
+ * comes from the root stack, not from here (workspace-destinations.ts).
  *
  * T3 keeps a query, a search mode, and a scroll offset for each tab. Solus
  * keeps one query and one search mode, and a tab change clears them: each

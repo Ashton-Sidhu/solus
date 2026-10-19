@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { io, type Socket } from 'socket.io-client'
 import { z } from 'zod'
-import { SolusApiClient } from '@solus/contracts/solus-api/client'
+import { SolusApiClient, SolusApiHttp } from '@solus/contracts/solus-api/client'
 import { workspaceRecordMethods } from '@solus/client-core/workspace-records'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
@@ -91,14 +91,14 @@ export class LabClient {
 
   constructor(private readonly options: LabClientOptions) {
     this.persona = options.persona
-    this.api = new SolusApiClient({
+    this.api = new SolusApiClient(new SolusApiHttp({
       baseUrl: () => options.hostUrl,
       contextKey: () => options.persona.id,
       acquireSource: async () => options.credentialFree ? (await options.localOwnerToken?.()) ?? null : this.grant(),
       organizationId: () => options.persona.kind === 'org-member' ? options.persona.organizationId : null,
       shareSecret: options.shareSecret,
       guestIdentity: options.persona.kind === 'guest' ? { guestId: options.persona.guestId, displayName: options.persona.displayName } : undefined,
-    })
+    }))
     this.records = workspaceRecordMethods(this.api, (id) => this.rpc('tasksReadExtras', id))
   }
 

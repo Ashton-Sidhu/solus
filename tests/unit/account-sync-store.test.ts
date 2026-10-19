@@ -74,7 +74,7 @@ function installDom(storage: Storage) {
     addEventListener() {},
     removeEventListener() {},
     visibilityState: 'visible',
-    documentElement: { classList: { toggle() {}, contains: () => false }, style },
+    documentElement: { classList: { toggle() {}, contains: () => false }, style, dataset: {} },
     body: { style },
     querySelectorAll: () => [],
     querySelector: () => null,

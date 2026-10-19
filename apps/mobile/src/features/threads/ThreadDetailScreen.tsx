@@ -7,7 +7,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../navigation/routes";
 import * as Haptics from "expo-haptics";
 import { isSessionBusyStatus, type SessionOrigin, type SessionStatus } from "@solus/contracts/types";
-import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AppState,
   Keyboard,
@@ -16,7 +16,12 @@ import {
   View,
   type GestureResponderEvent,
 } from "react-native";
-import { KeyboardController, KeyboardStickyView, useKeyboardState } from "react-native-keyboard-controller";
+import {
+  KeyboardController,
+  KeyboardEvents,
+  KeyboardStickyView,
+  useKeyboardState,
+} from "react-native-keyboard-controller";
 import Animated, {
   FadeInDown,
   FadeOut,
@@ -36,7 +41,7 @@ import type { LayoutVariant } from "../../lib/layout";
 import type { ViewInstance } from "react-native";
 import type { HostConnectionPhase } from "../hosts/host-connections";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
-import type { ConversationMeta, ConversationStore } from "../conversation/conversation-store";
+import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { AgentPlanCard } from "./ThreadPlanCard";
@@ -44,6 +49,7 @@ import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { FLOATING_WORKING_CONTROL_COVERAGE, FloatingWorkingControl } from "./floating-working-control";
 import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
+import { KeyboardResumeGuard } from "./android-keyboard-resume";
 import {
   COMPOSER_COLLAPSED_CHROME,
   COMPOSER_EXPANDED_CHROME,
@@ -51,11 +57,11 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadFeed, type ThreadContentPresentation, type ThreadFeedHistoryControls } from "./ThreadFeed";
-import { latestTurnAgentIds, useAgentPresentations } from "./ThreadAgents";
+import { QuoteInReplyContext } from "./ThreadMarkdown";
+import { useAgentRoster } from "./ThreadAgents";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { endQueuedMessageEdit, useQueuedMessageEdit } from "./queued-message-edit";
 import { agentsPillLabel } from "./agent-card-presentation";
-import { useListened } from "../../app/app-context";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
 import { IntegrationConnectSheet } from "../conversation/components/IntegrationConnectSheet";
 
@@ -101,32 +107,34 @@ function workStartedAt(store: ConversationStore, working: boolean): number | nul
   return startedAt;
 }
 
-/** The id a thread sheet route (Queue, Agents) reopens this conversation by. */
-function conversationIdOf(store: ConversationStore): string {
-  const { record, newSession } = store.controller.target;
-  return record?.sessionId ?? newSession?.sessionId ?? store.controller.run.sessionId;
-}
-
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
   const { store, meta } = props;
   const insets = useSafeAreaInsets();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const liveKeyboardHeight = useKeyboardState((state) => state.height);
   // Android can swallow the IME hide callbacks when the app is backgrounded
-  // mid keyboard-hide; quarantine the sticky translation on every resume until
-  // the keyboard reports again.
+  // mid keyboard-hide; quarantine the sticky translation on resume until the
+  // keyboard reports again, unless the composer kept focus and no hide was
+  // under way (android-keyboard-resume.ts).
   const [keyboardStateSuspect, setKeyboardStateSuspect] = useState(false);
+  // Owned by events only; read in handlers and effects, never during render.
+  const keyboardResumeRef = useRef(new KeyboardResumeGuard());
   useEffect(() => {
     if (Platform.OS !== "android") {
       return;
     }
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        setKeyboardStateSuspect(true);
-      }
-    });
+    const subscriptions = [
+      ...(["keyboardWillShow", "keyboardWillHide", "keyboardDidHide"] as const).map((event) =>
+        KeyboardEvents.addListener(event, () => keyboardResumeRef.current.keyboardEvent(event)),
+      ),
+      AppState.addEventListener("change", (state) => {
+        if (state === "active") {
+          setKeyboardStateSuspect(keyboardResumeRef.current.suspectOnResume());
+        }
+      }),
+    ];
     return () => {
-      subscription.remove();
+      for (const subscription of subscriptions) subscription.remove();
     };
   }, []);
   useEffect(() => {
@@ -150,6 +158,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const handleComposerFocusChange = useCallback(
     (focused: boolean) => {
       setComposerFocused(focused);
+      keyboardResumeRef.current.composerFocusChanged(focused);
       handleOwnedInputFocusChange(focused);
     },
     [handleOwnedInputFocusChange],
@@ -177,11 +186,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const activePendingApproval = meta.permissions[0] ?? null;
   const activePendingUserInput = meta.questions[0] ?? null;
   const queuedCount = meta.queue.entries.length;
-  // The newest turn's agents, for the Agents pill. Rows are added rarely; an
-  // agent's status changes its own item only.
-  const order = useListened(store.order, store.orderSnapshot);
-  const agentIds = useMemo(() => latestTurnAgentIds(store, order), [store, order]);
-  const agentRows = useAgentPresentations(store, agentIds);
+  // The Agents pill: the newest turn's agents and earlier ones still running.
+  // Rows are added rarely; an agent's status changes its own item only.
+  const agentRows = useAgentRoster(store);
   const agentsPill = agentsPillLabel(agentRows, turnActive);
   // One floating pill above the composer: the connection while disconnected,
   // the sync state while messages load, then the working timer.
@@ -226,6 +233,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const activeUserInputRequestId = activePendingUserInput?.questionId ?? null;
   const userInputCollapsed =
     activeUserInputRequestId !== null && collapsedUserInputRequestId === activeUserInputRequestId;
+  // A question hides the composer without unmounting it, so a hidden editor
+  // may never report its blur; it does not own the keyboard then.
+  useLayoutEffect(() => {
+    keyboardResumeRef.current.questionShownChanged(activeUserInputRequestId !== null);
+  }, [activeUserInputRequestId]);
   const [lastKnownKeyboardHeight, setLastKnownKeyboardHeight] = useState(0);
   useEffect(() => {
     if (liveKeyboardHeight > 0 && liveKeyboardHeight !== lastKnownKeyboardHeight) {
@@ -269,7 +281,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   );
   const { freeze, scrollMessageToEnd } = useKeyboardScrollToEnd({ listRef });
   const endFollowEnabledRef = useRef(true);
-  endFollowEnabledRef.current = endFollowEnabled;
+  // Read only by the re-pin timer, after commit. A write during render would
+  // stop the React Compiler.
+  useLayoutEffect(() => {
+    endFollowEnabledRef.current = endFollowEnabled;
+  });
   const overlayRepinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousFloatingVisibleRef = useRef({ threadKey: props.threadKey, visible: false });
   // The list's own corrections for inset changes drift on short content, so
@@ -333,6 +349,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   useLayoutEffect(() => {
     // A replaced or unmounted editor may not emit a blur event.
     setComposerFocused(false);
+    keyboardResumeRef.current.composerFocusChanged(false);
   }, [props.threadKey]);
 
   useEffect(() => {
@@ -379,11 +396,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const answerPermission = useCallback(
     async (questionId: string, optionId: string) => {
       setRespondingRequestId(questionId);
-      try {
+      // The React Compiler cannot compile try/finally. The async wrapper turns
+      // a synchronous throw into a rejection, so finally sees both.
+      await (async () => {
         await store.controller.answerPermission(questionId, optionId);
-      } finally {
+      })().finally(() => {
         setRespondingRequestId(null);
-      }
+      });
     },
     [store],
   );
@@ -391,11 +410,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     async (answers: Record<string, string>) => {
       if (activeUserInputRequestId === null) return;
       setRespondingRequestId(activeUserInputRequestId);
-      try {
+      await (async () => {
         await store.controller.answerQuestion(activeUserInputRequestId, answers);
-      } finally {
+      })().finally(() => {
         setRespondingRequestId(null);
-      }
+      });
     },
     [activeUserInputRequestId, store],
   );
@@ -461,26 +480,28 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             />
           )}
         >
-          <ThreadFeed
-            store={store}
-            threadKey={props.threadKey}
-            contentPresentation={props.contentPresentation}
-            turnActive={turnActive}
-            working={working}
-            listRef={listRef}
-            freeze={freeze}
-            submittedMessageId={submittedMessageId}
-            contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
-            contentBottomInset={
-              estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
-            }
-            historyControls={props.historyControls}
-            startedBy={props.startedBy}
-            handoffPending={meta.handoffPending}
-            layoutVariant={props.layoutVariant}
-            usesAutomaticContentInsets={props.usesAutomaticContentInsets}
-            onEndFollowEnabledChange={setEndFollowEnabled}
-          />
+          <QuoteInReplyContext value={store.quoteInReply}>
+            <ThreadFeed
+              store={store}
+              threadKey={props.threadKey}
+              contentPresentation={props.contentPresentation}
+              turnActive={turnActive}
+              working={working}
+              listRef={listRef}
+              freeze={freeze}
+              submittedMessageId={submittedMessageId}
+              contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
+              contentBottomInset={
+                estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
+              }
+              historyControls={props.historyControls}
+              startedBy={props.startedBy}
+              handoffPending={meta.handoffPending}
+              layoutVariant={props.layoutVariant}
+              usesAutomaticContentInsets={props.usesAutomaticContentInsets}
+              onEndFollowEnabledChange={setEndFollowEnabled}
+            />
+          </QuoteInReplyContext>
         </RenderErrorBoundary>
       </View>
 

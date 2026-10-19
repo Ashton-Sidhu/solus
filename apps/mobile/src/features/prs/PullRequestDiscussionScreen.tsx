@@ -45,15 +45,17 @@ export function PullRequestDiscussionScreen({ navigation, route }: ScreenProps<'
     if (pending.current) return false
     pending.current = true
     setError(null)
-    try {
+    // The React Compiler cannot compile try/finally. The async wrapper turns a
+    // synchronous throw into a rejection, so catch and finally see both.
+    return await (async () => {
       await write()
       return true
-    } catch (cause) {
+    })().catch((cause) => {
       setError(cause instanceof Error ? cause.message : 'GitHub could not take this. Try again.')
       return false
-    } finally {
+    }).finally(() => {
       pending.current = false
-    }
+    })
   }
   const reply = async () => {
     const submitted = body

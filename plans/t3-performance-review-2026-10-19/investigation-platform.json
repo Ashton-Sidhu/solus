@@ -1,0 +1,132 @@
+[
+  {
+    "number": 20440,
+    "disposition": "decision",
+    "finding": "The missing bare-repository guard is real, but the review did not establish an unintended command execution or option-injection path. A harmless fixture confirms that Git reads configuration from an implicitly discovered bare folder and that safe.bareRepository=explicit blocks that discovery. The suspected gitCommitExists argument comes from stored commit checkpoints or provider base SHAs, not a free-form branch entry; the checkout RPC checks membership in listBranches before invoking Git. Treat the guard as an explicit hardening decision, not a confirmed exploit or performance fix.",
+    "evidence": [
+      "packages/server/src/git/exec.ts:19",
+      "packages/server/src/git/exec.ts:65",
+      "packages/server/src/git/git-helpers.ts:236",
+      "packages/server/src/transport/handlers/worktree-handlers.ts:257",
+      "packages/server/src/git/interdiff.ts:289",
+      "packages/server/src/review/review-context.ts:96",
+      "packages/server/src/git/worktree-manager.ts:701"
+    ],
+    "proof": [
+      "python3 plans/t3-performance-review-2026-10-19/investigation-git-safety.py: 4 checks pass with isolated synthetic bare repository, no hooks or network, and user/system Git config disabled. Git 2.50.1 reads harmless marker via implicit discovery; guarded discovery exits 128; explicit --git-dir succeeds. Results in investigation-git-safety.json.",
+      "Read three gitCommitExists callers and checkout RPC validation. No arbitrary shell interpolation is used by the central execFile wrappers. An initial in-process wrapper probe was unsuitable because test process Git discovery state differed; it is not evidence of a product defect and was replaced by the isolated subprocess proof."
+    ],
+    "next_step": "Decide whether implicitly discovered bare repositories should be unsupported in Solus. If yes, add the central Git config guard with inherited-config and platform tests, and test deliberate bare use, hooks, worktree operations and old Git. Keep option-marker audits separate; do not claim the whole upstream security bundle is required.",
+    "effort": "M",
+    "risk": "medium \u2014 the guard reaches Git subprocesses, hooks and credential helpers and can reject intentional bare workflows.",
+    "confidence": "high"
+  },
+  {
+    "number": 20445,
+    "disposition": "covered",
+    "finding": "The upstream credential-borrowing defect is absent in the inspected Solus discovery path: withNearbyRoutes refuses to change any host with a saved pairing token, and a directory merge preserves a paired host address. Explicit HTTP pairing remains allowed by design. Solus SSH bootstrap is an explicit connection action that saves a token; normal reconnect uses the saved token rather than rerunning an SSH pairing broker. Identity verification runs beside ticket exchange, so it must not be described as a pre-credential security gate, but this is not the T3 learned-route or repeated-SSH-session defect.",
+    "evidence": [
+      "packages/client-core/src/uplink-session.ts:247",
+      "packages/client-core/src/uplink-session.ts:214",
+      "packages/client-core/src/server-connection.ts:141",
+      "packages/client-core/src/ws-transport.ts:285",
+      "packages/client-core/src/pairing.ts:145",
+      "packages/server/src/transport/handlers/connections-handlers.ts:150",
+      "packages/server/src/transport/ssh-bootstrap.ts:72"
+    ],
+    "proof": [
+      "bun test tests/unit/server-registry-uplink.test.ts with six other focused suites: aggregate 78 pass, 0 fail (investigation-existing-tests.log); tests cover paired host route retention and directory-only discovered routes.",
+      "bun test plans/t3-performance-review-2026-10-19/investigation-platform-probes.test.ts plans/t3-performance-review-2026-10-19/investigation-claude-late-child.test.ts: 5 pass, 0 fail; synthetic secure paired host rejects learned plain-HTTP address."
+    ],
+    "next_step": "No port for these two upstream behaviors. Preserve paired-address retention tests. A separate proposal to require TLS or change host identity preflight would change the current trust model and needs its own threat model; it is not justified by this PR alone.",
+    "effort": "none",
+    "risk": "low \u2014 no implementation change recommended.",
+    "confidence": "high"
+  },
+  {
+    "number": 20446,
+    "disposition": "decision",
+    "finding": "The raw BrowserSnapshot includes password-input and CSS-masked input values, but the ordinary browser_snapshot agent text does not serialize element.value. The synthetic end-to-end driver proves both facts. The raw browserSnapshot RPC returns the same object, with an owner-only drives check; no first-party caller of that RPC was found in the inspected mapped client regions. Labels are copied separately with no secret-value redaction, so a page that itself reflects a masked value into its accessibility label can still expose that label. This is a concrete data-minimization gap, not proof that ordinary passwords reach provider transcripts or other people. The other upstream fixes do not transfer: Solus has no OpenCode setting and standalone pairing prints directly to stdout already.",
+    "evidence": [
+      "packages/server/src/browser/page-script.ts:40",
+      "packages/server/src/browser/page-script.ts:63",
+      "packages/server/src/browser/browser-registry.ts:553",
+      "packages/server/src/browser/browser-tools.ts:753",
+      "packages/server/src/transport/handlers/browser-handlers.ts:83",
+      "packages/server/src/transport/handlers/browser-handlers.ts:132",
+      "apps/standalone-server/src/index.ts:178"
+    ],
+    "proof": [
+      "Synthetic password and CSS-mask markers are included in registry.snapshot().elements[].value, while browserSnapshotAgentTool result.text contains neither. Runs without a real browser using FixtureDriver and a small VM DOM fixture. See investigation-platform-probes.test.ts and passing log.",
+      "Read formatter and owner gate. Narrow search for browserSnapshot consumers in workspace browser regions, mobile browser region and client-core returned no first-party call. No real credentials or live pages were accessed."
+    ],
+    "next_step": "Decide the snapshot contract: omit values from password/CSS-masked controls at extraction and avoid carrying unnecessary secrets over RPC. If a stronger guarantee against reflected labels is required, implement bounded per-frame capture/redaction as separate work with frame-change and timeout tests. Do not add the whole T3 CDP protocol merely to fix an unused raw property.",
+    "effort": "S for omission; M\u2013L for a strong cross-frame guarantee",
+    "risk": "low for masked-value omission; medium for broader redaction because capture failures and labels may change.",
+    "confidence": "high"
+  },
+  {
+    "number": 20449,
+    "disposition": "ready",
+    "finding": "A project-relative create or delete follows an intermediate symlink outside the project. The handler resolves only the root, and toRootRelativePath performs lexical containment; the mutation then uses the unresolved child path. A fixture creates a symlink from the project to a sibling fixture folder and proves createFile creates there and delete removes its file while returning success. This violates the project-mutation function\u2019s stated containment behavior. It is not an authorization bypass: the RPC requires host.files.write, and general writeFile intentionally permits outside-project saves.",
+    "evidence": [
+      "packages/server/src/transport/handlers/filesystem-handlers.ts:231",
+      "packages/server/src/files/project-mutations.ts:20",
+      "packages/server/src/files/project-mutations.ts:41",
+      "packages/server/src/files/project-mutations.ts:45",
+      "packages/server/src/files/project-mutations.ts:78",
+      "packages/server/src/paths.ts:28",
+      "packages/contracts/src/permissions.ts:167",
+      "packages/server/src/transport/handlers/filesystem-handlers.ts:360"
+    ],
+    "proof": [
+      "Existing project-file-mutations suite passes in the 78-test baseline but has only lexical ../ containment coverage.",
+      "Synthetic create/delete probe passes while observing external sibling file creation/deletion through an intermediate symlink; every target is under a temporary directory owned by the probe and removed afterward. See investigation-platform-probes.test.ts and log."
+    ],
+    "next_step": "Add resolved-parent containment for project-relative create/rename/delete, including deepest-existing-parent handling. Preserve deletion of a symlink itself without traversing its target. Add tests for intermediate and final symlinks, dangling links, valid within-root links, create/rename destinations and case-only renames. Keep intentional host-destination/general saves unchanged; do not import T3\u2019s registered-workspace-only policy.",
+    "effort": "M",
+    "risk": "medium \u2014 legitimate linked project folders and rename/delete semantics must be explicit.",
+    "confidence": "high"
+  },
+  {
+    "number": 20835,
+    "disposition": "covered",
+    "finding": "Solus keeps the Claude SDK query and its normalizer alive while background task IDs remain. A synthetic root result followed by a nested Agent launch is emitted immediately with the original parentToolUseId before any next root turn; later nested progress retains its own parent and the stream remains open until the task-notification continuation settles. There is no T3 idle-run launch buffer in this path to port. The probe proves adapter delivery and ownership fields, not authenticated provider timing or every UI projection.",
+    "evidence": [
+      "packages/server/src/execution/agents/claude/claude-agent.ts:335",
+      "packages/server/src/execution/agents/claude/claude-agent.ts:372",
+      "packages/server/src/execution/agents/claude/claude-agent.ts:403",
+      "packages/server/src/execution/agents/claude/claude-backend.ts:351",
+      "packages/server/src/execution/agents/claude/claude-event-normalizer.ts:328"
+    ],
+    "proof": [
+      "Existing claude-steering and claude-event-normalizer tests pass within 78-test baseline.",
+      "investigation-claude-late-child.test.ts replays init \u2192 task start \u2192 root result \u2192 nested Agent launch \u2192 parent settle \u2192 nested progress \u2192 nested settle \u2192 notification result. Assertions confirm immediate correctly parented events and stream lifetime. Included in 5 pass, 0 fail probe run."
+    ],
+    "next_step": "No upstream adapter port. Keep the synthetic late-child scenario as regression coverage if future Claude lifetime changes are made. Investigate only if an actual provider/UI trace shows loss beyond the proved adapter boundary.",
+    "effort": "none",
+    "risk": "low \u2014 no implementation change recommended.",
+    "confidence": "high"
+  },
+  {
+    "number": 21366,
+    "disposition": "ready",
+    "finding": "T3\u2019s stuck-running/blocked-queue symptom is already avoided: Solus emits exit code 1 and removes the failed root from activeRuns immediately. A different defect is confirmed: finishCompletedTurn deletes child-thread routing and the parent normalizer owner even if a native child is still running. Its later turn/completed event then has no session and returns without emitting a child report. The same cleanup also affects successful roots. The retained normalizer in the probe can interpret the exact event, proving loss occurs at routing/lifetime rather than event parsing.",
+    "evidence": [
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1179",
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1214",
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1499",
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1574",
+      "packages/server/src/execution/agents/codex/codex-backend.ts:1607",
+      "packages/server/src/execution/agents/base-backend.ts:81"
+    ],
+    "proof": [
+      "Existing codex-subagent-routing, codex-subagent-completion and background-command tests pass within 78-test baseline; they do not cover root completion before native child completion.",
+      "Synthetic probe registers a spawned child, confirms routing to parent, invokes real finishCompletedTurn with failed exit, verifies immediate exit/removal, then delivers a real child-completed frame through onNotification. No report emits. Feeding that same frame to the retained normalizer does produce a tool_result. Included in 5 pass, 0 fail probe run."
+    ],
+    "next_step": "Retain a bounded child-lifetime owner/normalizer independently of the active root run until known native children settle or are stopped. Do not keep the failed root active or block its queue. Define stop, new root-turn overlap, reconnect/history reconciliation and provider shutdown cleanup. Test failed and successful root completion followed by child output/completion, plus no duplicate reports and stale-owner release.",
+    "effort": "M\u2013L",
+    "risk": "high \u2014 child event ownership must remain correct while a new root turn starts and old descendants settle.",
+    "confidence": "high"
+  }
+]

@@ -54,14 +54,16 @@ export function PullRequestLabelsScreen({ navigation, route }: ScreenProps<'Pull
     if (!changed || busy) return
     setBusy(true)
     setError(null)
-    try {
+    // The React Compiler cannot compile try/finally. The async wrapper turns a
+    // synchronous throw into a rejection, so catch and finally see both.
+    await (async () => {
       await app.pullRequestActions.setLabels(ref, [...selected])
       navigation.goBack()
-    } catch (cause) {
+    })().catch((cause) => {
       setError(cause instanceof Error ? cause.message : 'Could not change the labels. Try again.')
-    } finally {
+    }).finally(() => {
       setBusy(false)
-    }
+    })
   }
   // Labels on the pull request stay listed even when the repository list does not have them.
   const rows = labels.kind === 'loaded'

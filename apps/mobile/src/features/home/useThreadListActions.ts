@@ -51,7 +51,9 @@ export function useThreadListActions(): {
       if (inFlightThreadKeys.current.has(thread.key)) return false;
       inFlightThreadKeys.current.add(thread.key);
       selectionHaptic();
-      try {
+      // The React Compiler cannot compile try/finally. The async wrapper turns
+      // a synchronous throw into a rejection, so finally sees both.
+      return await (async () => {
         const error = await withThreadDismissal(
           thread.key,
           () => command().then(() => null, (cause: unknown) => cause ?? new Error(fallback)),
@@ -62,9 +64,9 @@ export function useThreadListActions(): {
           return false;
         }
         return true;
-      } finally {
+      })().finally(() => {
         inFlightThreadKeys.current.delete(thread.key);
-      }
+      });
     },
     [],
   );

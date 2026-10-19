@@ -60,7 +60,11 @@ export function elementSnapshotExpression(maxElements: number): string {
     const identifier = el.getAttribute('data-testid') || el.id;
     if (identifier) entry.identifier = identifier;
     if (el.disabled) entry.disabled = true;
-    if (typeof el.value === 'string' && el.value) entry.value = el.value.slice(0, 200);
+    // A value the page masks (a password field, or text the page draws as
+    // dots) stays in the page: nothing that reads the snapshot needs it.
+    const textSecurity = style.webkitTextSecurity || (style.getPropertyValue ? style.getPropertyValue('-webkit-text-security') : '');
+    const isMasked = el.type === 'password' || (!!textSecurity && textSecurity !== 'none');
+    if (typeof el.value === 'string' && el.value && !isMasked) entry.value = el.value.slice(0, 200);
     // Svelte dev mode hangs the authoring location off the node itself, which is
     // how an agent gets file:line for the thing the user is pointing at.
     const meta = el.__svelte_meta && el.__svelte_meta.loc;

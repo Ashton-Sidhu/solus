@@ -1,0 +1,96 @@
+{
+  "createdAt": "2026-10-19T17:37:28.301Z",
+  "note": "Bun data-path timings; not renders, not Hermes, not a device.",
+  "machine": {
+    "cpu": "Apple M4",
+    "cores": 10,
+    "loadAverage": [
+      2,
+      2.27,
+      2.79
+    ],
+    "bun": "1.3.14"
+  },
+  "results": [
+    {
+      "turns": 100,
+      "rows": 400,
+      "build": {
+        "medianUs": 774.29,
+        "p95Us": 853.92,
+        "samples": 5
+      },
+      "feedRowsDerived": {
+        "medianUs": 144.63,
+        "p95Us": 174.5,
+        "samples": 7
+      },
+      "streamedChunk": {
+        "medianUs": 0.21,
+        "p95Us": 1.38,
+        "samples": 500
+      },
+      "feedRebuildsWhileStreaming": 0
+    },
+    {
+      "turns": 1000,
+      "rows": 4000,
+      "build": {
+        "medianUs": 19515.17,
+        "p95Us": 21490.21,
+        "samples": 5
+      },
+      "feedRowsDerived": {
+        "medianUs": 509.75,
+        "p95Us": 946.04,
+        "samples": 7
+      },
+      "streamedChunk": {
+        "medianUs": 0.12,
+        "p95Us": 0.33,
+        "samples": 500
+      },
+      "feedRebuildsWhileStreaming": 0
+    },
+    {
+      "turns": 2000,
+      "rows": 8000,
+      "build": {
+        "medianUs": 75094,
+        "p95Us": 76188.21,
+        "samples": 5
+      },
+      "feedRowsDerived": {
+        "medianUs": 923.04,
+        "p95Us": 2319.62,
+        "samples": 7
+      },
+      "streamedChunk": {
+        "medianUs": 0.08,
+        "p95Us": 0.13,
+        "samples": 500
+      },
+      "feedRebuildsWhileStreaming": 0
+    },
+    {
+      "turns": 4000,
+      "rows": 16000,
+      "build": {
+        "medianUs": 310809,
+        "p95Us": 318815.67,
+        "samples": 5
+      },
+      "feedRowsDerived": {
+        "medianUs": 1297.46,
+        "p95Us": 2271.5,
+        "samples": 7
+      },
+      "streamedChunk": {
+        "medianUs": 0.08,
+        "p95Us": 0.13,
+        "samples": 500
+      },
+      "feedRebuildsWhileStreaming": 0
+    }
+  ]
+}

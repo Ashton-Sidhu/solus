@@ -72,7 +72,8 @@ describe('provider handoff rules', () => {
   test('the pending row ends the feed, after the live slot', () => {
     const entries: FeedSourceEntry[] = [{ id: 'u1', kind: 'user' }, { id: 'a1', kind: 'assistant' }]
     const rows = deriveThreadFeedPresentation({ entries, turnActive: true, working: true, expandedTurnIds: new Set(), expandedWorkGroupIds: new Set(), handoffPending: true })
-    expect(rows.map((row) => row.type)).toEqual(['message', 'message', 'thinking', 'handoff-pending'])
+    // The reply's image row sits before the live slot; the pending row is still last.
+    expect(rows.map((row) => row.type)).toEqual(['message', 'message', 'turn-images', 'thinking', 'handoff-pending'])
   })
 
   test('a finished turn does not fold a handoff divider away', () => {

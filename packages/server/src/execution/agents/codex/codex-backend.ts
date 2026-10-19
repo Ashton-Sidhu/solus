@@ -110,6 +110,8 @@ import {
   codexBackgroundCommandWake,
 } from './codex-utils'
 import { adaptCodexTools, bareAgentToolName, codexToolContentItems, CodexToolDispatcher } from './codex-tool-adapter'
+import { CodexNativeChildren, type ChildStop, type ChildTurn, type SettledChild } from './codex-native-children'
+import type { Turn } from './generated/v2/Turn'
 import { z } from 'zod'
 import type { ThreadCompactStartParams } from './generated/v2/ThreadCompactStartParams'
 
@@ -301,6 +303,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
    *  run's routing is gone, and this is how it still finds the session. */
   private readonly runningCommands = new Map<string, RunningCommand>()
   private sessionByChildThread = new Map<string, string>()
+  /** Native sub-agents still working after the root turn that started them ended. */
+  private readonly nativeChildren = new CodexNativeChildren({
+    emit: (sessionId, event) => this.emit('normalized', sessionId, event),
+    settled: (child) => this.onChildSettled(child),
+    interrupt: (turn) => void this.requestInterrupt(turn).then((result) => {
+      if (result !== 'sent') this.nativeChildren.abandonStop(turn.threadId)
+    }),
+  })
   private fileChangesByItem = new Map<string, unknown[]>()
   private fileChangeTurnByItem = new Map<string, string>()
   private skillsByCwd = new MemoryCache<string, PluginCommandsResult>({ ttlMs: 5 * 60 * 1000, maxEntries: 64 })
@@ -344,10 +354,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
     })
     client.on('exit', () => {
-      // The app-server's terminals die with it.
+      // The app-server's terminals and sub-agents die with it.
       for (const [itemId, command] of this.runningCommands) {
         if (command.client === client) this.settleBackgroundCommand(itemId, command, 'killed')
       }
+      this.nativeChildren.releaseClient(client)
       const exitErr = new Error('Codex app-server exited')
       for (const [sessionId, handle] of this.activeRuns) if (handle.client === client) this.emit('error', sessionId, exitErr)
       for (const handle of this.pendingRuns) {
@@ -481,8 +492,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private async unloadIdleThread(client: CodexAppServerClient, threadId: string): Promise<void> {
     const runs = [...this.activeRuns.values(), ...this.pendingRuns]
     if (runs.some((run) => run.client === client && run.threadId === threadId)) return
-    // Unloading kills the thread's terminals. Its last background command
-    // starts the clock again when it settles.
+    // Unloading kills the thread's terminals and can end its sub-agents. Its
+    // last background command or sub-agent starts the clock again when it settles.
     if (this.hasBackgroundTasks(threadId)) return
     try {
       const { status } = await client.request('thread/unsubscribe', { threadId })
@@ -746,14 +757,24 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   override cancelSession(sessionId: string): boolean {
     // Stop ends the work the agent started, as cancelling Claude's query does.
     // After the turn ended, that work is all there is to cancel.
-    let isStoppingCommands = false
+    let isStoppingWork = false
     for (const [itemId, command] of this.runningCommands) {
       if (command.threadId !== sessionId) continue
       void this.stopCommand(itemId, command)
-      isStoppingCommands = true
+      isStoppingWork = true
+    }
+    // Native sub-agents run on their own threads: interrupting the root turn
+    // does not reach them.
+    for (const turn of this.nativeChildren.runningTurnsOf(sessionId)) {
+      void this.requestInterrupt(turn)
+      isStoppingWork = true
+    }
+    for (const stop of this.nativeChildren.stopsOf(sessionId)) {
+      void this.stopChild(stop)
+      isStoppingWork = true
     }
     const handle = this.activeRuns.get(sessionId)
-    if (!handle) return isStoppingCommands
+    if (!handle) return isStoppingWork
     handle.abortController.abort()
     handle.interrupted = true
     handle.normalizer.interrupt()
@@ -821,6 +842,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     // Stopping removes the entry, so iterate a copy.
     for (const userId of Array.from(this.seatClients.keys())) this.stopSeatClient(userId)
     this.clearIdleThreads(this.client)
+    this.nativeChildren.clear()
     this.client.shutdown()
   }
 
@@ -1168,6 +1190,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     if (this.completesBackgroundCommand(msg.method, params)) return
+    if (this.deliversDetachedChild(msg)) return
 
     if (!sessionId && msg.method === 'error' && this.activeRuns.size === 1) {
       sessionId = this.activeRuns.keys().next().value || null
@@ -1180,6 +1203,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     const handle = this.activeRuns.get(sessionId)
     this.rememberSessionRouting(params, sessionId)
+    if (handle) this.nativeChildren.observeRootRunEvent(msg, { sessionId, client, normalizer: handle.normalizer }, handle.threadId)
     // compact/start returns no turn id. Capture it from the provider event so
     // Stop can interrupt the compaction, including Stop before turn/started.
     if (handle?.isCompaction && !handle.turnId && msg.method === 'turn/started' && msg.params.threadId === handle.threadId) {
@@ -1216,7 +1240,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const isChildTurn = !!handle && !!eventThreadId && eventThreadId !== handle.threadId
       if (isChildTurn) {
         for (const event of normalized) this.emit('normalized', sessionId, event)
-        // A follow-up can run this child again. Keep its owner until the
+        // A follow-up can run this child again. Keep its routing until the
         // parent run ends and forgetRoutingForSession clears the mapping.
         return
       }
@@ -1489,6 +1513,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         this.emit('normalized', sessionId, { type: 'background_task_started', taskId: itemId, toolUseId: itemId } satisfies NormalizedEvent)
       }
     }
+    // So is a sub-agent still working, after a completed or a failed root. An
+    // interrupted root's normalizer reports nothing more, and an ephemeral
+    // run's events never reach the session, so those keep no children.
+    if (sessionId && !partial && handle.persistence !== 'ephemeral') {
+      const childThreadIds = this.nativeChildren.detach(sessionId)
+      if (childThreadIds.length) log.info('codex_children_detached', { sessionId, childThreadIds, exitCode })
+    }
     const changedFiles = handle.persistent && !handle.isCompaction
       ? await this.snapshotOnTurnComplete(handle, partial)
       : null
@@ -1496,6 +1527,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       this.emit('normalized', sessionId, { type: 'session_changed_files_updated', paths: changedFiles })
     }
     for (const event of normalized) this.emit('normalized', sessionId, event)
+    if (sessionId) this.nativeChildren.release(sessionId)
     this.forgetRoutingForSession(sessionId)
     this.finishRun(handle)
     handle._resolveRun()
@@ -1522,6 +1554,76 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return true
   }
 
+  /** A sub-agent whose root turn ended reports through the root's normalizer,
+   *  never through a later root run. Its own thread opened as a session is
+   *  that session's run. */
+  private deliversDetachedChild(msg: JsonRpcNotification): boolean {
+    const threadId = 'threadId' in msg.params ? msg.params.threadId : null
+    if (threadId && this.activeRuns.has(threadId)) return false
+    return this.nativeChildren.deliver(msg)
+  }
+
+  /**
+   * A sub-agent's background task settled. With no turn running and nothing
+   * else in the background, the root thread may go idle. A child that ended
+   * on its own wakes nobody: Codex has no wake for it that Solus can see
+   * (docs/background-work.md), so the session's wait ends here. A stopped or
+   * killed task ends the wait through its own settle.
+   */
+  private onChildSettled({ sessionId, client, status }: SettledChild): void {
+    log.info('codex_child_settled', { sessionId, status })
+    if (status === 'killed' || this.activeRuns.has(sessionId) || this.hasBackgroundTasks(sessionId)) return
+    this.armThreadIdle(client, sessionId)
+    if (status === 'completed' || status === 'failed') this.emit('background-work-ended', sessionId)
+  }
+
+  /** Ask Codex to interrupt one sub-agent turn. `refused` is an error answer
+   *  from Codex, which alone does not say whether the turn still runs. */
+  private async requestInterrupt(turn: ChildTurn): Promise<'sent' | 'refused' | 'unanswered'> {
+    try {
+      await turn.client.request('turn/interrupt', { threadId: turn.threadId, turnId: turn.turnId }, 10_000)
+      return 'sent'
+    } catch (error) {
+      log.warn('codex_child_interrupt_failed', { sessionId: turn.sessionId, childThreadId: turn.threadId, error: error instanceof Error ? error.message : String(error) })
+      return error instanceof CodexRpcError ? 'refused' : 'unanswered'
+    }
+  }
+
+  /**
+   * Stop a detached sub-agent. Its task settles from what Codex reports, never
+   * from a guess: the interrupted turn's end, or the thread's own turns when
+   * the turn id is unknown or the interrupt was refused. A Stop that proves
+   * nothing leaves the task visible, to stop again, and answers false.
+   */
+  private async stopChild(stop: ChildStop): Promise<boolean> {
+    const isStopped = await this.tryStopChild(stop)
+    if (!isStopped) this.nativeChildren.abandonStop(stop.threadId)
+    return isStopped
+  }
+
+  private async tryStopChild(stop: ChildStop): Promise<boolean> {
+    const result = stop.turnId ? await this.requestInterrupt({ ...stop, turnId: stop.turnId }) : null
+    if (result === 'sent') return true
+    if (result === 'unanswered') return false
+    const turns = await this.readChildTurns(stop)
+    if (!turns) return false
+    const running = this.nativeChildren.resolveStop(stop.threadId, turns)
+    if (!running) return true
+    // Codex refused to interrupt a turn it still runs.
+    if (running.turnId === stop.turnId) return false
+    return (await this.requestInterrupt(running)) === 'sent'
+  }
+
+  /** The child thread's turns, as Codex holds them. Null without an answer. */
+  private async readChildTurns(stop: ChildStop): Promise<Turn[] | null> {
+    try {
+      return (await stop.client.request('thread/read', { threadId: stop.threadId, includeTurns: true }, 10_000)).thread.turns
+    } catch (error) {
+      log.warn('codex_child_read_failed', { sessionId: stop.sessionId, childThreadId: stop.threadId, error: error instanceof Error ? error.message : String(error) })
+      return null
+    }
+  }
+
   /** Forget a command, and end the background task it was. */
   private settleBackgroundCommand(itemId: string, command: RunningCommand, status: 'completed' | 'failed' | 'stopped' | 'killed'): void {
     this.runningCommands.delete(itemId)
@@ -1536,14 +1638,15 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     for (const command of this.runningCommands.values()) {
       if (command.threadId === sessionId && command.isBackground) return true
     }
-    return false
+    return this.nativeChildren.hasDetached(sessionId)
   }
 
-  /** Stop one command the agent left running, without a turn. */
+  /** Stop one command or sub-agent the agent left running, without a turn. */
   async stopBackgroundTask(sessionId: string, taskId: string): Promise<boolean> {
     const command = this.runningCommands.get(taskId)
-    if (!command || command.threadId !== sessionId) return false
-    return this.stopCommand(taskId, command)
+    if (command) return command.threadId === sessionId && this.stopCommand(taskId, command)
+    const childStop = this.nativeChildren.taskToStop(sessionId, taskId)
+    return !!childStop && this.stopChild(childStop)
   }
 
   /** Terminate a command's terminal. It ends with no wake: the person stopped

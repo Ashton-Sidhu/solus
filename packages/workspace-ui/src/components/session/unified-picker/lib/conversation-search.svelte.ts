@@ -2,6 +2,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { loadServers, type SavedServer } from '@solus/client-core/server-registry'
 import { stampSessionMetas } from '@solus/client-core/session-meta'
+import { connectedRunnerFor } from '@solus/client-core/session-runner'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
@@ -45,10 +46,7 @@ export function searchServerIds(
 const registryHosts: ConversationSearchHosts<Pick<HostApi, 'sessionRecordSearch' | 'sessionRecordList'>> = {
   searchServerIds: () => searchServerIds(serverConnections.connectedServerIds(), serverConnections.localServerId(), loadServers()),
   apiFor: (serverId) => serverConnections.apiFor(serverId),
-  connectedRunnerFor: (runnerHostId) => {
-    const runner = loadServers().find((server) => server.uplink?.hostId === runnerHostId)
-    return runner && serverConnections.statusFor(runner.id) === 'connected' ? runner.id : null
-  },
+  connectedRunnerFor: (runnerHostId) => connectedRunnerFor(runnerHostId),
 }
 
 /**

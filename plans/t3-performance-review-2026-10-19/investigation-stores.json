@@ -1,0 +1,82 @@
+[
+  {
+    "number": 20392,
+    "disposition": "ready",
+    "finding": "Equal ready host facts replace both the fact wrapper and data and notify same-key readers. The issue is within one fact key; desktop/web already partition subscriptions by key.",
+    "evidence": [
+      "packages/client-core/src/host-facts.ts:149",
+      "packages/client-core/src/host-facts.ts:250",
+      "packages/workspace-ui/src/contexts/hosts/host.svelte.ts:43"
+    ],
+    "proof": "Isolated production-class probe: two equal usage reads produce two notifications and distinct equal wrappers. Existing HostFacts tests pass.",
+    "next_step": "In the single HostFacts write boundary, retain equal bounded DTO values and their ready wrapper. Preserve readAt updates, errors, loading, capability revocation, changed fields, and stale-generation guards. Add identity/notification tests. Measure desktop, web and native consumers before claiming a frame-rate gain.",
+    "effort": "M",
+    "risk": "medium",
+    "confidence": "high"
+  },
+  {
+    "number": 20855,
+    "disposition": "ready",
+    "finding": "A recovered connection already avoids repeat reads for ready facts. A fresh session correctly reloads requested facts but publishes equal data again. This is the same work item as #20392, not a second cache.",
+    "evidence": [
+      "packages/client-core/src/host-facts.ts:159",
+      "packages/client-core/src/host-facts.ts:195",
+      "packages/client-core/src/host-facts.ts:250"
+    ],
+    "proof": "Probe: recovered adds zero reads; fresh adds one usage read and one same-key notification for equal data. Existing stale-generation and capability invalidation tests pass.",
+    "next_step": "Group with #20392. Keep the fresh-session read and lost-session clearing of capabilities/serverInfo. Reuse equal data only after the fresh answer arrives; never suppress access-state transitions.",
+    "effort": "M",
+    "risk": "medium",
+    "confidence": "high"
+  },
+  {
+    "number": 20730,
+    "disposition": "ready",
+    "finding": "An unchanged native project refresh replaces the projects array during loading and again at completion, and replaces each equal project wrapper. Project-only readers see new snapshots even when only session data changes.",
+    "evidence": [
+      "apps/mobile/src/features/threads/thread-directory.ts:135",
+      "apps/mobile/src/features/threads/thread-directory.ts:147",
+      "apps/mobile/src/features/threads/thread-directory.ts:204",
+      "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx:120",
+      "apps/mobile/src/app/app-context.tsx:18"
+    ],
+    "proof": "Production ThreadDirectory with in-memory host fixtures: one equal reload changes the project array twice and the project wrapper once. No real hosts used.",
+    "next_step": "Reuse project DTOs/wrappers by host plus project path only when every visible field and host label is equal. Preserve the merged projects array when order and items match. Keep loading/error notifications and session updates independent. Tests must cover add/remove, rename, remote/repository changes, host relabel, and stale results.",
+    "effort": "M",
+    "risk": "medium",
+    "confidence": "high"
+  },
+  {
+    "number": 20850,
+    "disposition": "ready",
+    "finding": "Native PR refetches replace equal data. The real list directory emits loading, partial, and loaded notifications and changes equal PR object identity. Consumers that read only rows need stable values, while loading/error UI still needs state changes. usePullRequestList also keys hosts and rows on the directory-wide revision, so data sharing alone cannot stop row-array rebuilds.",
+    "evidence": [
+      "apps/mobile/src/features/prs/pull-request-reads.ts:110",
+      "apps/mobile/src/features/prs/pull-request-reads.ts:144",
+      "apps/mobile/src/features/prs/pull-request-directory.ts:256",
+      "apps/mobile/src/features/prs/detail/use-pull-request-view.ts:20",
+      "apps/mobile/src/features/prs/use-pull-request-list.ts:45",
+      "apps/mobile/src/features/prs/lib/pull-request-list.ts:77"
+    ],
+    "proof": "HostReads probe: 2 state notifications and 1 displayed-value identity change per equal refetch. Real PullRequestDirectory probe: 3 notifications per equal list refresh and distinct equal PR DTOs. 33 tests pass across the probe and three existing suites.",
+    "next_step": "Preserve equal PR subrecords at the PR domain boundary, then use value-only selectors in row/content readers. Retain full load state for spinners, reconnect/error state, progressive answers and explicit refresh. Preserve permission/check changes and cache freshness. Verify rendered row counts on native before claiming a speed gain. Replace the directory-wide revision dependency for content rows with a stable selected-data snapshot; pullRequestRows currently creates new row wrappers. Keep separate status subscriptions. Merely retaining PR DTOs is insufficient.",
+    "effort": "M",
+    "risk": "medium",
+    "confidence": "high"
+  },
+  {
+    "number": 21147,
+    "disposition": "defer",
+    "finding": "The parser is repeated, but no material local cost was found. A synthetic Bun probe took a median 0.112 ms for 100 link identities. A WeakMap keyed only by a mutable link object can return stale URL/title/fallback-scope results.",
+    "evidence": [
+      "packages/workspace-ui/src/contexts/prs/linked-pr.ts:20",
+      "packages/contracts/src/providers.ts:27",
+      "packages/workspace-ui/src/contexts/prs/prs.store.svelte.ts:210"
+    ],
+    "proof": "Nine timed samples after warm-up: 0.109\u20130.125 ms per 100 links; 90,000 timed calls. Mutation and changed-fallback assertions pass. This is a host microbenchmark, not a Svelte or device profile.",
+    "next_step": "Do not add the cache in the first implementation batch. Reconsider only if an actual large-stack renderer profile attributes material time to parsing. Any future cache must validate URL and other live inputs, or cache only the pure URL parse by bounded string key.",
+    "effort": "S",
+    "risk": "medium",
+    "confidence": "high"
+  }
+]

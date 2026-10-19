@@ -58,7 +58,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
    *  (docs/plans/workspace-and-machines.md §6). The workspace service has only the record. */
   const withRecord = async (handlerCtx: HandlerCtx, sessionId: string, meta: SessionMeta | null): Promise<SessionMeta | null> => {
     const record = await getSessionRecord(recordScopeOf(handlerCtx.principal), sessionId)
-    if (meta) return record ? { ...meta, organizationId: record.organizationId } : meta
+    if (meta) return record ? { ...meta, organizationId: record.organizationId, publication: record.publication } : meta
     return isApiMode() && record ? sessionMetaFromRecord(record) : null
   }
   const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> =>
@@ -153,6 +153,23 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     return {
       messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(current) : current),
       before,
+    }
+  })
+
+  server.register('loadSessionSubagent', async ([input]) => {
+    const request = z.object({
+      sessionId: z.string().min(1).max(200),
+      toolId: z.string().min(1).max(512),
+      provider: z.enum(['claude-code', 'codex', 'opencode']),
+      projectPath: z.string().max(16384).optional(),
+      before: z.string().max(16384).optional(),
+    }).strict().parse(input)
+    // Provider files live on the execution host; a mirrored record has no child transcript.
+    if (isApiMode()) throw new Error('Connect to the session host to read provider child history.')
+    const page = await sessionRuntime.history.loadSessionSubagent(request)
+    return {
+      messages: deferSessionToolInputs(projectSessionHistory(storePromptImages(page.messages))),
+      before: page.before,
     }
   })
 

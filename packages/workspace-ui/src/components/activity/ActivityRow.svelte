@@ -48,9 +48,10 @@
   {/if}
 {/snippet}
 
-<!-- In a divider the chip, the words, and the title centre on one line; the
-     chip's own baseline nudge is tuned for running prose. -->
-<span data-testid="activity-row" data-activity={activity.kind} class={short ? "inline-flex min-w-0 items-center gap-1 align-top" : ""}
+<!-- In a divider the chip, the words, and the title centre on one line, and
+     the words truncate rather than wrap; the chip's own baseline nudge is tuned
+     for running prose. -->
+<span data-testid="activity-row" data-activity={activity.kind} class={short ? "inline-flex max-w-full min-w-0 items-center gap-1 align-top" : ""}
   >{#if line.person}<UserChip user={line.person} {short} />{" "}{:else if line.who}{line.who}{" "}{/if}{#if models}<span
       class="inline-flex max-w-full min-w-0 items-center gap-1.5 align-middle leading-none"
       ><span class="inline-flex min-w-0 items-center gap-1"
@@ -59,5 +60,5 @@
         class="inline-flex min-w-0 items-center gap-1 text-(--solus-accent)"
         >{@render agentGlyph(models.toProvider)}<span class="truncate">{models.to}</span></span
       ></span
-    >{:else}{line.predicate}{#if title}{" "}<span class="inline-block max-w-50 truncate align-bottom text-(--solus-accent)">{title}</span>{/if}{/if}</span
+    >{:else}{#if short}<span class="truncate">{line.predicate}</span>{:else}{line.predicate}{/if}{#if title}{" "}<span class="inline-block max-w-50 truncate align-bottom text-(--solus-accent)">{title}</span>{/if}{/if}</span
 >

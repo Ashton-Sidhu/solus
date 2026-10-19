@@ -48,7 +48,9 @@
   }
 
   function hostLabel(serverId: string): string {
-    return serversStore.hostFor(serverId)?.label ?? serverId;
+    const label = serversStore.hostFor(serverId)?.label ?? serverId;
+    const address = serversStore.sameNameAddress(serverId);
+    return address ? `${label} (${address})` : label;
   }
 </script>
 

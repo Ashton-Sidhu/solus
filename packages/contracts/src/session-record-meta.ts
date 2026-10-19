@@ -30,6 +30,7 @@ export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
       ? { ...delegation, parentSessionId, rootSessionId }
       : undefined,
     organizationId: record.organizationId,
+    publication: record.publication,
   }
   if (record.view?.archivedAt != null) meta.archived = true
   return meta

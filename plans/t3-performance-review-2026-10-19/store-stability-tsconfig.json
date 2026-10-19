@@ -1,0 +1,20 @@
+{
+  "extends": "../../apps/mobile/tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": [
+    "../../apps/mobile/uniwind-types.d.ts",
+    "../../apps/mobile/src/**/*.d.ts",
+    "../../apps/mobile/src/features/prs/pull-request-list-selection.ts",
+    "../../apps/mobile/src/features/prs/use-pull-request-list.ts",
+    "../../apps/mobile/src/features/prs/pull-request-directory.ts",
+    "../../apps/mobile/src/features/prs/pull-request-reads.ts",
+    "../../apps/mobile/src/features/prs/PullRequestsScreen.tsx",
+    "../../apps/mobile/src/features/prs/lib/pull-request-list.ts",
+    "../../apps/mobile/src/features/prs/lib/pull-request-retain.ts",
+    "../../apps/mobile/src/features/prs/detail/GuideNoticeCard.tsx",
+    "../../apps/mobile/src/features/prs/detail/PullRequestGuide.tsx",
+    "../../apps/mobile/src/features/threads/thread-directory.ts",
+    "../../packages/client-core/src/keep-equal.ts",
+    "../../packages/client-core/src/host-facts.ts"
+  ]
+}

@@ -1,5 +1,5 @@
 import type { ExecutionPreferences } from '@solus/contracts/settings'
-import type { SessionMeta, SessionGeneratedMetadata } from '@solus/contracts/types'
+import type { SessionMeta, SessionGeneratedMetadata, SessionTitleChangedEvent } from '@solus/contracts/types'
 import type { Actor } from '../../admission/actor'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { getIndexedSession, setSessionGeneratedTitle } from '../../db/session-indexer'
@@ -35,6 +35,8 @@ const defaultPorts: BackgroundSessionTitlePorts = {
 
 export interface BackgroundSessionTitleRequest {
   sessionId: string
+  /** The name its starter gave it: saved as is, never generated. */
+  title?: string
   prompt?: string
   cwd?: string
   preferences?: ExecutionPreferences
@@ -55,6 +57,20 @@ export function ensureBackgroundSessionTitle(
   return run
 }
 
+/** A name made from the worker's prompt, unless its person turned that off. */
+function generatedMetadata(
+  runtime: SessionRuntime,
+  request: BackgroundSessionTitleRequest,
+  meta: SessionMeta,
+  ports: BackgroundSessionTitlePorts,
+): Promise<SessionGeneratedMetadata | null> {
+  if (request.preferences?.autoRenameSessions === false) return Promise.resolve(null)
+  const prompt = request.prompt?.trim() || meta.firstMessage?.trim()
+  const cwd = request.cwd || meta.cwd
+  if (!prompt || !cwd) return Promise.resolve(null)
+  return ports.generate(runtime, prompt, cwd, request)
+}
+
 async function nameSession(
   runtime: SessionRuntime,
   events: HostEventPublisher,
@@ -62,13 +78,11 @@ async function nameSession(
   ports: BackgroundSessionTitlePorts,
 ): Promise<string | null> {
   const meta = ports.read(request.sessionId)
-  if (!meta?.delegation) return null
+  // A worker is named; so is any session its starter named.
+  if (!meta || (!meta.delegation && !request.title)) return null
   if (meta.customTitle) return meta.customTitle
-  if (request.preferences?.autoRenameSessions === false) return null
-  const prompt = request.prompt?.trim() || meta.firstMessage?.trim()
-  const cwd = request.cwd || meta.cwd
-  if (!prompt || !cwd) return null
-  const metadata = await ports.generate(runtime, prompt, cwd, request)
+  const metadata: Pick<SessionGeneratedMetadata, 'title'> & Partial<SessionGeneratedMetadata> | null =
+    request.title ? { title: request.title } : await generatedMetadata(runtime, request, meta, ports)
   if (!metadata) return null
   if (!await ports.save(request.sessionId, metadata.title)) {
     return ports.read(request.sessionId)?.customTitle ?? null
@@ -77,12 +91,9 @@ async function nameSession(
   await ports.refresh(request.sessionId).catch((error) => {
     log.warn('background_session_task_refresh_failed', { sessionId: request.sessionId, error: String(error) })
   })
-  await events.broadcast('session.titleChanged', {
-    sessionId: request.sessionId,
-    title: metadata.title,
-    source: 'generated',
-    generatedDescription: metadata.description,
-  })
+  const event: SessionTitleChangedEvent = { sessionId: request.sessionId, title: metadata.title, source: 'generated' }
+  if (metadata.description) event.generatedDescription = metadata.description
+  await events.broadcast('session.titleChanged', event)
   log.info('background_session_named', { sessionId: request.sessionId })
   return metadata.title
 }

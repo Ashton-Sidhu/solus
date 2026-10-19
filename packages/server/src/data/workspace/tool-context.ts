@@ -1,10 +1,10 @@
 import type { WorkspaceOperations } from './operations'
 import { workspaceToolAuthority } from '../../admission/workspace-tool-authority'
-import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL, LOCAL_ORGANIZATION_ID, organizationForNew, recordScopeOf } from '../../admission/principal'
+import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL, organizationForNew, recordScopeOf } from '../../admission/principal'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
 import { isOrganizationAttached } from '../../host/organization-attachment'
-import { admittedHomeOf, getSessionRecord } from '../sessions/session-records'
+import { admittedHomeOf, getSessionRecord, isOrganizationWork } from '../sessions/session-records'
 
 /**
  * Where an organization run's records are read and written: its Solus API, as the
@@ -44,7 +44,7 @@ export async function workspaceToolContext(sessionId?: string): Promise<Workspac
   const record = sessionId ? await getSessionRecord(ANY_ORGANIZATION, sessionId) : null
   // A published organization record lives on the Solus API; so does a session the API
   // admitted whose record is not written yet, or does not show its birth yet.
-  const home = record && record.organizationId !== LOCAL_ORGANIZATION_ID && record.publication === 'published' ? record : sessionId ? admittedHomeOf(sessionId) : null
+  const home = isOrganizationWork(record) ? record : sessionId ? admittedHomeOf(sessionId) : null
   if (sessionId && home && isOrganizationAttached()) {
     const operations = installed.remote?.(sessionId)
     if (!operations) throw new SolusApiError(503, 'CAPABILITY_UNAVAILABLE', 'This organization session holds no authority for its Solus API right now. Send the next message from Solus to continue; nothing was saved on this machine.')

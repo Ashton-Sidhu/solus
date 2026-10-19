@@ -24,11 +24,13 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useSwipeRowDormant } from "../home/swipe-row-activation";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import type { SolusThreadShell } from "./thread-directory";
-import { resolveSnoozePresets, resolveThreadListV2SnoozeMenuSelection } from "./thread-snooze";
+import { useThreadListTime, type ThreadListClock } from "./thread-list-clock";
+import { resolveSnoozePresets, resolveThreadListV2SnoozeMenuSelection, snoozeWakeLabel } from "./thread-snooze";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   isChatSession,
   resolveThreadListV2SwipeActions,
+  threadListV2TimeLabel,
   threadTitle,
   type ThreadListV2Status,
   type ThreadPrPresentation,
@@ -227,15 +229,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly status: ThreadListV2Status;
   readonly unread: boolean;
   readonly pr: ThreadPrPresentation | null;
-  /** Preformatted against the parent minute tick so this memoized row's
-      countdown keeps moving. */
-  readonly snoozeWakeLabelText?: string;
-  /** Preformatted against the parent clock. Blank while a status label or
-      the wake countdown owns that slot. */
-  readonly timeLabel: string;
-  /** Parent minute tick, present only when the row's menu offers snooze
-      presets, so those menus refresh while mounted. */
-  readonly snoozePresetMinute: string;
+  /** When a snoozed-shelf row wakes; the row counts down to it. */
+  readonly snoozedUntil: number | null;
+  /** The time shown as an age. Null while a status label or the wake
+      countdown owns that slot. */
+  readonly timeLabelAt: number | null;
+  /** The row's menu offers snooze presets. */
+  readonly snoozable: boolean;
+  /** The list's clock. A tick re-renders this row only when its time text or
+      its snooze menu changes. */
+  readonly clock: ThreadListClock;
   /** The project's path on its host, when the host lists the project. */
   readonly projectPath: string | null;
   readonly projectTitle: string;
@@ -297,9 +300,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const rowAppearance = getThreadListV2RowAppearance(theme, sidebarPane, selected);
 
   const statusLabel = STATUS_LABEL_BY_STATUS[status];
-  // The timestamp is precomputed on the list item so a minute tick only
-  // re-renders rows that draw it.
-  const timeLabel = props.timeLabel;
+  const timeLabel = useThreadListTime(props.clock, (now) => threadListV2TimeLabel(props.timeLabelAt, now));
+  const snoozedUntil = props.snoozedUntil;
+  const snoozeWakeLabelText = useThreadListTime(props.clock, (now) =>
+    snoozedUntil === null ? undefined : snoozeWakeLabel(snoozedUntil, now),
+  );
 
   const handleSelect = useCallback(() => {
     if (props.unread) {
@@ -324,13 +329,18 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const canUnsettle = variant === "slim";
   const swipeActions = resolveThreadListV2SwipeActions({
     variant,
-    snoozable: props.snoozePresetMinute !== "",
+    snoozable: props.snoozable,
     snoozed: snoozedRow,
     archived: archivedRow,
   });
+  // The menu shows its preset times, so a row that offers them reads every
+  // tick and draws them at the tick. A pick resolves them again at press time.
+  const snoozePresetTime = useThreadListTime(props.clock, (now) =>
+    swipeActions.secondary === "snooze" ? now : null,
+  );
   const snoozePresets = useMemo(
-    () => (swipeActions.secondary === "snooze" ? resolveSnoozePresets(new Date()) : ([] as const)),
-    [props.snoozePresetMinute, swipeActions.secondary],
+    () => (snoozePresetTime === null ? ([] as const) : resolveSnoozePresets(new Date(snoozePresetTime))),
+    [snoozePresetTime],
   );
   const snoozePresetActions = useMemo<MenuAction[]>(
     () =>
@@ -709,9 +719,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             )}
             style={{ fontFamily: MONO_FONT }}
           >
-            {snoozedRow && props.snoozeWakeLabelText !== undefined
-              ? props.snoozeWakeLabelText
-              : timeLabel}
+            {snoozedRow && snoozeWakeLabelText !== undefined ? snoozeWakeLabelText : timeLabel}
           </Text>
         </View>
       </RowPressable>

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import {
-  solusApiScopeSchema, workspaceRecordHomeSchema, WORKSPACE_TOKEN_TTL_MS,
+  CLIENT_SOLUS_API_SCOPES, solusApiScopeSchema, workspaceRecordHomeSchema, WORKSPACE_TOKEN_TTL_MS,
   type WorkspaceAuthSession, type WorkspaceAuthSessionRequest, type WorkspaceRecordHome,
 } from '@solus/contracts/solus-api'
 import { principalSchema, principalExpiresAt, type Principal } from './principal'
@@ -56,10 +56,8 @@ export class WorkspaceCredentials {
     // No bearer: a link guest, whose share secret is the whole credential.
     if ((!bearer && !request.shareSecret) || bearer.length > 16_384) return null
     const source = await this.options.authenticateSource(bearer, request)
-    if (!source || source.principal.kind === 'system' || source.principal.kind === 'runner') return null
-    if (await this.options.isRevoked(source.principal)) return null
-    const home = this.options.homeFor(source.principal)
-    if (!home) return null
+    const home = source && await this.homeOf(source.principal)
+    if (!source || !home) return null
     const issuedAt = this.now()
     const expiresAt = Math.min(issuedAt + WORKSPACE_TOKEN_TTL_MS, source.expiresAt, principalExpiresAt(source.principal) ?? Infinity)
     if (expiresAt <= issuedAt) return null
@@ -72,6 +70,25 @@ export class WorkspaceCredentials {
       expiresAt: new Date(expiresAt).toISOString(), scopes, home,
       subject: { kind: 'user', userId: ownerKeyOf(actor), displayName: actor.user?.displayName ?? 'Solus', sessionId: null },
     }
+  }
+
+  /**
+   * The authority of a request over a client's socket: the socket's principal, with a
+   * client's scopes. The socket admitted it already, so nothing is exchanged; it is
+   * held to the same rules as an exchange and a verify.
+   */
+  async admitSocket(principal: Principal): Promise<WorkspaceRequestContext | null> {
+    const expiresAt = principalExpiresAt(principal)
+    if (expiresAt !== null && expiresAt <= this.now()) return null
+    const home = await this.homeOf(principal)
+    return home ? { principal, home, scopes: [...CLIENT_SOLUS_API_SCOPES] } : null
+  }
+
+  /** Where a principal's records live, when the API admits it: never the host itself or a runner, never a revoked device. */
+  private async homeOf(principal: Principal): Promise<WorkspaceRecordHome | null> {
+    if (principal.kind === 'system' || principal.kind === 'runner') return null
+    if (await this.options.isRevoked(principal)) return null
+    return this.options.homeFor(principal)
   }
 
   async verify(bearer: string): Promise<WorkspaceRequestContext | null> {

@@ -19,9 +19,6 @@
   import type { TurnStartKind } from "@solus/contracts/types";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { conversationIsVisible } from "./lib/conversation-visibility";
-  import { presenceStore } from "../../contexts/presence/presence.store.svelte";
-  import { otherPerson } from "../presence/lib/actor-name";
-  import UserChip from "../users/UserChip.svelte";
 
   /**
    * §16 — one row per turn, and never two. The live row and the summary row are
@@ -51,9 +48,6 @@
     attempt?: number;
     onToggle: () => void;
     onRetry?: () => void;
-    /** The live row's session and host, which say whose turn runs. */
-    serverId?: string;
-    sessionId?: string;
   }
 
   let {
@@ -66,15 +60,7 @@
     attempt = 1,
     onToggle,
     onRetry,
-    serverId,
-    sessionId,
   }: Props = $props();
-
-  // "Working for Alice" when the running turn is a teammate's; the reader's own
-  // turn, and a session with no one else in it, name no one.
-  const workingFor = $derived(live && serverId && sessionId
-    ? otherPerson(presenceStore.sessionRoom(serverId, sessionId)?.activeTurn?.author, presenceStore.currentUserId(serverId))
-    : null);
 
   // Three states, because a stop and a no-reply say nothing about the work the
   // row reports — the run did what it did, and then it was cut short. Their
@@ -223,9 +209,6 @@
 
   <!-- §16 — the rail counts, it never narrates. -->
   {#snippet rail()}
-    {#if workingFor}
-      <span data-testid="turn-working-for">for <UserChip user={workingFor} short /></span>
-    {/if}
     {#if attempt > 1}
       <span>attempt {attempt}</span>
     {/if}

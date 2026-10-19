@@ -56,4 +56,6 @@ export interface SelectableMarkdownTextProps {
   readonly renderImage?: MarkdownImageRenderer;
   readonly resolveImageSource?: MarkdownImageSourceResolver;
   readonly onImagePress?: (href: string) => void;
+  /** Adds "Quote in reply" to the text selection menu. */
+  readonly onQuote?: (text: string) => void;
 }

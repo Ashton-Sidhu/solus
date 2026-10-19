@@ -28,7 +28,15 @@ combined server in the existing process; no additional desktop subprocess starts
 
 ## Authentication
 
-Every record request needs a bearer, including loopback requests. First exchange
+A Solus client (desktop, web, or mobile) sends its record requests over the
+socket it already holds, with the `solusApiRequest` RPC. The request is the same
+`/v1` request, without a bearer: the socket's principal is its authority. The
+host runs it through the same routes, schemas, and operations as HTTP. It holds
+that principal to the rules of an exchange: a revoked device, an expired token,
+and the host itself are refused with `401`. The client exchanges no credential,
+so a record request costs one round trip.
+
+Every record request over HTTP needs a bearer, including loopback requests. First exchange
 an existing desktop/paired-device token or an access token from the account plane
 at `POST /v1/auth/session`. Local pairing works without a cloud connection. The
 configured issuer and JWKS verifier admit cloud and on-premises access tokens
@@ -66,10 +74,10 @@ pull an external document through the API: `POST /v1/works/import`, `POST /v1/wo
 connection or the host owner's connection. `GET /v1/works/search` searches the
 title and content of the works the caller can see.
 
-API credentials expire after at most five minutes and no later than the access
+API credentials expire after at most eight hours and no later than the access
 token they came from. Renewal needs another access token. Access tokens are bearer
-tokens: the API does not spend them, and it refuses one that lives longer than ten
-minutes. API credentials cannot exchange themselves or impersonate runners.
+tokens: the API does not spend them, and it refuses one that lives longer than eight
+hours. API credentials cannot exchange themselves or impersonate runners.
 Device revocation is checked on each request; guest access checks read the current
 share. Account membership changes take effect by credential expiry at latest.
 

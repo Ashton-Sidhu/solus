@@ -12,6 +12,7 @@ import { solusApiSettings } from './host/solus-api-settings'
 import { closeDatabase, getDatabase } from './db/database'
 import { closeDb } from './db'
 import { ShareManager } from './sharing/share-manager'
+import { ShareLinkResolver } from './sharing/share-link-resolver'
 import { eventVisibleTo } from './sharing/event-audience'
 import { onTasksChanged } from './data/tasks/task-store'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
@@ -25,6 +26,7 @@ import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from 
 import { SolusServer } from './transport/server'
 import { ActingIdentities, useActingIdentities, withHostScope } from './execution/seats/acting-identity'
 import { buildHttpServer, HTTP_SERVER_TIMEOUTS } from './transport/http'
+import { answerSocketRequest } from './transport/solus-api/router'
 import { attachWebSocketTransport } from './transport/websocket'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
 import { HostEventPublisher } from './transport/events/host-event-publisher'
@@ -69,7 +71,7 @@ export interface SolusApiServiceOptions {
   /** The listener's port, read when a client asks; the caller knows it only after listening. */
   port: () => number
   staticDir?: string
-  /** The routes the directory knows for one host, for a share link's guest page (host-sharing.md §4.2); none when the caller keeps no directory. */
+  /** The routes the directory knows for one host, for a share link's page to dial (instant-share-open.md); none when the caller keeps no directory. */
   hostRoutes?: (hostId: string) => Promise<HostRoute[]>
   /**
    * A person's credential, read from the cloud vault where the account plane runs
@@ -123,26 +125,24 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   registerTaskOutboxApplier()
   registerSessionOutboxApplier()
   registerWorkOutboxApplier()
-  const { requestListener, routes } = buildHttpServer({
+  const { requestListener, routes, solusApiRouter } = buildHttpServer({
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
     solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
     verifyAccessToken: (token) => tokens.verify(token),
     resolveShareSecret: secret => shares.resolveLinkSecret(secret),
-    // A link's guest page dials the host that runs the session first, and reads this copy when it does not answer (host-sharing.md §4.2).
-    resolveShareLink: async secret => {
-      const share = await shares.resolveLinkSecret(secret)
-      if (!share) return null
-      const record = share.resource.kind === 'session' ? await getSessionRecord(share.organizationId, share.resource.id) : null
-      const hostId = record?.runnerHostId ?? null
-      const routes = hostId && options.hostRoutes ? await options.hostRoutes(hostId) : []
-      return { resource: share.resource, role: share.role, organizationId: share.organizationId, host: hostId ? { hostId, routes } : null }
-    },
+    shareLinks: new ShareLinkResolver({
+      shares,
+      runnerOf: async (organizationId, sessionId) => (await getSessionRecord(organizationId, sessionId))?.runnerHostId ?? null,
+      hostRoutes: options.hostRoutes,
+    }),
     runner: {
       applyOutbox: (runner, request) => applyRunnerOutbox(runner, request, shares),
       applySessionRecords: (runner, request) => applyRunnerSessionRecords(runner, request, shares),
       applyMirror: (runner, request) => applyRunnerMirror(runner, request, sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) }, shares),
     },
   })
+  // A client's records go over its socket, with the socket's principal as their authority (docs/api/README.md).
+  if (solusApiRouter) server.register('solusApiRequest', ([request], ctx) => answerSocketRequest(solusApiRouter, request, ctx.principal))
   const unsubscribeProjects = onWorkspaceProjectsChanged(() => { void events.broadcast('workspaceProjects.changed', {}) })
   // An organization session's place in the list lives here, not on the machine
   // that ran it: machines rotate and go offline (docs/plans/session-archive.md).

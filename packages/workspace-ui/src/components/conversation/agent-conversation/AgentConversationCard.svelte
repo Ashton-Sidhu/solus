@@ -49,8 +49,10 @@
     skipMotion?: boolean;
     /** Colour is assigned by dispatch order within the turn, not by vendor. */
     accentIndex?: number;
+    /** A row of a group card, which draws the surface around all its rows. */
+    grouped?: boolean;
   }
-  let { ref, tabId, skipMotion = false, accentIndex = 0 }: Props = $props();
+  let { ref, tabId, skipMotion = false, accentIndex = 0, grouped = false }: Props = $props();
 
   const session = getWorkspaceContext();
 
@@ -134,12 +136,12 @@
 <!-- Colour is identity for the other agent while the exchange is live; the
      request and plan blocks below read the same variable. -->
 <div
-  class="py-1 {skipMotion ? '' : 'animate-msg-in-side'}"
+  class={grouped ? "" : `py-1 ${skipMotion ? "" : "animate-msg-in-side"}`}
   style:--agent-accent={live ? agentAccent(accentIndex) : "var(--muted-foreground)"}
 >
   <!-- The transcript card's surface: its fill, radius, and quiet ring. -->
   <div
-    class="rounded-(--tx-card-radius) bg-(--solus-tx-card-bg) p-1 shadow-[shadow:var(--solus-tx-quiet-shadow)]"
+    class={grouped ? "" : "rounded-(--tx-card-radius) bg-(--solus-tx-card-bg) p-1 shadow-[shadow:var(--solus-tx-quiet-shadow)]"}
   >
     <AgentLinkRow
       {provider}

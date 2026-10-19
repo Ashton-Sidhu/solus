@@ -120,7 +120,7 @@
     {
       id: "account",
       label: "Account & sync",
-      description: "Your account, this computer's Solus Cloud link, your synced settings and agent profile, and your hosts.",
+      description: "Who you are signed in as, and what syncs between your devices and hosts.",
       icon: PersonIcon,
       group: "Account",
     },
@@ -367,6 +367,7 @@
         serversStore.hostFor(serverId)?.label ??
         serverConnections.connectionFor(serverId)?.target.label ??
         serverId,
+      address: serversStore.sameNameAddress(serverId),
     }));
   });
   // Until the user picks a host, show the lead host. The first connection is
@@ -591,6 +592,9 @@
             aria-label="Settings host"
           >
             On {selectedSettingsHost.label}
+            {#if selectedSettingsHost.address}
+              <span class="max-w-40 truncate text-muted-foreground">{selectedSettingsHost.address}</span>
+            {/if}
             {#if settingsHosts.length > 1}
               <CaretDownIcon size={15} strokeWidth={1.5} class="opacity-60" />
             {/if}
@@ -604,7 +608,12 @@
               value={host.serverId}
               onSelect={() => (settingsHost.serverId = host.serverId)}
             >
-              <span class="truncate">{host.label}</span>
+              <span class="flex min-w-0 flex-col">
+                <span class="truncate">{host.label}</span>
+                {#if host.address}
+                  <span class="truncate text-xs text-muted-foreground">{host.address}</span>
+                {/if}
+              </span>
             </DropdownMenu.RadioItem>
           {/each}
         </DropdownMenu.RadioGroup>

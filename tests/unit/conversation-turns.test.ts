@@ -472,6 +472,36 @@ describe('turn collapse', () => {
     ).toEqual(['a', 'b'])
   })
 
+  test('session calls fold into their cards; only a failed call keeps its row', () => {
+    // WHY: each start_session call is shown by its card. A row per call put
+    // seven empty "Used tools" rows under seven cards. A call that failed made
+    // no card, so its row is the only place the failure shows.
+    const failed: Message = { ...tool('mcp__solus__start_session', '{"prompt":"c"}'), toolStatus: 'error' }
+    const items = groupMessages([
+      msg({ role: 'user', content: 'start three' }),
+      tool('Edit', '{"file_path":"/r/plan.md"}'),
+      tool('mcp__solus__start_session', '{"prompt":"a"}'),
+      msg({
+        role: 'assistant',
+        agentConversationRef: { agentSessionId: 'a', provider: 'codex', title: 'A', cwd: '/r', origin: 'created', exchanges: [] },
+      }),
+      tool('start_session', '{"prompt":"b"}'),
+      msg({
+        role: 'assistant',
+        agentConversationRef: { agentSessionId: 'b', provider: 'claude-code', title: 'B', cwd: '/r', origin: 'created', exchanges: [] },
+      }),
+      failed,
+      msg({ role: 'assistant', content: 'Started two.' }),
+    ])
+
+    expect(items.map((item) => item.kind)).toEqual(['user', 'tool-group', 'agent-conversation-group', 'tool-group', 'assistant'])
+    const rows = items.filter((item) => item.kind === 'tool-group')
+    expect(rows.map((item) => item.kind === 'tool-group' ? item.messages.map((m) => m.toolName) : [])).toEqual([
+      ['Edit'],
+      ['mcp__solus__start_session'],
+    ])
+  })
+
   test('prose and other cards between dispatches do not split the agent-conversation stack', () => {
     // WHY: the agent reports on each session as it dispatches the next one. If
     // that commentary closed the stack, one turn's briefings would scatter into

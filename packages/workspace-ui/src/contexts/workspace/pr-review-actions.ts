@@ -11,6 +11,7 @@ import { type RouteRef } from './routing/route-registry'
 import { SessionDraft } from './session-draft.svelte'
 import { nextMsgId } from './session.utils'
 import { projectScopeOf, worktreeProjectRoot } from '@solus/contracts/types'
+import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -149,90 +150,18 @@ export class PrReviewActions {
   }
 
   /**
-   * Open a PR review as a surface. The route is entered before the (slow)
-   * host detail request so the click gets a real surface rather than a blank pane;
-   * the descriptor's `resolve` fills that same mounted surface in place when the
-   * host target lands. Re-entering a PR already in the router's payload cache
-   * skips the request entirely. Checkout is a later, action-specific operation.
+   * Where a pull request opens, decided only from what this client already
+   * holds: the route, the host it reads from, and the external page to fall
+   * back to. Null when the target names a repository this project does not
+   * read; the caller sends that link to the browser without asking the host.
    */
-  private async openPrReviewRoute(
-    number: number,
-    title: string | undefined,
-    ctx: IpcContext,
-    opts: {
-      tab?: PrReviewTab
-      via?: Via
-      serverId?: string
-      expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
-      externalFallbackUrl?: string
-      preflight?: boolean
-    } = {},
-  ): Promise<PrReviewTarget | null> {
-    // The row's verb picks the tab: an inbox row that says Review lands on the
-    // diff, everything else on Activity.
-    this.workspace.pullRequests.view.tab = opts.tab ?? 'activity'
-    const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.workspace.apiForContext(ctx)
-    const serverId = opts.serverId ?? this.workspace.serverIdForContext(ctx)
-    const ref = this.prReviewRef(number, title, ctx, serverId, opts.expectedRepo)
-    const resolve = () => this.workspace.router.resolve(ref, {
-      api,
-      ipc: (cwd) => (cwd ? this.workspace.ctxForDirectory(cwd) : ctx),
-    })
-
-    // A web link can name a PR outside the repositories this client can read.
-    // URL-backed navigation probes the exact review target before changing panes.
-    // The host request costs seconds, so number-only navigation enters the route
-    // immediately and lets the pane fill in place. The router keeps a
-    // successful result, so opening the pane does not repeat the request; a
-    // failure stays invisible and opens the original URL instead.
-    let preflightedPr: PrReviewTarget | null = null
-    if (opts.preflight && opts.externalFallbackUrl) {
-      const fallbackUrl = opts.externalFallbackUrl
-      try {
-        preflightedPr = await resolve()
-      } catch {
-        void localApi.openExternal(fallbackUrl)
-        return null
-      }
-    }
-    this.workspace.router.navigate(ref, { via: opts.via })
-    track('surface_viewed', { surface: 'pr_review', via: opts.via })
-    this.workspace.pullRequests.projects.get(api, serverId, ctx).get(number).prefetch()
-    try {
-      const pr = preflightedPr ?? await resolve()
-      return pr
-    } catch (err) {
-      if (prSurfaceError(err).kind === 'github-auth') return null
-      // Tear down the pending surface so a failed open doesn't strand the user.
-      this.workspace.router.dropResolved(ref)
-      this.workspace.router.closeSurfacesWhere((surface) => surface.name === 'prReview' && surface.params.number === number)
-      // The provider can refuse a PR this client can otherwise see — an
-      // organization that never granted the OAuth app, for one. The host still
-      // has it, so send the user there instead of reporting a dead end.
-      if (opts.externalFallbackUrl) {
-        void localApi.openExternal(opts.externalFallbackUrl)
-        return null
-      }
-      toasts.error(`Couldn't open PR #${number}`, {
-        description: err instanceof Error ? err.message : String(err),
-      })
-      return null
-    }
-  }
-
-  /** Open a PR from any surface. Remote identity is part of the target, so the
-   * shared command always tries Solus first and uses the external URL on
-   * failure whenever the caller or cached PR record can provide one. */
-  async openPullRequest(
+  private prReviewPlan(
     target: PullRequestOpenTarget,
-    opts: {
-      ctx?: IpcContext
-      via?: Via
-      serverId?: string
-      tab?: PrReviewTab
-      preflight?: boolean
-    } = {},
-  ): Promise<void> {
+    opts: { ctx?: IpcContext; serverId?: string },
+  ) {
+    const ctx = opts.ctx ?? this.workspace.ctx
+    const serverId = opts.serverId ?? this.workspace.serverIdForContext(ctx)
+    const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.workspace.apiForContext(ctx)
     const cachedPr = this.workspace.pullRequests.projects.at(this.workspace.serverIdForContext(this.workspace.ctx), projectScopeOf(this.workspace.ctx.session))?.prFor(target.number) ?? null
     const expectedRepo = target.expectedRepo
       ?? target.baseRepo
@@ -242,17 +171,83 @@ export class PrReviewActions {
     // is derived from a repository and a number: an external fallback Solus
     // guessed is worse than none, because the caller opens it on failure.
     const externalFallbackUrl = target.url?.trim() || cachedPr?.url
-    const title = target.title ?? cachedPr?.title
-    const number = target.number
-    const ctx = opts.ctx ?? this.workspace.ctx
-    await this.openPrReviewRoute(number, title, ctx, {
-      tab: opts.tab,
-      via: opts.via,
-      serverId: opts.serverId,
-      expectedRepo,
+    // A project learns its repository from the first pull request it sees.
+    // Until then the host decides, and a refusal still falls back below.
+    const projectRepository = this.workspace.pullRequests.projects.at(serverId, projectScopeOf(ctx.session))?.repositoryKey
+    const isOtherRepository = !!expectedRepo && !!projectRepository && repositoryKeyOf(expectedRepo) !== projectRepository
+    return {
+      ctx,
+      serverId,
+      api,
       externalFallbackUrl,
-      preflight: opts.preflight,
-    })
+      isOtherRepository,
+      ref: this.prReviewRef(target.number, target.title ?? cachedPr?.title, ctx, serverId, expectedRepo),
+    }
+  }
+
+  /** Open a PR from any surface. The surface opens at once, before any host
+   * request, and fills in place when the review target lands; the router
+   * keeps that target, so reopening a PR skips the request. A PR the host
+   * refuses closes again and opens its external page whenever the caller or
+   * the cached PR record can provide one. Checkout is a later,
+   * action-specific operation. */
+  async openPullRequest(
+    target: PullRequestOpenTarget,
+    opts: {
+      ctx?: IpcContext
+      via?: Via
+      serverId?: string
+      tab?: PrReviewTab
+    } = {},
+  ): Promise<void> {
+    const plan = this.prReviewPlan(target, opts)
+    const { ctx, serverId, api, ref, externalFallbackUrl } = plan
+    if (plan.isOtherRepository && externalFallbackUrl) {
+      void localApi.openExternal(externalFallbackUrl)
+      return
+    }
+    const number = target.number
+    // The row's verb picks the tab: an inbox row that says Review lands on the
+    // diff, everything else on Activity.
+    this.workspace.pullRequests.view.tab = opts.tab ?? 'activity'
+    this.workspace.router.navigate(ref, { via: opts.via })
+    track('surface_viewed', { surface: 'pr_review', via: opts.via })
+    this.workspace.pullRequests.projects.get(api, serverId, ctx).get(number).prefetch()
+    try {
+      await this.workspace.router.resolve(ref, {
+        api,
+        ipc: (cwd) => (cwd ? this.workspace.ctxForDirectory(cwd) : ctx),
+      })
+    } catch (err) {
+      if (prSurfaceError(err).kind === 'github-auth') return
+      // Tear down the pending surface so a failed open doesn't strand the user.
+      this.workspace.router.dropResolved(ref)
+      this.workspace.router.closeSurfacesWhere((surface) => surface.name === 'prReview' && surface.params.number === number)
+      // A web link can name a PR this host cannot read — an organization that
+      // never granted the OAuth app, for one. The code host still has it, so
+      // send the user there instead of reporting a dead end.
+      if (externalFallbackUrl) {
+        void localApi.openExternal(externalFallbackUrl)
+        return
+      }
+      toasts.error(`Couldn't open PR #${number}`, {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  /** Read a pull request a pointer is resting on, so the click that follows
+   * finds its review target and Activity already loaded. Both reads land in
+   * the same caches the open uses. Failures stay silent: the open reports
+   * its own. */
+  warmPullRequest(target: PullRequestOpenTarget, opts: { ctx?: IpcContext; serverId?: string } = {}): void {
+    const { ctx, serverId, api, ref, isOtherRepository } = this.prReviewPlan(target, opts)
+    if (isOtherRepository) return
+    void this.workspace.router.resolve(ref, {
+      api,
+      ipc: (cwd) => (cwd ? this.workspace.ctxForDirectory(cwd) : ctx),
+    }).catch(() => {})
+    this.workspace.pullRequests.projects.get(api, serverId, ctx).get(target.number).prefetch()
   }
 
   /** Prepare one review without changing pane placement. Review Mode uses this

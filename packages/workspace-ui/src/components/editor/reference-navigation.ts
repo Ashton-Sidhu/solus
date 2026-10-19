@@ -28,9 +28,10 @@ export function createReferenceNavigation(
           : session.ctx,
       })
     },
-    openFile(path: string): void {
+    openFile(path: string, line?: number): void {
       requestFilePreview({
         path,
+        line,
         tabId:
           scope.tabId() ?? session.focusedChatTabId ?? session.activeTabId,
       })

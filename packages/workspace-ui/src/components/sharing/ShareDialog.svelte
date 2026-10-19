@@ -139,7 +139,7 @@
   <DropdownMenu.Root>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
-        <Button {...props} variant="ghost" size="sm" class="shrink-0 gap-1 px-2 text-workspace-chrome font-normal text-foreground pointer-coarse:h-10" data-testid={testId} disabled={sharesStore.busy}>
+        <Button {...props} variant="ghost" size="sm" class="shrink-0 gap-1 px-2 text-workspace-chrome font-normal text-foreground aria-expanded:bg-transparent pointer-coarse:h-10" data-testid={testId} disabled={sharesStore.busy}>
           {roleLabel(current)}
           <CaretDownIcon />
         </Button>
@@ -212,7 +212,7 @@
                       onclick={() => void invite(candidateKey)}
                     >
                       <UserAvatar user={candidate} size={24} />
-                      <span class="flex min-w-0 flex-1 flex-col leading-tight">
+                      <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
                         <span class="truncate text-foreground">{candidate.displayName}</span>
                         {#if candidate.email}<span class="truncate text-[0.875em] text-muted-foreground">{candidate.email}</span>{/if}
                       </span>
@@ -288,8 +288,8 @@
           {#each people as person (person.userId)}
             <li class="flex min-h-11 items-center gap-3 pointer-coarse:min-h-12" data-testid="share-person" data-user-id={person.userId} data-role={person.role}>
               <UserAvatar user={person.user} size={36} />
-              <span class="flex min-w-0 flex-1 flex-col leading-tight">
-                <span class="truncate font-medium text-foreground">{person.user.displayName}{#if person.isSelf}<span class="font-normal text-muted-foreground"> (you)</span>{/if}</span>
+              <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
+                <span class="truncate font-medium text-foreground">{person.user.displayName}{#if person.isSelf}<span class="ml-1 font-normal text-muted-foreground">(you)</span>{/if}</span>
                 {#if person.detail}<span class="truncate text-[0.875em] text-muted-foreground">{person.detail}</span>{/if}
               </span>
               {#if person.role === "owner" || !canShare}

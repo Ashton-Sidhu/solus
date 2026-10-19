@@ -16,6 +16,8 @@ import { hostCategorySchema, hostOrganizationSchema, hostOwnerIdentitySchema } f
  * and sends the same text again.
  */
 export const turnRefusalSchema = z.enum([
+  /** Sent only by an older host. An organization's personal-host policy decides
+   *  whether a person may link their own computer to the cloud; it refuses no turn. */
   'PERSONAL_HOSTS_NOT_ALLOWED',
   'ORGANIZATION_NOT_ALLOWED',
   'ORGANIZATION_REQUIRED',

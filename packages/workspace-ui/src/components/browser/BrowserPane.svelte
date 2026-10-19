@@ -269,7 +269,8 @@
         supportsNativeBrowser(),
         entry.serverId,
         serverConnections.localServerId(),
-        entry.page.target.kind,
+        entry.page,
+        browserStore.devicePersonKey,
       ),
   );
 

@@ -209,12 +209,14 @@ describe('native composer follow-up delivery', () => {
       executionPreferences: () => ({}),
       connection,
       outbox: new SendOutbox(() => outboxStorage),
-      runSettings: async () => ({ defaultPermissionMode: 'supervised' }),
+      runSettings: async () => ({ defaultPermissionMode: 'supervised', defaultModels: {}, modelOptionsByProvider: {} }),
       organizationId: () => null,
       uuid: () => `client-${++nextId}`,
       onChange: () => undefined,
     })
     await controller.load()
+    // A failed load leaves the session unwatched, and the first send's watch then reads it as idle.
+    expect(controller.phase).toEqual({ kind: 'ready' })
     transport.emitSession('thread-1', { type: 'status_change', status: 'running', oldStatus: 'idle' })
     return { api, controller }
   }

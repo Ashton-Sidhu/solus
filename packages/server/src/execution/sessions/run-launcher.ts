@@ -17,6 +17,7 @@ import { composeHandoffSeed } from '../agents/session-handoff'
 import { buildSystemPrompt } from '../agents/system-hint'
 import { tasksForSession } from '../../data/tasks/task-sessions'
 import { SessionShelf } from '../../data/sessions/session-states'
+import { sessionIsOrganizationWork } from '../../data/sessions/session-records'
 import { workspaceToolContext } from '../../data/workspace/tool-context'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
@@ -34,6 +35,7 @@ import { integrationAgentTools } from '../../integrations/integration-tools'
 import { typeSafeKey } from '../../typesafe/credentials'
 import { withActorScope } from '../seats/acting-identity'
 import { userKey } from '@solus/contracts/user'
+import { worktreeSetupCardId } from '@solus/contracts/setup-card'
 import { SPAN_SERVICES } from '../../data/insights/registries'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
 import { taskOfTurn, linkPreparedTask, taskSystemContext, logNewSessionPrompt } from './run-task-context'
@@ -148,9 +150,8 @@ export class RunLauncher {
     session.promptCount = (session.promptCount ?? 0) + 1
     session.lastActivityAt = Date.now()
     const userMessage = this.userMessageEvent(request.options, 'steer', request.actor)
-    const organizationId = await this.rt.turnOrganization(request.sessionId)
     if (backend.isSessionRunning(agentSessionId)) {
-      this.rt.restarts.saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, organizationId)
+      this.rt.restarts.saveRestartRun({ ...request, input: { ...(session.runInput ?? request.input), agentSessionId } }, await sessionIsOrganizationWork(request.sessionId))
     }
     this.rt.publish(session.sessionId, userMessage)
 
@@ -201,7 +202,7 @@ export class RunLauncher {
     // turn (organization-scope §6.1); the organization is the record's, read
     // once here, never a window's later choice.
     const organizationId = await this.rt.turnOrganization(request.sessionId)
-    this.rt.restarts.saveRestartRun(request, organizationId)
+    this.rt.restarts.saveRestartRun(request, await sessionIsOrganizationWork(request.sessionId))
     const account = insightsAccountOf(request.actor)
     let actor: { userId: string; email?: string } | undefined
     if (account) {
@@ -493,11 +494,18 @@ export class RunLauncher {
     // clears it once the session leaves 'connecting'; a failed card is kept
     // until the user retries setup or explicitly chooses the project directory.
     let worktreeCardActive = false
+    const worktreeOutput: string[] = []
     const buildWorktreeCard = (activeIndex: number, errored = false): StatusCardState => ({
-      id: `worktree-${sessionId}`,
+      id: worktreeSetupCardId(sessionId),
       title: errored ? 'Worktree setup failed' : 'Preparing worktree…',
       icon: 'git-branch',
       status: errored ? 'error' : 'active',
+      // Bounded: at most 100 lines of at most 2,048 characters each.
+      output: worktreeOutput
+        .flatMap((line) => line.split('\n'))
+        .slice(-100)
+        .map((line) => line.slice(0, 2048)),
+      worktreeBaseBranch: worktreeBaseBranch ?? undefined,
       steps: ([
         { id: 'worktree', label: 'Creating branch & worktree' },
         { id: 'workspace', label: 'Linking workspace' },
@@ -513,6 +521,7 @@ export class RunLauncher {
       this.pendingSetupControllers.get(sessionId)?.abort(new Error('Interrupted'))
       this.pendingSetupControllers.set(sessionId, setupController)
       worktreeCardActive = true
+      worktreeOutput.push(`Creating worktree from ${worktreeBaseBranch}`)
       this.rt.publish(sessionId, { type: 'status_card', card: buildWorktreeCard(0) })
       try {
         const gitContext: GitCheckout = await dispatchStep(
@@ -538,6 +547,7 @@ export class RunLauncher {
         )
         if (existingSession) existingSession.gitContext = gitContext
         effectiveGitCtx = gitContext
+        worktreeOutput.push(`Branch: ${gitContext.branch}`, `Worktree: ${gitContext.worktreePath}`, 'Linking workspace')
         log.info('worktree_created', { sessionId, branch: gitContext.branch, worktreePath: gitContext.worktreePath })
         captureServerEvent('worktree_created', {})
         this.rt.publish(sessionId, { type: 'git_context', gitContext })
@@ -552,8 +562,10 @@ export class RunLauncher {
             : new Error('Interrupted')
         }
         log.error('worktree_creation_failed', { sessionId, error: String(e) })
+        const message = e instanceof Error ? e.message : String(e)
+        worktreeOutput.push(message)
         const card = buildWorktreeCard(0, true)
-        card.steps[0].detail = e instanceof Error ? e.message : String(e)
+        card.steps[0].detail = message
         card.recovery = 'worktree'
         this.failedSetupPrompts.set(sessionId, options)
         this.rt.statuses.setStatus(sessionId, 'failed')
@@ -600,6 +612,7 @@ export class RunLauncher {
     // Workspace linked (git watcher + file index warmed) → advance to the final
     // "Starting session" step; the reducer clears the card once the run begins.
     if (worktreeCardActive) {
+      worktreeOutput.push('Workspace linked. Starting agent session.')
       this.rt.publish(sessionId, { type: 'status_card', card: buildWorktreeCard(2) })
     }
 
@@ -782,7 +795,10 @@ export class RunLauncher {
           () => logNewSessionPrompt(effectiveInput, options, backend.id),
         )
       }
-      const userInstructions = buildSystemPrompt({ extraInstructions: effectiveInput.extraInstructions })
+      const userInstructions = buildSystemPrompt({
+        extraInstructions: effectiveInput.extraInstructions,
+        modelInstructions: effectiveInput.modelInstructions,
+      })
       const systemPrompt = [
         userInstructions,
         options.systemPrompt,

@@ -1,4 +1,5 @@
 import type { SessionMeta } from '@solus/contracts/types'
+import { isSolusApiId } from '@solus/contracts/uplink'
 import type { HostApi } from './host-api'
 import { serverConnections } from './server-connections'
 
@@ -7,8 +8,16 @@ interface SessionMetaHosts {
   apiFor(serverId: string): Pick<HostApi, 'getSessionInfos'>
 }
 
+/** A session's metadata as one host answered it, and the runner the answer named. */
+export interface SessionRecordMeta {
+  meta: SessionMeta | null
+  /** The account host id of the runner that holds the transcript, as a workspace
+   *  service's record names it; null from a host, or when the record names none. */
+  runnerHostId: string | null
+}
+
 interface PendingSessionMeta {
-  resolve(meta: SessionMeta | null): void
+  resolve(read: SessionRecordMeta): void
 }
 
 class SessionMetaReader {
@@ -17,7 +26,7 @@ class SessionMetaReader {
 
   constructor(private readonly hosts: SessionMetaHosts) {}
 
-  read(serverId: string, sessionId: string): Promise<SessionMeta | null> {
+  read(serverId: string, sessionId: string): Promise<SessionRecordMeta> {
     const resolvedServerId = this.hosts.resolveId(serverId)
     return new Promise((resolve) => {
       let pending = this.pendingByServer.get(resolvedServerId)
@@ -48,8 +57,11 @@ class SessionMetaReader {
     }
     for (let index = 0; index < sessionIds.length; index++) {
       const sessionId = sessionIds[index]
-      const meta = stampSessionMeta(results[index] ?? null, serverId)
-      for (const listener of pending.get(sessionId) ?? []) listener.resolve(meta)
+      const answered = results[index] ?? null
+      // The workspace service answers the runner in `serverId`; stamping names the host read from.
+      const runnerHostId = isSolusApiId(serverId) ? answered?.serverId ?? null : null
+      const meta = stampSessionMeta(answered, serverId)
+      for (const listener of pending.get(sessionId) ?? []) listener.resolve({ meta, runnerHostId })
     }
   }
 }
@@ -88,5 +100,14 @@ export async function readSessionMeta(
   sessionId: string,
   hosts: SessionMetaHosts = serverConnections,
 ): Promise<SessionMeta | null> {
+  return (await readerFor(hosts).read(serverId, sessionId)).meta
+}
+
+/** Read one session from one named host, with the runner a workspace service's record names. */
+export function readSessionRecordMeta(
+  serverId: string,
+  sessionId: string,
+  hosts: SessionMetaHosts = serverConnections,
+): Promise<SessionRecordMeta> {
   return readerFor(hosts).read(serverId, sessionId)
 }

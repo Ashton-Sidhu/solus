@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import type { TaskTarget } from '@solus/contracts/types'
-import { quotedReplyDraft } from '@solus/workspace-ui/lib/quoted-reply'
+import { quotedReplyDraft } from '@solus/client-core/quoted-reply'
 import { ownedTaskId } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
 
 // Exercise the production methods without starting workspace host subscriptions.

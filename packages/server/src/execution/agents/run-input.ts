@@ -5,35 +5,43 @@ import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, executionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
 
 /**
- * The instructions for a run with no renderer behind it — an automation, an
- * agent-created session, a handoff, a background review. Instructions are the
- * person's (plans/018 §3.1): they come from the preferences captured for the
- * work, never from this host's config, so one person's instructions never
+ * The instruction fields for a run with no renderer behind it — an automation,
+ * an agent-created session, a handoff, a background review. Instructions are
+ * the person's (plans/018 §3.1): they come from the preferences captured for
+ * the work, never from this host's config, so one person's instructions never
  * reach another person's run. No preferences means no instructions.
  */
-export function instructionsFor(preferences: ExecutionPreferences | undefined): Pick<SessionRunInput, 'extraInstructions'> {
-  return { extraInstructions: preferences?.extraInstructions ?? '' }
+export function instructionsFor(
+  preferences: ExecutionPreferences | undefined,
+  model: string | null | undefined,
+): Pick<SessionRunInput, 'extraInstructions' | 'modelInstructions'> {
+  return {
+    extraInstructions: preferences?.extraInstructions ?? '',
+    // A run with no resolved model simply has nothing scoped to it.
+    modelInstructions: model ? preferences?.modelInstructions?.[model] : undefined,
+  }
 }
 
 /**
  * The model fields for a run with no renderer behind it. An automation stores
- * no model to mean "the provider default", and the three model fields are
+ * no model to mean "the provider default", and all four of these fields are
  * derived from the model, so they have to resolve it together — passing the
- * unresolved model through left the window and the model itself disagreeing,
- * and the backend fell back to whatever its own CLI defaults to instead of ours.
+ * unresolved model through left the window, the model-scoped instructions and
+ * the model itself disagreeing, and the backend fell back to whatever its own
+ * CLI defaults to instead of ours.
  */
 export function unattendedModelInputFor(
   provider: AgentId | null | undefined,
   modelId: string | null | undefined,
   preferences: ExecutionPreferences | undefined,
-): Pick<SessionRunInput, 'contextWindow' | 'model' | 'preferredModel' | 'extraInstructions'> {
+): Pick<SessionRunInput, 'contextWindow' | 'model' | 'preferredModel' | 'extraInstructions' | 'modelInstructions'> {
   const profiles = provider ? MODEL_PROFILES[provider] ?? {} : {}
   const model = modelId || Object.entries(profiles).find(([, p]) => p.isDefault)?.[0] || null
   return {
     contextWindow: model ? profiles[model]?.defaultContextWindow ?? null : null,
     model: model ?? '',
     preferredModel: model,
-    ...instructionsFor(preferences),
+    ...instructionsFor(preferences, model),
   }
 }
 
@@ -89,7 +97,7 @@ export function runInputFromContext(ctx: IpcContext): SessionRunInput {
     // The sender's own choice, carried with the run and its queue entry: a
     // process-wide value would let another client change it while this drains.
     rateLimitBehavior: preferences.rateLimitBehavior ?? DEFAULT_EXECUTION_PREFERENCES.rateLimitBehavior,
-    ...instructionsFor(preferences),
+    ...instructionsFor(preferences, statusBar.model),
     executionPreferences: preferences,
   }
 }

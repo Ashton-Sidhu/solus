@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { CatalogCategoryId, Integration, IntegrationCatalogListRequest, IntegrationConnection, IntegrationOAuthClientInput } from '@solus/contracts/integration-types'
@@ -77,9 +77,14 @@ export function useIntegrations(hostId: string) {
   /** The open rows, the list, and the connections, read by the event handlers. */
   const openIds = useRef(new Set<string>())
   const listRef = useRef(list)
-  listRef.current = list
   const connectionsRef = useRef(connections)
-  connectionsRef.current = connections
+  // A layout effect runs before every passive effect of the same commit, so
+  // handlers and effects still read this render's values. A write during
+  // render would stop the React Compiler.
+  useLayoutEffect(() => {
+    listRef.current = list
+    connectionsRef.current = connections
+  })
 
   const connection = useCallback(() => app.connections.connection(hostId), [app, hostId])
 
@@ -282,12 +287,12 @@ export function useIntegrations(hostId: string) {
     if (busyRef.current) throw new Error('Another change is in progress.')
     busyRef.current = action
     setBusy(action)
-    try {
-      return await run(current.api)
-    } finally {
+    // The React Compiler cannot compile try/finally. The async wrapper turns a
+    // synchronous throw into a rejection, so finally sees both.
+    return await (async () => run(current.api))().finally(() => {
       busyRef.current = null
       setBusy(null)
-    }
+    })
   }
 
   const applyToList = (update: (integrations: Integration[]) => Integration[]) => {
@@ -304,7 +309,10 @@ export function useIntegrations(hostId: string) {
     addingRef.current = true
     const { url } = candidate
     setAdding({ url, step: 'checking' })
-    try {
+    // The React Compiler cannot compile try/finally or a throw inside try. The
+    // async wrapper turns a synchronous throw into a rejection, so catch and
+    // finally see both.
+    return await (async (): Promise<Integration | null> => {
       const current = connection()
       if (!current || !connected) throw new Error('This host cannot be reached now.')
       const refusal = probeRefusal(await current.api.integrationProbe({ url }))
@@ -316,12 +324,12 @@ export function useIntegrations(hostId: string) {
       applyToList((integrations) => upsertIntegration(integrations, integration))
       setAdding(null)
       return integration
-    } catch (cause) {
+    })().catch((cause) => {
       setAdding({ url, step: 'failed', message: errorMessage(cause) })
       return null
-    } finally {
+    }).finally(() => {
       addingRef.current = false
-    }
+    })
   }
 
   const clearAdding = useCallback(() => setAdding(null), [])

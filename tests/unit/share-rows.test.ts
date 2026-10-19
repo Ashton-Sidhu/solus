@@ -91,28 +91,29 @@ describe('scope', () => {
     expect(scopeOptions(list, directory, null, 'you').map((option) => option.key)).toContain('team:team-z')
   })
 
-  test('a scope becomes rows with its role, and the link keeps the organization as it was', () => {
+  test('a scope becomes rows with its role, and the link keeps the organization as the host has it', () => {
     // WHY: the link is the widest scope. Dropping the organization row when the link
-    // goes on would push teammates through the guest door as viewers.
-    expect(scopeRequestFor({ kind: 'private' }, base, 'org1').entries).toEqual([])
-    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'viewer' }, base, 'org1').entries).toEqual([{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer' }])
-    expect(scopeRequestFor({ kind: 'organization', organizationId: 'org1', role: 'editor' }, base, null).entries).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }])
-    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, base, 'org1').entries).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
+    // goes on would push teammates through the guest door. The dialog passes the row
+    // through unchanged: the host holds it at the link's role or above, so no client
+    // decides that (ShareManager.holdOrganizationAtLink).
+    expect(scopeRequestFor({ kind: 'private' }, base).entries).toEqual([])
+    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'viewer' }, base).entries).toEqual([{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer' }])
+    expect(scopeRequestFor({ kind: 'organization', organizationId: 'org1', role: 'editor' }, base).entries).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }])
+    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, base).entries).toEqual([])
     const viewing: ShareList = { ...base, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] }
-    expect(scopeRequestFor({ kind: 'link', role: 'editor' }, viewing, 'org1').entries).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
-    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, base, null).entries).toEqual([])
+    expect(scopeRequestFor({ kind: 'link', role: 'editor' }, viewing).entries).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
   })
 
   test('a scope change carries the link only when the link changes', () => {
     // WHY: the rows and the link go in one transaction, so the list never lands
     // between two scopes. A scope that leaves the link as it is must not touch it,
     // or an unchanged link would be rewritten on every row change.
-    expect(scopeRequestFor({ kind: 'link', role: 'editor' }, base, 'org1').link).toEqual({ role: 'editor' })
-    expect(scopeRequestFor({ kind: 'organization', organizationId: 'org1', role: 'editor' }, base, 'org1').link).toBeUndefined()
+    expect(scopeRequestFor({ kind: 'link', role: 'editor' }, base).link).toEqual({ role: 'editor' })
+    expect(scopeRequestFor({ kind: 'organization', organizationId: 'org1', role: 'editor' }, base).link).toBeUndefined()
     const linked: ShareList = { ...base, link: { role: 'viewer' } }
-    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, linked, 'org1').link).toBeUndefined()
-    expect(scopeRequestFor({ kind: 'link', role: 'commenter' }, linked, 'org1').link).toEqual({ role: 'commenter' })
-    expect(scopeRequestFor({ kind: 'private' }, linked, 'org1').link).toEqual({ role: null })
+    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, linked).link).toBeUndefined()
+    expect(scopeRequestFor({ kind: 'link', role: 'commenter' }, linked).link).toEqual({ role: 'commenter' })
+    expect(scopeRequestFor({ kind: 'private' }, linked).link).toEqual({ role: null })
   })
 
   test('"Only …" names the reader when they own it, else the owner', () => {
@@ -170,8 +171,8 @@ describe('people named on the list', () => {
     expect(withPersonRole(list, 'bob', 'editor').entries).toEqual([{ subject: orgRow.subject, role: 'editor' }, { subject: bobRow.subject, role: 'editor' }])
     expect(withPersonRole(list, 'cara', 'viewer').entries).toHaveLength(3)
     expect(withoutPerson(list, 'bob').entries).toEqual([{ subject: orgRow.subject, role: 'editor' }])
-    expect(scopeRequestFor({ kind: 'private' }, list, 'org1').entries).toEqual([{ subject: bobRow.subject, role: 'viewer' }])
-    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'editor' }, list, 'org1').entries).toEqual([
+    expect(scopeRequestFor({ kind: 'private' }, list).entries).toEqual([{ subject: bobRow.subject, role: 'viewer' }])
+    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'editor' }, list).entries).toEqual([
       { subject: bobRow.subject, role: 'viewer' },
       { subject: { kind: 'team', id: 'team-a' }, role: 'editor' },
     ])

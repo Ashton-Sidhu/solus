@@ -203,12 +203,13 @@ title, task and pull request links, settle, and snooze are absent. The client
 also sends no typing presence, automatic title, or branch for that session.
 
 Only a guest link asks the visitor for a name. A visitor who is signed in to
-Solus on the account origin opens a guest link as their account at once
-(`bootGuest` in `apps/client/src/main.ts`). If that account is a member of
-the resource's organization with at least the link's role, the page opens the
-member link in its place, so the member keeps their own role and the whole app
-(`apps/client/src/lib/guest-member.ts`). A member with a lower role than the
-link stays on the guest page, which gives the link's role.
+Solus on the account origin sends their Solus API token with the link's
+resolve, and the answer says whom the link opens the resource as
+(`ShareLinkResolver`, docs/plans/instant-share-open.md). A member of the
+resource's organization with at least the link's role opens it as themselves,
+in the whole app, with no reload. A member with a lower role, and any other
+signed-in visitor, opens it as a guest under their account name, with the
+link's role.
 
 A resource shared only with members (a team, the organization, or people by
 name, with no link) copies the app's own address on the account origin

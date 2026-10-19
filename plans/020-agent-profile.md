@@ -582,8 +582,11 @@ the console's agent profile page, which writes `extraInstructions` to the
 settings document against the revision it read. The Settings → Instructions
 tab went; the Agent profile tab holds the editor. Clients list the copied
 `agents/`, `commands/`, and `prompts/` files under "Files". The per-model
-instructions (`modelInstructions`) went with it, from the settings contract,
-the run input, and the system prompt: one instruction text per person.
+instructions (`modelInstructions`) stay: a personal setting beside the extra
+instructions, edited in the same Instructions section on desktop, web, and
+mobile, and added to the system prompt only when that model runs (restored
+2026-10-15; removing them had left stored automation snapshots that no longer
+parsed).
 
 ### The desktop's copy starts from the computer (2026-10-14)
 

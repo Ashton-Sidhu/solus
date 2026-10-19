@@ -168,6 +168,10 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
    *  handler is bound once here so start and stop add and remove the same
    *  reference; a leaked one would keep decoding frames for a page nobody sees. */
   private screencastFrame: BrowserFrameListener | null = null
+  /** The caps of that screencast, so a one-frame capture can resume it after. */
+  private screencastOptions: BrowserScreencastOptions | null = null
+  /** A screencast a capture paused, resumed when the capture ends unless it was stopped meanwhile. */
+  private pausedScreencast: { options: BrowserScreencastOptions; onFrame: BrowserFrameListener } | null = null
   /** True while Chromium's DevTools hold the session this driver needs. Every
    *  command refuses rather than waiting on a debugger that is not ours. */
   private devToolsOpen = false
@@ -398,39 +402,29 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   /**
    * The emulated viewport as a PNG.
    *
-   * `Page.captureScreenshot` is the primary. A headless guest captures its
-   * emulated surface, including the device pixel ratio. A visible `<webview>`
-   * captures its current view instead: asking Chromium for that guest's surface
-   * can temporarily replace the composited page with the device-sized surface,
-   * which makes the page shrink and expand in front of the user. The view keeps
-   * the visible geometry stable. `capturePage` is answered by the same guest and
-   * remains the last bounded fallback.
+   * A headless guest answers `Page.captureScreenshot` from its emulated
+   * surface, including the device pixel ratio.
    *
-   * A capture is a bounded reason to wake a guest only after the passive CDP
-   * read fails. Disabling background throttling on one webview makes Electron
-   * draw the whole BrowserWindow. Doing that before every capture made a quick
+   * A visible `<webview>` never uses `Page.captureScreenshot`. With
+   * `fromSurface: true`, Chromium can replace the composited page with the
+   * device-sized surface, so the page shrinks and expands in front of the
+   * user. With `fromSurface: false`, Chromium copies the embedder's window
+   * instead of the guest: the capture is the top-left of the Solus window at
+   * the page's size, whatever the page shows. So a webview asks its own
+   * surface for one fresh frame through a screencast, which disturbs neither.
+   *
+   * A capture is a bounded reason to wake a guest only after that read fails.
+   * Disabling background throttling on one webview makes Electron draw the
+   * whole BrowserWindow. Doing that before every capture made a quick
    * annotation comment look like both the page and conversation refreshed.
-   * A visible page that just painted a mark already has a frame, so read it
-   * first and leave the window alone. Parked pages still get the bounded wake-up
-   * and fallbacks below.
+   * Parked pages still get the bounded wake-up and fallbacks below.
    */
   async captureScreenshot(): Promise<string> {
     try {
+      if (this.kind === 'webview') return await this.captureScreencastFrame()
       const shot = await this.ask(
         'Page.captureScreenshot',
-        {
-          format: 'png',
-          captureBeyondViewport: false,
-          // A native webview shares its visible compositor surface with the app.
-          // Capture the view so Chromium never swaps in a differently sized
-          // device surface while the user is looking at it. Headless guests have
-          // no visible view to disturb and keep the exact emulated-DPR surface.
-          fromSurface: this.kind !== 'webview',
-          // The visible webview and the Solus renderer share one Chromium
-          // compositor. Prefer the fast PNG encoder so taking evidence does not
-          // hold a frame while Chromium optimizes the image size.
-          optimizeForSpeed: true,
-        },
+        { format: 'png', captureBeyondViewport: false, fromSurface: true, optimizeForSpeed: true },
         screenshotResultSchema,
         SCREENSHOT_TIMEOUT_MS,
       )
@@ -488,6 +482,12 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
    * cannot race past it, and every exit removes the subscription again.
    */
   private async captureScreencastFrame(): Promise<string> {
+    // A watched or recorded page is already streaming. The capture borrows the
+    // screencast: its frames are not the stream's, and the stream resumes after.
+    if (this.screencastFrame && this.screencastOptions) {
+      this.pausedScreencast = { options: this.screencastOptions, onFrame: this.screencastFrame }
+      this.screencastFrame = null
+    }
     let onFrame: ((_event: Electron.Event, method: string, params: CdpEventParams) => void) | undefined
     const frame = new Promise<z.output<typeof screencastFrameSchema>>((resolve) => {
       onFrame = (_event: Electron.Event, method: string, params: CdpEventParams): void => {
@@ -514,7 +514,15 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
       return `data:image/png;base64,${shot.data}`
     } finally {
       if (onFrame) this.cdp.off('message', onFrame)
-      await this.send('Page.stopScreencast', undefined, SCREENSHOT_TIMEOUT_MS).catch(() => {})
+      const paused = this.pausedScreencast
+      this.pausedScreencast = null
+      if (this.screencastFrame) {
+        // A stream started during the capture owns the screencast now.
+      } else if (paused && !this.contents.isDestroyed()) {
+        await this.startScreencast(paused.options, paused.onFrame).catch(() => {})
+      } else {
+        await this.send('Page.stopScreencast', undefined, SCREENSHOT_TIMEOUT_MS).catch(() => {})
+      }
     }
   }
 
@@ -529,6 +537,7 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
    */
   async startScreencast(options: BrowserScreencastOptions, onFrame: BrowserFrameListener): Promise<void> {
     this.screencastFrame = onFrame
+    this.screencastOptions = options
     await this.send('Page.startScreencast', {
       format: 'jpeg',
       quality: options.quality,
@@ -539,8 +548,11 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   }
 
   async stopScreencast(): Promise<void> {
+    // A stream a capture paused is stopped as well: it must not resume after.
+    this.pausedScreencast = null
     if (!this.screencastFrame) return
     this.screencastFrame = null
+    this.screencastOptions = null
     if (this.contents.isDestroyed()) return
     await this.send('Page.stopScreencast').catch(() => {})
   }

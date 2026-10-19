@@ -22,6 +22,7 @@ import { hostDisplayName } from '../../../platform/host-display-name'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { checkAttachments } from '../../orchestration/prompt-attachments'
+import { findRemoteSession, type OrganizationApi, type RemoteSession } from '../../orchestration/remote-session-read'
 
 const log = createLogger('sessions', 'session-tools.ts')
 
@@ -77,6 +78,8 @@ export interface SessionController {
   listAgentTargets?(): Promise<AgentTarget[]>
   /** What the session's current turn may reach on other hosts; null when its person reaches none from here (a guest). */
   reachRequestFor?(sessionId: string): ReachRequest | null
+  /** The Solus APIs of the organizations the session's current turn may read, as its person. */
+  organizationApisFor?(sessionId: string): OrganizationApi[]
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   /** The last `limit` messages; without a limit, the whole transcript. */
   loadSessionTail(provider: AgentId, sessionId: string, projectPath: string | undefined, limit?: number): Promise<SessionLoadMessage[]>
@@ -168,6 +171,13 @@ const ATTACHMENTS_FIELD = z
 
 const startSessionFields = {
   prompt: z.string().describe('The prompt the new session starts running immediately.'),
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(ORCHESTRATION_LIMITS.title)
+    .optional()
+    .describe('A short name for the session, such as "Server correctness fixes". It names the session and its card in this conversation. Give each session you start a different name. Omit to name it from the prompt.'),
   attachments: ATTACHMENTS_FIELD,
   host: HOST_FIELD.describe("Optional. Start the session on another of your hosts, by its id or name from list_agent_targets. Omit to start it on this host. On another host, task must be 'none'; cwd is a path on that host: pass a project path that list_agent_targets with this host returns, or omit cwd for a new chat folder there; and the provider and model must be ones that host offers."),
   task: z
@@ -275,7 +285,7 @@ const LIST_AGENT_TARGETS_DESC =
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id (pass your query as `match`) to load the conversation before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
-  'Load a Solus session by id: its status, bound task context, and message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead. When you cite this session in a reply, copy the returned session link verbatim rather than rebuilding it.'
+  'Load a Solus session by id: its status, bound task context, and message bodies. A session that is not on this host is looked up on your other linked hosts, then on your organizations\' Solus APIs. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead. When you cite this session in a reply, copy the returned session link verbatim rather than rebuilding it.'
 const SEND_SESSION_DESC =
   "Send a message to another Solus session. `delivery` 'queue' (default) runs it after the session's current turn; 'steer' changes the turn in progress now, and falls back to queue if that turn cannot take it. With `report` on, the outcome comes back like start_session's. Cannot target your own session."
 const READ_TASK_SESSIONS_DESC =
@@ -432,10 +442,10 @@ function formatTail(messages: SessionLoadMessage[]): string {
 
 /** What one read_session call reads from. */
 interface SessionRead {
-  controller: SessionController
-  meta: SessionMeta
-  sessionId: string
-  projectPath: string | undefined
+  /** The last `limit` messages; without a limit, the whole transcript. */
+  load(limit?: number): Promise<SessionLoadMessage[]>
+  /** The text messages `match` searches. */
+  matchable(): Promise<Array<{ role: string; text: string }>>
   tail: number
 }
 
@@ -447,12 +457,12 @@ interface SessionBody {
 }
 
 async function readTail(read: SessionRead): Promise<SessionBody> {
-  const messages = await read.controller.loadSessionTail(read.meta.provider, read.sessionId, read.projectPath, read.tail)
+  const messages = await read.load(read.tail)
   return { body: formatTail(messages), cursor: cursorAfter(messages) }
 }
 
 async function readSince(read: SessionRead, since: number): Promise<SessionBody> {
-  const page = messagesSince(await read.controller.loadSessionTail(read.meta.provider, read.sessionId, read.projectPath), since, read.tail)
+  const page = messagesSince(await read.load(), since, read.tail)
   if (!page.messages.length) return { body: '(nothing new)', bodyNote: `new since ${since}:`, cursor: since }
   const cursor = cursorAfter(page.messages)
   return {
@@ -467,7 +477,7 @@ async function readSince(read: SessionRead, since: number): Promise<SessionBody>
 /** The indexed messages matching `match`; the latest tail when nothing
  *  matches or the body is not indexed yet. */
 async function readMatch(read: SessionRead, match: string): Promise<SessionBody> {
-  const indexed = getSessionMessages(read.sessionId)
+  const indexed = await read.matchable()
   const matched = formatMatchedMessages(indexed, match, read.tail)
   if (matched) {
     return {
@@ -637,43 +647,89 @@ async function remoteProjects(remote: RemoteHost): Promise<{ name: string; path:
 
 async function readSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
   if (!sessionController) return { ok: false, text: 'read_session is unavailable — no session controller is wired.' }
+  const controller = sessionController
   const parsed = z.object(readSessionFields).safeParse(args)
   if (!parsed.success) return { ok: false, text: 'read_session requires a valid session_id.' }
+  const requestedId = parsed.data.session_id.trim()
   const tail = parsed.data.tail ?? 10
-  const match = parsed.data.match?.trim() ?? ''
-  const meta = await findSession(parsed.data.session_id.trim())
+  const meta = await findSession(requestedId)
   if (!meta) {
-    const remoteHost = remoteHostOf(deps, parsed.data.session_id.trim())
-    if (remoteHost) return { ok: false, text: `Session ${parsed.data.session_id.trim()} runs on ${remoteHost}. read_session cannot read another host yet; its report comes back here, and read_session_exchange reads it.` }
-    return { ok: false, text: `Session ${parsed.data.session_id.trim()} not found.` }
+    const remote = await findOffHost(requestedId, deps.ctx?.sessionId)
+    if (remote) return readRemoteSession(remote, parsed.data, tail)
+    const remoteHost = remoteHostOf(deps, requestedId)
+    if (remoteHost) return { ok: false, text: `Session ${requestedId} runs on ${remoteHost}, which did not answer. Its report comes back here, and read_session_exchange reads it.` }
+    return { ok: false, text: `Session ${requestedId} not found on this host, your other hosts, or your organizations' Solus APIs.` }
   }
   // The session read may name a thread; everything below names the session.
   const sessionId = meta.sessionId
-  const status = sessionController.liveStatus(sessionId) ?? meta.status ?? 'idle'
-  const read = { controller: sessionController, meta, sessionId, projectPath: meta.projectPath || deps.ctx?.cwd, tail }
-  const since = parsed.data.since
-  // With `match`, jump to the relevant passage; with `since`, only what came
-  // after the cursor; otherwise the latest tail.
-  const { body, bodyNote = '', cursor } = match
-    ? await readMatch(read, match)
-    : since !== undefined ? await readSince(read, since) : await readTail(read)
-  const pendingInput = formatPendingInputReport(sessionController.pendingInputEvents(sessionId))
+  const status = controller.liveStatus(sessionId) ?? meta.status ?? 'idle'
+  const projectPath = meta.projectPath || deps.ctx?.cwd
+  const { body, bodyNote = '', cursor } = await readBody({
+    load: (limit) => controller.loadSessionTail(meta.provider, sessionId, projectPath, limit),
+    matchable: async () => getSessionMessages(sessionId),
+    tail,
+  }, parsed.data)
+  const pendingInput = formatPendingInputReport(controller.pendingInputEvents(sessionId))
+  const taskContext = await taskContextForSession(sessionId)
   return {
     ok: true,
     text: [
-      ...await sessionHeader(meta, sessionId, status),
+      ...sessionHeader(meta, status, taskContext ? taskContext.details : ['task: (unbound)']),
       ...(pendingInput ? [`Pending input:\n${pendingInput}`, ''] : []),
-      ...(bodyNote ? [bodyNote] : []),
-      body,
-      ...(cursor !== undefined ? ['', `cursor: ${cursor} (pass since=${cursor} to read only what comes after)`] : []),
+      ...bodyLines(body, bodyNote, cursor),
     ].join('\n'),
   }
 }
 
-/** The lines that say which session this is, where it stands and its task. */
-async function sessionHeader(meta: SessionMeta, sessionId: string, status: SessionStatus): Promise<string[]> {
+/** A session on another host or an organization's Solus API. Its task and pending input stay there. */
+async function readRemoteSession(remote: RemoteSession, request: { match?: string; since?: number }, tail: number): Promise<SessionToolResult> {
+  const { body, bodyNote = '', cursor } = await readBody({
+    load: (limit) => remote.load(limit),
+    matchable: async () => (await remote.load())
+      .filter((message) => message.role !== 'reasoning' && message.content)
+      .map((message) => ({ role: message.role, text: message.content })),
+    tail,
+  }, request)
+  return {
+    ok: true,
+    text: [
+      ...sessionHeader(remote.meta, remote.meta.status ?? 'idle', [`found on: ${remote.source}`]),
+      ...bodyLines(body, bodyNote, cursor),
+    ].join('\n'),
+  }
+}
+
+/** With `match`, the relevant passage; with `since`, only what came after the cursor; otherwise the latest tail. */
+async function readBody(read: SessionRead, request: { match?: string; since?: number }): Promise<SessionBody> {
+  const match = request.match?.trim() ?? ''
+  if (match) return readMatch(read, match)
+  return request.since !== undefined ? readSince(read, request.since) : readTail(read)
+}
+
+function bodyLines(body: string, bodyNote: string, cursor: number | undefined): string[] {
+  return [
+    ...(bodyNote ? [bodyNote] : []),
+    body,
+    ...(cursor !== undefined ? ['', `cursor: ${cursor} (pass since=${cursor} to read only what comes after)`] : []),
+  ]
+}
+
+/** The session on one of the person's other hosts or organizations' Solus APIs; null when none has it. */
+async function findOffHost(sessionId: string, callerSessionId: string | undefined): Promise<RemoteSession | null> {
+  if (!callerSessionId) return null
+  const request = reachRequestOf(callerSessionId)
+  const targets = remoteHosts && request ? await remoteHosts.list(request) : []
+  const hosts = 'error' in targets ? [] : targets.flatMap((target) => {
+    const connected = remoteHosts!.connect(target)
+    return 'error' in connected ? [] : [connected]
+  })
+  const apis = sessionController?.organizationApisFor?.(callerSessionId) ?? []
+  return findRemoteSession(sessionId, hosts, apis)
+}
+
+/** The lines that say which session this is, where it stands, and where it belongs. */
+function sessionHeader(meta: SessionMeta, status: SessionStatus, context: string[]): string[] {
   const stuck = status === 'awaiting_input' ? ' — awaiting input/permission' : status === 'awaiting_plan' ? ' — awaiting plan approval' : ''
-  const taskContext = await taskContextForSession(sessionId)
   return [
     `Session ${sessionLink(meta)}`,
     `status: ${status}${stuck}`,
@@ -681,7 +737,7 @@ async function sessionHeader(meta: SessionMeta, sessionId: string, status: Sessi
     ...(meta.model ? [`model: ${meta.model}${meta.reasoningEffort ? ` (reasoning: ${meta.reasoningEffort})` : ''}`] : []),
     `cwd: ${meta.cwd}`,
     `lastTimestamp: ${meta.lastTimestamp}`,
-    ...(taskContext ? taskContext.details : ['task: (unbound)']),
+    ...context,
     '',
   ]
 }
@@ -889,6 +945,7 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
   const waitMs = input.wait_seconds * 1000
   const order: SpawnOrder = {
     prompt: input.prompt,
+    title: input.title,
     provider,
     modelId,
     reasoningEffort,
@@ -936,6 +993,7 @@ async function startRemoteSessionTool(
   const waitMs = input.wait_seconds * 1000
   const order: SpawnOrder = {
     prompt: input.prompt,
+    title: input.title,
     provider,
     modelId,
     reasoningEffort,

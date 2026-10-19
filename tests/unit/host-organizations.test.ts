@@ -87,19 +87,6 @@ describe('the host\'s standing', () => {
     expect(timers).toEqual([5 * 60_000])
   })
 
-  test('mayExecute holds an organization\'s allowsPersonalHosts against this machine\'s category', async () => {
-    // WHY: an organization that refuses personal machines must be refused on one
-    // even for the owner (§3.1); a self-hosted server or a managed machine is not a personal one.
-    const { instance } = registry([{ status: 200, body: STANDING }])
-    await instance.refresh()
-    expect(instance.mayExecute('A')).toBe(true)
-    expect(instance.mayExecute('B')).toBe(false)
-    expect(instance.mayExecute('local')).toBe(true)
-    expect(instance.mayExecute('Z')).toBe(true)
-    hostCategory.applyHostCategory('self-hosted')
-    expect(instance.mayExecute('B')).toBe(true)
-  })
-
   test('onChanged fires only when the standing changed, not on every refresh', async () => {
     const changed: HostOrganizationsResponse = { ...STANDING, organizations: [STANDING.organizations[0]] }
     const { instance, changes } = registry([{ status: 200, body: STANDING }, { status: 200, body: STANDING }, { status: 200, body: changed }])
@@ -175,7 +162,6 @@ describe('the host\'s standing', () => {
     await instance.refresh()
     expect(requests).toEqual([])
     expect(instance.current()).toBeNull()
-    expect(instance.mayExecute('B')).toBe(true)
 
     const linked = registry([{ status: 200, body: STANDING }, { status: 200, body: STANDING }])
     await linked.instance.refresh()

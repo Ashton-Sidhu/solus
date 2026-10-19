@@ -6,13 +6,14 @@
     Bars,
     Chart,
     Highlight,
+    Rule,
     Spline,
     Svg,
     Text,
     Tooltip,
     type TextProps,
   } from "layerchart";
-  import { X as XIcon } from "@lucide/svelte";
+  import { Button } from "../ui/button";
   import { TIME_AXIS_INSET_PX, TIME_AXIS_LABEL_GAP_PX } from "./lib/chart-axis";
   import {
     axisInstantFormat,
@@ -27,8 +28,12 @@
     bucketPoints,
     bucketAxisTicks,
     costAxisMax,
+    countAxisTicks,
     pointsWithinSelection,
+    providerTotals,
     rebucketVolume,
+    stackGapUnits,
+    stackedSegment,
     volumeStats,
     volumeViewport,
     type TimeSelection,
@@ -94,21 +99,24 @@
   /** The plot's own width, so the bucket count — and with it the bar width —
    *  follows the space the card was given rather than a constant. */
   let plotWidth = $state(0);
+  let plotHeight = $state(0);
   const AXIS_GUTTER_PX = 46;
+  const PLOT_TOP_PX = 4;
 
   /** Whether the answer records spend at all, read off the rows rather than the
-   *  buckets: the right gutter has to be reserved before the bucket count — and
+   *  buckets: both gutters have to be reserved before the bucket count — and
    *  so the bucket widths — can be derived from the space that remains. */
   const hasCostSignal = $derived(
     aggregateBuckets
       ? aggregateBuckets.some((bucket) => bucket.costedCount > 0)
       : points.some((point) => point.costUsd != null),
   );
+  const leftGutterPx = $derived(hasCostSignal ? 64 : AXIS_GUTTER_PX);
   const rightGutterPx = $derived(hasCostSignal ? AXIS_GUTTER_PX : 12);
 
   const viewport = $derived(volumeViewport(from, to, selection));
   const buckets = $derived.by(() => {
-    const count = bucketCountForWidth(plotWidth - AXIS_GUTTER_PX - rightGutterPx);
+    const count = bucketCountForWidth(plotWidth - leftGutterPx - rightGutterPx);
     return aggregateBuckets
       ? rebucketVolume(aggregateBuckets, viewport.from, viewport.to, count)
       : bucketPoints(points, viewport.from, viewport.to, count);
@@ -128,77 +136,53 @@
       Math.min(9, Math.max(3, Math.round(plotWidth / 190))),
     ),
   );
-  const barMax = $derived(Math.max(1, ...buckets.map((bucket) => bucket.total)));
-  const yMax = $derived(barMax * 1.12);
+  const countTicks = $derived(
+    countAxisTicks(Math.max(0, ...buckets.map((bucket) => bucket.total))),
+  );
+  const countTop = $derived(countTicks[countTicks.length - 1]);
+  const yMax = $derived(countTop * 1.08);
+  /** A two-pixel sliver of card between a bar's segments, in rows: it is what
+   *  lets the stack read as two quantities rather than one bar with a seam. */
+  const stackGap = $derived(
+    stackGapUnits(yMax, plotHeight - PLOT_TOP_PX - TIME_AXIS_INSET_PX),
+  );
 
   /** The spend axis rides the bars' own scale, so its values are converted into
-   *  bar heights on the way in and back into dollars on the way out. Its top
-   *  rung lands on the tallest bar rather than the plot's ceiling: the peaks
-   *  then read against each other, and the topmost label keeps its clearance. */
+   *  bar heights on the way in and back into dollars on the way out. Its rungs
+   *  sit on the count axis's rungs, so one set of gridlines rules both, and its
+   *  top rung stays below the plot's ceiling so the topmost label keeps its
+   *  clearance. */
   const costMax = $derived(costAxisMax(buckets));
   const showCost = $derived(hasCostSignal && costMax > 0);
-  const costScale = $derived(costMax > 0 ? barMax / costMax : 0);
-  const costTicks = $derived([0, barMax / 2, barMax]);
+  const costScale = $derived(costMax > 0 ? countTop / costMax : 0);
 
-  /** Each backend's bar carries that backend's own colour — the ramp's terracotta
-   * is Claude's accent already, and Codex takes the violet-blue of its own app
-   * icon — so the same two hues name the backends here and in `ProviderMark`.
-   * The ramp's dusty blue named neither of them. Mixing toward the card keeps
-   * both themes soft. */
-  const CLAUDE_FILL =
-    "color-mix(in oklch, var(--solus-art-1) 72%, var(--card))";
-  const CODEX_FILL = "color-mix(in oklch, var(--brand-codex) 72%, var(--card))";
+  /** The legend and tooltip use the provider colours; bars use softer fills. */
+  const CLAUDE_FILL = "var(--insights-provider-claude)";
+  const CODEX_FILL = "var(--insights-provider-codex)";
   const UNKNOWN_FILL =
     "color-mix(in oklch, var(--muted-foreground) 38%, var(--card))";
   /**
-   * The ramp's plum, held at a real chroma. It is off both bar hues — the warm
-   * terracotta and Codex's true blue — so it cannot be mistaken for a third
-   * backend, and it stays clear of the light band the 72%-mixed bars sit in, so
-   * it reads as a different measure rather than one more bar.
-   *
-   * Themed in `index.css` rather than mixed here: the light and dark steps pull
-   * in opposite directions, so a single self-inverting mix cannot serve both.
+   * The spend line uses blue to distinguish cost from provider counts.
+   * Its light and dark values are set in `workspace.css`.
    */
   const COST_STROKE = "var(--insights-cost-line)";
 
+  const providers = $derived(providerTotals(buckets));
+
+  /** The count leads as the headline; these read beside it as its context. */
   const summary = $derived([
-    {
-      label: countLabel,
-      value: String(stats.counted),
-      tone: "var(--foreground)",
-    },
     ...(stats.totalCostUsd == null
       ? []
-      : [
-          {
-            label: "Spend",
-            value: formatCost(stats.totalCostUsd),
-            tone: "var(--foreground)",
-          },
-        ]),
-    {
-      label: "p50",
-      value: formatDuration(stats.p50DurationMs),
-      tone: "var(--foreground)",
-    },
-    {
-      label: "p95",
-      value: formatDuration(stats.p95DurationMs),
-      tone: "var(--foreground)",
-    },
+      : [{ label: "Spend", value: formatCost(stats.totalCostUsd) }]),
+    { label: "p50", value: formatDuration(stats.p50DurationMs) },
+    { label: "p95", value: formatDuration(stats.p95DurationMs) },
   ]);
-
-  const hasUnknownProvider = $derived(
-    aggregateBuckets
-      ? aggregateBuckets.some((bucket) => bucket.unknownProvider > 0)
-      : selectedPoints.some((point) => providerMark(point.provider) === null),
-  );
 
   /** Past a day, a bare clock repeats across the axis and names no instant. */
   const spansDays = $derived(to - from > 24 * 60 * 60 * 1000);
   const formatInstant = $derived(spansDays ? formatDayClock : formatClock);
   /** The axis has one label per bar-run and no room for a full timestamp; the
-   *  tooltip and the zoom pill name the exact instant. */
+   *  tooltip and the zoom label name the exact instant. */
   const formatTick = $derived(axisInstantFormat(to - from));
 
   const selectionLabel = $derived(
@@ -251,123 +235,131 @@
 </script>
 
 <section
-  class="flex shrink-0 flex-col gap-2 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)]"
+  class="flex shrink-0 flex-col gap-4 rounded-xl bg-card px-5 pt-4 pb-3 shadow-[shadow:var(--insights-card-shadow)]"
   aria-label="Volume"
 >
-  <header class="flex flex-wrap items-center gap-x-3 gap-y-1">
-    <h2 class="text-insights-summary font-semibold">{heading}</h2>
-    {#if selection}
-      <span
-        class="flex items-center gap-1.5 rounded-full px-2 py-1 text-insights-summary shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_24%,transparent)]"
-        style="background:color-mix(in oklch, var(--primary) 9%, transparent)"
-      >
-        <span class="font-semibold text-[var(--primary)]">Zoomed</span>
-        <span class="text-muted-foreground tabular-nums">{selectionLabel}</span>
-        <span class="text-muted-foreground">·</span>
-        <span class="font-medium tabular-nums"
-          >{stats.counted} {countLabel.toLowerCase()}</span
+  <header class="flex flex-col gap-3">
+    <div class="flex min-h-6 flex-wrap items-center gap-x-2 gap-y-1">
+      <h2 class="text-insights-summary font-medium">{heading}</h2>
+      <!-- The zoom is named as plain text beside the heading, not a badge: the
+           window it narrows to is the fact, and the headline below already
+           counts what it holds. -->
+      {#if selection}
+        <span class="text-muted-foreground" aria-hidden="true">·</span>
+        <span class="text-insights-summary text-muted-foreground tabular-nums"
+          >{selectionLabel}</span
         >
-        <button
-          type="button"
-          class="-mr-1 flex size-5 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.96]"
+        <Button
+          variant="ghost"
+          size="xs"
+          class="text-muted-foreground hover:text-foreground"
           onclick={() => onSelectionChange(null)}
-          aria-label="Reset the chart zoom"
+          aria-label="Reset the chart zoom">Reset</Button
         >
-          <XIcon class="size-2.5" weight="bold" />
-        </button>
-      </span>
-    {:else}
-      <span class="text-insights-summary text-muted-foreground"
-        >Drag across the chart to zoom</span
-      >
-    {/if}
-    <span class="flex-1"></span>
-    <div
-      class="flex items-center gap-3 text-insights-summary text-muted-foreground"
-      aria-label="Providers"
-    >
-      <!-- The swatch is the whole mark here: it keys the name to a bar, and now
-           carries that backend's own colour, so a logo beside it would say the
-           same thing twice. -->
-      <span class="flex items-center gap-1.5">
-        <span
-          class="h-1.5 w-3 rounded-sm"
-          style="background:{CLAUDE_FILL}"
-          aria-hidden="true"
-        ></span>
-        Claude Code
-      </span>
-      <span class="flex items-center gap-1.5">
-        <span
-          class="h-1.5 w-3 rounded-sm"
-          style="background:{CODEX_FILL}"
-          aria-hidden="true"
-        ></span>
-        Codex
-      </span>
-      {#if hasUnknownProvider}
-        <span class="flex items-center gap-1.5">
-          <span
-            class="h-1.5 w-3 rounded-sm"
-            style="background:{UNKNOWN_FILL}"
-            aria-hidden="true"
-          ></span>
-          Unknown
-        </span>
-      {/if}
-      {#if showCost}
-        <!-- A rule, not a block: the swatch has to say this series is a line
-             over the bars rather than another band inside them. -->
-        <span class="flex items-center gap-1.5">
-          <span
-            class="h-0.5 w-3 rounded-full"
-            style="background:{COST_STROKE}"
-            aria-hidden="true"
-          ></span>
-          Spend
-        </span>
+      {:else}
+        <span class="text-xs text-muted-foreground"
+          >Drag across the chart to zoom</span
+        >
       {/if}
     </div>
-    <span class="h-3.5 w-px shrink-0 bg-[var(--hairline)]" aria-hidden="true"
-    ></span>
-    <!-- Value first, label after: a stat strip is read for its numbers, and a
-         row of same-weight label/value pairs makes the eye read the words. -->
-    <div class="flex items-center gap-3.5">
-      {#each summary as stat, index (stat.label)}
-        {#if index > 0}
+    <div class="flex flex-wrap items-end gap-x-10 gap-y-3">
+      <!-- The count is the headline: it is what the bars add up to. The other
+           figures describe it, so they sit beside it at reading size. -->
+      <div class="flex items-baseline gap-2">
+        <span
+          class="text-[1.75rem] leading-none font-semibold tracking-tight"
+          >{stats.counted.toLocaleString()}</span
+        >
+        <span class="text-insights-summary text-muted-foreground"
+          >{countLabel.toLowerCase()}</span
+        >
+      </div>
+      <dl class="flex flex-wrap gap-x-8 gap-y-2">
+        {#each summary as stat (stat.label)}
+          <div class="flex flex-col">
+            <dt class="text-xs text-muted-foreground">{stat.label}</dt>
+            <dd class="text-insights-summary font-medium tabular-nums">
+              {stat.value}
+            </dd>
+          </div>
+        {/each}
+      </dl>
+      <span class="flex-1"></span>
+      <!-- The legend carries each backend's share of the count, so it keys the
+           bar colours and answers "who did the work" in one line. The swatch is
+           the whole mark: a logo beside it would say the same thing twice. -->
+      <ul
+        class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+        aria-label="Providers"
+      >
+        <li class="flex items-center gap-1.5">
           <span
-            class="h-3.5 w-px shrink-0 bg-[var(--hairline)]"
+            class="h-2 w-2.5 rounded-[3px]"
+            style="background:{CLAUDE_FILL}"
             aria-hidden="true"
           ></span>
+          Claude Code
+          <span class="text-foreground tabular-nums"
+            >{providers.claudeCode.toLocaleString()}</span
+          >
+        </li>
+        <li class="flex items-center gap-1.5">
+          <span
+            class="h-2 w-2.5 rounded-[3px]"
+            style="background:{CODEX_FILL}"
+            aria-hidden="true"
+          ></span>
+          Codex
+          <span class="text-foreground tabular-nums"
+            >{providers.codex.toLocaleString()}</span
+          >
+        </li>
+        {#if providers.unknownProvider > 0}
+          <li class="flex items-center gap-1.5">
+            <span
+              class="h-2 w-2.5 rounded-[3px]"
+              style="background:{UNKNOWN_FILL}"
+              aria-hidden="true"
+            ></span>
+            Unknown
+            <span class="text-foreground tabular-nums"
+              >{providers.unknownProvider.toLocaleString()}</span
+            >
+          </li>
         {/if}
-        <span class="flex items-baseline gap-1.5">
-          <span class="text-insights-summary tabular-nums" style="color:{stat.tone}"
-            >{stat.value}</span
-          >
-          <span class="text-insights-summary text-muted-foreground"
-            >{stat.label}</span
-          >
-        </span>
-      {/each}
+        {#if showCost}
+          <!-- A rule, not a dot: the swatch has to say this series is a line
+               over the bars rather than another band inside them. -->
+          <li class="flex items-center gap-1.5">
+            <span
+              class="h-0.5 w-3 rounded-full"
+              style="background:{COST_STROKE}"
+              aria-hidden="true"
+            ></span>
+            Spend
+          </li>
+        {/if}
+      </ul>
     </div>
   </header>
 
   <div
     class="relative h-52 w-full cursor-crosshair sm:h-44 sm:[@media(min-height:1000px)]:h-52"
     bind:clientWidth={plotWidth}
+    bind:clientHeight={plotHeight}
   >
     {#key `${viewport.from}:${viewport.to}`}
       <Chart
         data={buckets}
         x={(bucket: VolumeBucket) => bucket.at}
-        xScale={scaleBand().padding(0.18)}
+        xScale={scaleBand().padding(0.3)}
         y={(bucket: VolumeBucket) => bucket.total}
         yDomain={[0, yMax]}
         padding={{
-          left: AXIS_GUTTER_PX,
+          left: leftGutterPx,
           bottom: TIME_AXIS_INSET_PX,
           right: rightGutterPx,
-          top: 4,
+          top: PLOT_TOP_PX,
         }}
         tooltipContext={{ mode: "band" }}
         brush={{
@@ -376,42 +368,44 @@
           // viewport, so persistent resize rails add weight without utility.
           handleSize: 1,
           onBrushEnd: ({ brush }) => applyBrush(brush),
+          // The range keeps the brush's own geometry: it sits in a panel with
+          // no height, so a percentage height resolves to nothing and the drag
+          // shows no range at all.
           classes: {
             range:
-              "!top-1.5 !h-[calc(100%-0.75rem)] rounded-md bg-[color-mix(in_oklch,var(--solus-art-1)_8%,transparent)] shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--solus-art-1)_24%,transparent),0_2px_10px_color-mix(in_oklch,var(--solus-art-1)_7%,transparent)]",
+              "cursor-crosshair border-x border-[color-mix(in_oklch,var(--solus-art-1)_55%,transparent)] bg-[color-mix(in_oklch,var(--solus-art-1)_12%,transparent)]",
             handle: "opacity-0",
           },
         }}
       >
         <Svg>
           <!-- Bars with no scale beside them are a shape, not a quantity: three
-               ticks are the fewest that say how tall the tall one is without
-               turning the plot into a grid, and the zero gridline doubles as the
-               baseline the bars stand on. -->
+               whole-row ticks are the fewest that say how tall the tall one is
+               without turning the plot into a grid, and the zero gridline
+               doubles as the baseline the bars stand on. -->
           <Axis
-            placement="left"
-            grid={{ class: "stroke-[var(--hairline)]" }}
-            ticks={3}
+            placement={showCost ? "right" : "left"}
+            grid={showCost ? false : { class: "stroke-[var(--hairline)]" }}
+            ticks={countTicks}
             tickMarks={false}
             format={(value: unknown) => String(Math.round(Number(value)))}
             classes={{
               tickLabel:
-                "text-insights-summary tabular-nums fill-[var(--muted-foreground)]",
+                "text-xs tabular-nums fill-[var(--muted-foreground)]",
             }}
           />
           {#if showCost}
-            <!-- No gridline of its own: the left axis already rules the plot,
-                 and a second set of horizontal lines at different heights turns
-                 a readable chart into plaid. -->
+            <!-- Spend leads on the left and supplies the shared gridlines. -->
             <Axis
-              placement="right"
-              ticks={costTicks}
+              placement="left"
+              grid={{ class: "stroke-[var(--hairline)]" }}
+              ticks={countTicks}
               tickMarks={false}
               format={(value: unknown) =>
                 formatCostTick(Number(value) / costScale)}
               classes={{
                 tickLabel:
-                  "text-insights-summary tabular-nums fill-[var(--muted-foreground)]",
+                  "text-xs tabular-nums fill-[var(--muted-foreground)]",
               }}
             />
           {/if}
@@ -426,7 +420,7 @@
             format={(value: unknown) => formatTick(Number(value))}
             classes={{
               tickLabel:
-                "text-insights-summary tabular-nums fill-[var(--muted-foreground)]",
+                "text-xs tabular-nums fill-[var(--muted-foreground)]",
             }}
           >
             <!-- The end labels are centred on their bar, which for the first and
@@ -451,28 +445,39 @@
             {/snippet}
           </Axis>
           <Highlight area={{ class: "fill-[var(--wash-2)]" }} />
+          <!-- The bars stand on a baseline a shade firmer than the rungs
+               above it, so zero reads as the floor and not as one more
+               gridline. -->
+          <Rule y={0} class="stroke-[var(--hairline-strongest)]" />
           <Bars
             y={(bucket: VolumeBucket) => [0, bucket.claudeCode]}
             rounded="top"
-            radius={2}
-            fill={CLAUDE_FILL}
+            radius={3}
+            fill="var(--insights-provider-claude-fill)"
+          />
+          <!-- Each upper segment is lifted off the one below by a sliver of
+               card, so the stack reads as two quantities, not one bar with a
+               seam drawn across it. -->
+          <Bars
+            y={(bucket: VolumeBucket) =>
+              stackedSegment(
+                bucket.claudeCode,
+                bucket.claudeCode + bucket.codex,
+                stackGap,
+              )}
+            rounded="top"
+            radius={3}
+            fill="var(--insights-provider-codex-fill)"
           />
           <Bars
-            y={(bucket: VolumeBucket) => [
-              bucket.claudeCode,
-              bucket.claudeCode + bucket.codex,
-            ]}
+            y={(bucket: VolumeBucket) =>
+              stackedSegment(
+                bucket.claudeCode + bucket.codex,
+                bucket.total,
+                stackGap,
+              )}
             rounded="top"
-            radius={2}
-            fill={CODEX_FILL}
-          />
-          <Bars
-            y={(bucket: VolumeBucket) => [
-              bucket.claudeCode + bucket.codex,
-              bucket.total,
-            ]}
-            rounded="top"
-            radius={2}
+            radius={3}
             fill={UNKNOWN_FILL}
           />
           {#if showCost}
@@ -482,12 +487,24 @@
                  Monotone, not a general spline: it smooths the corners a
                  bucketed series puts in the path without inventing a peak
                  between two buckets or dipping below a run of equal ones. A
-                 curve that overshoots would draw spend nobody recorded. -->
+                 curve that overshoots would draw spend nobody recorded.
+
+                 A ring of card under the line keeps it legible where it
+                 crosses a bar: the two colours never touch, so the line
+                 stays a line and the bar's edge stays an edge. -->
+            <Spline
+              y={(bucket: VolumeBucket) => bucket.costUsd * costScale}
+              curve={curveMonotoneX}
+              stroke="var(--card)"
+              class="pointer-events-none fill-none stroke-[5]"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
             <Spline
               y={(bucket: VolumeBucket) => bucket.costUsd * costScale}
               curve={curveMonotoneX}
               stroke={COST_STROKE}
-              class="pointer-events-none fill-none stroke-[1.5]"
+              class="pointer-events-none fill-none stroke-[2]"
               stroke-linecap="round"
               stroke-linejoin="round"
             />

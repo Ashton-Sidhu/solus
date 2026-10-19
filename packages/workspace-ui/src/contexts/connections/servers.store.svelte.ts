@@ -9,6 +9,7 @@ import {
   type VersionSkewNotice,
 } from '@solus/client-core/version-skew'
 import { sendOutbox } from '@solus/client-core/send-outbox'
+import { sameNameHostAddresses } from '@solus/client-core/host-address'
 import { connectionState, subscribe } from '@solus/client-core/connection-state'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -800,6 +801,11 @@ class ServersStore {
     const host = this.hostFor(serverId)
     if (!host || host.local) return null
     return hostAffinityGlyph(host, this.statusFor(host.id))
+  }
+
+  /** The address shown beside a machine's name when another machine has the same name; null when its name is its own. */
+  sameNameAddress(serverId: string): string | null {
+    return sameNameHostAddresses(this.servers).get(serverId) ?? null
   }
 
   /** A machine, or the workspace service by its id: a record's `serverId` may name either. */

@@ -12,7 +12,7 @@ Each setting has one owner, and each owner has its own schema: `PersonalSettings
 
 | Owner | What it holds | Where it is stored |
 | --- | --- | --- |
-| Personal | The person's choices: theme, models, review, instructions, writing, task lead, and transcript and font presets | A local profile on each client. Signed in, the same profile is also stored in the account. |
+| Personal | The person's choices: theme, models, review, instructions, writing, task lead, conversation width, and transcript and font presets | A local profile on each client. Signed in, the same profile is also stored in the account. |
 | Device | This client only: voice, editor and terminal, font smoothing, installed-font overrides, client analytics consent, zoom, panes, keybindings | The client's local storage. It is never synced. |
 | Host | The machine: Solus tool availability, telemetry export, restart recovery, review warming by path, archived automation retention, host analytics consent | `server-settings.json` on the host |
 | Organization | Settings that the owners of an organization decide for all its work. Today this is only Sync all Insights. | The control plane, in the organization's host policy. A host reads it in its standing. |
@@ -69,8 +69,8 @@ A write with an old revision gets `409 settings_conflict` and the current docume
 
 ## Agent profile sync
 
-Settings → Agent profile holds the person's instructions (the extra instructions, a
-personal setting), and their skills, files, and MCP
+Settings → Agent profile holds the person's instructions (the extra and per-model
+instructions, personal settings), and their skills, files, and MCP
 servers as one document (`docs/agent-profile.md`, plans/020). It syncs with the
 same engine and the same rules as personal settings (`client-core/document-sync.ts`
 is the one engine; `settings-sync.ts` and `agent-profile-sync.ts` bind it to each

@@ -1,0 +1,2162 @@
+{
+  "toolchain": {
+    "@babel/core": "7.29.0",
+    "@expo/cli": "58.1.13",
+    "@expo/metro-config": "58.0.15",
+    "babel-plugin-react-compiler": "1.0.0",
+    "babel-preset-expo": "58.0.18",
+    "react-native-reanimated": "4.7.0",
+    "react-native-worklets": "0.13.0"
+  },
+  "files": {
+    "apps/mobile/src/App.tsx": {
+      "compiled": [
+        "App",
+        "AppContent",
+        "KeyboardRoot",
+        "Loading"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/app/app-context.tsx": {
+      "compiled": [
+        "AppProvider",
+        "useApp",
+        "useListened"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/AndroidAnchoredMenu.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "AndroidAnchoredMenu",
+          "reasons": [
+            "Refs"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/components/AndroidScreenHeader.tsx": {
+      "compiled": [
+        "AndroidHeaderIconButton",
+        "AndroidScreenHeader",
+        "AndroidSheetHeader"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/AppSheet.tsx": {
+      "compiled": [
+        "AppSheet"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/AppSymbol.ios.tsx": {
+      "compiled": [
+        "AppSymbolView"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/AppSymbol.tsx": {
+      "compiled": [
+        "AppSymbolView"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/AppText.tsx": {
+      "compiled": [
+        "AppText",
+        "AppTextInput"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/AudioFilePreview.tsx": {
+      "compiled": [
+        "AudioFilePreview"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/BrandMark.tsx": {
+      "compiled": [
+        "BrandMark"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/CompactBrandTitle.tsx": {
+      "compiled": [
+        "CompactBrandTitle"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ComposerAttachmentButton.tsx": {
+      "compiled": [
+        "ComposerAttachmentButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ComposerAttachmentStrip.tsx": {
+      "compiled": [
+        "ComposerAttachmentStrip",
+        "ComposerAttachmentThumbnail",
+        "ComposerFileAttachment",
+        "ComposerImageAttachment",
+        "ComposerUploadingThumbnail",
+        "ComposerVideoAttachment",
+        "useComposerImagePreviewUri",
+        "useDataUrlPreviewUri"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ComposerEditor.tsx": {
+      "compiled": [
+        "ComposerEditor",
+        "ComposerTextMeasure"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ComposerToolbar.tsx": {
+      "compiled": [
+        "ComposerActionButton",
+        "ComposerInlineControl",
+        "ComposerToolbarRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ConfirmDialogHost.tsx": {
+      "compiled": [
+        "ConfirmDialogHost"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ControlPill.tsx": {
+      "compiled": [
+        "ControlPill"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ControlPillMenu.android.tsx": {
+      "compiled": [
+        "ControlPillMenu"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ControlPillMenu.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "ControlPillMenu",
+          "reasons": [
+            "Refs"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/components/CopyTextButton.tsx": {
+      "compiled": [
+        "CopyTextButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/EmptyState.tsx": {
+      "compiled": [
+        "EmptyState"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/EnvironmentMachineSymbol.tsx": {
+      "compiled": [
+        "EnvironmentMachineSymbol"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ErrorBanner.tsx": {
+      "compiled": [
+        "ErrorBanner"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/FilePreview.ios.tsx": {
+      "compiled": [
+        "FilePreview"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/FilePreview.tsx": {
+      "compiled": [
+        "DocumentPreview",
+        "FilePreview"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/FilePreviewGallery.tsx": {
+      "compiled": [
+        "useFilePreviewGallery"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/FilePreviewModal.tsx": {
+      "compiled": [
+        "FilePreviewModal",
+        "ResolvedFilePreview"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/GlassBackdrop.tsx": {
+      "compiled": [
+        "GlassBackdrop"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/GlassSurface.tsx": {
+      "compiled": [
+        "GlassSurface"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ListChoiceRow.tsx": {
+      "compiled": [
+        "ListChoiceRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ListRow.tsx": {
+      "compiled": [
+        "ListRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ListRowLayout.tsx": {
+      "compiled": [
+        "ListRowLayout"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ListSection.tsx": {
+      "compiled": [
+        "ListSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ListToggleRow.tsx": {
+      "compiled": [
+        "ListToggleRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/LoadingScreen.tsx": {
+      "compiled": [
+        "LoadingScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialButton.android.tsx": {
+      "compiled": [
+        "MaterialButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialButton.tsx": {
+      "compiled": [
+        "MaterialButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialConfirmDialog.android.tsx": {
+      "compiled": [
+        "MaterialConfirmDialog"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialFloatingActionButton.android.tsx": {
+      "compiled": [
+        "MaterialFloatingActionButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialFloatingActionButton.tsx": {
+      "compiled": [
+        "MaterialFloatingActionButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialIconButton.android.tsx": {
+      "compiled": [
+        "MaterialIconButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialIconButton.tsx": {
+      "compiled": [
+        "MaterialIconButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialListRow.tsx": {
+      "compiled": [
+        "MaterialListRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialMenuPopup.android.tsx": {
+      "compiled": [
+        "MaterialMenuPopup",
+        "MenuIcon"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialNewThreadButton.android.tsx": {
+      "compiled": [
+        "MaterialNewThreadButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialNewThreadButton.shared.tsx": {
+      "compiled": [
+        "MaterialNewThreadButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialRadioIndicator.tsx": {
+      "compiled": [
+        "MaterialRadioIndicator"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialScreenContent.tsx": {
+      "compiled": [
+        "MaterialScreenContent"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialScrollComposeButton.android.tsx": {
+      "compiled": [
+        "MaterialScrollComposeButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialSearchField.tsx": {
+      "compiled": [
+        "MaterialSearchField"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialSegmentedButtons.android.tsx": {
+      "compiled": [
+        "MaterialSegmentedButtons"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialSegmentedControl.android.tsx": {
+      "compiled": [
+        "MaterialSegmentedControl"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MaterialSwitch.android.tsx": {
+      "compiled": [
+        "MaterialSwitch"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MediaActionsMenu.tsx": {
+      "compiled": [
+        "MediaActionsMenu"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MediaImagePreview.tsx": {
+      "compiled": [
+        "ImagePreviewHeader",
+        "MediaImagePreview"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MediaSourceCaption.tsx": {
+      "compiled": [
+        "MediaSourceCaption"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/MediaVideoPlayer.tsx": {
+      "compiled": [
+        "LoadedMediaVideo",
+        "MediaVideoPlayer",
+        "MediaVideoPlayerContent"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/NativeSegmentedControl.ios.tsx": {
+      "compiled": [
+        "NativeSegmentedControl"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/OverlayPortal.tsx": {
+      "compiled": [
+        "OverlayPortal",
+        "OverlayPortalHost"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/PierreEntryIcon.tsx": {
+      "compiled": [
+        "PierreEntryIcon"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ProjectFavicon.tsx": {
+      "compiled": [
+        "ProjectFavicon",
+        "ProjectFaviconImage"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ProviderIcon.tsx": {
+      "compiled": [
+        "AcpRegistryFallbackIcon",
+        "AcpRegistryProviderIcon",
+        "ProviderIcon",
+        "ProviderInstanceIcon"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/RenderErrorBoundary.tsx": {
+      "compiled": [
+        "RenderFailureView"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/RowLeadingSymbol.tsx": {
+      "compiled": [
+        "RowLeadingSymbol"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/RowPressable.tsx": {
+      "compiled": [
+        "RowPressable"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ScreenHeader.android.tsx": {
+      "compiled": [
+        "ScreenHeader"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ScreenHeader.tsx": {
+      "compiled": [
+        "ScreenHeader"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ScreenScrollView.tsx": {
+      "compiled": [
+        "ScreenScrollView"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/SegmentedControl.tsx": {
+      "compiled": [
+        "SegmentedControl"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/ThemedSwitch.tsx": {
+      "compiled": [
+        "ThemedSwitch"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/useAndroidControlSizing.ts": {
+      "compiled": [
+        "useAndroidControlSizing"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/useMaterialToolbarLayout.ts": {
+      "compiled": [
+        "useMaterialToolbarLayout"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/VideoPreviewModal.ios.tsx": {
+      "compiled": [
+        "NativeVideoPreview",
+        "VideoPreviewModal"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/VideoPreviewModal.tsx": {
+      "compiled": [
+        "OpenVideoPreviewModal",
+        "VideoPreviewModal"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/VideoThumbnailImage.tsx": {
+      "compiled": [
+        "VideoThumbnailImage"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/account/CloudHostsScreen.tsx": {
+      "compiled": [
+        "CloudHostsScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/account/CloudSignInScreen.tsx": {
+      "compiled": [
+        "CloudSignInScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/connection/CloudEnvironmentRows.tsx": {
+      "compiled": [
+        "CloudEnvironmentRow",
+        "CloudEnvironmentRows"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/connection/ConnectionEnvironmentRow.tsx": {
+      "compiled": [
+        "ConnectionEnvironmentRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/connection/ConnectionFormField.tsx": {
+      "compiled": [
+        "ConnectionFormField"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/connection/ConnectionSheetButton.tsx": {
+      "compiled": [
+        "ConnectionSheetButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/connection/ConnectionStatusDot.tsx": {
+      "compiled": [
+        "ConnectionStatusDot",
+        "usePulseAnimation"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/connection/ConnectOptionCard.tsx": {
+      "compiled": [
+        "ConnectCardPill",
+        "ConnectCardTile",
+        "ConnectOptionCard",
+        "SolusMarkIcon"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/connection/ConnectPanel.tsx": {
+      "compiled": [
+        "ConnectPanel"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/connection/LocalEnvironmentList.tsx": {
+      "compiled": [
+        "LocalEnvironmentList"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/conversation/components/AgentAuthSheet.tsx": {
+      "compiled": [
+        "AgentAuthSheet",
+        "CodeSignIn",
+        "CodeStepBody",
+        "SignInStepRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/conversation/components/IntegrationConnectSheet.tsx": {
+      "compiled": [
+        "IntegrationConnectSheet"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/diffs/nativeReviewDiffSurface.ts": {
+      "compiled": [
+        "useNativeReviewDiffPayload"
+      ],
+      "skipped": [
+        {
+          "name": "NativeReviewDiffView",
+          "reasons": [
+            "Refs"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/files/FileMarkdownPreview.tsx": {
+      "compiled": [
+        "FileMarkdownPreview"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/files/FileScreen.tsx": {
+      "compiled": [
+        "FilePreviewLoading",
+        "FilePreviewNotice",
+        "FileScreen",
+        "HostFileMedia"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/files/FilesScreen.tsx": {
+      "compiled": [
+        "FileTreeRow",
+        "FilesScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/files/host-media-url.ts": {
+      "compiled": [
+        "useHostMediaUrl"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/files/SourceFileSurface.tsx": {
+      "compiled": [
+        "HighlightedSourceLine",
+        "SourceFileSurface"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/files/sourceHighlightingState.ts": {
+      "compiled": [
+        "useSourceHighlight"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/files/WorkspaceFileImagePreview.tsx": {
+      "compiled": [
+        "ResolvedWorkspaceFileImagePreview",
+        "WorkspaceFileImagePreview"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/AndroidHomeFab.android.tsx": {
+      "compiled": [
+        "AndroidHomeFabLayout"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/AndroidHomeFab.shared.tsx": {
+      "compiled": [
+        "AndroidHomeFabLayout"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/home-list-options.ts": {
+      "compiled": [
+        "HomeListOptionsProvider",
+        "useHomeListOptions"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/home-thread-navigation.ts": {
+      "compiled": [
+        "useHomeThreadSelection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/HomeHeader.android.tsx": {
+      "compiled": [
+        "HomeHeader"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/HomeRouteScreen.tsx": {
+      "compiled": [
+        "HomeRouteScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/HomeScreen.tsx": {
+      "compiled": [
+        "HomeEmptyButton",
+        "HomeScreen",
+        "HomeTopContentSpacer"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/MaterialFabScrollContext.ts": {
+      "compiled": [
+        "useMaterialFabScroll"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/MaterialThreadListToolbar.tsx": {
+      "compiled": [
+        "MaterialThreadListToolbar"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/swipe-row-activation.ts": {
+      "compiled": [
+        "useSwipeRowDormant"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/thread-swipe-actions.tsx": {
+      "compiled": [
+        "SwipeActionButton",
+        "SwipeableScrollGateProvider",
+        "ThreadSwipeActions",
+        "ThreadSwipeable",
+        "useSwipeableScrollGate"
+      ],
+      "skipped": [
+        {
+          "name": "ThreadSwipeableRow",
+          "reasons": [
+            "Refs"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/home/ThreadListFilters.tsx": {
+      "compiled": [
+        "ThreadListFilters"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/use-workspace-state.ts": {
+      "compiled": [
+        "useWorkspaceState"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/useThreadListActions.ts": {
+      "compiled": [
+        "useThreadListActions"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/home/WorkspaceConnectionTitle.tsx": {
+      "compiled": [
+        "StatusFadeIn",
+        "WorkspaceConnectionTitle",
+        "useDelayedConnectionStatus"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/hosts/HostsScreen.tsx": {
+      "compiled": [
+        "HostsScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/hosts/HostStatusBanner.tsx": {
+      "compiled": [
+        "HostStatusBanner"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/hosts/NearbyHostsSection.tsx": {
+      "compiled": [
+        "NearbyHostsSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/hosts/PairHostScreen.tsx": {
+      "compiled": [
+        "PairTargetHeading"
+      ],
+      "skipped": [
+        {
+          "name": "PairHostScreen",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/hosts/use-nearby-hosts.ts": {
+      "compiled": [
+        "useNearbyHosts"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/keyboard/KeyboardCommandsView.ios.tsx": {
+      "compiled": [
+        "KeyboardCommandsView"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/keyboard/KeyboardCommandsView.tsx": {
+      "compiled": [
+        "KeyboardCommandsView"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/keyboard/use-keyboard-command.ts": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "useKeyboardCommand",
+          "reasons": [
+            "Refs"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx": {
+      "compiled": [
+        "AdaptiveWorkspaceLayout"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/layout/createWorkspaceStackNavigator.ios.tsx": {
+      "compiled": [
+        "ColumnScreen",
+        "WorkspaceColumns",
+        "WorkspaceStackNavigator",
+        "WorkspaceStackView"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/layout/workspace-inspector-pane.tsx": {
+      "compiled": [
+        "InspectorRenderer",
+        "WorkspaceInspectorPane"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/layout/workspace-pane-divider.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "WorkspacePaneDivider",
+          "reasons": [
+            "Refs"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/layout/workspace-sidebar-toolbar.tsx": {
+      "compiled": [
+        "AndroidWorkspaceSidebarButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/layout/WorkspaceEmptyDetail.tsx": {
+      "compiled": [
+        "WorkspaceEmptyDetail"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/live-activity/use-agent-live-activity.ts": {
+      "compiled": [
+        "useAgentLiveActivity"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/notifications/NotificationsScreen.tsx": {
+      "compiled": [
+        "NotificationsScreen",
+        "RowAction"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/onboarding/WelcomeScreen.tsx": {
+      "compiled": [
+        "WelcomeScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/projects/CloneProjectScreen.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "CloneProjectScreen",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/projects/components/add-project-ui.tsx": {
+      "compiled": [
+        "AddProjectShell",
+        "AddProjectTextInput",
+        "ListRow",
+        "ListRowSymbol",
+        "ListSection",
+        "ListStateCard",
+        "PrimaryActionButton",
+        "SectionTitle"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/projects/NewProjectScreen.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "NewProjectScreen",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/projects/OpenFolderScreen.tsx": {
+      "compiled": [
+        "OpenFolderScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/projects/OpenProjectScreen.tsx": {
+      "compiled": [
+        "OpenProjectScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/projects/ProjectFromGithubScreen.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "ProjectFromGithubScreen",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/projects/use-open-project.ts": {
+      "compiled": [
+        "useHostApi",
+        "useMounted",
+        "useProjectsFolder"
+      ],
+      "skipped": [
+        {
+          "name": "useShowProject",
+          "reasons": [
+            "PreserveManualMemo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/prs/components/PrStateBadge.tsx": {
+      "compiled": [
+        "PrStateBadge"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/GuideNoticeCard.tsx": {
+      "compiled": [
+        "GuideNoticeBody",
+        "GuideNoticeCard"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/pull-request-ui.tsx": {
+      "compiled": [
+        "CardRowChevron",
+        "CardRowIcon",
+        "DisabledReason",
+        "PullRequestAvatar",
+        "PullRequestCardGroup",
+        "PullRequestCardRow",
+        "PullRequestDiffStats",
+        "PullRequestReadStatus",
+        "PullRequestSectionHeading"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestActionToolbar.tsx": {
+      "compiled": [
+        "PullRequestActionToolbar"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestActivity.tsx": {
+      "compiled": [
+        "EventHeader",
+        "PullRequestActivityFilters",
+        "TimelineComment",
+        "TimelineEvent"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestAgentActions.tsx": {
+      "compiled": [
+        "usePullRequestAgent"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestDescription.tsx": {
+      "compiled": [
+        "AttachmentTile",
+        "Attachments",
+        "PullRequestDescription"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestFiles.tsx": {
+      "compiled": [
+        "FilesBody",
+        "FilesFooter",
+        "FilesHeader",
+        "NeedsNewBuild",
+        "SelectionBar",
+        "ViewedNotes"
+      ],
+      "skipped": [
+        {
+          "name": "PullRequestFiles",
+          "reasons": [
+            "PreserveManualMemo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestGuide.tsx": {
+      "compiled": [
+        "GuideOutline",
+        "GuideStop",
+        "PullRequestGuideTab"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestMarkdown.tsx": {
+      "compiled": [
+        "PullRequestMarkdown",
+        "PullRequestMedia"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestMergeControls.tsx": {
+      "compiled": [
+        "MergeButtonContent",
+        "MergeNotes",
+        "PullRequestMergeControls",
+        "StackMergeButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestOverview.tsx": {
+      "compiled": [
+        "ChangedFilesSummary",
+        "PullRequestLabels",
+        "PullRequestOverview",
+        "PullRequestStackCard"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestSheetContent.tsx": {
+      "compiled": [
+        "PullRequestSheetContent"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/PullRequestStatusRows.tsx": {
+      "compiled": [
+        "PullRequestBranchRow",
+        "PullRequestChecksRow",
+        "PullRequestReviewersRow",
+        "PullRequestStatusMenu",
+        "PullRequestWorkflowRunsRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/ReviewGuideExcerpt.tsx": {
+      "compiled": [
+        "ReviewGuideExcerpt"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/use-pull-request-action.ts": {
+      "compiled": [
+        "usePullRequestAction"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/use-pull-request-files-viewed.ts": {
+      "compiled": [
+        "useDeviceFilesViewed",
+        "useHostFilesViewed",
+        "usePullRequestFilesViewed"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/use-pull-request-media-url.ts": {
+      "compiled": [
+        "usePullRequestMarkdownMedia",
+        "usePullRequestMediaUrl"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/detail/use-pull-request-view.ts": {
+      "compiled": [
+        "usePullRequestView"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestAskScreen.tsx": {
+      "compiled": [
+        "AskForm",
+        "PullRequestAskScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestDiscussionScreen.tsx": {
+      "compiled": [
+        "PullRequestDiscussionScreen",
+        "ThreadLocation"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestFilesScreen.tsx": {
+      "compiled": [
+        "PullRequestFilesScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestInlineCommentScreen.tsx": {
+      "compiled": [
+        "PullRequestInlineCommentScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestLabelsScreen.tsx": {
+      "compiled": [
+        "PullRequestLabelsScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestListFilters.tsx": {
+      "compiled": [
+        "PullRequestListFilters"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestListRow.tsx": {
+      "compiled": [
+        "PullRequestListRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestReviewersScreen.tsx": {
+      "compiled": [
+        "PullRequestReviewersScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestReviewSheet.tsx": {
+      "compiled": [
+        "PendingComments",
+        "PullRequestReviewSheet",
+        "ReviewBodyField",
+        "ReviewNotes"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestScreen.tsx": {
+      "compiled": [
+        "PullRequestIdentity",
+        "PullRequestTabScrollView",
+        "TabPane"
+      ],
+      "skipped": [
+        {
+          "name": "PullRequestScreen",
+          "reasons": [
+            "Refs"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/prs/PullRequestsHeader.android.tsx": {
+      "compiled": [
+        "PullRequestsHeader"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/PullRequestsScreen.tsx": {
+      "compiled": [
+        "PullRequestScrollView",
+        "PullRequestsScreen",
+        "useDebouncedValue"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/use-pull-request-host-fallback.ts": {
+      "compiled": [
+        "usePullRequestHostFallback"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/prs/use-pull-request-list.ts": {
+      "compiled": [
+        "usePullRequestList"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/review/ReviewCommentCard.tsx": {
+      "compiled": [
+        "ReviewCommentCard",
+        "useReviewCommentColors"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/review/reviewCommentSelection.ts": {
+      "compiled": [
+        "useReviewCommentTarget"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/review/useNativeReviewDiffBridge.ts": {
+      "compiled": [
+        "useNativeReviewDiffBridge"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/review/useNativeReviewDiffHighlighting.ts": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "useNativeReviewDiffHighlighting",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/review/useReviewCommentSelectionController.ts": {
+      "compiled": [
+        "useReviewCommentSelectionController"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/AboutScreen.tsx": {
+      "compiled": [
+        "AboutScreen",
+        "HostVersionRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/AccountSyncScreen.tsx": {
+      "compiled": [
+        "AccountSyncScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/AgentDefaultsScreen.tsx": {
+      "compiled": [
+        "AgentDefaultsScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/AgentProfileScreen.tsx": {
+      "compiled": [
+        "AgentProfileScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/AgentProfileSections.tsx": {
+      "compiled": [
+        "EntryTitle",
+        "FileRow",
+        "FilesSection",
+        "HandWrittenSkillRow",
+        "HostRow",
+        "HostsSection",
+        "InstructionsEditor",
+        "InstructionsSection",
+        "ModelInstructionsSection",
+        "PillButton",
+        "RegistrySkillRow",
+        "RemoteSkillRow",
+        "RemoveButton",
+        "ServerRow",
+        "ServersSection",
+        "ShowMoreRow",
+        "SkillsSection",
+        "ToolHostPicker"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/appearance/AppearancePreferencesProvider.tsx": {
+      "compiled": [
+        "AppearancePreferencesProvider"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/appearance/components/AppearancePreviews.tsx": {
+      "compiled": [
+        "AppearancePreviewSeparator",
+        "CodeAppearancePreview",
+        "TextAppearancePreview"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/appearance/components/FontSizeSliderRow.android.tsx": {
+      "compiled": [
+        "FontSizeSliderRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/appearance/components/FontSizeSliderRow.shared.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "FontSizeSliderRow",
+          "reasons": [
+            "Immutability"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/settings/appearance/sections/CodeAppearanceSection.tsx": {
+      "compiled": [
+        "CodeAppearanceSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/appearance/sections/TextAppearanceSection.tsx": {
+      "compiled": [
+        "TextAppearanceSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/appearance/sections/ThemeAppearanceSection.tsx": {
+      "compiled": [
+        "ModeCard",
+        "ModePreview",
+        "PreviewPane",
+        "SectionLabel",
+        "ThemeAppearanceSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/appearance/useAppearanceCodeSurface.ts": {
+      "compiled": [
+        "useAppearanceCodeSurface"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/appearance/useScaledTextRole.ts": {
+      "compiled": [
+        "useScaledTextRole"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/AppearanceScreen.tsx": {
+      "compiled": [
+        "AppearanceScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/IntegrationConnectPanel.tsx": {
+      "compiled": [
+        "IntegrationConnectPanel"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/IntegrationOAuthClientPanel.tsx": {
+      "compiled": [
+        "IntegrationOAuthClientPanel"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/PairQrCode.tsx": {
+      "compiled": [
+        "PairQrCode"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/ServerIcon.tsx": {
+      "compiled": [
+        "ServerIcon"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/SettingsActionRow.tsx": {
+      "compiled": [
+        "SettingsActionRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/SettingsNote.tsx": {
+      "compiled": [
+        "SettingsNote"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/SettingsRow.tsx": {
+      "compiled": [
+        "SettingsRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/SettingsScreen.tsx": {
+      "compiled": [
+        "SettingsScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/SettingsSwitchRow.tsx": {
+      "compiled": [
+        "SettingsSwitchRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/components/SettingsValueRow.tsx": {
+      "compiled": [
+        "SettingsValueRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/GitHubConnectionScreen.tsx": {
+      "compiled": [
+        "GitHubConnectionScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/HostAccessScreen.tsx": {
+      "compiled": [
+        "HostAccessScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/HostAccessSections.tsx": {
+      "compiled": [
+        "HostDevicesSection",
+        "HostNetworkSection",
+        "HostOrganizationsSection",
+        "HostPairingSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/HostCloudLinkSection.tsx": {
+      "compiled": [
+        "HostCloudLinkSection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/HostSettingsScreen.tsx": {
+      "compiled": [
+        "HostSettingsScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/IntegrationsScreen.tsx": {
+      "compiled": [
+        "AddRow",
+        "Badge",
+        "CatalogSection",
+        "CustomAddressSection",
+        "InstalledRow",
+        "InstalledSection",
+        "IntegrationTools",
+        "IntegrationsScreen",
+        "OwnerOnlyNote",
+        "PillButton",
+        "ToolLine"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/NotificationSettingsScreen.tsx": {
+      "compiled": [
+        "NotificationSettingsScreen",
+        "NotificationSwitchRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/OrganizationSettingsScreen.tsx": {
+      "compiled": [
+        "OrganizationSettingsScreen",
+        "RetryNotice"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/SettingsScreen.tsx": {
+      "compiled": [
+        "SettingsIndex",
+        "SettingsScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/use-agent-profile.ts": {
+      "compiled": [
+        "useAgentProfile",
+        "useAgentProfileHosts"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/use-github-connection.ts": {
+      "compiled": [
+        "useGithubConnection"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/use-host-access.ts": {
+      "compiled": [
+        "useHostAccess"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/use-host-cloud-link.ts": {
+      "compiled": [
+        "useHostCloudLink"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/use-host-settings.ts": {
+      "compiled": [
+        "useHostSettings"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/use-host-update-status.ts": {
+      "compiled": [
+        "useHostUpdateStatus"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/settings/use-integrations.ts": {
+      "compiled": [
+        "useIntegrations"
+      ],
+      "skipped": [
+        {
+          "name": "useIntegrationConnect",
+          "reasons": [
+            "Invariant"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/settings/use-organization-settings.ts": {
+      "compiled": [
+        "useOrganizationSettings"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ComposerQueuedEdit.tsx": {
+      "compiled": [
+        "ComposerQueuedEditAttachments",
+        "ComposerQueuedEditBanner"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/floating-working-control.tsx": {
+      "compiled": [
+        "FloatingStatusLabel",
+        "FloatingWorkingControl",
+        "ScrollToEndButton",
+        "StatusLabelRow",
+        "WorkingDuration",
+        "WorkingTimer"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/MessageAttachments.tsx": {
+      "compiled": [
+        "AttachmentFileCard",
+        "AttachmentImageFrame",
+        "HostAttachmentImage",
+        "HostAttachmentVideo",
+        "InlineAttachmentImage",
+        "MessageAttachments",
+        "useOpenHostFile"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/NewTaskConnectHost.tsx": {
+      "compiled": [
+        "ConnectHostCard",
+        "NewTaskConnectHost",
+        "useNewTaskHostGate"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/NewTaskContextPickerScreens.tsx": {
+      "compiled": [
+        "NewTaskEnvironmentPickerRouteScreen",
+        "PickerSurface",
+        "SelectionRow",
+        "useNewTaskEnvironments"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/NewTaskRouteScreen.tsx": {
+      "compiled": [
+        "HeroProjectMark",
+        "NewTaskDraftContent",
+        "NewTaskDraftScreen",
+        "NewTaskHeader",
+        "NewTaskProjectScreen",
+        "NewTaskRouteScreen",
+        "PlanModeToggle",
+        "useDraftConversation"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/PendingApprovalCard.tsx": {
+      "compiled": [
+        "PendingApprovalCard"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/PendingUserInputCard.tsx": {
+      "compiled": [
+        "PendingUserInputCard"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ProviderSubagentScreen.tsx": {
+      "compiled": [
+        "ProviderSubagentScreen",
+        "ProviderTranscriptList",
+        "ProviderTranscriptRow"
+      ],
+      "skipped": [
+        {
+          "name": "ProviderTranscript",
+          "reasons": [
+            "PreserveManualMemo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/threads/queued-message-edit.ts": {
+      "compiled": [
+        "useQueuedMessageEdit"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/RequestActionButton.tsx": {
+      "compiled": [
+        "RequestActionButton",
+        "WaitingForEditor"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/sidebar-filter-button.tsx": {
+      "compiled": [
+        "SidebarFilterButton"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/sidebar-header-actions.tsx": {
+      "compiled": [
+        "FallbackHeaderButton",
+        "SidebarHeaderActions"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/sidebar-navigation-shell.tsx": {
+      "compiled": [
+        "SidebarNavigationShell"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/thread-context-divider.tsx": {
+      "compiled": [
+        "CompactionDivider",
+        "HandoffDivider",
+        "HandoffLine",
+        "HandoffPendingDivider",
+        "SessionOriginDivider"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/thread-list-clock.ts": {
+      "compiled": [
+        "useThreadListClockWhile",
+        "useThreadListTime"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/thread-list-v2-items.tsx": {
+      "compiled": [
+        "ThreadListV2ArchivedSectionHeader",
+        "ThreadListV2Row",
+        "ThreadListV2Section",
+        "ThreadListV2SettledShelfHeader",
+        "ThreadListV2ShelfHeader",
+        "ThreadListV2ShowMoreRow",
+        "ThreadListV2SnoozedShelfHeader"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/thread-work-log.tsx": {
+      "compiled": [
+        "EdgeFade",
+        "ShimmerWorkContent",
+        "ShimmeringWorkContent",
+        "ThreadDisclosureChevron",
+        "ThreadThinkingRow",
+        "ThreadWorkGroupList",
+        "ThreadWorkGroupToggle",
+        "ThreadWorkLog",
+        "ThreadWorkLogRow",
+        "WorkLogIcon"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadAgents.tsx": {
+      "compiled": [
+        "AgentElapsed",
+        "AgentRow",
+        "AgentRowContent",
+        "ThreadAgentGroup",
+        "ThreadAgentsSheet",
+        "ThreadAgentsSheetContent",
+        "ThreadAgentsSheetFrame",
+        "useAgentPresentations",
+        "useAgentRoster"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadArtifact.tsx": {
+      "compiled": [
+        "ArtifactFullScreen",
+        "ArtifactWebView",
+        "ThreadArtifact"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadComposer.tsx": {
+      "compiled": [
+        "ComposerSurface",
+        "SendActionButton"
+      ],
+      "skipped": [
+        {
+          "name": "ThreadComposer",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/threads/ThreadDetailScreen.tsx": {
+      "compiled": [
+        "ThreadDetailScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadFeed.tsx": {
+      "compiled": [
+        "AssistantMessageRow",
+        "NoticeRow",
+        "PlanRow",
+        "ThreadFeed",
+        "ThreadFeedListHeader",
+        "ThreadFeedLoadEarlierControl",
+        "ThreadFeedPlaceholder",
+        "UserMessageRow",
+        "WorktreeOfferRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadMarkdown.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "ThreadMarkdown",
+          "reasons": [
+            "Invariant"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/threads/ThreadMarkdownImage.tsx": {
+      "compiled": [
+        "ThreadMarkdownImage",
+        "ThreadMarkdownImageRequest",
+        "ThreadMarkdownImageUnavailable",
+        "ThreadMarkdownImageView",
+        "ThreadMarkdownSvg"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadMarkdownVideo.tsx": {
+      "compiled": [
+        "ThreadMarkdownVideo"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadMcpApp.tsx": {
+      "compiled": [
+        "McpAppCard",
+        "ThreadMcpApp"
+      ],
+      "skipped": [
+        {
+          "name": "McpAppWebView",
+          "reasons": [
+            "Refs"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx": {
+      "compiled": [
+        "NativeSidebarContainer",
+        "ThreadNavigationSidebar",
+        "ThreadNavigationSidebarPane"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadPlanCard.tsx": {
+      "compiled": [
+        "PlanNoteInput"
+      ],
+      "skipped": [
+        {
+          "name": "AgentPlanCard",
+          "reasons": [
+            "Todo"
+          ]
+        },
+        {
+          "name": "ThreadPlanCard",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/threads/ThreadQueueSheet.tsx": {
+      "compiled": [
+        "ThreadQueueSheet",
+        "ThreadQueueSheetFrame"
+      ],
+      "skipped": [
+        {
+          "name": "ThreadQueueSheetContent",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/threads/ThreadRouteScreen.tsx": {
+      "compiled": [
+        "OpeningThreadLoadingScreen",
+        "ThreadRouteContent",
+        "ThreadRouteScreen",
+        "ThreadUnavailableScreen"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadSettingsRows.tsx": {
+      "compiled": [
+        "AutoRow",
+        "ChoiceRow",
+        "DisclosureRow",
+        "FastModeRow",
+        "ModelRow",
+        "ProviderHeader",
+        "SelectedCheckmark"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx": {
+      "compiled": [
+        "ThreadSettingsChoiceContent",
+        "ThreadSettingsChoiceScreen",
+        "ThreadSettingsMainContent",
+        "ThreadSettingsModelsScreen",
+        "ThreadSettingsOptionsItem",
+        "ThreadSettingsPickerNavigator",
+        "ThreadSettingsRouteContent",
+        "ThreadSettingsRouteScreen",
+        "ThreadSettingsSessionProvider",
+        "useThreadSettingsCatalogItems"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadTurnImages.tsx": {
+      "compiled": [
+        "ThreadTurnImages"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/UsageLimitRecoveryCard.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "UsageLimitRecoveryCard",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/threads/use-composer-queued-edit.ts": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "useComposerQueuedEdit",
+          "reasons": [
+            "Immutability"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/threads/use-thread-list.ts": {
+      "compiled": [
+        "useReloadThreadLists",
+        "useThreadListRefresh",
+        "useThreadListState"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/use-transcript-items.ts": {
+      "compiled": [
+        "useTranscriptItem",
+        "useTranscriptItems"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/use-visible-second-clock.ts": {
+      "compiled": [
+        "useVisibleSecondClock"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/useThreadHeaderOptions.tsx": {
+      "compiled": [
+        "useThreadHeaderOptions"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/work-log-layout.tsx": {
+      "compiled": [
+        "WorkLogBlock",
+        "WorkLogIconSlot",
+        "WorkLogLabel",
+        "WorkLogPressable",
+        "WorkLogRows"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/WorktreeOfferCard.tsx": {
+      "compiled": [],
+      "skipped": [
+        {
+          "name": "WorktreeOfferCard",
+          "reasons": [
+            "Todo"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/features/threads/WorktreeSetupCard.tsx": {
+      "compiled": [
+        "SetupDetails",
+        "StageRow",
+        "WorktreeSetupCard"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/AndroidWorkspaceNavigation.android.tsx": {
+      "compiled": [
+        "AndroidWorkspaceNavigation",
+        "AndroidWorkspaceRail",
+        "WorkspaceRail"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/ListFilterMenu.tsx": {
+      "compiled": [
+        "ListFilterMenu"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/use-sidebar-workspace-tabs.ts": {
+      "compiled": [
+        "useSidebarWorkspaceTabs"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/use-workspace-destinations.ts": {
+      "compiled": [
+        "useWorkspaceDestinations"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/WorkspaceNativeTabs.ios.tsx": {
+      "compiled": [
+        "RetainedWorkspaceTab",
+        "WorkspaceNativeTabs"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/WorkspaceSettingsFrame.android.tsx": {
+      "compiled": [
+        "WorkspaceSettingsFrame"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/WorkspaceSidebarTabs.ios.tsx": {
+      "compiled": [
+        "WorkspaceSidebarTabs"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/WorkspaceTabPanes.tsx": {
+      "compiled": [
+        "WorkspaceTabPanes"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/WorkspaceTabsContext.tsx": {
+      "compiled": [
+        "WorkspaceTabsProvider"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/WorkspaceTabsFrame.tsx": {
+      "compiled": [
+        "WorkspaceTabsFrame"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/workspace/WorkspaceToolbar.ios.tsx": {
+      "compiled": [
+        "WorkspaceToolbar"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/lib/mediaActions.ts": {
+      "compiled": [
+        "useMediaActions"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/lib/nativeMarkdownTextStyle.ts": {
+      "compiled": [
+        "useNativeMarkdownTextStyle"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/lib/project-favicon-url.ts": {
+      "compiled": [
+        "useProjectFaviconUrl"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/lib/useHoverGesture.ts": {
+      "compiled": [
+        "useHoverGesture"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/lib/useMobileNavigationTheme.ts": {
+      "compiled": [
+        "useMobileNavigationTheme"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/lib/useUniwindTheme.ts": {
+      "compiled": [
+        "useUniwindTheme"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/native/createV5StackNavigator.ios.tsx": {
+      "compiled": [
+        "V5CardStackView",
+        "V5StackNavigator",
+        "V5StackView"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/native/EnrichedMarkdownText.tsx": {
+      "compiled": [
+        "MobileEnrichedMarkdownText"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/native/NativeColumnContent.ios.tsx": {
+      "compiled": [
+        "ColumnHeaderHeight",
+        "NativeColumnContent"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/native/NativeHeaderToolbar.tsx": {
+      "compiled": [
+        "NativeHeaderToolbarRoot",
+        "useNativeStackNavigation"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/native/NativeScrollViewMarker.tsx": {
+      "compiled": [
+        "NativeScrollView",
+        "NativeScrollViewMarker"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/native/StackHeader.tsx": {
+      "compiled": [
+        "useNativeStackNavigation"
+      ],
+      "skipped": [
+        {
+          "name": "NativeStackScreenOptions",
+          "reasons": [
+            "Refs"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/native/useEnrichedLinkVariants.ts": {
+      "compiled": [
+        "useEnrichedLinkVariants"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/native/V5StackHeader.ios.tsx": {
+      "compiled": [
+        "useSearchAutoFocus"
+      ],
+      "skipped": [
+        {
+          "name": "V5StackHeader",
+          "reasons": [
+            "Immutability"
+          ]
+        }
+      ]
+    },
+    "apps/mobile/src/navigation/RootNavigator.tsx": {
+      "compiled": [
+        "RootNavigator"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/theme/theme.tsx": {
+      "compiled": [
+        "ThemeProvider",
+        "usePalette"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/ui/primitives.tsx": {
+      "compiled": [
+        "Banner",
+        "Button",
+        "Card",
+        "EmptyState",
+        "Field",
+        "Row"
+      ],
+      "skipped": []
+    }
+  }
+}

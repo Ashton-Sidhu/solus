@@ -8,6 +8,8 @@ import { z } from 'zod'
 import { solusApiOperations as routes, workspaceIdSchema, workspaceVersionSchema, type WorkspaceCapabilities } from '@solus/contracts/solus-api'
 import { SolusApiError } from '../../admission/workspace-error'
 import { parseSessionPullRequestId } from '@solus/contracts/session-pull-requests'
+import { solusApiRequestHeaders, solusApiRequestSchema, solusApiResponseOf, type SolusApiRequest, type SolusApiResponse } from '@solus/contracts/solus-api/request'
+import type { Principal } from '../../admission/principal'
 import type { WorkspaceCredentials, WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import type { WorkspaceOperations } from '../../data/workspace/operations'
 import { createTokenBucketRateLimiter } from '../rate-limit'
@@ -15,7 +17,9 @@ import { WorkspaceRequestBudgets } from './limits'
 
 const log = createLogger('server', 'solus-api')
 
-interface ApiEnvironment { Variables: { authority: WorkspaceRequestContext; requestId: string } }
+/** Over HTTP, `Bindings` are the Node adapter's request and response; a caller cannot set `socketPrincipal`. */
+interface ApiEnvironment { Bindings: { socketPrincipal?: Principal }; Variables: { authority: WorkspaceRequestContext; requestId: string } }
+export type SolusApiRouter = Hono<ApiEnvironment>
 type ApiContext = Context<ApiEnvironment>
 interface SolusApiRouterOptions {
   credentials: WorkspaceCredentials
@@ -60,7 +64,7 @@ async function body<T extends z.ZodType>(c: ApiContext, schema: T): Promise<z.ou
 }
 
 /** Mounted at /v1. Resource calls never pass through the RPC dispatcher; operations enforce scope and access. */
-export function createSolusApiRouter(options: SolusApiRouterOptions): Hono<ApiEnvironment> {
+export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRouter {
   const app = new Hono<ApiEnvironment>()
   const { operations } = options
   const budgets = new WorkspaceRequestBudgets()
@@ -97,7 +101,9 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): Hono<ApiEn
   })
 
   app.use('*', async (c, next) => {
-    const authority = await options.credentials.verify(bearer(c))
+    // A socket request's authority is its socket's principal; an HTTP request's is its bearer.
+    const socketPrincipal = c.env?.socketPrincipal
+    const authority = socketPrincipal ? await options.credentials.admitSocket(socketPrincipal) : await options.credentials.verify(bearer(c))
     if (!authority) throw new SolusApiError(401, 'UNAUTHENTICATED', 'A valid API credential is required.')
     c.set('authority', authority)
     const actor = actorFor(authority.principal)
@@ -218,4 +224,16 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): Hono<ApiEn
   app.get(routes.getInsightSpans.path, async c => { query(c, routes.getInsightSpans.query); return c.json(await operations.getInsightSpans(authority(c), z.string().min(1).max(1024).parse(c.req.param('insightId')))) })
   app.get(routes.getInsight.path, async c => { query(c, routes.getInsight.query); return c.json(await operations.getInsight(authority(c), z.string().min(1).max(1024).parse(c.req.param('insightId')))) })
   return app
+}
+
+/**
+ * One request from a client's socket (`solusApiRequest`), answered by the routes,
+ * schemas, and operations HTTP uses. The socket's principal is its authority, so the
+ * client exchanges no credential.
+ */
+export async function answerSocketRequest(router: SolusApiRouter, input: SolusApiRequest, socketPrincipal: Principal): Promise<SolusApiResponse> {
+  const request = solusApiRequestSchema.parse(input)
+  // The origin only lets the URL parse; the request never leaves this process.
+  const http = new Request(new URL(request.path, 'http://solus.socket'), { method: request.method, headers: solusApiRequestHeaders(request), body: request.body })
+  return solusApiResponseOf(await router.fetch(http, { socketPrincipal }))
 }

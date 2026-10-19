@@ -29,8 +29,6 @@
       --color-separator: rgba(214, 210, 200, 0.55);
       --color-subtle: #f4f2ec;
       --color-subtle-strong: rgba(0, 0, 0, 0.05);
-      --color-pr-tab-track: #fafaf9;
-      --color-pr-tab-selected: #fffffd;
       --color-pr-card: #fafaf9;
       --color-pr-card-border: rgba(0, 0, 0, 0.06);
       --color-inline-skill-background: #f9e8e1;
@@ -103,7 +101,7 @@
       --color-adaptive-amber-700-400: #f59e0b;
       --color-adaptive-amber-500-a10-400-a10: rgba(245, 158, 11, 0.1);
       --color-adaptive-amber-500-a25-400-a25: rgba(245, 158, 11, 0.25);
-      --color-adaptive-sky-600-400: #1b4ed8;
+      --color-adaptive-sky-600-400: #213d87;
       --color-adaptive-violet-600-400: #9333ea;
       --color-adaptive-rose-600-400: #ef4444;
     }
@@ -135,8 +133,6 @@
       --color-separator: rgba(61, 60, 56, 0.55);
       --color-subtle: #2c2b28;
       --color-subtle-strong: rgba(255, 255, 255, 0.07);
-      --color-pr-tab-track: #302f2b;
-      --color-pr-tab-selected: #262522;
       --color-pr-card: #302f2b;
       --color-pr-card-border: rgba(61, 60, 56, 0.7);
       --color-inline-skill-background: #3d2c24;
@@ -209,7 +205,7 @@
       --color-adaptive-amber-700-400: #fbbf24;
       --color-adaptive-amber-500-a10-400-a10: rgba(251, 191, 36, 0.1);
       --color-adaptive-amber-500-a25-400-a25: rgba(251, 191, 36, 0.25);
-      --color-adaptive-sky-600-400: #346bf1;
+      --color-adaptive-sky-600-400: #83a2ec;
       --color-adaptive-violet-600-400: #c084fc;
       --color-adaptive-rose-600-400: #ef4444;
     }

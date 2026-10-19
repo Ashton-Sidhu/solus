@@ -56,16 +56,18 @@ export function PullRequestReviewSheet({ navigation, route }: ScreenProps<'PullR
     pending.current = true
     setBusy(true)
     setError(null)
-    try {
+    // The React Compiler cannot compile try/finally. The async wrapper turns a
+    // synchronous throw into a rejection, so catch and finally see both.
+    await (async () => {
       if (reviewing && verdict) await app.pullRequestActions.submitReview(ref, { verdict, body, headSha: pr.headSha })
       else await app.pullRequestActions.comment(ref, body)
       navigation.goBack()
-    } catch (cause) {
+    })().catch((cause) => {
       setError(cause instanceof Error ? cause.message : 'GitHub could not take this. Try again.')
-    } finally {
+    }).finally(() => {
       pending.current = false
       setBusy(false)
-    }
+    })
   }
   const discard = () => Alert.alert('Discard this review?', 'The summary and every draft comment are removed from this device.', [
     { text: 'Cancel', style: 'cancel' },

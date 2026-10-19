@@ -67,3 +67,6 @@ export function mergeSessionHomes<Row extends SessionHomeRow>(rows: readonly Row
 
 /** What a read-only record says in place of a prompt. */
 export const RUNNER_OFFLINE_REASON = "Read only: the machine that ran this session is not connected."
+
+/** What a record says in place of a prompt while this client dials the machine that runs it. */
+export const RUNNER_CONNECTING_NOTE = "Connecting to the machine that runs this session…"

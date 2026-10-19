@@ -3,20 +3,11 @@
 import type { AgentId, PermissionMode, ReasoningEffort } from "@solus/contracts/types";
 import type { LegendListRenderItemProps } from "@legendapp/list/react-native";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
-import {
-  NavigationContainer,
-  NavigationIndependentTree,
-  useNavigation,
-  useRoute,
-  type RouteProp,
-} from "@react-navigation/native";
-import {
-  createNativeStackNavigator,
-  type NativeStackNavigationProp,
-} from "@react-navigation/native-stack";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
-import { createContext, use, useCallback, useMemo, useState, type ReactNode } from "react";
-import { Modal, Platform, ScrollView, TextInput, View } from "react-native";
+import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Platform, ScrollView, TextInput, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -26,11 +17,17 @@ import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { MaterialButton } from "../../components/MaterialButton";
 import { MaterialIconButton } from "../../components/MaterialIconButton";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
-import { MOBILE_FONTS } from "../../lib/typography";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NativeHeaderToolbar, NativeStackScreenOptions, nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
-import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { createV5StackNavigator } from "../../native/createV5StackNavigator";
+import {
+  createNativeMailSearchToolbarItem,
+  NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET,
+  NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
+} from "../layout/native-mail-search-toolbar";
+import { useApp, useListened } from "../../app/app-context";
+import type { ScreenProps } from "../../navigation/routes";
 import {
   ProviderHeader,
   DisclosureRow,
@@ -39,7 +36,7 @@ import {
   ModelRow,
   ChoiceRow,
 } from "./ThreadSettingsRows";
-import type { ConversationMeta, ConversationStore } from "../conversation/conversation-store";
+import type { ConversationStore } from "../conversation/conversation-store";
 import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
 import {
   canChoosePermissionMode,
@@ -73,11 +70,14 @@ const THREAD_SETTINGS_HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects
   Platform.OS,
   Platform.Version,
 );
+/** As T3: with Liquid Glass, search and the filter menu share one Mail-style bar
+ *  at the foot of the sheet, which is always a compact column. */
+const USES_MAIL_SEARCH_TOOLBAR = Platform.OS === "ios" && NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED;
 
 type ThreadSettingsSubmenuPage = { readonly kind: "reasoning" } | { readonly kind: "permission" };
 
 /** What one settings presentation edits: the applied model, its reasoning, and the permission mode. */
-export interface ThreadSettingsSessionProps {
+interface ThreadSettingsSessionProps {
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly selectedProvider: AgentId;
   readonly selectedModel: string | null;
@@ -150,6 +150,9 @@ function ThreadSettingsSessionProvider(
   const pendingModel = stagedModel && stagedPickIsOffered(stagedModel, props) ? stagedModel : null;
   const [pendingEffort, setPendingEffort] = useState<ReasoningEffort | null>(null);
   const [pendingFastMode, setPendingFastMode] = useState<boolean | null>(null);
+  // Called as plain functions: a call through `props.` makes all of props the
+  // dependency, which the React Compiler cannot match to these callbacks.
+  const { onSelectModel, onUpdateReasoningEffort, onUpdateFastMode } = props;
 
   const isApplied = useCallback(
     (option: ModelOption) =>
@@ -180,24 +183,24 @@ function ThreadSettingsSessionProvider(
   const commitPendingModel = useCallback(() => {
     if (!pendingModel) return;
     void Haptics.selectionAsync();
-    props.onSelectModel(pendingModel, pendingEffort, pendingFastMode);
-  }, [pendingEffort, pendingFastMode, pendingModel, props.onSelectModel]);
+    onSelectModel(pendingModel, pendingEffort, pendingFastMode);
+  }, [pendingEffort, pendingFastMode, pendingModel, onSelectModel]);
 
   // While a model is staged, the reasoning row edits the staged choice; Save
   // applies model and reasoning together. Otherwise it edits the applied run.
   const applyEffort = useCallback(
     (effort: ReasoningEffort) => {
       if (pendingModel) setPendingEffort(effort);
-      else props.onUpdateReasoningEffort(effort);
+      else onUpdateReasoningEffort(effort);
     },
-    [pendingModel, props.onUpdateReasoningEffort],
+    [pendingModel, onUpdateReasoningEffort],
   );
   const applyFastMode = useCallback(
     (fastMode: boolean) => {
       if (pendingModel) setPendingFastMode(fastMode);
-      else props.onUpdateFastMode(fastMode);
+      else onUpdateFastMode(fastMode);
     },
-    [pendingModel, props.onUpdateFastMode],
+    [pendingModel, onUpdateFastMode],
   );
 
   const toggleProvider = useCallback((providerKey: string) => {
@@ -315,6 +318,8 @@ type ThreadSettingsCatalogItem =
 function useThreadSettingsCatalogItems(
   session: ThreadSettingsSessionValue,
 ): ReadonlyArray<ThreadSettingsCatalogItem> {
+  // Called as a plain function, so the dependency is this callback, not all of session.
+  const { isDisplayed } = session;
   return useMemo(() => {
     const auto = session.autoOption;
     const autoItems =
@@ -324,7 +329,7 @@ function useThreadSettingsCatalogItems(
     const groupItems = session.providerGroups.flatMap((group) => {
         const catalogModels = session.showLegacy
           ? group.models
-          : group.models.filter((model) => !model.isLegacy || session.isDisplayed(model));
+          : group.models.filter((model) => !model.isLegacy || isDisplayed(model));
         const visibleModels = catalogModels.filter((model) =>
           modelMatchesCatalogQuery({ model, query: session.searchQuery }),
         );
@@ -372,7 +377,7 @@ function useThreadSettingsCatalogItems(
     return [...autoItems, ...groupItems];
   }, [
       session.autoOption,
-      session.isDisplayed,
+      isDisplayed,
       session.providerExpansionOverrides,
       session.providerGroups,
       session.searchQuery,
@@ -394,7 +399,12 @@ function ThreadSettingsOptionsItem(props: {
     .find((model) => model.provider === session.displayedProvider && model.model === session.displayedModel)?.label;
 
   return (
-    <View style={{ paddingBottom: insets.bottom + 12 }}>
+    <View
+      style={{
+        paddingBottom:
+          insets.bottom + (USES_MAIL_SEARCH_TOOLBAR ? NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET : 0) + 12,
+      }}
+    >
       <Text className="px-5 pb-2 pt-6 text-sm font-t3-medium text-foreground-muted">Options</Text>
       <Animated.View
         className="mx-4 overflow-hidden rounded-2xl bg-grouped-card"
@@ -649,7 +659,7 @@ type ThreadSettingsPickerStackParams = {
   ThreadSettingsChoice: ThreadSettingsSubmenuPage & { readonly title: string };
 };
 
-const ThreadSettingsPickerStack = createNativeStackNavigator<ThreadSettingsPickerStackParams>();
+const ThreadSettingsPickerStack = createV5StackNavigator<ThreadSettingsPickerStackParams>();
 const ThreadSettingsPickerPresentationContext = createContext<{ readonly onClose: () => void } | null>(
   null,
 );
@@ -668,10 +678,28 @@ function ThreadSettingsModelsScreen() {
   const session = useThreadSettingsSession();
   const presentation = useThreadSettingsPickerPresentation();
   const navigation = useNavigation<NativeStackNavigationProp<ThreadSettingsPickerStackParams>>();
+  const colors = useUniwindTheme();
   const commitAndClose = useCallback(() => {
     session.commitPendingModel();
     presentation.onClose();
   }, [presentation, session]);
+  const filterMenu = useMemo(
+    () =>
+      session.hasLegacyModels
+        ? {
+            title: "Model filters",
+            items: [
+              {
+                type: "action" as const,
+                title: "Show legacy models",
+                state: session.showLegacy ? ("on" as const) : ("off" as const),
+                onPress: () => session.setShowLegacy(!session.showLegacy),
+              },
+            ],
+          }
+        : undefined,
+    [session],
+  );
 
   return (
     <>
@@ -702,8 +730,27 @@ function ThreadSettingsModelsScreen() {
         optionsVersion={[session.showLegacy, session.hasLegacyModels]}
         options={{
           headerShown: Platform.OS !== "android",
+          unstable_headerToolbarItems: USES_MAIL_SEARCH_TOOLBAR
+            ? () => [
+                createNativeMailSearchToolbarItem({
+                  placeholder: "Find a model",
+                  onSearchTextChange: session.setSearchQuery,
+                  searchTextChangeId: "thread-settings-model-search-text",
+                  showsSearchDismissButton: true,
+                  ...(filterMenu
+                    ? {
+                        filterButtonId: "thread-settings-model-filter",
+                        filterMenu,
+                        filterSystemImageName: session.showLegacy
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease",
+                      }
+                    : undefined),
+                }),
+              ]
+            : undefined,
           headerSearchBarOptions:
-            Platform.OS === "ios"
+            Platform.OS === "ios" && !USES_MAIL_SEARCH_TOOLBAR
               ? {
                   autoCapitalize: "none",
                   hideNavigationBar: false,
@@ -725,21 +772,32 @@ function ThreadSettingsModelsScreen() {
           }
         />
       </MaterialScreenContent>
+      {/* As T3 Code #21319: X closes, a prominent checkmark applies. Only a
+          staged model and its options wait for the checkmark; reasoning, fast
+          mode and permission changes to the current model apply at once, so X
+          closes without undoing them and says only that it discards a staged
+          model. */}
       <NativeHeaderToolbar placement="left">
         <NativeHeaderToolbar.Button
-          accessibilityLabel="Cancel session settings"
-          label="Cancel"
+          accessibilityLabel={
+            session.pendingModel ? "Close without saving the model" : "Close session settings"
+          }
+          icon="xmark"
           onPress={presentation.onClose}
         />
       </NativeHeaderToolbar>
       <NativeHeaderToolbar placement="right">
-        <NativeHeaderToolbar.Button
-          accessibilityLabel={session.pendingModel ? "Save session settings" : "Done"}
-          label={session.pendingModel ? "Save" : "Done"}
-          onPress={commitAndClose}
-        />
+        {session.pendingModel ? (
+          <NativeHeaderToolbar.Button
+            accessibilityLabel="Save session settings"
+            icon="checkmark"
+            variant="prominent"
+            tintColor={colors["--color-prominent-action"]}
+            onPress={commitAndClose}
+          />
+        ) : null}
       </NativeHeaderToolbar>
-      {Platform.OS === "ios" && session.hasLegacyModels ? (
+      {Platform.OS === "ios" && !USES_MAIL_SEARCH_TOOLBAR && session.hasLegacyModels ? (
         <NativeHeaderToolbar placement="bottom">
           <NativeHeaderToolbar.Menu
             accessibilityLabel="Filter models"
@@ -790,109 +848,72 @@ function ThreadSettingsChoiceScreen() {
 
 function ThreadSettingsPickerNavigator(props: { readonly onClose: () => void }) {
   const theme = useUniwindTheme();
-  const { themeAppearance } = useAppearancePreferences();
   const solidSheetBackground = theme["--color-sheet-solid"];
   const foreground = theme["--color-foreground"];
   const presentation = useMemo(() => ({ onClose: props.onClose }), [props.onClose]);
-  const navigationTheme = useMemo(
-    () => ({
-      dark: themeAppearance === "dark",
-      colors: {
-        primary: theme["--color-primary"],
-        background: solidSheetBackground,
-        card: solidSheetBackground,
-        text: foreground,
-        border: theme["--color-border"],
-        notification: theme["--color-danger"],
-      },
-      fonts: {
-        regular: { fontFamily: MOBILE_FONTS.regular, fontWeight: "400" as const },
-        medium: { fontFamily: MOBILE_FONTS.medium, fontWeight: "500" as const },
-        bold: { fontFamily: MOBILE_FONTS.bold, fontWeight: "600" as const },
-        heavy: { fontFamily: MOBILE_FONTS.bold, fontWeight: "800" as const },
-      },
-    }),
-    [foreground, solidSheetBackground, theme, themeAppearance],
-  );
 
-  // The sheet hosts its own small navigator, as T3's form-sheet route does, so
-  // Reasoning and Permission mode push inside it.
+  // The root form-sheet route hosts this small navigator, as T3's does, so
+  // Reasoning and Permission mode push inside the sheet. It must not sit in a
+  // React Native Modal: a screen there adds a second touch handler, and every
+  // tap is delivered twice and cancelled.
   return (
     <ThreadSettingsPickerPresentationContext.Provider value={presentation}>
-      <NavigationIndependentTree>
-        <NavigationContainer theme={navigationTheme}>
-          <ThreadSettingsPickerStack.Navigator
-            initialRouteName="ThreadSettingsModels"
-            screenOptions={{
-              animation: Platform.OS === "android" ? "default" : "slide_from_right",
-              contentStyle: { backgroundColor: solidSheetBackground },
-              gestureEnabled: true,
-              headerBackButtonDisplayMode: "minimal",
-              headerBackTitle: "",
-              headerShown: Platform.OS !== "android",
-              headerShadowVisible: false,
-              headerStyle: {
-                backgroundColor: NATIVE_LIQUID_GLASS_SUPPORTED ? "transparent" : solidSheetBackground,
-              },
-              headerTransparent: NATIVE_LIQUID_GLASS_SUPPORTED,
-              headerTintColor: foreground,
-              headerTitleStyle: { fontSize: 17, fontWeight: "700" },
-              scrollEdgeEffects: NATIVE_LIQUID_GLASS_SUPPORTED
-                ? THREAD_SETTINGS_HEADER_SCROLL_EDGE_EFFECTS
-                : undefined,
-            }}
-          >
-            <ThreadSettingsPickerStack.Screen
-              name="ThreadSettingsModels"
-              component={ThreadSettingsModelsScreen}
-              options={{ headerBackVisible: false, title: "Session settings" }}
-            />
-            <ThreadSettingsPickerStack.Screen
-              name="ThreadSettingsChoice"
-              component={ThreadSettingsChoiceScreen}
-              options={({ route }) => ({ title: route.params.title })}
-            />
-          </ThreadSettingsPickerStack.Navigator>
-        </NavigationContainer>
-      </NavigationIndependentTree>
+      <ThreadSettingsPickerStack.Navigator
+        initialRouteName="ThreadSettingsModels"
+        screenOptions={{
+          animation: Platform.OS === "android" ? "default" : "slide_from_right",
+          contentStyle: { backgroundColor: solidSheetBackground },
+          gestureEnabled: true,
+          headerBackButtonDisplayMode: "minimal",
+          headerBackTitle: "",
+          headerShown: Platform.OS !== "android",
+          headerShadowVisible: false,
+          headerStyle: {
+            backgroundColor: NATIVE_LIQUID_GLASS_SUPPORTED ? "transparent" : solidSheetBackground,
+          },
+          headerTransparent: NATIVE_LIQUID_GLASS_SUPPORTED,
+          headerTintColor: foreground,
+          headerTitleStyle: { fontSize: 17, fontWeight: "700" },
+          scrollEdgeEffects: NATIVE_LIQUID_GLASS_SUPPORTED
+            ? THREAD_SETTINGS_HEADER_SCROLL_EDGE_EFFECTS
+            : undefined,
+        }}
+      >
+        <ThreadSettingsPickerStack.Screen
+          name="ThreadSettingsModels"
+          component={ThreadSettingsModelsScreen}
+          options={{ headerBackVisible: false, title: "Session settings" }}
+        />
+        <ThreadSettingsPickerStack.Screen
+          name="ThreadSettingsChoice"
+          component={ThreadSettingsChoiceScreen}
+          options={({ route }) => ({ title: route.params.title })}
+        />
+      </ThreadSettingsPickerStack.Navigator>
     </ThreadSettingsPickerPresentationContext.Provider>
   );
 }
 
-/** The model catalog and option screens as a page sheet, bound to the caller's settings. */
-export function ThreadSettingsPickerSheet(
-  props: ThreadSettingsSessionProps & { readonly visible: boolean; readonly onClose: () => void },
-) {
-  return (
-    <Modal
-      visible={props.visible}
-      animationType="slide"
-      // A form sheet is the page sheet on a phone, and a compact centered
-      // card on a tablet, where a page sheet left most of the screen empty.
-      presentationStyle="formSheet"
-      onRequestClose={props.onClose}
-    >
-      {props.visible ? (
-        <ThreadSettingsSessionProvider {...props}>
-          <ThreadSettingsPickerNavigator onClose={props.onClose} />
-        </ThreadSettingsSessionProvider>
-      ) : null}
-    </Modal>
-  );
+/**
+ * An open conversation's settings for its next prompt, as T3's root form-sheet
+ * route. A model from the other agent picks that agent for the next prompt
+ * only; the host hands the session off when that prompt is sent (plans/021).
+ */
+export function ThreadSettingsRouteScreen({ route, navigation }: ScreenProps<"ThreadSettings">) {
+  const store = useApp().openConversation(route.params.hostId, route.params.conversationId);
+
+  // A conversation closed under the sheet leaves nothing to edit.
+  useEffect(() => {
+    if (!store) navigation.goBack();
+  }, [navigation, store]);
+
+  if (!store) return <View className="flex-1 bg-sheet" />;
+  return <ThreadSettingsRouteContent store={store} onClose={() => navigation.goBack()} />;
 }
 
-/**
- * An open conversation's settings for its next prompt. A model from the other
- * agent picks that agent for the next prompt only; the host hands the session
- * off when that prompt is sent (plans/021).
- */
-export function ThreadSettingsSheet(props: {
-  readonly visible: boolean;
-  readonly onClose: () => void;
-  readonly store: ConversationStore;
-  readonly meta: ConversationMeta;
-}) {
-  const { store, meta } = props;
+function ThreadSettingsRouteContent(props: { readonly store: ConversationStore; readonly onClose: () => void }) {
+  const { store } = props;
+  const meta = useListened(store.meta, store.metaSnapshotOf);
   const providerGroups = useMemo(
     () =>
       buildProviderGroups({
@@ -916,9 +937,7 @@ export function ThreadSettingsSheet(props: {
     [store],
   );
   return (
-    <ThreadSettingsPickerSheet
-      visible={props.visible}
-      onClose={props.onClose}
+    <ThreadSettingsSessionProvider
       providerGroups={providerGroups}
       selectedProvider={meta.run.provider}
       selectedModel={meta.run.model}
@@ -932,6 +951,8 @@ export function ThreadSettingsSheet(props: {
       onUpdateReasoningEffort={(effort) => store.controller.updateRun({ reasoningEffort: effort })}
       onUpdateFastMode={(fastMode) => store.controller.updateRun({ fastMode })}
       onUpdatePermissionMode={(mode) => store.controller.updateRun({ permissionMode: mode })}
-    />
+    >
+      <ThreadSettingsPickerNavigator onClose={props.onClose} />
+    </ThreadSettingsSessionProvider>
   );
 }

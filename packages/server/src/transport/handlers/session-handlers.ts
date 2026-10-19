@@ -27,6 +27,7 @@ import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { recordingRetention } from '../../browser/recording-retention'
 import { getIndexedSession } from '../../db/session-indexer'
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
+import { ORCHESTRATION_LIMITS } from '@solus/contracts/session-exchange'
 import { promptImageRefSchema } from '../../data/assets/attachment-store'
 
 const log = createLogger('main', 'session-handlers')
@@ -293,6 +294,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // A new root, admitted as a prompt is, inside `createSession`: the admission names the session before its provider starts.
     request.sessionId ??= randomUUID()
     request.organizationId = z.string().min(1).max(256).optional().parse(request.organizationId)
+    request.title = z.string().trim().min(1).max(ORCHESTRATION_LIMITS.title).optional().catch(undefined).parse(request.title)
     // Its owner is claimed before the record is written, so the record is born theirs.
     await claimSession(request.sessionId, handlerCtx, request.cwd)
     return sessionRuntime.dispatch.createSession(request, handlerCtx.actor)

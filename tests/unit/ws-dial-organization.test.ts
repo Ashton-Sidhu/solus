@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { createServer, type IncomingMessage } from 'http'
 import type { AddressInfo } from 'net'
 import { WsTransport } from '@solus/client-core/ws-transport'
-import { SolusApiClient } from '@solus/contracts/solus-api/client'
+import { SolusApiClient, SolusApiHttp } from '@solus/contracts/solus-api/client'
 import { connectionTokenResource } from '@solus/client-core/server-connection'
 import { organizationIdFor } from '@solus/client-core/uplink-session'
 
@@ -58,7 +58,7 @@ describe('the organization a dial names', () => {
 
   test('the record API names the organization at its credential exchange', async () => {
     const bodies: string[] = []
-    const client = new SolusApiClient({
+    const client = new SolusApiClient(new SolusApiHttp({
       baseUrl: () => 'https://api.example.test',
       contextKey: () => 'k',
       acquireSource: async () => 'access-token',
@@ -67,7 +67,7 @@ describe('the organization a dial names', () => {
         bodies.push(String(init?.body))
         return new Response(JSON.stringify({ error: { code: 'NOPE', message: 'no' } }), { status: 401 })
       },
-    })
+    }))
     await client.request('capabilities').catch(() => null)
     expect(JSON.parse(bodies[0]!)).toMatchObject({ organizationId: 'org_acme' })
   })

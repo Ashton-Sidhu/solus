@@ -411,3 +411,63 @@ describe('native conversation: requests and plans', () => {
     expect(ctx.session.permissionMode).toBe('plan')
   })
 })
+
+describe('native saved artifact bodies', () => {
+  const artifactPage = () => page([
+    { role: 'tool', toolId: 'render', toolName: 'render_artifact', toolInput: '{"html_path":"/tmp/render.html"}', content: '', timestamp: 1 },
+    { role: 'tool_result', toolResultForId: 'render', status: 'ok', content: '', artifactWorkRef: { workId: 'w', title: 'Chart', contentVersion: 2 }, timestamp: 2 },
+  ])
+  test('an old card reads its saved revision, with one request shared by mounted readers', async () => {
+    const api = baseApi().on('loadSessionPage', artifactPage)
+      .on('loadWork', () => ({ id: 'w', content: 'latest', contentVersion: 3 }))
+      .on('loadWorkRevisions', () => [{ revisionId: 9, sourceContentVersion: 2 }])
+      .on('loadWorkRevision', () => ({ content: '<p>Version 2</p>' }))
+    const { controller } = await open({ api })
+    await controller.load()
+    const id = controller.model.order.find((id) => controller.model.items.get(id)?.kind === 'artifact')!
+    await Promise.all([controller.ensureArtifact(id), controller.ensureArtifact(id)])
+    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Version 2</p>', contentVersion: 2 })
+    expect(api.callsOf('loadWorkRevision')).toHaveLength(1)
+    expect(api.callsOf('loadWorkRevision')[0]).toEqual(['w', 9])
+  })
+  test('a slow read from before reconnect cannot replace the rebuilt card', async () => {
+    let release!: (work: { content: string; contentVersion: number }) => void
+    const api = baseApi().on('loadSessionPage', artifactPage)
+      .on('loadWork', () => new Promise((resolve) => { release = resolve }))
+    const { controller } = await open({ api })
+    await controller.load()
+    const id = controller.model.order.find((id) => controller.model.items.get(id)?.kind === 'artifact')!
+    const old = controller.ensureArtifact(id)
+    await controller.load()
+    api.on('loadWork', () => ({ content: '<p>Saved version</p>', contentVersion: 2 }))
+    await controller.ensureArtifact(id)
+    release({ content: '<p>Stale reply</p>', contentVersion: 2 })
+    await old
+    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Saved version</p>' })
+  })
+  test('a card asked for during a reload still reads into the rebuilt transcript', async () => {
+    // WHY: a read shared across the rebuild would answer the old transcript only,
+    // and the new card would wait forever.
+    let releasePage!: () => void
+    let pageRequested!: () => void
+    const reloadAsksForPage = new Promise<void>((resolve) => { pageRequested = resolve })
+    const api = baseApi().on('loadSessionPage', artifactPage)
+      .on('loadWork', () => new Promise(() => {}))
+    const { controller } = await open({ api })
+    await controller.load()
+    const id = controller.model.order.find((id) => controller.model.items.get(id)?.kind === 'artifact')!
+    void controller.ensureArtifact(id)
+    api.on('loadSessionPage', () => new Promise((resolve) => {
+      releasePage = () => resolve(artifactPage())
+      pageRequested()
+    }))
+    const reloading = controller.load()
+    await reloadAsksForPage
+    void controller.ensureArtifact(id)
+    releasePage()
+    await reloading
+    api.on('loadWork', () => ({ content: '<p>Saved version</p>', contentVersion: 2 }))
+    await controller.ensureArtifact(id)
+    expect(controller.model.items.get(id)).toMatchObject({ html: '<p>Saved version</p>' })
+  })
+})

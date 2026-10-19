@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, mock, spyOn, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -41,7 +41,9 @@ function makeServer(): McpServer {
     description: 'Echo the text.',
     inputSchema: { text: z.string() },
     annotations: { readOnlyHint: true },
+    _meta: { ui: { resourceUri: 'ui://echo' } },
   }, async ({ text }) => ({ content: [{ type: 'text', text: `echo: ${text}` }] }))
+  server.registerResource('echo-ui', 'ui://echo', { mimeType: 'text/html;profile=mcp-app' }, async () => ({ contents: [{ uri: 'ui://echo', mimeType: 'text/html;profile=mcp-app', text: '<button>Echo</button>' }] }))
   server.registerTool('delete_all', {
     description: 'Delete everything.',
     annotations: { destructiveHint: true },
@@ -120,6 +122,34 @@ afterAll(async () => {
 })
 
 describe('integration gateway', () => {
+  test('keeps app metadata and reads its UI on the existing integration connection', async () => {
+    const gateway = gatewayFor(integration)
+    const captures: string[] = []
+    gateway.useAppCapture(async (call) => {
+      expect(call.tool._meta).toEqual({ ui: { resourceUri: 'ui://echo' } })
+      const resource = await gateway.readAppResource(call.integration.id, 'ui://echo')
+      captures.push('text' in resource.contents[0] ? resource.contents[0].text : '')
+    })
+    try {
+      const result = await withActingScope(HOST_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'hi' }, context()))
+      expect(result.text).toBe('echo: hi')
+      expect(captures).toEqual(['<button>Echo</button>'])
+    } finally {
+      await gateway.close()
+    }
+  })
+
+  test('a call that succeeded stays a success when its app cannot be saved', async () => {
+    const gateway = gatewayFor(integration)
+    gateway.useAppCapture(async () => {})
+    spyOn(gateway, 'toolsFor').mockRejectedValue(new Error('tools/list failed'))
+    try {
+      const result = await withActingScope(HOST_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'hi' }, context()))
+      expect(result).toMatchObject({ ok: true, text: 'echo: hi' })
+    } finally {
+      await gateway.close()
+    }
+  })
   test('lists the tools once, caches them, and calls one', async () => {
     const gateway = gatewayFor(integration)
     const opened = upstream.length

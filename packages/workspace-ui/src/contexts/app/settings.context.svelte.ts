@@ -47,6 +47,7 @@ import {
 } from './device-settings.store.svelte'
 import { hostSettingsStore } from './host-settings.store.svelte'
 import {
+  applyConversationWidth,
   applyFontSmoothing,
   applyTheme,
   applyZoomFactor,
@@ -101,6 +102,7 @@ export class SettingsContext {
     applyTheme(this.isDark)
     for (const key of FONT_PREFERENCE_KEYS) this.paintFont(key)
     for (const key of PERSONAL_SETTING_KEYS) if (isPaintedSizeKey(key)) this.paintSize(key)
+    applyConversationWidth(this.personal.values.conversationWidth)
     applyFontSmoothing(this.device.values.fontSmoothing)
     applyZoomFactor(this.device.layout.zoomFactor)
     this.personal.onChange((change) => this.repaint(change))
@@ -263,6 +265,7 @@ export class SettingsContext {
     const keys = [...Object.keys(change.set), ...change.reset]
     for (const key of keys) {
       if (key === 'themeMode') applyTheme(this.isDark)
+      if (key === 'conversationWidth') applyConversationWidth(this.personal.values.conversationWidth)
       const fontKey = FONT_PREFERENCE_KEYS.find((candidate) => candidate === key)
       if (fontKey) this.paintFont(fontKey)
       if (isPaintedSizeKey(key)) this.paintSize(key)

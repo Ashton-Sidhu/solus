@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useFocusEffect } from '@react-navigation/native'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, FlatList, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View, type ScrollViewProps } from 'react-native'
+import { ActivityIndicator, Alert, FlatList, Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, View, type ScrollViewProps } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useApp, useListened } from '../../app/app-context'
 import { SymbolView } from '../../components/AppSymbol'
@@ -11,6 +11,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { SegmentedControl } from '../../components/SegmentedControl'
 import { copyTextWithHaptic } from '../../lib/copyTextWithHaptic'
+import { shareLink } from '../../lib/share-link'
 import type { ScreenProps } from '../../navigation/routes'
 import { CODE_FONT } from '../../theme/tokens'
 import { NativeScrollViewMarker } from '../../native/NativeScrollViewMarker'
@@ -35,6 +36,29 @@ import { usePullRequestView } from './detail/use-pull-request-view'
 import { PullRequestMediaContext } from './detail/use-pull-request-media-url'
 
 type Tab = 'overview' | 'guide' | 'activity'
+
+type LinkedPullRequest = { readonly url: string; readonly number: number; readonly title: string }
+
+/** The system share sheet for a pull request's link. A cancelled sheet is not an error. */
+async function sharePullRequest(pr: LinkedPullRequest) {
+  const result = await shareLink(Share, { url: pr.url, title: `#${pr.number} ${pr.title}` }, Platform.OS)
+  if (result.kind === 'failed') Alert.alert('Could not share the link', result.message)
+}
+
+/** The iOS menu's link actions. An array, not a fragment: the native menu reads its children by type. */
+function pullRequestLinkMenuActions(pr: LinkedPullRequest, openBrowser: (url: string) => void) {
+  return [
+    <NativeHeaderToolbar.MenuAction key="open" icon="arrow.up.right" onPress={() => openBrowser(pr.url)}>
+      <NativeHeaderToolbar.Label>Open on GitHub</NativeHeaderToolbar.Label>
+    </NativeHeaderToolbar.MenuAction>,
+    <NativeHeaderToolbar.MenuAction key="copy" icon="doc.on.doc" onPress={() => copyTextWithHaptic(pr.url)}>
+      <NativeHeaderToolbar.Label>Copy link</NativeHeaderToolbar.Label>
+    </NativeHeaderToolbar.MenuAction>,
+    <NativeHeaderToolbar.MenuAction key="share" icon="square.and.arrow.up" onPress={() => void sharePullRequest(pr)}>
+      <NativeHeaderToolbar.Label>Share…</NativeHeaderToolbar.Label>
+    </NativeHeaderToolbar.MenuAction>,
+  ]
+}
 
 /**
  * iOS: register the tab's list with the native header so UIKit samples the
@@ -132,7 +156,11 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
     const actions = [
       ...(canReview ? [{ id: 'review', title: 'Submit review', image: 'text.bubble' }] : []),
       ...(canComment ? [{ id: 'comment', title: 'Add comment', image: 'plus.bubble' }] : []),
-      ...(pr ? [{ id: 'open', title: 'Open on GitHub', image: 'arrow.up.right' }, { id: 'copy', title: 'Copy link', image: 'doc.on.doc' }] : []),
+      ...(pr ? [
+        { id: 'open', title: 'Open on GitHub', image: 'arrow.up.right' },
+        { id: 'copy', title: 'Copy link', image: 'doc.on.doc' },
+        { id: 'share', title: 'Share…', image: 'square.and.arrow.up' },
+      ] : []),
     ]
     navigation.setOptions({
       title: `#${number}`,
@@ -145,6 +173,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
             if (nativeEvent.event === 'review' || nativeEvent.event === 'comment') navigation.navigate('PullRequestReview', { ...ref, mode: nativeEvent.event })
             else if (nativeEvent.event === 'open' && pr) void app.platform.openBrowser(pr.url)
             else if (nativeEvent.event === 'copy' && pr) copyTextWithHaptic(pr.url)
+            else if (nativeEvent.event === 'share' && pr) void sharePullRequest(pr)
           }}
         >
           <Pressable accessibilityRole="button" accessibilityLabel="Pull request actions" hitSlop={8} className="h-9 w-9 items-center justify-center">
@@ -193,16 +222,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
               <NativeHeaderToolbar.Label>Add comment</NativeHeaderToolbar.Label>
             </NativeHeaderToolbar.MenuAction>
           ) : null}
-          {pr ? (
-            <NativeHeaderToolbar.MenuAction icon="arrow.up.right" onPress={() => void app.platform.openBrowser(pr.url)}>
-              <NativeHeaderToolbar.Label>Open on GitHub</NativeHeaderToolbar.Label>
-            </NativeHeaderToolbar.MenuAction>
-          ) : null}
-          {pr ? (
-            <NativeHeaderToolbar.MenuAction icon="doc.on.doc" onPress={() => copyTextWithHaptic(pr.url)}>
-              <NativeHeaderToolbar.Label>Copy link</NativeHeaderToolbar.Label>
-            </NativeHeaderToolbar.MenuAction>
-          ) : null}
+          {pr ? pullRequestLinkMenuActions(pr, (url) => void app.platform.openBrowser(url)) : null}
         </NativeHeaderToolbar.Menu>
       </NativeHeaderToolbar>
     </>
@@ -270,7 +290,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
                   {state.kind === 'error' ? <ErrorBanner message={`Not refreshed: ${state.message}`} /> : null}
                   {!connected ? <Text className="text-xs text-foreground-muted">This is the copy on this device. Reviews, merges, and agent work need the host to be connected.</Text> : null}
                   <PullRequestIdentity view={view} />
-                  <SegmentedControl options={tabs} selected={shownTab} onSelect={selectTab} role="tab" size="compact" className={Platform.OS === 'android' ? undefined : 'bg-pr-tab-track'} indicatorClassName="border border-pr-card-border bg-pr-tab-selected" />
+                  <SegmentedControl options={tabs} selected={shownTab} onSelect={selectTab} role="tab" size="compact" />
                 </View>
               }
             />

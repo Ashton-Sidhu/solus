@@ -1,3 +1,4 @@
+import { keepEqual } from '@solus/client-core/keep-equal'
 import { combinedChecksState, type PrChecksSummary } from '@solus/contracts/checks-types'
 import type { ChangedFileStat } from '@solus/contracts/git-types'
 import type { PrConversationItem, PrFilter, PrInterest, PrPendingWorkflowRuns, PrProjectListing, PrStack, PrSyncChange, PrUnavailableReason, PrViewedFiles, PullRequest, PullRequestOverview, ReviewThread } from '@solus/contracts/providers'
@@ -8,6 +9,7 @@ import { projectContext } from '../conversation/lib/ipc-context'
 import type { HostConnection } from '../hosts/host-connections'
 import { isGithubAuthError } from './lib/pr-presentation'
 import { pullRequestRepositoryKey } from './lib/pull-request-list'
+import { retainDetail, retainListing } from './lib/pull-request-retain'
 import { memoryPullRequestCacheDatabase, PullRequestCache } from './pull-request-cache'
 import { HostReads, IDLE, settle, shownValue, type LoadState, type Settled } from './pull-request-reads'
 
@@ -185,8 +187,6 @@ interface ProjectInterest {
 
 export class PullRequestDirectory {
   readonly changes = new Listeners()
-  /** Counts changes: a screen that reads several hosts memoizes on it. */
-  revision = 0
   private filter: PullRequestListFilter = DEFAULT_PULL_REQUEST_LIST_FILTER
   private readonly hosts = new Map<string, LoadState<HostPullRequests>>()
   private readonly details = new Map<string, LoadState<PullRequestDetail>>()
@@ -215,7 +215,6 @@ export class PullRequestDirectory {
     cache: PullRequestCache = new PullRequestCache(memoryPullRequestCacheDatabase()),
   ) {
     this.reads = new HostReads(this.changes, connectionFor, cache)
-    this.changes.subscribe(() => { this.revision += 1 })
   }
 
   listFilter = (): PullRequestListFilter => this.filter
@@ -277,7 +276,7 @@ export class PullRequestDirectory {
       }
       show({ projects: rows, viewerLogin: previous?.viewerLogin ?? null })
       return { projects: rows, viewerLogin: await viewerRead }
-    })
+    }, { retain: retainListing })
     if (this.hosts.get(key)?.kind === 'loaded') this.readAt.set(key, Date.now())
   }
 
@@ -301,7 +300,7 @@ export class PullRequestDirectory {
           cursor: next.cursor ?? null,
         }),
       }
-    })
+    }, { retain: retainListing })
   }
 
   /**
@@ -356,7 +355,7 @@ export class PullRequestDirectory {
         part(workflowRunsRead, (value) => { answers.workflowRuns = value }),
       ])
       return compose()!
-    }, { share: true, force: options.force })
+    }, { share: true, force: options.force, retain: retainDetail })
     if (this.details.get(key)?.kind === 'loaded') this.readAt.set(key, Date.now())
   }
 
@@ -364,7 +363,7 @@ export class PullRequestDirectory {
    *  whose pull request has `capabilities.viewedFiles` answers it. */
   async loadViewed(ref: PullRequestRef): Promise<void> {
     await this.reads.read(this.viewed, viewedKey(ref), ref.hostId, `viewed-files:${ref.projectPath}:${ref.number}`, (connection) =>
-      connection.api.prViewedFiles(this.context(ref.projectPath), ref.number))
+      connection.api.prViewedFiles(this.context(ref.projectPath), ref.number), { retain: keepEqual })
   }
 
   /**
@@ -578,7 +577,8 @@ export class PullRequestDirectory {
           })
           return { ...project, prs }
         })
-        return touched ? { ...listing, projects } : listing
+        // A push equal to what shows (PR sync answers an interest with what it knows) changes nothing.
+        return touched ? retainListing({ ...listing, projects }, listing) : listing
       })
       if (next !== state) {
         this.hosts.set(key, next)
@@ -603,7 +603,7 @@ export class PullRequestDirectory {
           if (reading?.length) next.reading = reading
           else delete next.reading
         }
-        return next
+        return retainDetail(next, detail)
       })
       if (next !== state) {
         this.details.set(key, next)
@@ -648,7 +648,7 @@ export class PullRequestDirectory {
       const listings = await connection.api.prListProjects(this.context(''), paths, hostFilter(filter))
       const read = new Map(listings.map((entry) => [entry.projectRoot, this.listedProject(entry, names)]))
       return { ...listing, projects: listing.projects.map((project) => read.get(project.projectPath) ?? project) }
-    })
+    }, { retain: retainListing })
     if (this.hosts.get(key)?.kind === 'loaded') this.readAt.set(key, Date.now())
   }
 }

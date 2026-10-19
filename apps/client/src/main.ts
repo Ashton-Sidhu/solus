@@ -5,9 +5,10 @@ import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } f
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, newGuestId, resolveShareLink, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
 import { isGuestLinkResource, parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
+import { shareLinkOpening, type GuestOpening } from './lib/share-link-opening'
+import { savedRunnerFor } from '@solus/client-core/session-runner'
 import { guestBoot, type GuestShare } from './lib/guest-boot.svelte'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import { memberLinkFor } from './lib/guest-member'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
 import { getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
@@ -16,7 +17,7 @@ import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { adoptCloudOriginIfPresent, servingOriginIsCloud } from '@solus/client-core/uplink-account'
 import type { HostRoute } from '@solus/contracts/uplink'
 import { startupAccountRead } from '@solus/client-core/cloud-account'
-import { existingWebAccountSession, resumeWebSignIn, webAccountSession } from '@solus/client-core/web-sign-in'
+import { existingWebAccountSession, fetchAuthorize, resumeWebSignIn, webAccountSession } from '@solus/client-core/web-sign-in'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { activeWorkspace, loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget } from '@solus/client-core/workspace-registry'
 import HostlessHome from './routes/HostlessHome.svelte'
@@ -103,9 +104,19 @@ function installServiceWorkerMessageBridge(): void {
   })
 }
 
+/**
+ * How this page load came to be: from a share link that opens a resource as a member
+ * (docs/plans/instant-share-open.md), the host that runs it is dialed before every
+ * other, and nothing is read for the tab the last visit ended on.
+ */
+interface BootIntent {
+  /** The account host id of the machine that runs the linked resource; null when none does. */
+  linkRunnerHostId: string | null
+}
+
 async function connectToServer(
   target: SolusServerTarget,
-  options: { onPreMountAuthFailure?: () => void } = {},
+  options: { onPreMountAuthFailure?: () => void; link?: BootIntent } = {},
 ): Promise<void> {
   const generation = ++connectionGeneration
   toasts.dismiss()
@@ -131,7 +142,12 @@ async function connectToServer(
   activeTransport = transport
   installServiceWorkerMessageBridge()
   transport.start()
-  void prefetchStartupTranscript()
+  if (options.link) {
+    const runnerId = options.link.linkRunnerHostId ? savedRunnerFor(options.link.linkRunnerHostId) : null
+    if (runnerId) serverConnections.ensure(runnerId)
+  } else {
+    void prefetchStartupTranscript()
+  }
   // Every saved host is eagerly desired, not only the one this boot chose.
   serverConnections.startCatalogSupervisors()
   touchLastConnected(target.id)
@@ -230,7 +246,7 @@ async function servingOriginEntry(): Promise<SavedServer | null> {
   }
 }
 
-async function adoptCloudDirectory(): Promise<void> {
+async function adoptCloudDirectory(options: { waitsForAccount: boolean }): Promise<void> {
   // The same bundle is served at `/` by a host and by the account origin; only the
   // probe tells them apart. A host answers `/v1/hosts` with its SPA fallback, which
   // the probe reads as `not-cloud`.
@@ -238,8 +254,9 @@ async function adoptCloudDirectory(): Promise<void> {
   cloudOrigin.kind = kind
   // Whether cloud onboarding is due is known before the workspace mounts, so the
   // draft composer never paints under it. Bounded: a slow answer falls back to the
-  // App's opaque cover rather than holding the boot.
-  const accountRead = startupAccountRead()
+  // App's opaque cover rather than holding the boot. A share link opens its resource,
+  // not the composer, and waits for nothing.
+  const accountRead = options.waitsForAccount ? startupAccountRead() : null
   if (accountRead) await Promise.race([accountRead, new Promise((resolve) => setTimeout(resolve, 2_000))])
   if (!directory) return
   saveServers(mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now()))
@@ -247,13 +264,13 @@ async function adoptCloudDirectory(): Promise<void> {
   markDirectoryAnswered()
 }
 
-async function bootFromCatalog(): Promise<void> {
+async function bootFromCatalog(link?: BootIntent): Promise<void> {
   // The workspace loads on any success — overlap the import with the probe.
   void loadWorkspaceApp().catch(() => {})
   // Two probes of the serving origin, independent of each other: one asks whether
   // it is the account origin, the other whether it is a host.
   const [, origin] = await Promise.all([
-    adoptCloudDirectory().catch((error) => {
+    adoptCloudDirectory({ waitsForAccount: !link }).catch((error) => {
       console.warn("[solus:boot] cloud directory unavailable", error)
     }),
     servingOriginEntry(),
@@ -295,14 +312,15 @@ async function bootFromCatalog(): Promise<void> {
     }
     void connectToServer(candidate, {
       onPreMountAuthFailure: () => tryCandidate(index + 1),
+      link,
     })
   }
   tryCandidate(0)
 }
 
-// ── Guest links ───────────────────────────────────────────────────────────────
-// Cloud resource paths keep the secret in the fragment. Only the workspace
-// service resolves it; the account server never receives the secret.
+// ── Share links ───────────────────────────────────────────────────────────────
+// Cloud resource paths keep the secret in the fragment, so no server log or
+// sign-in redirect ever holds it (docs/plans/instant-share-open.md).
 
 let guestAppImport: Promise<typeof import('./GuestApp.svelte')> | null = null
 
@@ -316,22 +334,45 @@ function loadGuestApp(): Promise<typeof import('./GuestApp.svelte')> {
   return guestAppImport
 }
 
-async function bootGuest(link: GuestLink): Promise<void> {
+/**
+ * A share link boots once, as its resolve answers. A signed-in page sends its Solus
+ * API token with the resolve, so a member goes straight to the resource in the whole
+ * app; anyone else goes to the guest landing.
+ */
+async function openShareLink(link: GuestLink): Promise<void> {
+  const account = existingWebAccountSession()
+  const state = account?.state()
+  const signedIn = account && state?.kind === 'signed-in' ? { account, name: state.identity.name || state.identity.email, userId: state.identity.sub } : null
+  // A signed-in visitor is most likely a member: the whole app loads while the link resolves.
+  if (signedIn) void loadWorkspaceApp().catch(() => {})
+  const token = signedIn ? await signedIn.account.accessToken({ kind: 'api' }) : null
+  const opening = shareLinkOpening(await resolveShareLink(location.origin, link.secret, token), link, location.origin)
+  if (opening.kind !== 'member') {
+    void bootGuest(link, opening, signedIn)
+    return
+  }
+  history.replaceState(null, '', opening.address)
+  webState.openedFromLink = true
+  // The account's tokens are minted one at a time: the runner's goes first, so its
+  // socket is not queued behind every other host this account can reach.
+  if (opening.runnerHostId && signedIn) void signedIn.account.accessToken({ kind: 'host', hostId: opening.runnerHostId })
+  void bootFromCatalog({ linkRunnerHostId: opening.runnerHostId })
+}
+
+async function bootGuest(link: GuestLink, opening: GuestOpening, signedIn: { name: string; userId: string } | null): Promise<void> {
   guestBoot.link = link
   guestBoot.displayName = loadGuestIdentity()?.displayName ?? ''
-  // A visitor signed in to Solus is not asked who they are: the page's sign-in
-  // (`resumeAccountSignIn`) names them from its ID token.
+  // A visitor signed in to Solus is not asked who they are: the page's sign-in names them.
+  guestBoot.signedInAs = signedIn?.name ?? null
+  guestBoot.accountUserId = signedIn?.userId ?? null
+  if (opening.kind === 'failed') guestBoot.fail(opening.reason)
+  else void loadGuestApp().catch(() => {})
   const { default: GuestLanding } = await import('./routes/GuestLanding.svelte')
-  const account = existingWebAccountSession()?.state()
-  if (account?.kind === 'signed-in') {
-    guestBoot.signedInAs = account.identity.name || account.identity.email
-    guestBoot.accountUserId = account.identity.sub
-  }
   const landing = mount(GuestLanding, {
     target: root,
-    props: { onContinue: (displayName: string) => void connectGuest(link, displayName, () => void unmount(landing)) },
+    props: { onContinue: (displayName: string) => void connectGuest(link, opening, displayName, () => void unmount(landing)) },
   })
-  if (guestBoot.signedInAs) void connectGuest(link, guestBoot.signedInAs, () => void unmount(landing))
+  if (signedIn && opening.kind === 'guest') void connectGuest(link, opening, signedIn.name, () => void unmount(landing))
 }
 
 /** Where a guest connects: the host that runs the resource (live), or the Solus API's copy of it (read only). */
@@ -341,58 +382,26 @@ interface GuestPlace {
   live: boolean
 }
 
-type GuestDial =
-  | { kind: 'ok'; host: HostRoute[]; mirror: string | null; organizationId: string | null }
-  | { kind: 'failed'; reason: string }
-
-/**
- * Where a guest link dials (docs/plans/host-sharing.md §2). The page asks its own
- * origin to resolve the secret. A host has no such door and answers a plain 404: the
- * page is served by the host that holds the resource, and dials it with the secret
- * alone. The account origin answers which host runs the resource; the page dials
- * that first, and the account origin's own copy is the fallback, read only, when the
- * host does not answer. (The cloud-origin probe cannot tell the two apart: a host
- * answers `/v1/hosts` with a JSON 401 too.)
- */
-async function guestDial(secret: string): Promise<GuestDial> {
-  const resolution = await resolveShareLink(location.origin, secret)
-  if (resolution.kind === 'no-door') return { kind: 'ok', host: [{ kind: 'direct', url: location.origin }], mirror: null, organizationId: null }
-  if (resolution.kind === 'unknown-link') return { kind: 'failed', reason: 'This link does not open anything. Ask for the current link.' }
-  const { target } = resolution
-  return { kind: 'ok', host: target.host?.routes ?? [], mirror: location.origin, organizationId: target.organizationId }
-}
-
 /** How many failed dials in a row end a live visit and move it to the mirror. */
 const HOST_DIALS_BEFORE_MIRROR = 3
 /** How long the first answer from the host may take before the mirror is tried. */
 const HOST_ANSWER_TIMEOUT_MS = 8_000
 
-async function connectGuest(link: GuestLink, displayName: string, onShellMounted: () => void): Promise<void> {
+async function connectGuest(link: GuestLink, opening: GuestOpening, displayName: string, onShellMounted: () => void): Promise<void> {
   if (guestBoot.phase === 'connecting') return
+  if (opening.kind === 'failed') {
+    guestBoot.fail(opening.reason)
+    return
+  }
   guestBoot.phase = 'connecting'
   guestBoot.error = null
   const identity: GuestIdentity = { guestId: loadGuestIdentity()?.guestId ?? newGuestId(), displayName }
   saveGuestIdentity(identity)
-  void loadGuestApp().catch(() => {})
-
-  const dial = await guestDial(link.secret)
-  if (dial.kind === 'failed') {
-    guestBoot.fail(dial.reason)
-    return
-  }
-  const hostUrl = guestRouteUrl(dial.host, location.origin)
-  const mirror: GuestPlace | null = dial.mirror ? { url: dial.mirror, routes: [{ kind: 'direct', url: dial.mirror }], live: false } : null
-  const first: GuestPlace | null = hostUrl ? { url: hostUrl, routes: dial.host, live: true } : mirror
+  const hostUrl = guestRouteUrl(opening.host, location.origin)
+  const mirror: GuestPlace | null = opening.mirror ? { url: opening.mirror, routes: [{ kind: 'direct', url: opening.mirror }], live: false } : null
+  const first: GuestPlace | null = hostUrl ? { url: hostUrl, routes: opening.host, live: true } : mirror
   if (!first) {
     guestBoot.fail('Nobody can reach the computer this was shared from right now.')
-    return
-  }
-  // A member with at least the link's role opens it as themselves, not as a guest.
-  const memberLink = guestBoot.accountUserId && dial.organizationId
-    ? await memberLinkFor({ resource: link.resource, role: 'viewer' }, { userId: guestBoot.accountUserId, organizationId: dial.organizationId }, location.origin)
-    : null
-  if (memberLink) {
-    location.replace(memberLink)
     return
   }
   await openGuestPlace(link, identity, first, first.live ? mirror : null, onShellMounted)
@@ -473,21 +482,19 @@ function linkShare(info: ConnectionsServerInfo, link: GuestLink): GuestShare | n
 
 /**
  * On the account origin, the page's own sign-in comes first
- * (docs/adr/0001-standard-authentication.md §2.2 rule 1): a callback is completed and
- * the address it began at restored, or one silent sign-in starts. False when the page
- * is leaving for the sign-in redirect. Any other origin is in local mode.
+ * (docs/adr/0001-standard-authentication.md §2.2 rule 1): a sign-in the tab holds is
+ * kept, or one is made silently with one fetch and no page load. False when the page
+ * is leaving for the website's sign-in. Any other origin is in local mode.
  */
 async function resumeAccountSignIn(): Promise<boolean> {
   if (!(await servingOriginIsCloud(location.origin))) return true
   const outcome = await resumeWebSignIn({
     session: webAccountSession(location.origin),
-    storage: sessionStorage,
     location,
     navigate: (url) => location.assign(url),
-    replaceAddress: (path) => history.replaceState(history.state, '', path),
     // A guest who opened a share link has no account to sign in to.
     whenSignedOut: (returnTo) => (/^\/(w|s|t)\//.test(returnTo) ? 'stay' : 'sign-in'),
-    now: Date.now,
+    authorize: fetchAuthorize,
   })
   return outcome !== 'redirecting'
 }
@@ -501,9 +508,9 @@ async function startPage(): Promise<void> {
   if (!(await resumeAccountSignIn())) return
   // Only the account origin mints guest links; on a host the same path is a link
   // nobody minted, and the grant request below says so.
-  const bootGuestLink = parseCloudShareLink(location.pathname, location.hash)
-  if (bootGuestLink) {
-    void bootGuest(bootGuestLink)
+  const bootShareLink = parseCloudShareLink(location.pathname, location.hash)
+  if (bootShareLink) {
+    void openShareLink(bootShareLink)
   } else if (/^\/(w|s)\//.test(location.pathname)) {
     void import('./routes/GuestLanding.svelte').then(({ default: GuestLanding }) => {
       guestBoot.fail('This link is incomplete. Ask the sharer to copy it again.')

@@ -1,0 +1,2 @@
+{"probe":"thread-list-minute-tick","rows":35,"listItems":37,"perTick":{"partitionBuilds":1,"listItemBuilds":1,"parentPaneRenders":1,"unequalItems":31,"unequalOnlyBySnoozePresetMinute":30,"rowsWithChangedLabelText":1},"partitionUnchangedAcrossTick":true}
+{"probe":"personal-settings-unrelated-writes","writes":2,"fullSnapshotChanges":2,"notificationsIdentityChanges":2,"notificationsValueEqual":true}

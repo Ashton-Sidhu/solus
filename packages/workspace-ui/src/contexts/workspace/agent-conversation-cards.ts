@@ -328,6 +328,7 @@ export class AgentConversationCards {
 const sessionToolInputSchema = z.object({
   session_id: z.string().optional(),
   prompt: z.string().optional(),
+  title: z.string().trim().optional().catch(undefined),
   message: z.string().optional(),
   // Fields degrade alone so an unexpected value from a newer host drops that
   // field, not the whole parsed input.
@@ -374,6 +375,7 @@ export class TranscriptAgentConversations {
       const { exchange } = this.index.open(result.sessionId, {
         messageId: result.messageId,
         prompt: input.prompt ?? '',
+        title: input.title,
         origin: 'created',
         provider: result.provider ?? input.agent_provider,
         fireAndForget: input.report === false,

@@ -1,0 +1,16 @@
+2026-10-19T17:15:34Z
+Using src/app as the root directory for Expo Router.
+mobile compiler coverage: 518 compiled, 51 skipped, 501 modules, 4.9s
+apps/mobile/src/components/ComposerEditor.tsx: ComposerTextMeasure compiles — record it with --update
+apps/mobile/src/components/NativeSegmentedControl.ios.tsx: NativeSegmentedControl compiles — record it with --update
+apps/mobile/src/features/prs/detail/GuideNoticeCard.tsx: GuideNoticeBody compiles — record it with --update
+apps/mobile/src/features/prs/detail/GuideNoticeCard.tsx: GuideNoticeCard compiles — record it with --update
+apps/mobile/src/features/prs/detail/PullRequestGuide.tsx: skipped function GuideNoticeCard is gone — remove its known skip with --update
+apps/mobile/src/features/settings/NotificationSettingsScreen.tsx: NotificationSwitchRow compiles — record it with --update
+apps/mobile/src/features/threads/thread-list-clock.ts: useThreadListClockWhile compiles — record it with --update
+apps/mobile/src/features/threads/thread-list-clock.ts: useThreadListTime compiles — record it with --update
+apps/mobile/src/features/workspace/AndroidWorkspaceNavigation.android.tsx: AndroidWorkspaceRail compiles — record it with --update
+apps/mobile/src/features/workspace/AndroidWorkspaceNavigation.android.tsx: WorkspaceRail compiles — record it with --update
+apps/mobile/src/features/workspace/WorkspaceSettingsFrame.android.tsx: WorkspaceSettingsFrame compiles — record it with --update
+apps/mobile/src/features/workspace/WorkspaceTabPanes.tsx: WorkspaceTabPanes compiles — record it with --update
+apps/mobile/src/features/workspace/use-workspace-destinations.ts: useWorkspaceDestinations compiles — record it with --update

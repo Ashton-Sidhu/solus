@@ -199,11 +199,17 @@ describe('the link transition', () => {
     expect(marked).toBe(1)
     expect(authorities.calls.at(-1)).toEqual({ sessionId: 's-bob', userId: 'bob', organizationId: 'A', admit: true })
 
-    // The desktop's own host, shared with an organization: its owner's scratch stays Local.
+    // The desktop's own host, shared with an organization: its owner's scratch
+    // names their organization, and stays their own work on this machine.
     hostCategory.applyHostCategory('personal')
     expect(attachment.isOrganizationAttached()).toBe(false)
     await localRecord('s-laptop')
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-laptop', 'B'), actorFor(PAIRED), { hostOrganizations, delegations: authorities })).toBe('local')
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-laptop', 'B'), actorFor(PAIRED), { hostOrganizations, delegations: authorities })).toBe('B')
+    expect(records.isOrganizationWork(await recordOf('s-laptop'))).toBe(false)
+    // WHY: a host restart continues this machine's own work and leaves the
+    // organization's to its Solus API, before and after the record is written.
+    expect(await records.sessionIsOrganizationWork('s-laptop')).toBe(false)
+    expect(await records.sessionIsOrganizationWork('s-bob')).toBe(true)
   })
 })
 

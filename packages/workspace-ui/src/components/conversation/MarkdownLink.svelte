@@ -5,6 +5,7 @@
   import { getClientShellContext, getSurfaceContext } from "../../contexts";
   import { filePreviewMediaKind, parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";
+  import { hoverIntent } from "../../lib/hover-intent";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { tokenClassName } from "../editor/tokenStyle";
   import { faviconUrlForHref } from "./lib/external-link";
@@ -87,6 +88,15 @@
   const linkRoute = $derived(
     routeForHref(href, { title, serverId: sessionLinkContext?.serverId() }),
   );
+  // A GitHub link carries the page to fall back to; a `pr://` link has none.
+  const prSourceUrl = $derived(
+    linkRoute?.name === "prReview" && /^https:\/\//i.test(href) ? href : undefined,
+  );
+  const warmPrLink = $derived(
+    session && linkRoute?.name === "prReview"
+      ? hoverIntent(() => session.warmRoute(linkRoute, { sourceUrl: prSourceUrl }))
+      : undefined,
+  );
   const planStatus = $derived.by<Status>(() => {
     try {
       const status = new URL(href).searchParams.get("status");
@@ -125,12 +135,7 @@
     } else if (linkRoute) {
       e.preventDefault();
       if (session) {
-        session.openRoute(linkRoute, {
-          sourceUrl:
-            linkRoute.name === "prReview" && /^https:\/\//i.test(href)
-              ? href
-              : undefined,
-        });
+        session.openRoute(linkRoute, { sourceUrl: prSourceUrl });
       } else if (linkRoute.name === "work") {
         shell.openResource({ kind: "work", workId: linkRoute.params.workId, serverId: linkRoute.params.serverId });
       } else if (linkRoute.name === "task") {
@@ -184,6 +189,7 @@
   <button
     type="button"
     onclick={handleClick}
+    {@attach warmPrLink}
     class={tokenClassName('pr')}
   ><span class="solus-token__icon">
       <GitPullRequestIcon size={12} weight="bold" />
@@ -225,7 +231,7 @@
       onerror={() => (failedFaviconUrl = faviconUrl)}
     />{/if}{@render children?.()}
   {/snippet}
-  <a href={assetId ? assetHref || undefined : href} {title} class="solus-link" onclick={handleClick}>
+  <a href={assetId ? assetHref || undefined : href} {title} class="solus-link" onclick={handleClick} {@attach warmPrLink}>
     {@render linkContents()}
   </a>
 {/if}

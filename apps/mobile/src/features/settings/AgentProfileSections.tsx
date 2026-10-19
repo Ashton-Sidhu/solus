@@ -6,14 +6,18 @@ import type { RemoteSkill } from "@solus/contracts/types";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 import { AddProjectTextInput } from "../projects/components/add-project-ui";
+import { ServerIcon } from "./components/ServerIcon";
 import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsSection } from "./components/SettingsSection";
-import { urlHost } from "./integrations";
+import { urlHost, type InstalledStatus } from "./integrations";
+import { useIntegrations } from "./use-integrations";
 import {
   AUTH_LABELS,
   hostProfileText,
+  modelInstructionChoices,
   pageOf,
+  profileServerStatus,
   PROVIDER_LABELS,
   skillFileCountText,
   type HandWrittenSkill,
@@ -38,31 +42,78 @@ export function InstructionsSection({ profile }: { readonly profile: AgentProfil
   return (
     <View className="gap-3">
       <SettingsSection title="Instructions">
-        <ExtraInstructionsEditor key={profile.extraInstructions} stored={profile.extraInstructions} onSave={profile.saveExtraInstructions} />
+        <InstructionsEditor
+          key={profile.extraInstructions}
+          label="Extra instructions"
+          placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
+          stored={profile.extraInstructions}
+          onSave={profile.saveExtraInstructions}
+        />
       </SettingsSection>
       <SettingsNote>Your own instructions, sent with every prompt on every host. A project's CLAUDE.md or AGENTS.md stays with the project.</SettingsNote>
+      <ModelInstructionsSection profile={profile} />
     </View>
   );
 }
 
-function ExtraInstructionsEditor(props: { readonly stored: string; readonly onSave: (text: string) => "saved" | "invalid" }) {
+/** Instructions added after the extra instructions when one model runs: pick the model, then edit its text. */
+function ModelInstructionsSection({ profile }: { readonly profile: AgentProfileModel }) {
+  const choices = modelInstructionChoices(profile.modelInstructions);
+  const [chosenModel, setChosenModel] = useState<string | null>(null);
+  const selected = choices.find((choice) => choice.model === chosenModel) ?? choices[0];
+  if (!selected) return null;
+  const stored = profile.modelInstructions[selected.model] ?? "";
+  return (
+    <View className="gap-3">
+      <SettingsSection title="Per-model instructions">
+        {choices.map((choice, index) => (
+          <SettingsChoiceRow
+            key={choice.model}
+            separated={index > 0}
+            label={choice.label}
+            description={profile.modelInstructions[choice.model]?.trim() ? `${choice.providerLabel} · Has instructions` : choice.providerLabel}
+            selected={choice.model === selected.model}
+            onPress={() => setChosenModel(choice.model)}
+          />
+        ))}
+      </SettingsSection>
+      <SettingsSection title={`${selected.label} instructions`}>
+        <InstructionsEditor
+          key={`${selected.model}:${stored}`}
+          label={`${selected.label} instructions`}
+          placeholder={`Instructions that only apply when ${selected.label} is running.`}
+          stored={stored}
+          onSave={(text) => profile.saveModelInstructions(selected.model, text)}
+        />
+      </SettingsSection>
+      <SettingsNote>Added after your extra instructions when this model runs.</SettingsNote>
+    </View>
+  );
+}
+
+function InstructionsEditor(props: {
+  readonly label: string;
+  readonly placeholder: string;
+  readonly stored: string;
+  readonly onSave: (text: string) => "saved" | "invalid";
+}) {
   const [draft, setDraft] = useState(props.stored);
   const [failed, setFailed] = useState(false);
   const changed = draft !== props.stored;
   return (
     <View className="gap-3 p-4">
       <View className="flex-row items-center justify-between gap-3">
-        <Text className="min-w-0 flex-1 text-lg text-foreground android:text-base" numberOfLines={1}>Extra instructions</Text>
-        {changed ? <PillButton label="Save" accessibilityLabel="Save your extra instructions" onPress={() => setFailed(props.onSave(draft) !== "saved")} /> : null}
+        <Text className="min-w-0 flex-1 text-lg text-foreground android:text-base" numberOfLines={1}>{props.label}</Text>
+        {changed ? <PillButton label="Save" accessibilityLabel={`Save ${props.label}`} onPress={() => setFailed(props.onSave(draft) !== "saved")} /> : null}
       </View>
       <TextInput
-        accessibilityLabel="Extra instructions"
+        accessibilityLabel={props.label}
         multiline
         autoCapitalize="none"
         autoCorrect={false}
         value={draft}
         onChangeText={(value) => { setDraft(value); setFailed(false); }}
-        placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
+        placeholder={props.placeholder}
         placeholderTextColorClassName="accent-placeholder"
         className="min-h-24 rounded-2xl border border-border bg-input px-3.5 py-3 font-mono text-sm text-foreground"
       />
@@ -232,7 +283,7 @@ function RemoteSkillRow(props: { readonly skill: RemoteSkill; readonly first: bo
 
 // ─── MCP servers ───
 
-export function ServersSection({ profile }: { readonly profile: AgentProfileModel }) {
+export function ServersSection({ profile, onOpenHostMcp }: { readonly profile: AgentProfileModel; readonly onOpenHostMcp: (hostId: string) => void }) {
   const { integrations } = profile.parts;
   const [expanded, setExpanded] = useState(false);
   const page = pageOf(integrations, expanded);
@@ -256,14 +307,25 @@ export function ServersSection({ profile }: { readonly profile: AgentProfileMode
             <SettingsNote>No MCP servers yet. Add one by its address below.</SettingsNote>
           </View>
         ) : (
-          page.rows.map((integration, index) => (
-            <ServerRow
-              key={integration.slug}
-              integration={integration}
-              first={index === 0}
-              onRemove={() => confirmRemove(`Remove ${integration.name}?`, () => profile.removeKeys([`integration:${integration.slug}`]))}
+          profile.toolHost ? (
+            <HostServerRows
+              key={profile.toolHost.hostId}
+              hostId={profile.toolHost.hostId}
+              rows={page.rows}
+              onConnect={() => { if (profile.toolHost) onOpenHostMcp(profile.toolHost.hostId); }}
+              onRemove={(integration) => confirmRemove(`Remove ${integration.name}?`, () => profile.removeKeys([`integration:${integration.slug}`]))}
             />
-          ))
+          ) : (
+            page.rows.map((integration, index) => (
+              <ServerRow
+                key={integration.slug}
+                integration={integration}
+                first={index === 0}
+                status={null}
+                onRemove={() => confirmRemove(`Remove ${integration.name}?`, () => profile.removeKeys([`integration:${integration.slug}`]))}
+              />
+            ))
+          )
         )}
         <ShowMoreRow hiddenCount={page.hiddenCount} expanded={expanded} noun="servers" onToggle={() => setExpanded((value) => !value)} />
       </SettingsSection>
@@ -291,19 +353,57 @@ export function ServersSection({ profile }: { readonly profile: AgentProfileMode
       ) : adding.kind === "failed" ? (
         <SettingsNote tone="danger">{adding.message}</SettingsNote>
       ) : (
-        <SettingsNote>The record only: its name, address, and how it signs in. Each host connects you with your account’s credential, never a key copied here.</SettingsNote>
+        <SettingsNote>{`The record only: its name, address, and how it signs in. Your sign-in is not part of the profile: a server that asks for one has no tools on a host until you connect it there.${profile.toolHost ? ` The status is for ${profile.toolHost.label}.` : ""}`}</SettingsNote>
       )}
     </View>
   );
 }
 
-function ServerRow(props: { readonly integration: AgentProfileIntegrationEntry; readonly first: boolean; readonly onRemove: () => void }) {
+/** The profile's servers as one host has them: each row says whether its tools reach agents there. */
+function HostServerRows(props: {
+  readonly hostId: string;
+  readonly rows: readonly AgentProfileIntegrationEntry[];
+  readonly onConnect: () => void;
+  readonly onRemove: (integration: AgentProfileIntegrationEntry) => void;
+}) {
+  const { list, connections } = useIntegrations(props.hostId);
+  return props.rows.map((integration, index) => (
+    <ServerRow
+      key={integration.slug}
+      integration={integration}
+      first={index === 0}
+      status={profileServerStatus(integration, list, connections)}
+      onConnect={props.onConnect}
+      onRemove={() => props.onRemove(integration)}
+    />
+  ));
+}
+
+function ServerRow(props: {
+  readonly integration: AgentProfileIntegrationEntry;
+  readonly first: boolean;
+  readonly status: InstalledStatus | null;
+  readonly onConnect?: () => void;
+  readonly onRemove: () => void;
+}) {
+  const { status } = props;
   return (
     <View className={cn("flex-row items-center gap-3 p-4", !props.first && "border-t border-border-subtle")}>
+      <ServerIcon url={props.integration.url} name={props.integration.name} />
       <View className="min-w-0 flex-1 gap-0.5">
         <EntryTitle>{props.integration.name}</EntryTitle>
         <Text className="text-sm text-foreground-muted" numberOfLines={1} ellipsizeMode="middle">{`${urlHost(props.integration.url)} · ${AUTH_LABELS[props.integration.auth.kind]}`}</Text>
+        {status ? (
+          <Text className={cn("text-sm", status.tone === "danger" ? "text-danger-foreground" : "text-foreground-muted")} numberOfLines={1}>{status.text}</Text>
+        ) : null}
       </View>
+      {status?.action && props.onConnect ? (
+        <PillButton
+          label={status.action === "connect" ? "Connect" : "Reconnect"}
+          accessibilityLabel={`${status.action === "connect" ? "Connect" : "Reconnect"} ${props.integration.name}`}
+          onPress={props.onConnect}
+        />
+      ) : null}
       <RemoveButton name={props.integration.name} onPress={props.onRemove} />
     </View>
   );
@@ -335,6 +435,7 @@ function HostRow(props: { readonly host: AgentProfileHostRow; readonly first: bo
       <View className="flex-row items-center gap-3">
         <View className="min-w-0 flex-1 gap-0.5">
           <Text className="text-lg text-foreground android:text-base" numberOfLines={1}>{host.label}</Text>
+          {host.address ? <Text className="text-sm text-foreground-muted" numberOfLines={1}>{host.address}</Text> : null}
           <Text className={cn("text-sm", state.error ? "text-danger-foreground" : "text-foreground-muted")} numberOfLines={3}>{detail}</Text>
         </View>
         {state.busy ? <ActivityIndicator accessibilityLabel={`Working on ${host.label}`} colorClassName="accent-icon-muted" /> : null}
@@ -359,6 +460,7 @@ function ToolHostPicker({ profile }: { readonly profile: AgentProfileModel }) {
           key={host.hostId}
           separated={index > 0}
           label={host.label}
+          description={host.address ?? undefined}
           selected={host.hostId === profile.toolHost?.hostId}
           onPress={() => profile.chooseToolHost(host.hostId)}
         />

@@ -6,23 +6,27 @@
 <script lang="ts">
   /**
    * Settings → Account & sync (plans/018 decision 9): the one place for the
-   * account. Who is signed in; this computer's link to Solus Cloud; one sync
-   * status for the two synced documents, the settings and the agent profile,
-   * with the settings' conflicts resolved here and the profile's on its own
-   * tab; the two clear actions; and each host with what it holds of the
-   * profile. Signed in is synced: there is no switch. The page needs no host.
+   * account. Who is signed in, with sign out; this computer's link to Solus
+   * Cloud; one sync status for the two synced documents, the settings and the
+   * agent profile, with the settings' conflicts resolved here and the
+   * profile's on its own tab; each host with what it holds of the profile;
+   * and, last, the two clear actions. Signed in is synced: there is no
+   * switch. The page needs no host.
    */
   import { untrack } from "svelte";
+  import { RefreshCw as SyncIcon } from "@lucide/svelte";
   import { accountStore, accountSyncStore, getWorkspaceContext, serversStore } from "../../contexts";
   import UplinkSection from "../connections/UplinkSection.svelte";
   import { relativeTime } from "../../lib/relative-time";
+  import { messageTimestampClock } from "../../lib/shared-clock";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
+  import { accountInitial } from "../session/lib/account-menu";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import AgentProfileHostsSection from "./agent-profile/AgentProfileHostsSection.svelte";
   import { agentProfileKeyLabel } from "./agent-profile/lib/agent-profile-entries";
-  import { accountSyncStateLabel, conflictRows, settingKeyLabel } from "./lib/sync-status";
+  import { accountSyncBadge, accountSyncStateLabel, accountSyncTone, conflictRows, settingKeyLabel } from "./lib/sync-status";
 
   let { searchQuery = "" }: { searchQuery?: string } = $props();
 
@@ -35,9 +39,15 @@
   // Only the desktop hosts a server on this computer; a browser has none to link.
   const localServerId = $derived(serversStore.servers.find((server) => server.local)?.id ?? null);
   const hasComputer = $derived(localServerId !== null);
-  const statusText = $derived(
-    sync.lastSyncedAt ? `${accountSyncStateLabel(sync)} · Last synced ${relativeTime(sync.lastSyncedAt)}` : accountSyncStateLabel(sync),
-  );
+  let now = $state(Date.now());
+  const statusTone = $derived(accountSyncTone(sync.state));
+  // The badge already says "Synced"; the line under it says when, or what is wrong.
+  const statusText = $derived.by(() => {
+    const lastSynced = sync.lastSyncedAt ? `Last synced ${relativeTime(sync.lastSyncedAt, now)}` : null;
+    if (sync.state === "synced") return lastSynced ?? "Up to date";
+    return lastSynced ? `${accountSyncStateLabel(sync)} · ${lastSynced}` : accountSyncStateLabel(sync);
+  });
+  const hasSyncDetail = $derived(sync.notice !== null || settingConflicts.length > 0 || profileConflictCount > 0);
 
   // Settings opened: read the account now rather than at the next poll, and try a start that failed again.
   $effect(() => untrack(() => sync.refresh()));
@@ -52,27 +62,55 @@
     requestInputFocus();
   }
 
-  function retry() {
+  function syncNow() {
     sync.refresh();
     requestInputFocus();
   }
 
   const isVisible = $derived(!searchQuery || searchWords.some((keyword) => keyword.includes(searchQuery.toLowerCase())));
+
+  // "Last synced" is an age: it moves on the shared minute clock while it shows, not only when a sync lands.
+  $effect(() => {
+    if (!sync.lastSyncedAt || !isVisible) return;
+    return messageTimestampClock.subscribe((value) => { now = value; });
+  });
 </script>
 
 <SettingsSection label="Account" visible={isVisible}>
-  <SettingsRow
-    label={account.kind === "signed-in" ? (account.identity.name ?? account.identity.email) : "Not signed in"}
-    description={account.kind === "signed-in"
-      ? `${account.identity.email} · ${account.consoleUrl.replace(/^https?:\/\//, "")}`
-      : "Your settings and your agent profile stay on this device. Sign in to Solus to sync them between your devices and the hosts you work on."}
-  >
-    {#snippet control()}
-      {#if account.kind !== "signed-in" && accountStore.isAvailable}
-        <Button variant="outline" size="sm" onclick={() => void accountStore.signIn()}>Sign in</Button>
+  {#if account.kind === "signed-in"}
+    <div class="flex flex-wrap items-center gap-3 px-4 py-3.5">
+      {#if account.identity.picture}
+        <img
+          src={account.identity.picture}
+          alt=""
+          class="size-9 shrink-0 rounded-full object-cover shadow-[0_0_0_1px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+        />
+      {:else}
+        <span
+          class="flex size-9 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--primary)_16%,transparent)] text-sm font-semibold text-[color-mix(in_oklch,var(--primary)_80%,var(--foreground))]"
+          aria-hidden="true">{accountInitial(account.identity)}</span
+        >
       {/if}
-    {/snippet}
-  </SettingsRow>
+      <div class="min-w-0 flex-1">
+        <p class="truncate text-sm font-medium tracking-[-0.005em] text-foreground">{account.identity.name ?? account.identity.email}</p>
+        <p class="truncate text-[13px] leading-[1.45] text-(--solus-text-secondary)">
+          {account.identity.name ? `${account.identity.email} · ` : ""}{account.consoleUrl.replace(/^https?:\/\//, "")}
+        </p>
+      </div>
+      <Button variant="outline" size="sm" onclick={() => void accountStore.signOut()}>Sign out</Button>
+    </div>
+  {:else}
+    <SettingsRow
+      label="Not signed in"
+      description="Your settings and your agent profile stay on this device. Sign in to Solus to sync them between your devices and the hosts you work on."
+    >
+      {#snippet control()}
+        {#if accountStore.isAvailable}
+          <Button variant="outline" size="sm" onclick={() => void accountStore.signIn()}>Sign in</Button>
+        {/if}
+      {/snippet}
+    </SettingsRow>
+  {/if}
 </SettingsSection>
 
 {#if localServerId && isVisible}
@@ -81,18 +119,21 @@
 
 <SettingsSection
   label="Sync"
-  description="Signed in, your settings and your agent profile sync through your account. Device settings, host settings, and credentials never sync."
-  visible={isVisible}
+  description="Your settings and your agent profile sync through your account. Device settings, host settings, and credentials never sync."
+  visible={isVisible && isSignedIn}
 >
   <SettingsRow
-    label={isSignedIn ? "Synced with your account" : "Not signed in"}
-    description={isSignedIn ? statusText : "Sign in to Solus to sync."}
+    label="Settings and agent profile"
+    labelExtra={statusBadge}
+    description={statusText}
     testId="account-sync-row"
+    bodyVisible={hasSyncDetail}
   >
     {#snippet control()}
-      {#if sync.state === "error" || sync.state === "offline"}
-        <Button variant="outline" size="sm" disabled={sync.busy || !sync.isAvailable} onclick={retry}>Try again</Button>
-      {/if}
+      <Button variant="outline" size="sm" disabled={sync.busy || !sync.isAvailable || sync.state === "loading"} onclick={syncNow}>
+        <SyncIcon size={13} class={sync.state === "loading" ? "animate-spin motion-reduce:animate-none" : ""} />
+        {sync.state === "error" || sync.state === "offline" ? "Try again" : "Sync now"}
+      </Button>
     {/snippet}
     {#snippet body()}
       <div class="flex flex-col gap-3" aria-live="polite">
@@ -137,36 +178,55 @@
       </div>
     {/snippet}
   </SettingsRow>
-
-  <SettingsRow
-    label="Clear synced settings"
-    description="Deletes the copy in your account and starts it again from this device's settings. Your other devices take the new copy."
-    visible={isSignedIn}
-  >
-    {#snippet control()}
-      {#if sync.notice?.kind === "has-unsent" && sync.notice.document === "settings"}
-        <Button variant="destructive" size="sm" disabled={sync.busy} onclick={() => void clearSettings(true)}>Discard and clear</Button>
-      {:else}
-        <Button variant="outline" size="sm" disabled={sync.busy || !sync.isAvailable} onclick={() => void clearSettings(false)}>Clear</Button>
-      {/if}
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Clear synced profile"
-    description={`Deletes the copy in your account and starts it again from ${hasComputer ? "this computer's profile" : "this device's copy"}. Your other devices and every host take the new copy.`}
-    visible={isSignedIn}
-  >
-    {#snippet control()}
-      {#if sync.notice?.kind === "has-unsent" && sync.notice.document === "profile"}
-        <Button variant="destructive" size="sm" disabled={sync.busy} onclick={() => void clearProfile(true)}>Discard and clear</Button>
-      {:else}
-        <Button variant="outline" size="sm" disabled={sync.busy || !sync.isAvailable} onclick={() => void clearProfile(false)}>Clear</Button>
-      {/if}
-    {/snippet}
-  </SettingsRow>
 </SettingsSection>
 
 {#if isVisible}
   <AgentProfileHostsSection />
 {/if}
+
+<SettingsSection
+  label="Reset sync"
+  description="Clearing deletes the copy in your account and starts it again from this device. Do this only when the synced copy is wrong."
+  visible={isVisible && isSignedIn}
+>
+  <SettingsRow
+    label="Synced settings"
+    description="Your other devices take the new copy."
+  >
+    {#snippet control()}
+      {#if sync.notice?.kind === "has-unsent" && sync.notice.document === "settings"}
+        <Button variant="destructive" size="sm" disabled={sync.busy} onclick={() => void clearSettings(true)}>Discard and clear</Button>
+      {:else}
+        <Button variant="outline" size="sm" class="text-destructive" disabled={sync.busy || !sync.isAvailable} onclick={() => void clearSettings(false)}>Clear settings</Button>
+      {/if}
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Synced agent profile"
+    description={`Starts again from ${hasComputer ? "this computer's profile" : "this device's copy"}. Your other devices and every host take the new copy.`}
+  >
+    {#snippet control()}
+      {#if sync.notice?.kind === "has-unsent" && sync.notice.document === "profile"}
+        <Button variant="destructive" size="sm" disabled={sync.busy} onclick={() => void clearProfile(true)}>Discard and clear</Button>
+      {:else}
+        <Button variant="outline" size="sm" class="text-destructive" disabled={sync.busy || !sync.isAvailable} onclick={() => void clearProfile(false)}>Clear profile</Button>
+      {/if}
+    {/snippet}
+  </SettingsRow>
+</SettingsSection>
+
+{#snippet statusBadge()}
+  <span
+    class="ml-2 inline-flex translate-y-[-1px] items-center gap-1 rounded-full px-1.5 py-px align-middle text-[11px] leading-[1.5] font-medium {statusTone === 'settled'
+      ? 'bg-[color-mix(in_oklch,var(--success)_14%,transparent)] text-(--success)'
+      : statusTone === 'attention'
+        ? 'bg-[color-mix(in_oklch,var(--warning)_16%,transparent)] text-(--warning)'
+        : statusTone === 'stopped'
+          ? 'bg-[color-mix(in_oklch,var(--destructive)_14%,transparent)] text-destructive'
+          : 'bg-muted text-muted-foreground'}"
+  >
+    <span class="size-1.5 rounded-full bg-current" aria-hidden="true"></span>
+    {accountSyncBadge(sync)}
+  </span>
+{/snippet}

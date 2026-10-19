@@ -362,6 +362,7 @@ export class PromptDispatch {
     const started = await lifecycle.agentSessionId
     this.rt.emit('background-session-created', {
       sessionId,
+      title: req.title,
       prompt: req.prompt,
       cwd: req.cwd,
       preferences,

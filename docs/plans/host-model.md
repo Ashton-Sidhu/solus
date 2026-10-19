@@ -134,6 +134,13 @@ Rules:
 - Live topics (`usage.limitsChanged`, `voice.modelStatusChanged`) write into the
   facts of the topic's server id only.
 - Concurrent loads of one fact join one request.
+- An answer equal to the ready value held keeps that value and its fact object,
+  and notifies no listener (`keepEqual`, the JSON of the two values). The read
+  time still moves, so `maxAgeMs` counts the equal read. A fresh session still
+  reads every asked fact again; only an equal answer stays quiet. Every change
+  of state (loading, an error, a drop) and every changed value still notifies.
+  This applies to desktop and web (`Host` has one subscriber per fact) and to
+  mobile (`HostConnections` re-renders its rows on each `serverInfo` notice).
 
 **`Host` (workspace-ui, `contexts/hosts/host.svelte.ts`)** — a thin reactive
 wrapper. It reads its `HostFacts` directly and has one `createSubscriber` per
@@ -263,6 +270,10 @@ it transcribes on the Run on host.
   a drop clears capabilities and keeps machine facts; a fresh session reloads;
   a stale answer never overwrites a new session; `maxAgeMs`; a waiting reader
   retries once.
+- `tests/unit/store-stability-host-facts.test.ts`: an equal refresh, an equal
+  push, and the equal answers of a fresh session keep the fact object and
+  notify nobody, while the read still happens and counts as fresh; a changed
+  answer, an error, a drop, and the answer after a drop are heard.
 - `tests/unit/host-supervisor.test.ts`: each session edge is reported.
 - `tests/unit/host-voice.test.ts`: the desktop transcribes for its mic when the
   Run on host cannot (the 2026-10-08 regression); a host without the capability

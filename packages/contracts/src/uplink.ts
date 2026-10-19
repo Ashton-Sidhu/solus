@@ -11,14 +11,14 @@
 import { z } from 'zod'
 
 /**
- * A person's access token lives one hour (plans/010-standard-oauth.md): the account
+ * A person's access token lives eight hours (plans/010-standard-oauth.md): the account
  * plane is an OAuth 2.1 authorization server, hosts and the Solus API check its JWT
  * access tokens offline, and a token's life is how long removal takes to reach them.
  * The account plane's own routes check the grant on every call, so a sign-out ends a
- * token there at once. Five minutes made every client and every host delegation
- * refresh, and the account plane re-check standing, twelve times an hour for nothing.
+ * token there at once. A short life made every client and every host delegation
+ * refresh, and the account plane re-check standing, many times a day for nothing.
  */
-export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60
+export const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60
 
 /**
  * The resource (RFC 8707) of one host: the `aud` of an access token for it. A host

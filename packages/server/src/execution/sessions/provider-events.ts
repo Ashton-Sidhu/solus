@@ -19,6 +19,20 @@ import { linkPreparedTask } from './run-task-context'
 const log = createLogger('SessionRuntime', 'provider-events.ts')
 
 /**
+ * The status a turn's exit leaves its session in. A provider whose background
+ * work outlives the turn (Codex) settles into 'background', as Claude's open
+ * query does; Claude's tasks end with its query, so its exit never leaves any.
+ * A failed turn whose work still runs waits too, so that work stays visible
+ * and stoppable: its failure is reported at once, and the wait ends as 'failed'.
+ */
+function statusAfterExit(settled: SessionStatus, isAwaitingReplies: boolean, hasBackgroundWork: boolean): SessionStatus {
+  if (settled === 'failed') return hasBackgroundWork ? 'background' : settled
+  if (settled !== 'completed') return settled
+  if (isAwaitingReplies) return 'running'
+  return hasBackgroundWork ? 'background' : settled
+}
+
+/**
  * The one place backend events enter: each is translated from the provider's
  * thread id to the Solus session once, applied to session state, and delivered.
  */
@@ -27,6 +41,9 @@ export class ProviderEvents {
   private registeredLineageThreads = new Set<string>()
   /** Provider threads whose start this process has indexed, with the model and effort it recorded. */
   private indexedThreadStarts = new Map<string, string>()
+  /** Sessions whose turn failed while background work still ran: the wait
+   *  ends as `failed`, not `completed`. Cleared by the session's next exit. */
+  private readonly failedBeforeBackground = new Set<string>()
 
   constructor(private readonly rt: SessionRuntime) {}
 
@@ -35,7 +52,8 @@ export class ProviderEvents {
   private endBackgroundWait(sessionId: string): void {
     const session = this.rt.activeSessions.get(sessionId)
     if (session?.status !== 'background' || session.backgroundTaskIds?.size) return
-    this.rt.statuses.setStatus(sessionId, 'completed')
+    const hasFailed = this.failedBeforeBackground.delete(sessionId)
+    this.rt.statuses.setStatus(sessionId, hasFailed ? 'failed' : 'completed')
     this.rt.activeSessions.delete(sessionId)
   }
 
@@ -489,17 +507,10 @@ export class ProviderEvents {
               : code === null
               ? 'dead'
               : 'failed'
-        // A provider whose background work outlives the turn (Codex) settles
-        // into 'background', as Claude's open query does. Claude's tasks end
-        // with its query, so its exit never leaves any.
+        this.failedBeforeBackground.delete(sessionId)
         const hasBackgroundWork = !!agentSessionId && !!backend.hasBackgroundTasks?.(agentSessionId)
-        const newStatus: SessionStatus = settledStatus !== 'completed'
-          ? settledStatus
-          : this.rt.orchestration?.isAwaitingReplies(sessionId)
-            ? 'running'
-            : hasBackgroundWork
-              ? 'background'
-              : settledStatus
+        const newStatus = statusAfterExit(settledStatus, !!this.rt.orchestration?.isAwaitingReplies(sessionId), hasBackgroundWork)
+        if (settledStatus === 'failed' && newStatus === 'background') this.failedBeforeBackground.add(sessionId)
         this.rt.sessionEmitter.recordTerminal(
           sessionId,
           settledStatus === 'completed' || settledStatus === 'rate_limited'
@@ -531,7 +542,7 @@ export class ProviderEvents {
           this.rt.activeRunRequests.delete(sessionId)
         }
 
-        if (newStatus === 'failed' || newStatus === 'dead') {
+        if (settledStatus === 'failed' || settledStatus === 'dead') {
           this.rt.emitError(sessionId, backend.getEnrichedError(agentSessionId, code))
         }
 
@@ -548,6 +559,11 @@ export class ProviderEvents {
         const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
         if (sessionId) this.endBackgroundWait(sessionId)
       })
+    })
+
+    backend.on('background-work-ended', (agentSessionId: string) => {
+      const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
+      if (sessionId) this.endBackgroundWait(sessionId)
     })
 
     backend.on('error', (agentSessionId: string | null, err: Error) => {

@@ -95,6 +95,8 @@ export interface CreateSessionOrder {
   sessionId?: string
   permissionMode?: PermissionMode
   prompt: string
+  /** The sender's name for the session; absent, the host names it from the prompt. */
+  title?: string
   provider: AgentId
   modelId: string
   reasoningEffort: ReasoningEffort
@@ -309,7 +311,7 @@ export class SessionOrchestrator {
         })
         if (exchange) this.attach(exchange, this.runtime.sessionMeta(started.sessionId)?.cwd)
         if (exchange) this.ledger.update(exchange, (draft) => { draft.disposition = 'started' })
-        if (senderSessionId) this.recordStartedSession(senderSessionId, order.prompt, started)
+        if (senderSessionId) this.recordStartedSession(senderSessionId, order.title || order.prompt, started)
         const created: SpawnedSession = { exchangeId, sessionId: started.sessionId }
         if (started.taskId) created.taskId = started.taskId
         return created
@@ -354,6 +356,7 @@ export class SessionOrchestrator {
       startedBy: target.origin,
     }
     if (order.worktreeBaseBranch) request.worktreeBaseBranch = order.worktreeBaseBranch
+    if (order.title) request.title = order.title
     try {
       // A child works for its parent's organization; host B admits it as a prompt in that organization.
       const organizationId = senderSessionId ? await this.runtime.turnOrganization(senderSessionId) : undefined
@@ -397,7 +400,7 @@ export class SessionOrchestrator {
         origin: 'created',
         prompt: order.prompt,
         provider: order.provider,
-        title: promptTitle(order.prompt),
+        title: order.title || promptTitle(order.prompt),
         cwd: order.cwd,
         model: order.modelId,
         reasoningEffort: order.reasoningEffort,
@@ -861,8 +864,8 @@ export class SessionOrchestrator {
   }
 
   /** A session a child started is something the child's open turns produced. */
-  private recordStartedSession(childSessionId: string, prompt: string, started: { sessionId: string; taskId?: string }): void {
-    const output: SessionOutput = { kind: 'session', sessionId: started.sessionId, title: prompt }
+  private recordStartedSession(childSessionId: string, title: string, started: { sessionId: string; taskId?: string }): void {
+    const output: SessionOutput = { kind: 'session', sessionId: started.sessionId, title }
     if (started.taskId) output.taskId = started.taskId
     for (const exchange of this.exchanges.values()) {
       if (exchange.targetSessionId === childSessionId && isOpenExchange(exchange)) addOutput(exchange.outputs, output)

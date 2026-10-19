@@ -153,9 +153,14 @@ export const ThreadArtifact = memo(function ThreadArtifact(props: {
   const [height, setHeight] = useState(() => reportedHeights.get(props.id) ?? INITIAL_HEIGHT);
   const [earlierOpen, setEarlierOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
-  if (item?.kind !== "artifact") return null;
-
   const showsPage = !props.superseded || earlierOpen;
+  // An `html_path` render holds the saved version; its HTML is read when the page shows.
+  const awaitsSavedHtml = item?.kind === "artifact" && !item.html && !!item.contentVersion;
+  const needsRead = awaitsSavedHtml && !item.loading && !item.error;
+  useEffect(() => {
+    if (showsPage && needsRead) void props.store.controller.ensureArtifact(props.id);
+  }, [props.store, props.id, showsPage, needsRead]);
+  if (item?.kind !== "artifact") return null;
   const onHeight = (next: number) => {
     reportedHeights.set(props.id, next);
     setHeight(next);
@@ -183,7 +188,26 @@ export const ThreadArtifact = memo(function ThreadArtifact(props: {
           />
         </Pressable>
       ) : null}
-      {showsPage ? (
+      {showsPage && awaitsSavedHtml ? (
+        <View className="min-h-28 items-center justify-center gap-2 rounded-2xl bg-subtle">
+          {item.error ? (
+            <>
+              <Text accessibilityRole="alert" className="text-sm text-foreground-muted">
+                {item.error}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void props.store.controller.ensureArtifact(props.id)}
+                className="min-h-11 justify-center px-4"
+              >
+                <Text className="font-t3-medium text-sm text-foreground">Try again</Text>
+              </Pressable>
+            </>
+          ) : (
+            <ActivityIndicator accessibilityLabel="Loading artifact" />
+          )}
+        </View>
+      ) : showsPage ? (
         <View style={{ height }}>
           <ArtifactWebView html={item.html} title={item.title} scrollable={false} onHeight={onHeight} />
           <Pressable

@@ -53,6 +53,18 @@ export function createMarkdownParser(): TiptapMarked {
         if (boldText === null) return
         return { type: 'strong', raw: match[0], text: boldText, tokens: [{ type: 'text', raw: boldText, text: boldText }] }
       },
+    }, {
+      // A table cell writes its line breaks as `<br>`. Read it as a hard break
+      // here, not as raw HTML: without a DOM (the host seeding a live work),
+      // raw HTML stays literal text and the cell shows "<br>".
+      name: 'htmlLineBreak',
+      level: 'inline',
+      start: (src) => src.search(/<br\s*\/?>/i),
+      tokenizer(src) {
+        const match = /^<br\s*\/?>/i.exec(src)
+        if (!match) return
+        return { type: 'br', raw: match[0] }
+      },
     }],
     tokenizer: {
       inlineText(src) {

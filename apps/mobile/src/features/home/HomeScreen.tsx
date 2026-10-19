@@ -42,6 +42,7 @@ import {
   type ThreadListV2ListItem,
   type ThreadPrWatchTarget,
 } from "../threads/threadListV2";
+import { ThreadListClock } from "../threads/thread-list-clock";
 import type { ThreadListShelfExpansion } from "../threads/thread-list-state";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import { buildHomeProjectScopes, sortHomeProjectScopes } from "./homeThreadList";
@@ -126,8 +127,6 @@ function HomeEmptyButton(props: {
 function HomeTopContentSpacer() {
   return <View className="h-4" />;
 }
-
-const currentMinute = () => Math.floor(Date.now() / 60_000) * 60_000;
 
 /* ─── Main screen ────────────────────────────────────────────────────── */
 
@@ -240,21 +239,24 @@ export function HomeScreen(props: HomeScreenProps) {
   // Thread List v2: one flat list, newest first, no grouping. Settled
   // threads collapse into a recency tail below the card block.
   const handleSettleThread = props.onSettleThread;
+  // Called as plain functions: a call through `props.` makes all of props the
+  // dependency, which the React Compiler cannot match to these callbacks.
+  const { onSnoozeThread, onUnsnoozeThread, onRenameThread, onToggleShelf } = props;
   const handleSnoozeThread = useCallback(
     (thread: SolusThreadShell, snoozedUntil: number) => {
-      void props.onSnoozeThread(thread, snoozedUntil);
+      void onSnoozeThread(thread, snoozedUntil);
     },
-    [props.onSnoozeThread],
+    [onSnoozeThread],
   );
   const handleUnsnoozeThread = useCallback(
     (thread: SolusThreadShell) => {
-      void props.onUnsnoozeThread(thread);
+      void onUnsnoozeThread(thread);
     },
-    [props.onUnsnoozeThread],
+    [onUnsnoozeThread],
   );
   const handleRenameThread = useCallback(
-    (thread: SolusThreadShell) => props.onRenameThread(thread),
-    [props.onRenameThread],
+    (thread: SolusThreadShell) => onRenameThread(thread),
+    [onRenameThread],
   );
   const handleUnsettleThread = props.onUnsettleThread;
   // The settled tail renders in pages; expansion resets when the filter
@@ -263,9 +265,9 @@ export function HomeScreen(props: HomeScreenProps) {
     THREAD_LIST_V2_SETTLED_INITIAL_COUNT,
   );
   const settledResetKey = `${props.selectedEnvironmentId ?? "all"}:${v2ProjectScopeKey ?? "all"}:${props.searchQuery.trim()}`;
-  const lastSettledResetKeyRef = useRef(settledResetKey);
-  if (lastSettledResetKeyRef.current !== settledResetKey) {
-    lastSettledResetKeyRef.current = settledResetKey;
+  const [lastSettledResetKey, setLastSettledResetKey] = useState(settledResetKey);
+  if (lastSettledResetKey !== settledResetKey) {
+    setLastSettledResetKey(settledResetKey);
     setSettledVisibleCount(THREAD_LIST_V2_SETTLED_INITIAL_COUNT);
   }
   const showMoreSettled = useCallback(
@@ -274,22 +276,15 @@ export function HomeScreen(props: HomeScreenProps) {
   );
   const settledShelfExpanded = props.shelfExpansion.settled;
   const snoozedShelfExpanded = props.shelfExpansion.snoozed;
-  const toggleSettledShelf = useCallback(() => props.onToggleShelf("settled"), [props.onToggleShelf]);
-  const toggleSnoozedShelf = useCallback(() => props.onToggleShelf("snoozed"), [props.onToggleShelf]);
-  // The snooze helpers need a clock while the list stays open.
-  const [nowMinute, setNowMinute] = useState(currentMinute);
+  const toggleSettledShelf = useCallback(() => onToggleShelf("settled"), [onToggleShelf]);
+  const toggleSnoozedShelf = useCallback(() => onToggleShelf("snoozed"), [onToggleShelf]);
+  // Rows read their times and snooze menus from this clock while the list is focused.
+  const [clock] = useState(() => new ThreadListClock());
   // Snooze wake times are second-precise; a counter bumped exactly at the
   // next wake boundary re-runs the partition with a fresh clock so a woken
-  // thread reappears immediately instead of on the next minute tick.
+  // thread reappears immediately. The minute clock does not partition.
   const [snoozeWakeTick, bumpSnoozeWakeTick] = useState(0);
-  useFocusEffect(
-    useCallback(() => {
-      // Refresh immediately on focus because the previous value can be hours old.
-      setNowMinute(currentMinute());
-      const id = setInterval(() => setNowMinute(currentMinute()), 60_000);
-      return () => clearInterval(id);
-    }, []),
-  );
+  useFocusEffect(useCallback(() => clock.start(), [clock]));
   const threadListV2Layout = useMemo(
     () =>
       buildThreadListV2Items({
@@ -309,7 +304,6 @@ export function HomeScreen(props: HomeScreenProps) {
     [
       selectedThreadKey,
       knownProjectKeys,
-      nowMinute,
       snoozeWakeTick,
       snoozedShelfExpanded,
       settledShelfExpanded,
@@ -347,15 +341,8 @@ export function HomeScreen(props: HomeScreenProps) {
         settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
         archivedCount: threadListV2Layout.archivedCount,
         archivedHeaderIndex: threadListV2Layout.archivedHeaderIndex,
-        now: nowMinute,
       }),
-    [
-      nowMinute,
-      props.facts,
-      settledShelfExpanded,
-      snoozedShelfExpanded,
-      threadListV2Layout,
-    ],
+    [props.facts, settledShelfExpanded, snoozedShelfExpanded, threadListV2Layout],
   );
 
   useEffect(() => {
@@ -404,9 +391,10 @@ export function HomeScreen(props: HomeScreenProps) {
           status={item.status}
           unread={item.unread}
           pr={item.pr}
-          snoozePresetMinute={item.snoozePresetMinute ?? ""}
-          snoozeWakeLabelText={item.snoozeWakeLabelText}
-          timeLabel={item.timeLabel}
+          snoozable={item.snoozable}
+          snoozedUntil={item.snoozedUntil}
+          timeLabelAt={item.timeLabelAt}
+          clock={clock}
           showTrailingDivider={item.showTrailingDivider}
           pane={primaryColumn ? "sidebar" : "screen"}
           selected={thread.key === selectedThreadKey}
@@ -431,6 +419,7 @@ export function HomeScreen(props: HomeScreenProps) {
       );
     },
     [
+      clock,
       environmentLabelFor,
       handleRenameThread,
       handleSettleThread,
@@ -444,6 +433,7 @@ export function HomeScreen(props: HomeScreenProps) {
       projectByKey,
       props.onArchiveThread,
       props.onSelectThread,
+      props.onSetPullRequestWatch,
       props.onUnarchiveThread,
       selectedThreadKey,
       toggleSettledShelf,
@@ -455,8 +445,8 @@ export function HomeScreen(props: HomeScreenProps) {
 
   // FlatList/LegendList treat a changed extraData identity as "re-render every
   // visible row", so an inline object literal would invalidate all rows on
-  // every HomeScreen render — and the minute clock must stay out of it for
-  // the same reason: the clock text is precomputed per item instead.
+  // every HomeScreen render — and the list clock must stay out of it for
+  // the same reason: each row reads the clock itself.
   const v2ExtraData = useMemo(
     () => ({
       projectByKey,

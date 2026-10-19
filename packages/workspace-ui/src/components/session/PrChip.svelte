@@ -2,6 +2,7 @@
   import { localApi } from "@solus/client-core/local-api";
   import { ChevronDown as ChevronDownIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { hoverIntent } from "../../lib/hover-intent";
   import { prStatusBadge, REQUIRED_CHECKS_FAILING_BADGE } from "../prs/lib/pr-utils";
   import TaskPrMenuLabel from "./TaskPrMenuLabel.svelte";
   import { taskPrMenuTitle } from "./lib/task-pr-menu";
@@ -14,8 +15,11 @@
     /** Opens the pull request's own menu. With several pull requests, the
      *  chip opens its list. */
     onMore?: (event: MouseEvent, choice: TaskPrChoice) => void;
+    /** Reads the pull request ahead while the pointer rests on the chip, so
+     *  the click finds it loaded. */
+    onWarm?: (choice: TaskPrChoice) => void;
   }
-  let { chip, choices, onOpen, onMore }: Props = $props();
+  let { chip, choices, onOpen, onMore, onWarm }: Props = $props();
   let menuOpen = $state(false);
 
   // The menu's rows and the PR surfaces draw each state with these badges, so
@@ -130,6 +134,7 @@
     style:--pr-color={tone}
     aria-label={actionLabel}
     title={actionLabel}
+    {@attach onWarm && choices[0] ? hoverIntent(() => onWarm(choices[0])) : undefined}
     onkeydown={(event) => event.stopPropagation()}
     onpointerdown={(event) => event.stopPropagation()}
     onclick={(event) => {

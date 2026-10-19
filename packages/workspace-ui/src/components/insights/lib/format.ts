@@ -17,7 +17,13 @@ export function formatDuration(ms: number | null | undefined): string {
 /** Cost in USD. Codex reports none, and an unknown cost is not zero. */
 export function formatCost(usd: number | null | undefined): string {
   if (usd == null || !Number.isFinite(usd)) return '—'
-  return `$${usd < 1 ? usd.toFixed(3) : usd.toFixed(2)}`
+  // Grouped from a thousand up: `$31351.49` is read digit by digit,
+  // `$31,351.49` at a glance.
+  const digits = usd < 1 ? 3 : 2
+  return `$${usd.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`
 }
 
 /**
@@ -31,7 +37,7 @@ export function formatCost(usd: number | null | undefined): string {
 export function formatCostTick(usd: number): string {
   if (!Number.isFinite(usd)) return '—'
   if (usd === 0) return '$0'
-  return `$${Number(usd < 1 ? usd.toFixed(3) : usd.toFixed(2))}`
+  return `$${usd.toLocaleString(undefined, { maximumFractionDigits: usd < 1 ? 3 : 2 })}`
 }
 
 export function formatTokens(count: number | null | undefined): string {

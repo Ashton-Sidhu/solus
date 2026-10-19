@@ -17,7 +17,9 @@ import { PullRequestsHeader } from "../prs/PullRequestsHeader";
 import { PullRequestsScreen } from "../prs/PullRequestsScreen";
 import { pullRequestPreferencesForHost } from "../workspace/list-preferences";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
+import { WorkspaceTabPanes } from "../workspace/WorkspaceTabPanes";
 import { WorkspaceTabsFrame } from "../workspace/WorkspaceTabsFrame";
+import type { WorkspaceTab } from "../workspace/workspace-tabs-state";
 import { WorkspaceToolbar } from "../workspace/WorkspaceToolbar";
 import type { SolusThreadShell } from "../threads/thread-directory";
 import type { ThreadListShelfExpansion } from "../threads/thread-list-state";
@@ -151,10 +153,12 @@ export function HomeRouteScreen() {
   };
   const startNewTask = () => navigation.navigate("NewTask");
 
+  // A retained, hidden tab (WorkspaceTabPanes) does not follow the shown tab's search.
+  const queryOf = (tab: WorkspaceTab) => (tab === tabs.selectedTab ? searchQuery : "");
   const pullRequests = (
     <MaterialScreenContent>
       <PullRequestsScreen
-        query={searchQuery}
+        query={queryOf("pullRequests")}
         preferences={pullRequestPreferences}
         onPreferencesChange={setPullRequestPreferences}
       />
@@ -184,50 +188,55 @@ export function HomeRouteScreen() {
               : { title: "", headerTitle: "", unstable_headerLeftItems: () => [] }
           }
         />
-        {tabs.selectedTab === "pullRequests" ? (
-          <>
-            {workspaceToolbar}
-            <PullRequestsHeader
-              searchQuery={searchQuery}
-              onSearchQueryChange={setSearchQuery}
-              onOpenSettings={openSettings}
-              onOpenEnvironments={openEnvironments}
-            />
-            {pullRequests}
-          </>
-        ) : (
-          <>
-            {Platform.OS === "ios" ? (
+        <WorkspaceTabPanes
+          selected={tabs.selectedTab}
+          renderTab={(tab) =>
+            tab === "pullRequests" ? (
               <>
-                {/* Search and settings belong to the sidebar here. */}
-                <NativeStackScreenOptions
-                  options={{
-                    headerSearchBarOptions: undefined,
-                    unstable_headerRightItems: () => [],
-                    unstable_headerToolbarItems: () => [],
-                  }}
+                {workspaceToolbar}
+                <PullRequestsHeader
+                  searchQuery={queryOf(tab)}
+                  onSearchQueryChange={setSearchQuery}
+                  onOpenSettings={openSettings}
+                  onOpenEnvironments={openEnvironments}
                 />
-                <NativeHeaderToolbar placement="left">
-                  <NativeHeaderToolbar.Button
-                    accessibilityLabel="New session"
-                    icon="square.and.pencil"
-                    onPress={startNewTask}
-                  />
-                </NativeHeaderToolbar>
+                {pullRequests}
               </>
             ) : (
-              <AndroidScreenHeader title="Threads" />
-            )}
-            <WorkspaceEmptyDetail
-              onAddConnection={
-                Platform.OS === "android" && !catalogState.hasConnections ? addConnection : undefined
-              }
-              onStartNewTask={
-                Platform.OS === "android" && panes.primarySidebarVisible ? undefined : startNewTask
-              }
-            />
-          </>
-        )}
+              <>
+                {Platform.OS === "ios" ? (
+                  <>
+                    {/* Search and settings belong to the sidebar here. */}
+                    <NativeStackScreenOptions
+                      options={{
+                        headerSearchBarOptions: undefined,
+                        unstable_headerRightItems: () => [],
+                        unstable_headerToolbarItems: () => [],
+                      }}
+                    />
+                    <NativeHeaderToolbar placement="left">
+                      <NativeHeaderToolbar.Button
+                        accessibilityLabel="New session"
+                        icon="square.and.pencil"
+                        onPress={startNewTask}
+                      />
+                    </NativeHeaderToolbar>
+                  </>
+                ) : (
+                  <AndroidScreenHeader title="Threads" />
+                )}
+                <WorkspaceEmptyDetail
+                  onAddConnection={
+                    Platform.OS === "android" && !catalogState.hasConnections ? addConnection : undefined
+                  }
+                  onStartNewTask={
+                    Platform.OS === "android" && panes.primarySidebarVisible ? undefined : startNewTask
+                  }
+                />
+              </>
+            )
+          }
+        />
       </WorkspaceTabsFrame>
     );
   }
@@ -258,73 +267,78 @@ export function HomeRouteScreen() {
         }}
       />
       {workspaceToolbar}
-      {tabs.selectedTab === "pullRequests" ? (
-        <>
-          <PullRequestsHeader
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
-            onOpenSettings={openSettings}
-            onOpenEnvironments={openEnvironments}
-          />
-          {pullRequests}
-        </>
-      ) : (
-        <AndroidHomeFabLayout onStartNewTask={startNewTask}>
-          <>
-            <HomeHeader
-              environments={environments}
-              projects={projectFilterOptions}
-              searchQuery={searchQuery}
-              selectedEnvironmentId={selectedEnvironmentId}
-              selectedProjectKey={selectedProjectKey}
-              onEnvironmentChange={setSelectedEnvironmentId}
-              onProjectChange={setSelectedProjectKey}
-              onOpenEnvironments={openEnvironments}
-              onOpenSettings={openSettings}
-              onSearchQueryChange={setSearchQuery}
-              onStartNewTask={startNewTask}
-            />
+      <WorkspaceTabPanes
+        selected={tabs.selectedTab}
+        renderTab={(tab) =>
+          tab === "pullRequests" ? (
+            <>
+              <PullRequestsHeader
+                searchQuery={queryOf(tab)}
+                onSearchQueryChange={setSearchQuery}
+                onOpenSettings={openSettings}
+                onOpenEnvironments={openEnvironments}
+              />
+              {pullRequests}
+            </>
+          ) : (
+            <AndroidHomeFabLayout onStartNewTask={startNewTask}>
+              <>
+                <HomeHeader
+                  environments={environments}
+                  projects={projectFilterOptions}
+                  searchQuery={queryOf(tab)}
+                  selectedEnvironmentId={selectedEnvironmentId}
+                  selectedProjectKey={selectedProjectKey}
+                  onEnvironmentChange={setSelectedEnvironmentId}
+                  onProjectChange={setSelectedProjectKey}
+                  onOpenEnvironments={openEnvironments}
+                  onOpenSettings={openSettings}
+                  onSearchQueryChange={setSearchQuery}
+                  onStartNewTask={startNewTask}
+                />
 
-            <HomeScreen
-              catalogState={catalogState}
-              environments={environments}
-              facts={facts}
-              shelfExpansion={shelfExpansion}
-              listFilters={
-                Platform.OS === "ios" ? (
-                  <ThreadListFilters
-                    environments={environments}
-                    projects={projectFilterOptions}
-                    selectedEnvironmentId={selectedEnvironmentId}
-                    selectedProjectKey={selectedProjectKey}
-                    onEnvironmentChange={setSelectedEnvironmentId}
-                    onProjectChange={setSelectedProjectKey}
-                  />
-                ) : undefined
-              }
-              onAddConnection={addConnection}
-              onRetryHosts={retryHosts}
-              onOpenHosts={openEnvironments}
-              onSettleThread={settleThread}
-              onSnoozeThread={snoozeThread}
-              onUnsnoozeThread={unsnoozeThread}
-              onUnsettleThread={handleUnsettleThread}
-              onArchiveThread={handleArchiveThread}
-              onUnarchiveThread={handleUnarchiveThread}
-              onSetPullRequestWatch={setPullRequestWatch}
-              onRenameThread={renameThread}
-              onSelectThread={handleSelectThread}
-              onToggleShelf={handleToggleShelf}
-              projects={projects}
-              searchQuery={searchQuery}
-              selectedEnvironmentId={selectedEnvironmentId}
-              selectedProjectKey={selectedProjectKey}
-              threads={threads}
-              unlistedThreads={unlistedThreads}
-            />
-          </>
-        </AndroidHomeFabLayout>
-      )}
+                <HomeScreen
+                  catalogState={catalogState}
+                  environments={environments}
+                  facts={facts}
+                  shelfExpansion={shelfExpansion}
+                  listFilters={
+                    Platform.OS === "ios" ? (
+                      <ThreadListFilters
+                        environments={environments}
+                        projects={projectFilterOptions}
+                        selectedEnvironmentId={selectedEnvironmentId}
+                        selectedProjectKey={selectedProjectKey}
+                        onEnvironmentChange={setSelectedEnvironmentId}
+                        onProjectChange={setSelectedProjectKey}
+                      />
+                    ) : undefined
+                  }
+                  onAddConnection={addConnection}
+                  onRetryHosts={retryHosts}
+                  onOpenHosts={openEnvironments}
+                  onSettleThread={settleThread}
+                  onSnoozeThread={snoozeThread}
+                  onUnsnoozeThread={unsnoozeThread}
+                  onUnsettleThread={handleUnsettleThread}
+                  onArchiveThread={handleArchiveThread}
+                  onUnarchiveThread={handleUnarchiveThread}
+                  onSetPullRequestWatch={setPullRequestWatch}
+                  onRenameThread={renameThread}
+                  onSelectThread={handleSelectThread}
+                  onToggleShelf={handleToggleShelf}
+                  projects={projects}
+                  searchQuery={queryOf(tab)}
+                  selectedEnvironmentId={selectedEnvironmentId}
+                  selectedProjectKey={selectedProjectKey}
+                  threads={threads}
+                  unlistedThreads={unlistedThreads}
+                />
+              </>
+            </AndroidHomeFabLayout>
+          )
+        }
+      />
     </WorkspaceTabsFrame>
   );
 }

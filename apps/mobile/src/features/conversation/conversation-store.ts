@@ -46,10 +46,13 @@ export class ConversationStore {
   readonly order = new Listeners()
   readonly meta = new Listeners()
   private readonly itemListeners = new Map<string, Set<() => void>>()
+  private readonly quoteListeners = new Set<(text: string) => void>()
   private metaSnapshot: ConversationMeta
   /** Where the reader was, kept across a remount (rotation, a split resize). */
   scrollOffset = 0
   readerAtEnd = true
+  readonly closedMcpApps = new Set<string>()
+  readonly mcpAppHeights = new Map<string, number>()
 
   constructor(target: ConversationTarget, deps: Omit<ConversationDeps, 'onChange'>) {
     this.controller = new ConversationController(target, {
@@ -61,6 +64,13 @@ export class ConversationStore {
           this.order.notify()
         } else {
           for (const id of changes.items) for (const listener of Array.from(this.itemListeners.get(id) ?? [])) listener()
+          for (const id of changes.items) {
+            const item = this.item(id)
+            if (item?.kind !== 'tool' || !item.children) continue
+            for (const childId of item.children.takeChanges().items) {
+              for (const listener of Array.from(this.itemListeners.get(`${id}\0${childId}`) ?? [])) listener()
+            }
+          }
         }
         if (changes.meta || changes.order) {
           this.metaSnapshot = this.readMeta()
@@ -82,6 +92,16 @@ export class ConversationStore {
       listeners.delete(listener)
       if (listeners.size === 0) this.itemListeners.delete(id)
     }
+  }
+
+  /** "Quote in reply" from a message's selection menu: the composer adds the text to its draft. */
+  quoteInReply = (text: string): void => {
+    for (const listener of Array.from(this.quoteListeners)) listener(text)
+  }
+
+  onQuoteInReply(listener: (text: string) => void): () => void {
+    this.quoteListeners.add(listener)
+    return () => { this.quoteListeners.delete(listener) }
   }
 
   orderSnapshot = (): readonly string[] => this.controller.model.order
@@ -130,4 +150,10 @@ export class ConversationStore {
     this.controller.close()
     this.itemListeners.clear()
   }
+}
+
+/** The id a sheet route over a conversation (Settings, Queue, Agents) reopens it by. */
+export function conversationIdOf(store: ConversationStore): string {
+  const { record, newSession } = store.controller.target
+  return record?.sessionId ?? newSession?.sessionId ?? store.controller.run.sessionId
 }

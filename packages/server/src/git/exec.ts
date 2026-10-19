@@ -2,6 +2,7 @@ import { execFile as execFileCb, execFileSync } from 'child_process'
 import { promisify } from 'util'
 import { launchedProcess, launchProcess } from '../cli-env'
 import { currentIdentity } from '../vault/acting-scope'
+import { withBareRepositoryGuard } from './bare-repository-guard'
 import { GitUnavailableError, isGitUsable } from './git-availability'
 
 const execFileAsync = promisify(execFileCb)
@@ -34,7 +35,7 @@ export interface GitExecOptions {
 
 export function git(args: string[], cwd: string, opts: GitExecOptions = {}): string {
   if (!isGitUsable()) throw new GitUnavailableError()
-  const run = launchProcess('git', args, { ...GIT_DEFAULT_ENV, ...opts.env })
+  const run = launchProcess('git', withBareRepositoryGuard('git', args), { ...GIT_DEFAULT_ENV, ...opts.env })
   return execFileSync(run.file, run.args, {
     cwd,
     encoding: 'utf-8',
@@ -49,7 +50,7 @@ export async function runAsync(bin: string, args: string[], cwd: string, opts: G
   // The acting identity's environment, with a member's author once known: a
   // partial clone can turn any git command into a fetch, so every one acts as someone.
   const launch = await currentIdentity(`${bin} ${args[0] ?? ''}`.trim()).launchOptions(bin === 'git' ? { ...GIT_DEFAULT_ENV, ...opts.env } : opts.env)
-  const run = launchedProcess(launch, bin, args)
+  const run = launchedProcess(launch, bin, withBareRepositoryGuard(bin, args))
   const { stdout } = await execFileAsync(run.file, run.args, {
     cwd,
     encoding: 'utf-8',

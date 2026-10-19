@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, test } from 'bun:test'
-import type { AgentProfile } from '@solus/contracts/agent-profile'
+import type { AgentProfile, AgentProfileIntegrationEntry } from '@solus/contracts/agent-profile'
+import type { Integration, IntegrationConnection } from '@solus/contracts/integration-types'
 import { agentProfileChangeBetween } from '@solus/client-core/agent-profile-sync'
 import {
   agentProfileKeyLabel,
   conflictRows,
+  fileRowText,
   integrationEntryOf,
+  profileServerStatus,
   sectionsOf,
   skillEntryOf,
 } from '@solus/workspace-ui/components/settings/agent-profile/lib/agent-profile-entries'
@@ -45,6 +48,56 @@ describe('sections', () => {
       fileCount: 3,
     }])
     expect(sections.integrations.map((integration) => integration.slug)).toEqual(['deepwiki'])
+  })
+})
+
+describe('file rows', () => {
+  test('a file reads by its name, with the folder that says what it is and whether it runs', () => {
+    expect(fileRowText('agents/reviewer.md', false)).toEqual({ name: 'reviewer.md', detail: 'agents' })
+    expect(fileRowText('commands/deploy/run.sh', true)).toEqual({ name: 'run.sh', detail: 'commands/deploy · Executable' })
+    expect(fileRowText('settings.json', false)).toEqual({ name: 'settings.json', detail: 'Home folder' })
+  })
+})
+
+describe('a profile server on one host', () => {
+  const planetscale: AgentProfileIntegrationEntry = {
+    kind: 'integration', slug: 'planetscale', name: 'PlanetScale', url: 'https://mcp.pscale.dev/mcp/planetscale',
+    auth: { kind: 'oauth', discover: 'https://mcp.pscale.dev/.well-known/oauth-protected-resource/mcp/planetscale', registration: 'dynamic' },
+  }
+  const onHost: Integration = {
+    id: 'int-1', organizationId: 'local', ownerKey: 'person', kind: 'mcp', slug: 'planetscale', name: 'PlanetScale',
+    url: planetscale.url, auth: planetscale.auth, disabledTools: [], createdBy: null, createdAt: '', updatedAt: '',
+  }
+  const connection = (status: IntegrationConnection['status'], source: IntegrationConnection['source'] = 'host'): Map<string, IntegrationConnection> =>
+    new Map([['int-1', { integrationId: 'int-1', status, source, label: null, info: null, error: null, updatedAt: '' }]])
+
+  test('a server the profile put on the host, with no sign-in there, has no tools and offers Connect', () => {
+    // The cloud session that had no PlanetScale tools: the record synced, the sign-in did not.
+    expect(profileServerStatus(planetscale, [onHost], new Map())).toEqual({ text: 'Not connected', tone: 'attention', integrationId: 'int-1', canConnect: true })
+  })
+
+  test('a sign-in on the host or in the account reads as connected, with nothing to do', () => {
+    expect(profileServerStatus(planetscale, [onHost], connection('connected'))).toMatchObject({ text: 'Connected', tone: 'ready', canConnect: false })
+    expect(profileServerStatus(planetscale, [onHost], connection('connected', 'cloud'))).toMatchObject({ text: 'Connected in your Solus account', tone: 'ready' })
+  })
+
+  test('an expired sign-in asks to reconnect', () => {
+    expect(profileServerStatus(planetscale, [onHost], connection('needs-sign-in'))).toMatchObject({ text: 'Needs sign-in', tone: 'error', canConnect: true })
+  })
+
+  test('the host matches its record by address, not by name', () => {
+    const renamed = { ...onHost, name: 'Our database', slug: 'db' }
+    expect(profileServerStatus(planetscale, [renamed], connection('connected')).integrationId).toBe('int-1')
+  })
+
+  test('a server the host does not have yet: Connect adds it only when it needs a sign-in', () => {
+    expect(profileServerStatus(planetscale, [], new Map())).toEqual({ text: 'Not added yet', tone: 'attention', integrationId: null, canConnect: true })
+    const open = { ...planetscale, auth: { kind: 'none' as const } }
+    expect(profileServerStatus(open, [], new Map()).canConnect).toBe(false)
+  })
+
+  test('before the host answers, the row does not guess', () => {
+    expect(profileServerStatus(planetscale, null, new Map())).toMatchObject({ tone: 'unknown', canConnect: false })
   })
 })
 

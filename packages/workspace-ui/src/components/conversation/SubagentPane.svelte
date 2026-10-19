@@ -5,7 +5,9 @@
     CircleAlert as WarningCircleIcon,
     LoaderCircle as SpinnerIcon,
   } from "@lucide/svelte";
-  import { getSessionRecords } from "../../contexts";
+  import { SubagentHistoryStore, type SubagentHistoryState } from "@solus/client-core/subagent-history-store";
+  import { providerSubagentMessages } from "./lib/subagent-history";
+  import { getSessionRecords, getSurfaceContext } from "../../contexts";
   import CopyButton from "../ui/CopyButton.svelte";
   import { underStrip } from "../ui/lib/pane-strip";
   import RecordTranscript from "../session/record/RecordTranscript.svelte";
@@ -14,7 +16,7 @@
   import { formatActivityDuration } from "./lib/activity-summary";
   import { subagentTranscriptText } from "./lib/tool-trace";
   import { liveActivityClock } from "../../lib/shared-clock";
-  import { runHost } from "../../contexts/workspace/run-location";
+  import { runHost, workingPlace } from "../../contexts/workspace/run-location";
 
   /**
    * A sub-agent's run, read as a conversation: the brief the main agent wrote,
@@ -29,6 +31,7 @@
   let { sessionId, messageId }: Props = $props();
 
   const sessions = getSessionRecords();
+  const surface = getSurfaceContext();
   // The companion strip draws the seam for the pane it heads.
   const isUnderStrip = underStrip();
 
@@ -36,6 +39,30 @@
   const message = $derived(
     currentSession?.messages.find((m) => m.id === messageId),
   );
+
+  // A call without recorded child rows reads its provider history from the
+  // host. The store is keyed on plain values, so an unrelated change to the
+  // run does not start a new read.
+  const toolId = $derived(message?.toolId);
+  const provider = $derived(currentSession?.run.provider);
+  const projectPath = $derived(currentSession ? workingPlace(currentSession.run).path : undefined);
+  const history = $derived(
+    toolId && provider
+      ? new SubagentHistoryStore(surface.apiForSession(sessionId), { sessionId, toolId, provider, projectPath })
+      : null,
+  );
+  let saved = $state<SubagentHistoryState | null>(null);
+  $effect(() => {
+    if (!history || message?.subMessages?.length) return;
+    const source = history;
+    const read = () => {
+      saved = source.read();
+    };
+    const unsubscribe = source.subscribe(read);
+    read();
+    void source.load();
+    return unsubscribe;
+  });
 
   let now = $state(Date.now());
   // Read off the message, not off `row` — a clock the row depends on would
@@ -58,10 +85,17 @@
         })
       : null,
   );
-  const messages = $derived(message ? subagentConversation(message) : []);
+  const restored = $derived(saved ? providerSubagentMessages(saved.page.messages) : []);
+  const childMessages = $derived(message?.subMessages?.length ? message.subMessages : restored);
+  // A live run keeps its own rows; only a restored run is given the read ones.
+  const messages = $derived(
+    !message ? []
+      : message.subMessages?.length ? subagentConversation(message)
+        : subagentConversation({ ...message, subMessages: restored }),
+  );
   const liveStep = $derived(message && running ? subagentLiveStep(message) : null);
   const copyText = $derived(
-    message ? subagentTranscriptText(message.subMessages ?? []) : "",
+    message ? subagentTranscriptText(childMessages) : "",
   );
 
   // Follow a live run while the reader is at the end; leave them where they
@@ -116,6 +150,31 @@
   {#if message}
     <div class="min-h-0 flex-1 overflow-y-auto" bind:this={scroller} onscroll={onScroll}>
       <div class="mx-auto flex w-full max-w-(--solus-reading-max) flex-col px-6 pt-4 pb-8">
+        {#if !message.subMessages?.length && history}
+          <div class="mb-3 flex min-h-11 items-center gap-4 text-workspace-chrome text-(--solus-text-tertiary)">
+            <button
+              type="button"
+              class="min-h-11 hover:text-(--solus-text-primary)"
+              disabled={saved?.phase === "loading"}
+              onclick={() => void history?.load()}
+            >
+              {saved?.phase === "loading" ? "Loading activity…" : "Refresh activity"}
+            </button>
+            {#if saved?.page.before}
+              <button
+                type="button"
+                class="min-h-11 hover:text-(--solus-text-primary)"
+                disabled={saved.phase === "loading"}
+                onclick={() => void history?.load(true)}
+              >
+                Load earlier
+              </button>
+            {/if}
+          </div>
+          {#if saved?.phase === "error"}
+            <p role="alert" class="mb-3 text-(--solus-status-error)">{saved.error}</p>
+          {/if}
+        {/if}
         <RecordTranscript
           {messages}
           serverId={runHost(currentSession?.run) ?? ""}

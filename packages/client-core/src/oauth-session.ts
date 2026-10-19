@@ -240,7 +240,7 @@ export class OAuthSession {
 
   /**
    * The authorize request, with a new `state`, `nonce`, and PKCE verifier. The web
-   * client calls it itself and keeps `pending` across its top-level redirect.
+   * client calls it itself and sends it with one fetch (`resumeWebSignIn`).
    */
   async beginSignIn(redirectUri: string, options: { prompt?: 'none' } = {}): Promise<{ authorizeUrl: URL; pending: PendingSignIn }> {
     const discovery = await this.discovery()

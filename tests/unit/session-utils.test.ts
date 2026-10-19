@@ -8,7 +8,7 @@ import {
   computeCurrentActivity,
   formatDiffInlineComments,
 } from '@solus/workspace-ui/contexts/workspace/session.utils'
-import { fileMentionTarget, tokenizeMarkdownText } from '@solus/workspace-ui/components/conversation/lib/markdown-text'
+import { parseReviewCommentMessageSegments, parseReviewInlineComments, reviewCommentLocation } from '@solus/contracts/review-comment'
 import {
   attemptServerId,
   findOpenTabForSession,
@@ -92,7 +92,7 @@ describe('formatDiffInlineComments', () => {
       diffComment('const a = 1;\n\nconst b = 2;\n'),
     ])
 
-    expect(formatted).toContain('```\nconst a = 1;\nconst b = 2;\n```')
+    expect(parseReviewInlineComments(formatted)[0]?.diff).toBe('const a = 1;\nconst b = 2;')
   })
 
   test('preserves intentional blank lines in selected code', () => {
@@ -100,22 +100,22 @@ describe('formatDiffInlineComments', () => {
       diffComment('const a = 1;\n\n\n\nconst b = 2;\n'),
     ])
 
-    expect(formatted).toContain('```\nconst a = 1;\n\nconst b = 2;\n```')
+    expect(parseReviewInlineComments(formatted)[0]?.diff).toBe('const a = 1;\n\nconst b = 2;')
   })
 
-  test('names each file as a chip that opens the commented line', () => {
-    // WHY: the sent message is where the reader returns to the code; the chip
-    // must open the file at the first commented line, not at the top.
-    const [heading] = formatDiffInlineComments([diffComment('')]).split('\n')
-    const segments = tokenizeMarkdownText(heading)
+  test('the review card opens the first commented file line', () => {
+    const [comment] = parseReviewInlineComments(formatDiffInlineComments([diffComment('')]))
+    expect(comment).toMatchObject({ text: 'Tighten this branch.', rangeLabel: '10-12' })
+    expect(reviewCommentLocation(comment)).toEqual({ path: 'src/example.ts', line: 10 })
+  })
 
-    expect(segments).toEqual([
-      { type: 'text', value: '- ' },
-      { type: 'file', path: 'src/example.ts:10-12' },
-    ])
-    const chip = segments[1]
-    if (chip.type !== 'file') throw new Error('expected a file chip')
-    expect(fileMentionTarget(chip.path)).toEqual({ path: 'src/example.ts', line: 10 })
+  test('source that names the closing tag stays inside its card', () => {
+    // WHY: reviewing the parser itself must not cut the card short and spill
+    // the rest of the source into the message as prose.
+    const source = "const close = '</review_comment>'\nreturn close"
+    const segments = parseReviewCommentMessageSegments(formatDiffInlineComments([diffComment(source)]))
+    expect(segments).toHaveLength(1)
+    expect(segments[0]).toMatchObject({ kind: 'review-comment', comment: { diff: source, fenceLanguage: 'ts' } })
   })
 })
 

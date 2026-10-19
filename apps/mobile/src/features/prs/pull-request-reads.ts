@@ -42,6 +42,14 @@ export interface ReadSharing {
   force?: boolean
 }
 
+/** `retain` keeps what shows: given an answer and the value shown now, it
+ *  returns the answer with each equal part as the shown object, or the shown
+ *  value itself when all of it is equal. A reader that selects only the value
+ *  then sees no change; the read state still goes from loading to loaded. */
+export interface ReadOptions<T> extends ReadSharing {
+  retain?: (next: T, shown: T) => T
+}
+
 /** A shared read on the wire, and the connection it reads through. */
 interface SharedRead {
   request: number
@@ -73,9 +81,10 @@ export class HostReads {
    * arrived and does not wait for the slowest call. Only the final answer is
    * kept on the device.
    *
-   * With `sharing.share`, a read joins a shared read of the same key that is
-   * still current, unless `sharing.force`: screens that ask together cost
-   * one read.
+   * With `options.share`, a read joins a shared read of the same key that is
+   * still current, unless `options.force`: screens that ask together cost
+   * one read. With `options.retain`, a part or an answer equal to what shows
+   * keeps the shown object, and a part equal to what shows is not shown again.
    */
   read<T>(
     map: Map<string, LoadState<T>>,
@@ -83,15 +92,15 @@ export class HostReads {
     hostId: string,
     cacheKey: string,
     run: (connection: HostConnection, previous: T | null, show: (partial: T) => void) => Promise<T>,
-    sharing: ReadSharing = {},
+    options: ReadOptions<T> = {},
   ): Promise<void> {
     const onWire = this.shared.get(key)
-    if (sharing.share && !sharing.force && onWire && this.isCurrent(key, hostId, onWire)) return onWire.done
-    const done = this.start(map, key, hostId, cacheKey, run)
+    if (options.share && !options.force && onWire && this.isCurrent(key, hostId, onWire)) return onWire.done
+    const done = this.start(map, key, hostId, cacheKey, run, options.retain)
     // `start` has named its request and connection before its first wait.
     const connection = this.connectionFor(hostId)
     const request = this.requests.get(key)
-    if (sharing.share && connection && request !== undefined) {
+    if (options.share && connection && request !== undefined) {
       const entry = { request, connection, generation: connection.state.sessionGeneration, done }
       this.shared.set(key, entry)
       void done.finally(() => { if (this.shared.get(key) === entry) this.shared.delete(key) })
@@ -112,6 +121,7 @@ export class HostReads {
     hostId: string,
     cacheKey: string,
     run: (connection: HostConnection, previous: T | null, show: (partial: T) => void) => Promise<T>,
+    retain: ((next: T, shown: T) => T) | undefined,
   ): Promise<void> {
     const request = ++this.nextRequest
     this.requests.set(key, request)
@@ -129,10 +139,19 @@ export class HostReads {
       && this.connectionFor(hostId) === connection
       && connection.state.sessionGeneration === generation
     let running = true
+    /** The answer, with what equals the value shown now kept as that value. */
+    const kept = (answer: T): T => {
+      const shown = shownValue(map.get(key) ?? IDLE)
+      return retain && shown !== null ? retain(answer, shown) : answer
+    }
     const show = (partial: T) => {
       if (!running || !isCurrent()) return
-      previous = partial
-      map.set(key, { kind: 'loading', previous: partial })
+      const next = kept(partial)
+      const state = map.get(key)
+      // The state already shows this value while it reads.
+      if (state?.kind === 'loading' && state.previous === next) return
+      previous = next
+      map.set(key, { kind: 'loading', previous: next })
       this.changes.notify()
     }
     map.set(key, { kind: 'loading', previous })
@@ -145,7 +164,7 @@ export class HostReads {
     }
     let next: LoadState<T>
     try {
-      next = { kind: 'loaded', value: await run(connection, previous, show) }
+      next = { kind: 'loaded', value: kept(await run(connection, previous, show)) }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       next = { kind: 'error', message, githubAuth: isGithubAuthError(message), offline: connection.state.phase !== 'connected', previous }

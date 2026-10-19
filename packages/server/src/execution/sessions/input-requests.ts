@@ -98,8 +98,10 @@ export class InputRequests {
    */
   stampTurnAuthor(sessionId: string, event: NormalizedEvent): void {
     if (event.type !== 'permission_request' && event.type !== 'question_request' && event.type !== 'rate_limit') return
-    const author = this.rt.activeRunRequests.get(sessionId)?.actor?.user
-    if (author) event.turnAuthor = author
+    const actor = this.rt.activeRunRequests.get(sessionId)?.actor
+    if (actor?.user) event.turnAuthor = actor.user
+    // A link guest's turn runs in Ask mode (host-sharing.md §4.1): the card says why it asks.
+    if (event.type === 'permission_request' && actor?.principal.kind === 'guest') event.guestTurn = true
   }
 
   /** Says what was chosen on the provider's report of the answer. Who chose it is an activity of its own. */

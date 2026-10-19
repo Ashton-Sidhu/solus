@@ -35,6 +35,8 @@ export interface AgentRowPresentation {
   readonly workspace: readonly { readonly label: 'Project' | 'Branch' | 'Worktree' | 'Workspace'; readonly value: string }[]
   /** The session a tap opens; null when there is none to open (yet). */
   readonly sessionId: string | null
+  /** The provider subagent call a tap opens as its own read-only feed. */
+  readonly providerItemId?: string
   /** Why a row has no session to open, for the accessibility hint. */
   readonly unopenableReason: string | null
   readonly startedAt: number | null
@@ -158,7 +160,8 @@ export function subagentPresentation(tool: Extract<TranscriptItem, { kind: 'tool
     // It works in this session's own folder.
     workspace: [],
     sessionId: null,
-    unopenableReason: 'Runs inside this session; its work is in this transcript.',
+    providerItemId: tool.id,
+    unopenableReason: null,
     startedAt: null,
     endedAt: null,
   }

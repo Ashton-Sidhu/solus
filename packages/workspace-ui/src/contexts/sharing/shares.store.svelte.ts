@@ -346,8 +346,7 @@ export class SharesStore {
    */
   async setScope(serverId: string, list: ShareList, scope: ShareScope): Promise<void> {
     if (sameScope(scopeOf(list), scope)) return
-    const organizationId = serversStore.activeOrganizationId
-    await this.setEntries(serverId, scopeRequestFor(scope, list, organizationId))
+    await this.setEntries(serverId, scopeRequestFor(scope, list))
   }
 
   /** One person's own row, added or changed; every other row and the link stay as they are. */

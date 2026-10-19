@@ -1,5 +1,7 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
+  import { parseReviewCommentMessageSegments } from "@solus/contracts/review-comment";
+  import ReviewCommentCard from "./ReviewCommentCard.svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import MarkdownLink from "./MarkdownLink.svelte";
@@ -71,6 +73,7 @@
   const attachmentTabId = $derived(tabId ?? session?.focusedChatTabId ?? session?.activeTabId ?? "");
 
   const text = $derived(content ?? message?.content ?? "");
+  const reviewSegments = $derived(parseReviewCommentMessageSegments(text));
   const isPending = $derived(deliveryState !== 'sent');
   // Sent by the host's own work, not a person: an automation, a background
   // command that finished after the agent's turn, or a watched pull request's news.
@@ -423,11 +426,17 @@
               data-conversation-message-content
               data-conversation-message-id={message?.id}
             >
-              <SvelteMarkdown
-                source={text}
-                renderers={markdownRenderers}
-                sanitizeUrl={markdownSanitizeUrl}
-              />
+              {#each reviewSegments as segment}
+                {#if segment.kind === "review-comment"}
+                  <ReviewCommentCard comment={segment.comment} {tabId} />
+                {:else}
+                  <SvelteMarkdown
+                    source={segment.text}
+                    renderers={markdownRenderers}
+                    sanitizeUrl={markdownSanitizeUrl}
+                  />
+                {/if}
+              {/each}
             </div>
           </div>
           {#if canCollapse}

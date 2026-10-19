@@ -584,15 +584,16 @@
     { enabled: () => tabId === session.focusedChatTabId },
   );
 
+  // The interrupt key, and Cancel on a setup card: the tab settles now, the host stops the run.
+  function stopRun() {
+    session.controls.interruptTabSession(tabId);
+    void session.apiFor(tabId).stopSession(session.ctxFor(tabId).session.sessionId);
+    requestInputFocus();
+  }
+
   useKeybinding(
     "conversation.interrupt",
-    () => {
-      session.controls.interruptTabSession(tabId);
-      session
-        .apiFor(tabId)
-        .stopSession(session.ctxFor(tabId).session.sessionId);
-      requestInputFocus();
-    },
+    stopRun,
     {
       enabled: () =>
         tabId === session.focusedChatTabId &&
@@ -787,7 +788,7 @@
                 onStopBackgroundWork={stopBackgroundWork}
                 attempt={sess.retryAttempt ?? 1} history={session.toolHistory}
                 onToggle={(expanded) => toggleTurn(turn.id, expanded)} onRetry={handleRetry}
-                serverId={runHost(sess.run)} sessionId={sess.id} {transcriptItem} />
+                serverId={runHost(sess.run)} {transcriptItem} />
             {/snippet}
           </VirtualTranscript>
 
@@ -800,7 +801,12 @@
           {/snippet}
 
           {#if sess.statusCard}
-            <StatusCard card={sess.statusCard} onRetry={() => session.controls.recoverWorktreeSetup(tabId, false)} onWorkLocally={() => session.controls.recoverWorktreeSetup(tabId, true)} />
+            <StatusCard
+              card={sess.statusCard}
+              onRetry={() => session.controls.recoverWorktreeSetup(tabId, false)}
+              onWorkLocally={() => session.controls.recoverWorktreeSetup(tabId, true)}
+              onCancel={stopRun}
+            />
           {/if}
 
           {#if sess.permissionQueue.length > 0}

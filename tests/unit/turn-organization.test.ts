@@ -9,12 +9,12 @@ import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// docs/plans/organization-scope.md §3, §3.1, §6.1, R9–R11: at the start of a
-// turn an unassigned Local session is assigned to the window's organization,
-// once, and only when that organization's Insights would leave this machine;
-// a session already assigned keeps its organization; an organization that
-// refuses personal hosts does not run on one; and the verified account behind
-// the turn is stamped on the actor.
+// docs/plans/organization-scope.md §3, §6.1, R9–R11: at the start of a turn
+// an unassigned Local session is assigned to the window's organization, once:
+// the organization of the person who started it, whatever their Insights
+// setting; a session already assigned keeps its organization; an
+// organization's personal-host policy refuses no turn; and the verified
+// account behind the turn is stamped on the actor.
 
 let turnOrganization: typeof import('@solus/server/execution/sessions/turn-organization')
 let organizations: typeof import('@solus/server/host/organizations')
@@ -94,7 +94,7 @@ const localRecord = (sessionId: string) => records.upsertOwnSessionRecord({ sess
 const organizationOf = async (sessionId: string) => (await records.getSessionRecord((await import('@solus/server/admission/principal')).ANY_ORGANIZATION, sessionId))?.organizationId ?? null
 
 describe('admitting a turn', () => {
-  test('the owner\'s prompt from a window in A assigns a Local session to A, once; a window in B, whose Insights stay home, leaves it Local', async () => {
+  test('the owner\'s prompt from a window in A assigns a Local session to A, once; a window in B assigns B, though its Insights stay home', async () => {
     await localRecord('s-a')
     expect(await turnOrganization.admitTurnOrganization(ctx('s-a', 'A'), actorFor(OWNER), { hostOrganizations })).toBe('A')
     expect(await organizationOf('s-a')).toBe('A')
@@ -102,12 +102,16 @@ describe('admitting a turn', () => {
     expect(await turnOrganization.admitTurnOrganization(ctx('s-a', 'B'), actorFor(OWNER), { hostOrganizations })).toBe('A')
     expect(await organizationOf('s-a')).toBe('A')
 
+    // WHY: the organization is the person's, not the Insights destination. The
+    // Insights setting decides only what is sent (`insightsEligible`).
     await localRecord('s-b')
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-b', 'B'), actorFor(OWNER), { hostOrganizations })).toBe('local')
-    expect(await organizationOf('s-b')).toBe('local')
+    expect(insightMirror.insightsEligible('B')).toBe(false)
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-b', 'B'), actorFor(OWNER), { hostOrganizations })).toBe('B')
+    expect(await organizationOf('s-b')).toBe('B')
     // No window selection, or Local selected: Local it stays.
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-b'), actorFor(OWNER), { hostOrganizations })).toBe('local')
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-b', 'local'), actorFor(OWNER), { hostOrganizations })).toBe('local')
+    await localRecord('s-none')
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-none'), actorFor(OWNER), { hostOrganizations })).toBe('local')
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-none', 'local'), actorFor(OWNER), { hostOrganizations })).toBe('local')
   })
 
   test('nobody may name an organization the host has never heard of; a member names only their own', async () => {
@@ -126,17 +130,12 @@ describe('admitting a turn', () => {
     expect(await localRecord('s-fresh')).toMatchObject({ organizationId: 'A' })
   })
 
-  test('an organization that refuses personal hosts does not run on one, even for the owner; a self-hosted server may', async () => {
+  test('an organization that refuses personal hosts still runs its members\' turns on their own computer', async () => {
+    // WHY: that policy decides only whether a person may link their computer to
+    // the cloud and expose it. A session that names the organization is still
+    // the person's own work on their own machine.
     await localRecord('s-in-b')
     await records.assignSessionOrganization('s-in-b', 'B')
-    const refused = turnOrganization.admitTurnOrganization(ctx('s-in-b', 'B'), actorFor(OWNER), { hostOrganizations })
-    await expect(refused).rejects.toBeInstanceOf((await import('@solus/server/execution/sessions/turn-refusal')).TurnRefusedError)
-    await expect(refused).rejects.toMatchObject({ code: 'PERSONAL_HOSTS_NOT_ALLOWED', message: expect.stringContaining('Bolt') })
-    hostCategory.applyHostCategory('self-hosted')
-    try {
-      expect(await turnOrganization.admitTurnOrganization(ctx('s-in-b', 'B'), actorFor(OWNER), { hostOrganizations })).toBe('B')
-    } finally {
-      hostCategory.resetHostCategoryForTests()
-    }
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-in-b', 'B'), actorFor(OWNER), { hostOrganizations })).toBe('B')
   })
 })

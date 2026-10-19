@@ -196,7 +196,8 @@ describe('native feed: agent groups', () => {
 
   test('a finished turn folds its agents with the rest of its work', () => {
     const input = entries(['u', 'user'], ['p1', 'assistant'], ['a1', 'agent'], ['p2', 'assistant'], ['p3', 'assistant'])
-    expect(present(input, false).map((row) => row.type)).toEqual(['message', 'message', 'run-fold', 'message'])
+    // The turn's image row follows the reply, outside the fold; it draws nothing when the prose has no images.
+    expect(present(input, false).map((row) => row.type)).toEqual(['message', 'message', 'run-fold', 'message', 'turn-images'])
     expect(present(input, false, ['turn:u']).map((row) => row.type)).toContain('agents')
   })
 })

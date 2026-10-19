@@ -369,19 +369,10 @@ export class WsTransport {
         ? this.transcribeAudio(audio, ctx)
         : this.invoke('transcribeAudio', [audio, ctx]))
 
+    // Records go over this socket: its principal is their authority, so no credential is exchanged.
     const records = workspaceRecordMethods(new SolusApiClient({
-      baseUrl: () => this.opts.serverUrl,
-      contextKey: () => JSON.stringify([this.opts.serverId, this.opts.organizationId?.() ?? null]),
-      organizationId: () => this.opts.acquireGrant ? this.opts.dialOrganizationId?.() ?? null : null,
-      acquireSource: async () => {
-        if (this.opts.acquireGrant) return this.opts.acquireGrant()
-        // A link guest presents the secret alone, as at the ticket door.
-        if (this.opts.guestIdentity) return null
-        await this.refreshToken()
-        return this.opts.sessionToken
-      },
-      shareSecret: this.opts.shareSecret,
-      guestIdentity: this.opts.guestIdentity,
+      contextKey: () => JSON.stringify([this.opts.serverUrl, this.opts.serverId, this.opts.organizationId?.() ?? null]),
+      send: request => this.invoke('solusApiRequest', [request]),
     }), id => this.invoke('tasksReadExtras', [id]))
     return Object.assign(api, records)
   }

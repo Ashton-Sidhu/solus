@@ -83,8 +83,8 @@ describe('a session is settled for everyone, and archived or snoozed for one per
     const changed: Array<[string, number | null]> = []
     const stop = states.onSessionStateChanged((sessionId, state) => changed.push([sessionId, state.settledAt]))
     try {
-      expect(await shelf('session-1').settle('person', 100)).toBe(true)
-      expect(await shelf('session-1').settle('person', 200)).toBe(false)
+      expect(await shelf('session-1').settle('person', 100)).toEqual({ settledAt: 100, settledBy: 'person' })
+      expect(await shelf('session-1').settle('person', 200)).toBeNull()
       expect(await stateOf('session-1')).toMatchObject({ settledAt: 100, settledBy: 'person' })
       expect(await shelf('session-1').unsettle()).toBe(true)
       expect(await stateOf('session-1')).toBeNull()

@@ -7,10 +7,11 @@ import {
   type AgentProfileKey,
   type AgentProfileSkillEntry,
 } from '@solus/contracts/agent-profile'
-import { integrationSlug, type IntegrationAuth } from '@solus/contracts/integration-types'
+import { integrationSlug, type Integration, type IntegrationAuth, type IntegrationConnection } from '@solus/contracts/integration-types'
 import type { SeatProvider } from '@solus/contracts/seats'
-import type { RemoteSkill } from '@solus/contracts/types'
+import type { AgentMetadata, RemoteSkill } from '@solus/contracts/types'
 import type { AgentProfileConflict } from '@solus/client-core/agent-profile-sync'
+import { integrationStatusText } from '../../lib/integration-labels'
 
 /**
  * The agent profile document as the Settings page reads it (plans/020 §3):
@@ -102,6 +103,53 @@ export function integrationEntryOf(name: string, url: string, auth: IntegrationA
   return parsed.success && parsed.data.kind === 'integration' ? parsed.data : null
 }
 
+/** What a copied file's row says. */
+export interface FileRowText {
+  name: string
+  detail: string
+}
+
+/**
+ * A copied file's row: its file name, then the folder that says what it is
+ * ("agents", "commands") and whether it runs. A file at the home's root names
+ * no folder.
+ */
+export function fileRowText(path: string, executable: boolean): FileRowText {
+  const slash = path.lastIndexOf('/')
+  const folder = slash > 0 ? path.slice(0, slash) : 'Home folder'
+  return { name: path.slice(slash + 1), detail: executable ? `${folder} · Executable` : folder }
+}
+
+/**
+ * A profile server as one host has it: whether its tools reach agents there.
+ * `integrationId` is the host's record of it, found by address; null until the
+ * profile reaches the host. `canConnect` shows Connect beside the status.
+ */
+export interface ProfileServerStatus {
+  text: string
+  tone: 'ready' | 'attention' | 'error' | 'unknown'
+  integrationId: string | null
+  canConnect: boolean
+}
+
+/**
+ * The status of a profile server on one host, from that host's server list and
+ * the person's connections there. Null `installed` means the host has not
+ * answered yet; a server with no sign-in needs nothing more than its record.
+ */
+export function profileServerStatus(
+  entry: AgentProfileIntegrationEntry,
+  installed: readonly Integration[] | null,
+  connections: ReadonlyMap<string, IntegrationConnection>,
+): ProfileServerStatus {
+  if (!installed) return { text: 'Checking…', tone: 'unknown', integrationId: null, canConnect: false }
+  const integration = installed.find((item) => item.url === entry.url)
+  // Connect adds the server on the way, so only one that needs a sign-in offers it.
+  if (!integration) return { text: 'Not added yet', tone: 'attention', integrationId: null, canConnect: entry.auth.kind !== 'none' }
+  const status = integrationStatusText(integration.auth, connections.get(integration.id) ?? null)
+  return { text: status.text, tone: status.tone, integrationId: integration.id, canConnect: status.canConnect }
+}
+
 /** How a server authenticates, in two words. */
 export function authKindLabel(auth: IntegrationAuth): string {
   switch (auth.kind) {
@@ -175,4 +223,30 @@ export interface ListPage<T> {
 export function pageOf<T>(items: readonly T[], expanded: boolean): ListPage<T> {
   if (expanded || items.length <= PROFILE_PAGE_SIZE) return { rows: items, hiddenCount: 0 }
   return { rows: items.slice(0, PROFILE_PAGE_SIZE), hiddenCount: items.length - PROFILE_PAGE_SIZE }
+}
+
+// ─── Per-model instructions ───
+
+export interface ModelInstructionGroup {
+  agentLabel: string
+  models: Array<{ id: string; label: string }>
+}
+
+/**
+ * The models of the available agents, grouped by agent for the per-model
+ * instructions picker. Instructions are keyed by resolved model id alone (the
+ * run's `statusBar.model`), not per agent, so an id an earlier agent claims is
+ * left out of later groups rather than shown twice.
+ */
+export function modelInstructionGroups(agents: readonly AgentMetadata[], metadata: Record<string, AgentMetadata | null>): ModelInstructionGroup[] {
+  const seen = new Set<string>()
+  const groups: ModelInstructionGroup[] = []
+  for (const agent of agents) {
+    const current = metadata[agent.id] ?? agent
+    if (current.available !== true) continue
+    const models = current.models.filter((model) => !seen.has(model.id))
+    for (const model of models) seen.add(model.id)
+    if (models.length > 0) groups.push({ agentLabel: current.label, models })
+  }
+  return groups
 }

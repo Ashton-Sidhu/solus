@@ -1143,7 +1143,7 @@ solus pair</div>
 					['⌥F', 'Fork session'],
 					['⌥⇧/', 'Toggle split chat'],
 					['⌃Tab / ⌃⇧Tab', 'Next / previous branch tab (web: ⌥⇧→ / ⌥⇧←)'],
-					['⌥⇧N / ⌥⇧P', 'Next / previous session in branch'],
+					['⌥⇧N / ⌥⇧P', 'Next / previous session in the sidebar'],
 					['⌘⇧W', 'Close tab (web: ⌥⇧W)'],
 					['⌥⇧U', 'Group tabs by status'],
 				])}

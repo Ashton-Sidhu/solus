@@ -38,12 +38,15 @@ import {
 } from "../../lib/adaptive-navigation";
 import type { RootStackParamList } from "../../navigation/routes";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
-import { AndroidHomeFabLayout } from "../home/AndroidHomeFab";
 import { HomeListOptionsProvider } from "../home/home-list-options";
 import { threadKey, type SolusThreadShell } from "../threads/thread-directory";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
 import { useThreadListRefresh } from "../threads/use-thread-list";
 import { useAgentLiveActivity } from "../live-activity/use-agent-live-activity";
+import {
+  ANDROID_WORKSPACE_RAIL_WIDTH,
+  AndroidWorkspaceRail,
+} from "../workspace/AndroidWorkspaceNavigation";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
@@ -59,6 +62,8 @@ export interface WorkspaceLocation {
   readonly routeKey: string | undefined;
   /** The thread the workspace shows, when it shows one. */
   readonly thread: RootStackParamList["Thread"] | null;
+  /** Settings is the selected Android destination: its pages are on top of the stack. */
+  readonly settingsOpen: boolean;
 }
 
 interface AdaptiveWorkspaceContextValue {
@@ -119,6 +124,12 @@ function isFileRoute(routeName: WorkspaceLocation["routeName"]): boolean {
   return routeName === "Files" || routeName === "File";
 }
 
+/** A split Android layout leads with the navigation rail; it hides with the sidebar. */
+function workspaceRailWidth(layout: Layout, showPrimarySidebar: boolean): number {
+  const shown = Platform.OS === "android" && layout.usesSplitView && showPrimarySidebar;
+  return shown ? ANDROID_WORKSPACE_RAIL_WIDTH : 0;
+}
+
 export function AdaptiveWorkspaceLayout(props: {
   readonly children: ReactNode;
   readonly location: WorkspaceLocation;
@@ -147,6 +158,8 @@ export function AdaptiveWorkspaceLayout(props: {
     useState<WorkspaceAuxiliaryPaneRole | null>(null);
   const baseLayout = useMemo(() => deriveLayout({ width, height }), [height, width]);
   const layout = baseLayout;
+  const railWidth = workspaceRailWidth(layout, showPrimarySidebar);
+  const panesWidth = width - railWidth;
   // In split layouts the sidebar IS the thread list — it renders on every
   // route, including Home (which shows an empty-detail pane instead of the
   // compact list).
@@ -155,12 +168,12 @@ export function AdaptiveWorkspaceLayout(props: {
     () =>
       deriveFileInspectorPaneLayout({
         layout,
-        viewportWidth: width,
+        viewportWidth: panesWidth,
         preferredWidth: fileInspectorPreferredWidth ?? undefined,
         reservedLeadingWidth:
           shouldRenderPrimarySidebar && showPrimarySidebar ? (layout.listPaneWidth ?? 0) : 0,
       }),
-    [fileInspectorPreferredWidth, layout, showPrimarySidebar, shouldRenderPrimarySidebar, width],
+    [fileInspectorPreferredWidth, layout, showPrimarySidebar, shouldRenderPrimarySidebar, panesWidth],
   );
   const auxiliaryPaneRole: WorkspaceAuxiliaryPaneRole =
     focusedAuxiliaryPaneRole ?? (isFileRoute(routeName) ? "inspector" : "supplementary");
@@ -176,7 +189,7 @@ export function AdaptiveWorkspaceLayout(props: {
     () =>
       deriveWorkspacePaneLayout({
         layout,
-        viewportWidth: width,
+        viewportWidth: panesWidth,
         primarySidebarPreferredVisible: showPrimarySidebar,
         auxiliaryPanePreferredVisible,
         auxiliaryPaneRole,
@@ -188,7 +201,7 @@ export function AdaptiveWorkspaceLayout(props: {
       auxiliaryPanePreferredWidth,
       layout,
       showPrimarySidebar,
-      width,
+      panesWidth,
     ],
   );
   const activeThread = props.location.thread;
@@ -297,15 +310,25 @@ export function AdaptiveWorkspaceLayout(props: {
   const renderedSidebarWidth = useSharedValue(
     panes.primarySidebarVisible ? (layout.listPaneWidth ?? 0) : 0,
   );
+  const renderedRailWidth = useSharedValue(railWidth);
   useEffect(() => {
     if (nativeWorkspace) return;
     const targetWidth = panes.primarySidebarVisible ? (layout.listPaneWidth ?? 0) : 0;
     renderedSidebarWidth.value = withTiming(targetWidth, WORKSPACE_PANE_TIMING);
-  }, [nativeWorkspace, layout.listPaneWidth, panes.primarySidebarVisible, renderedSidebarWidth]);
+    renderedRailWidth.value = withTiming(railWidth, WORKSPACE_PANE_TIMING);
+  }, [
+    nativeWorkspace,
+    layout.listPaneWidth,
+    panes.primarySidebarVisible,
+    railWidth,
+    renderedRailWidth,
+    renderedSidebarWidth,
+  ]);
   const sidebarAnimatedStyle = useAnimatedStyle(() => ({
     opacity: Math.min(1, renderedSidebarWidth.value / 80),
     width: renderedSidebarWidth.value,
   }));
+  const railAnimatedStyle = useAnimatedStyle(() => ({ width: renderedRailWidth.value }));
 
   // Freeze the content pane at its SETTLED width while the side panes
   // animate. The navigator (native header + markdown feed) lays out ONCE per
@@ -322,7 +345,10 @@ export function AdaptiveWorkspaceLayout(props: {
     : null;
   const renderedInspectorWidth = useSharedValue(inspectorColumnTargetWidth);
   const renderedContentWidth = useDerivedValue(() =>
-    Math.max(0, width - renderedSidebarWidth.value - renderedInspectorWidth.value),
+    Math.max(
+      0,
+      width - renderedRailWidth.value - renderedSidebarWidth.value - renderedInspectorWidth.value,
+    ),
   );
 
   const handleSelectThread = useCallback(
@@ -409,6 +435,8 @@ export function AdaptiveWorkspaceLayout(props: {
     <HomeListOptionsProvider>
       <AdaptiveWorkspaceContext.Provider value={contextValue}>
         <View testID="adaptive-workspace-layout" className="flex-1 flex-row">
+          {/* The rail's slot, 0 wide without one; the rail itself draws over the panes below, so it can widen in place. */}
+          <Animated.View className="self-stretch" style={railAnimatedStyle} />
           {shouldRenderPrimarySidebar && layout.listPaneWidth !== null ? (
             <Animated.View
               className="self-stretch overflow-hidden"
@@ -430,19 +458,18 @@ export function AdaptiveWorkspaceLayout(props: {
                     />
                   )}
                 >
-                  <AndroidHomeFabLayout sidebar onStartNewTask={handleStartNewTask}>
-                    <ThreadNavigationSidebar
-                      width={layout.listPaneWidth}
-                      visible={panes.primarySidebarVisible}
-                      onRequestVisibility={revealPrimarySidebar}
-                      selectedThreadKey={selectedThreadKey}
-                      onOpenSettings={handleOpenSettings}
-                      onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
-                      onSelectThread={handleSelectThread}
-                      onSearchQueryChange={setPrimarySidebarSearchQuery}
-                      searchQuery={primarySidebarSearchQuery}
-                    />
-                  </AndroidHomeFabLayout>
+                  {/* New session is in the rail on Android, so the sidebar has no button of its own. */}
+                  <ThreadNavigationSidebar
+                    width={layout.listPaneWidth}
+                    visible={panes.primarySidebarVisible}
+                    onRequestVisibility={revealPrimarySidebar}
+                    selectedThreadKey={selectedThreadKey}
+                    onOpenSettings={handleOpenSettings}
+                    onOpenEnvironmentSettings={handleOpenEnvironmentSettings}
+                    onSelectThread={handleSelectThread}
+                    onSearchQueryChange={setPrimarySidebarSearchQuery}
+                    searchQuery={primarySidebarSearchQuery}
+                  />
                 </RenderErrorBoundary>
               </View>
             </Animated.View>
@@ -481,6 +508,13 @@ export function AdaptiveWorkspaceLayout(props: {
             renderInspector={workspaceInspector?.render}
             setAuxiliaryPaneWidth={setAuxiliaryPaneWidth}
             onClosed={handleWorkspaceInspectorClosed}
+          />
+          <AndroidWorkspaceRail
+            split={layout.usesSplitView}
+            visible={railWidth > 0}
+            settingsOpen={props.location.settingsOpen}
+            onStartNewTask={handleStartNewTask}
+            onSelect={revealPrimarySidebar}
           />
         </View>
       </AdaptiveWorkspaceContext.Provider>

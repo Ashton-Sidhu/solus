@@ -1,7 +1,10 @@
 // Adapted from T3 Code apps/mobile/src/features/review/reviewCommentSelection.ts (MIT, see UPSTREAM.md).
-// Solus has no composer context chips, so the parsers read the text as is
-// (T3 masks `t3-context://` chip labels before it matches review blocks).
+// The block format and its parser live in @solus/contracts/review-comment, shared
+// with desktop and web. Solus has no composer context chips, so the parser reads
+// the text as is (T3 masks `t3-context://` chip labels before it matches blocks).
 import { useSyncExternalStore } from "react";
+
+import { formatReviewComment } from "@solus/contracts/review-comment";
 
 import type { ReviewRenderableLineRow } from "./reviewModel";
 
@@ -14,35 +17,8 @@ export interface ReviewCommentTarget {
   readonly endIndex: number;
 }
 
-export interface ReviewInlineComment {
-  readonly id: string;
-  readonly sectionId: string;
-  readonly sectionTitle: string;
-  readonly filePath: string;
-  readonly startIndex: number;
-  readonly endIndex: number;
-  readonly rangeLabel: string;
-  readonly text: string;
-  readonly diff: string;
-  readonly fenceLanguage?: string;
-}
-
-export type ReviewCommentMessageSegment =
-  | {
-      readonly kind: "text";
-      readonly id: string;
-      readonly text: string;
-    }
-  | {
-      readonly kind: "review-comment";
-      readonly comment: ReviewInlineComment;
-    };
-
 let currentTarget: ReviewCommentTarget | null = null;
 const listeners = new Set<() => void>();
-const REVIEW_COMMENT_BLOCK_PATTERN = /<review_comment\b([^>]*)>\s*([\s\S]*?)<\/review_comment>/g;
-const REVIEW_COMMENT_ATTRIBUTE_PATTERN = /([a-zA-Z][a-zA-Z0-9_-]*)="([^"]*)"/g;
-const REVIEW_COMMENT_FENCE_PATTERN = /(`{3,})([^\s`]*)[^\n]*\n([\s\S]*?)\n\1/g;
 
 function emitChange() {
   listeners.forEach((listener) => listener());
@@ -166,182 +142,19 @@ function formatReviewSelectedDiff(target: ReviewCommentTarget): string {
   ].join("\n");
 }
 
-function escapeReviewCommentAttribute(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function unescapeReviewCommentAttribute(value: string): string {
-  return value
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&");
-}
-
-function readReviewCommentAttributes(rawAttributes: string): Map<string, string> {
-  const attributes = new Map<string, string>();
-  for (const match of rawAttributes.matchAll(REVIEW_COMMENT_ATTRIBUTE_PATTERN)) {
-    attributes.set(match[1]!, unescapeReviewCommentAttribute(match[2] ?? ""));
-  }
-  return attributes;
-}
-
-function readNonNegativeInteger(value: string | undefined): number | null {
-  if (value === undefined || !/^\d+$/.test(value)) {
-    return null;
-  }
-  return Number(value);
-}
-
-type ReviewCommentBody = {
-  text: string;
-  language: string;
-  contents: string;
-};
-
-function extractReviewCommentBody(rawBody: string): ReviewCommentBody {
-  const matches = Array.from(rawBody.matchAll(REVIEW_COMMENT_FENCE_PATTERN));
-  const match = matches.at(-1);
-  const fenceIndex = match?.index;
-  return {
-    text: rawBody.slice(0, fenceIndex ?? rawBody.length).trim(),
-    language: match?.[2]?.trim() || "diff",
-    contents: match?.[3] ?? "",
-  };
-}
-
-function parseReviewInlineComment(
-  rawAttributes: string,
-  rawBody: string,
-  index: number,
-): ReviewInlineComment | null {
-  const attributes = readReviewCommentAttributes(rawAttributes);
-  const startIndex = readNonNegativeInteger(attributes.get("startIndex"));
-  const endIndex = readNonNegativeInteger(attributes.get("endIndex"));
-  const filePath = attributes.get("filePath")?.trim();
-  const sectionId = attributes.get("sectionId")?.trim();
-  if (!filePath || !sectionId || startIndex === null || endIndex === null) {
-    return null;
-  }
-  const body = extractReviewCommentBody(rawBody);
-
-  return {
-    id: `review-comment:${index}:${sectionId}:${filePath}:${startIndex}:${endIndex}`,
-    sectionId,
-    sectionTitle: attributes.get("sectionTitle")?.trim() || "Review",
-    filePath,
-    startIndex: Math.min(startIndex, endIndex),
-    endIndex: Math.max(startIndex, endIndex),
-    rangeLabel: attributes.get("rangeLabel")?.trim() || "line",
-    text: body.text,
-    diff: body.contents,
-    fenceLanguage: body.language,
-  };
-}
-
 export function formatReviewCommentContext(target: ReviewCommentTarget, comment: string): string {
-  const rangeLabel = formatReviewSelectedRangeLabel(target);
-  const diff = formatReviewSelectedDiff(target);
-  const longestBacktickRun = Math.max(
-    0,
-    ...Array.from(diff.matchAll(/`+/g), (match) => match[0].length),
-  );
-  const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
-  return [
-    [
-      "<review_comment",
-      ` sectionId="${escapeReviewCommentAttribute(target.sectionId)}"`,
-      ` sectionTitle="${escapeReviewCommentAttribute(target.sectionTitle)}"`,
-      ` filePath="${escapeReviewCommentAttribute(target.filePath)}"`,
-      ` startIndex="${target.startIndex}"`,
-      ` endIndex="${target.endIndex}"`,
-      ` rangeLabel="${escapeReviewCommentAttribute(rangeLabel)}"`,
-      ">",
-    ].join(""),
-    comment.trim(),
-    `${fence}diff`,
-    diff,
-    fence,
-    "</review_comment>",
-  ].join("\n");
+  return formatReviewComment({
+    sectionId: target.sectionId,
+    sectionTitle: target.sectionTitle,
+    filePath: target.filePath,
+    startIndex: target.startIndex,
+    endIndex: target.endIndex,
+    rangeLabel: formatReviewSelectedRangeLabel(target),
+    text: comment,
+    diff: formatReviewSelectedDiff(target),
+  });
 }
 
 export function countReviewCommentContexts(value: string): number {
   return Array.from(value.matchAll(/<review_comment\b/g)).length;
-}
-
-export function parseReviewInlineComments(value: string): ReadonlyArray<ReviewInlineComment> {
-  const comments: ReviewInlineComment[] = [];
-  for (const [index, match] of Array.from(value.matchAll(REVIEW_COMMENT_BLOCK_PATTERN)).entries()) {
-    const matchIndex = match.index;
-    const raw = value.slice(matchIndex, matchIndex + match[0].length);
-    const attributeStart = "<review_comment".length;
-    const attributeEnd = attributeStart + (match[1]?.length ?? 0);
-    const comment = parseReviewInlineComment(
-      raw.slice(attributeStart, attributeEnd),
-      raw.slice(attributeEnd + 1, -"</review_comment>".length),
-      index,
-    );
-    if (!comment) {
-      continue;
-    }
-
-    comments.push(comment);
-  }
-  return comments;
-}
-
-export function parseReviewCommentMessageSegments(
-  value: string,
-): ReadonlyArray<ReviewCommentMessageSegment> {
-  const segments: ReviewCommentMessageSegment[] = [];
-  let cursor = 0;
-  let parsedCommentIndex = 0;
-  for (const match of value.matchAll(REVIEW_COMMENT_BLOCK_PATTERN)) {
-    const matchIndex = match.index;
-    const beforeText = value.slice(cursor, matchIndex);
-    if (beforeText.length > 0) {
-      segments.push({
-        kind: "text",
-        id: `review-comment-text:${cursor}`,
-        text: beforeText,
-      });
-    }
-
-    const raw = value.slice(matchIndex, matchIndex + match[0].length);
-    const attributeStart = "<review_comment".length;
-    const attributeEnd = attributeStart + (match[1]?.length ?? 0);
-    const comment = parseReviewInlineComment(
-      raw.slice(attributeStart, attributeEnd),
-      raw.slice(attributeEnd + 1, -"</review_comment>".length),
-      parsedCommentIndex,
-    );
-    if (comment) {
-      segments.push({ kind: "review-comment", comment });
-      parsedCommentIndex += 1;
-    } else {
-      segments.push({
-        kind: "text",
-        id: `review-comment-invalid:${matchIndex}`,
-        text: value.slice(matchIndex, matchIndex + match[0].length),
-      });
-    }
-
-    cursor = matchIndex + match[0].length;
-  }
-
-  const rest = value.slice(cursor);
-  if (rest.length > 0) {
-    segments.push({
-      kind: "text",
-      id: `review-comment-text:${cursor}`,
-      text: rest,
-    });
-  }
-
-  return segments;
 }

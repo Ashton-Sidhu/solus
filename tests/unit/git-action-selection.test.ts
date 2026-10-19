@@ -105,9 +105,11 @@ describe('gitPublishModel — published', () => {
     })
   })
 
-  test('blocks publishing when the branch is behind its upstream', () => {
-    expect(gitPublishModel(status({ behindCount: 2 }), PUBLISHED).pullRequest.primary).toMatchObject({
-      kind: 'disabled',
+  // The commit row hides on a clean branch, so the PR row must offer the sync
+  // itself, or a branch that is only behind has no way to catch up.
+  test('a branch behind its upstream syncs from the PR row before publishing', () => {
+    expect(gitPublishModel(status({ behindCount: 2 }), PUBLISHED).pullRequest.primary).toEqual({
+      kind: 'sync',
       label: 'Sync before publishing',
     })
   })
@@ -136,6 +138,30 @@ describe('gitPublishModel — published', () => {
     })
     expect(step(gitPublishModel(status({ uncommittedChanges: dirty() }), PUBLISHED), 'commit_with_options').disabled)
       .toBe(false)
+  })
+
+  // The commit row is shown only while it has work: a clean, fully pushed
+  // branch has nothing to commit or push, so the row would only be noise.
+  test('the commit row has work only while something can be committed or pushed', () => {
+    expect(gitPublishModel(status(), PUBLISHED).commit.hasWork).toBe(false)
+    expect(gitPublishModel(status({ uncommittedChanges: dirty() }), PUBLISHED).commit.hasWork).toBe(true)
+    expect(gitPublishModel(status({ aheadCount: 2 }), PUBLISHED).commit.hasWork).toBe(true)
+    expect(gitPublishModel(status({ upstreamRef: null, targetAheadCount: 2 }), PUBLISHED).commit.hasWork).toBe(true)
+    expect(gitPublishModel(status({ aheadCount: 3 }), LOCAL_ONLY).commit.hasWork).toBe(false)
+    expect(gitPublishModel(status({ uncommittedChanges: dirty() }), LOCAL_ONLY).commit.hasWork).toBe(true)
+  })
+
+  test('a clean branch with unpushed commits offers only the push', () => {
+    expect(gitPublishModel(status({ aheadCount: 2 }), PUBLISHED).commit.primary).toEqual({
+      kind: 'run',
+      label: 'Push',
+      action: 'push',
+    })
+    expect(gitPublishModel(status({ aheadCount: 2, behindCount: 1 }), PUBLISHED).commit.primary).toEqual({
+      kind: 'disabled',
+      label: 'Push',
+      reason: 'The branch is behind its upstream — sync first.',
+    })
   })
 
   test('push counts against the target branch until the branch has an upstream', () => {

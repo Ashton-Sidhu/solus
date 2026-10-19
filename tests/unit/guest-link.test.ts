@@ -62,18 +62,23 @@ describe('the guest identity', () => {
 })
 
 describe('resolving a share link', () => {
-  test('posts the secret to the account origin and keeps the host it names', async () => {
-    // WHY: docs/plans/host-sharing.md §4.2 — the secret is the whole credential; the
-    // account origin only says which host to dial first.
-    const calls: Array<{ url: string; body: string }> = []
+  test('posts the secret, with the page\'s token when signed in, and keeps whom it opens as', async () => {
+    // WHY: docs/plans/instant-share-open.md — one request answers what the link opens
+    // and whom it opens it as; the token is how the API knows a member, and a page
+    // that is signed out sends none.
+    const calls: Array<{ url: string; body: string; authorization: string | null }> = []
     const fetchImpl: typeof fetch = async (input, init) => {
-      calls.push({ url: String(input), body: String(init?.body) })
-      return Response.json({ resource: { kind: 'session', id: 's1' }, role: 'viewer', organizationId: 'org-1', host: { hostId: 'abcdefghijklmnop', routes: [{ kind: 'tunnel', url: 'https://h-abcdefghijklmnop.solus.sh' }] } })
+      calls.push({ url: String(input), body: String(init?.body), authorization: new Headers(init?.headers).get('authorization') })
+      return Response.json({ resource: { kind: 'session', id: 's1' }, organizationId: 'org-1', opensAs: { kind: 'member', role: 'editor' }, host: { hostId: 'abcdefghijklmnop', routes: [{ kind: 'tunnel', url: 'https://h-abcdefghijklmnop.solus.sh' }] } })
     }
-    const resolution = await resolveShareLink('https://app.solus.sh', 'secretsecretsecretsecretsecretsecret', fetchImpl)
+    const resolution = await resolveShareLink('https://app.solus.sh', 'secretsecretsecretsecretsecretsecret', 'api-token', fetchImpl)
+    expect(resolution.kind === 'resolved' && resolution.target.opensAs).toEqual({ kind: 'member', role: 'editor' })
     expect(resolution.kind === 'resolved' && resolution.target.host?.routes).toEqual([{ kind: 'tunnel', url: 'https://h-abcdefghijklmnop.solus.sh' }])
     expect(calls[0]?.url).toBe('https://app.solus.sh/auth/share-link')
+    expect(calls[0]?.authorization).toBe('Bearer api-token')
     expect(JSON.parse(calls[0]!.body)).toEqual({ shareSecret: 'secretsecretsecretsecretsecretsecret' })
+    await resolveShareLink('https://app.solus.sh', 'secretsecretsecretsecretsecretsecret', null, fetchImpl)
+    expect(calls[1]?.authorization).toBeNull()
   })
 
   test('the API\'s named 404 opens nothing; a host\'s unnamed 404 means the host serves the page', async () => {
@@ -81,11 +86,11 @@ describe('resolving a share link', () => {
     // the API's 404 names SHARE_LINK_UNKNOWN. That is how the page tells which origin
     // serves it, since a host also answers `/v1/hosts` with a JSON 401 and fools the cloud probe.
     const refused: typeof fetch = async () => Response.json({ error: { code: 'SHARE_LINK_UNKNOWN' } }, { status: 404 })
-    expect(await resolveShareLink('https://app.solus.sh', 'x', refused)).toEqual({ kind: 'unknown-link' })
+    expect(await resolveShareLink('https://app.solus.sh', 'x', null, refused)).toEqual({ kind: 'unknown-link' })
     const garbled: typeof fetch = async () => Response.json({ resource: { kind: 'session', id: 's1' } })
-    expect(await resolveShareLink('https://app.solus.sh', 'x', garbled)).toEqual({ kind: 'unknown-link' })
+    expect(await resolveShareLink('https://app.solus.sh', 'x', null, garbled)).toEqual({ kind: 'unknown-link' })
     const host: typeof fetch = async () => Response.json({ error: 'not found' }, { status: 404 })
-    expect(await resolveShareLink('http://10.0.0.2:3001', 'x', host)).toEqual({ kind: 'no-door' })
+    expect(await resolveShareLink('http://10.0.0.2:3001', 'x', null, host)).toEqual({ kind: 'no-door' })
   })
 
   test('the page dials the first route it can open: no http route from an https page', () => {

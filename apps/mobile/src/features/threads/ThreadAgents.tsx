@@ -18,7 +18,7 @@ import { cn } from "../../lib/cn";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
-import type { ConversationStore } from "../conversation/conversation-store";
+import { conversationIdOf, type ConversationStore } from "../conversation/conversation-store";
 import {
   agentPresentation,
   agentsElapsedMs,
@@ -27,6 +27,7 @@ import {
   type AgentRowPresentation,
   type AgentTone,
 } from "./agent-card-presentation";
+import { agentCandidates, agentRoster } from "./agent-roster";
 import { useTranscriptItems } from "./use-transcript-items";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
 import { WorkLogBlock } from "./work-log-layout";
@@ -110,7 +111,7 @@ function AgentRowContent(props: { readonly row: AgentRowPresentation }) {
             </Text>
           </View>
           <AgentElapsed rows={[row]} />
-          {row.sessionId ? <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" /> : null}
+          {row.sessionId || row.providerItemId ? <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" /> : null}
         </View>
         {row.meta || row.workspace.length > 0 ? (
           <View className="min-w-0 flex-row items-center gap-1.5">
@@ -152,11 +153,11 @@ function AgentRowContent(props: { readonly row: AgentRowPresentation }) {
   );
 }
 
-/** A row opens its session when there is one; otherwise it only reports. */
-function AgentRow(props: { readonly row: AgentRowPresentation; readonly onOpen: (sessionId: string) => void; readonly className: string }) {
+/** A row opens its Solus session or its recorded provider child. */
+function AgentRow(props: { readonly row: AgentRowPresentation; readonly onOpen: (sessionId: string) => void; readonly onOpenProvider: (itemId: string) => void; readonly className: string }) {
   const { row } = props;
   const label = `${row.title}, ${row.statusLabel}${row.meta ? `, ${row.meta}` : ""}`;
-  if (!row.sessionId) {
+  if (!row.sessionId && !row.providerItemId) {
     return (
       <View accessible accessibilityLabel={label} accessibilityHint={row.unopenableReason ?? undefined} className={props.className}>
         <AgentRowContent row={row} />
@@ -168,10 +169,11 @@ function AgentRow(props: { readonly row: AgentRowPresentation; readonly onOpen: 
     <Pressable
       accessibilityRole="link"
       accessibilityLabel={label}
-      accessibilityHint="Opens this agent's session"
+      accessibilityHint={sessionId ? "Opens this agent's session" : "Opens this agent's activity"}
       onPress={() => {
         void Haptics.selectionAsync();
-        props.onOpen(sessionId);
+        if (sessionId) props.onOpen(sessionId);
+        else if (row.providerItemId) props.onOpenProvider(row.providerItemId);
       }}
       className={cn(props.className, "active:bg-subtle")}
     >
@@ -247,7 +249,7 @@ export function ThreadAgentGroup(props: {
       {!grouped || props.expanded ? (
         <View className="mb-1 gap-px rounded-xl border border-border bg-card/30 p-1">
           {rows.map((row) => (
-            <AgentRow key={row.id} row={row} onOpen={open} className="rounded-lg px-3 py-3" />
+            <AgentRow key={row.id} row={row} onOpen={open} onOpenProvider={(itemId) => navigation.push("ThreadSubagent", { hostId, conversationId: conversationIdOf(props.store), itemId })} className="rounded-lg px-3 py-3" />
           ))}
         </View>
       ) : null}
@@ -255,19 +257,21 @@ export function ThreadAgentGroup(props: {
   );
 }
 
-/** The agents of the newest turn: the rows after the last prompt the person sent. */
-export function latestTurnAgentIds(store: ConversationStore, order: readonly string[]): string[] {
-  const ids: string[] = [];
-  for (let index = order.length - 1; index >= 0; index -= 1) {
-    const item = store.item(order[index]!);
-    if (item?.kind === "user") break;
-    if (item?.kind === "agent" || (item?.kind === "tool" && item.subagent)) ids.unshift(item.id);
-  }
-  return ids;
+/**
+ * The agents of the Agents pill and sheet: the newest turn's, and earlier
+ * ones that still work or wait (`agent-roster.ts`). Every candidate's item is
+ * subscribed, so an earlier agent that settles leaves the list without a new
+ * row in the transcript.
+ */
+export function useAgentRoster(store: ConversationStore): readonly AgentRowPresentation[] {
+  const order = useListened(store.order, store.orderSnapshot);
+  const candidates = useMemo(() => agentCandidates(store, order), [store, order]);
+  const rows = useAgentPresentations(store, candidates.ids);
+  return useMemo(() => agentRoster(rows, candidates), [rows, candidates]);
 }
 
 /**
- * Every agent of the newest turn, from the Agents pill: T3 Code's form sheet
+ * The Agents pill's agents (`useAgentRoster`): T3 Code's form sheet
  * (half height, drawn up to 0.9) with a native header on iOS. Opening an agent
  * replaces the sheet with its session, so Back returns to the thread beneath.
  */
@@ -286,9 +290,7 @@ export function ThreadAgentsSheet({ route, navigation }: ScreenProps<"ThreadAgen
 
 function ThreadAgentsSheetContent(props: { readonly store: ConversationStore; readonly navigation: Navigation }) {
   const { store, navigation } = props;
-  const order = useListened(store.order, store.orderSnapshot);
-  const itemIds = useMemo(() => latestTurnAgentIds(store, order), [store, order]);
-  const rows = useAgentPresentations(store, itemIds);
+  const rows = useAgentRoster(store);
   const hostId = store.controller.hostId;
   const open = (sessionId: string) => navigation.dispatch(StackActions.replace("Thread", { hostId, sessionId }));
   return (
@@ -296,7 +298,7 @@ function ThreadAgentsSheetContent(props: { readonly store: ConversationStore; re
       {rows.length === 0 ? (
         <Text className="pt-6 text-center text-sm text-foreground-muted">No agents in this turn.</Text>
       ) : (
-        rows.map((row) => <AgentRow key={row.id} row={row} onOpen={open} className="border-b border-border py-3.5" />)
+        rows.map((row) => <AgentRow key={row.id} row={row} onOpen={open} onOpenProvider={(itemId) => navigation.dispatch(StackActions.replace("ThreadSubagent", { hostId, conversationId: conversationIdOf(store), itemId }))} className="border-b border-border py-3.5" />)
       )}
     </ThreadAgentsSheetFrame>
   );

@@ -157,11 +157,12 @@ export function parseCloudShareLink(pathname: string, hash: string): GuestLink |
 }
 
 /**
- * `POST /auth/share-link` on the Solus API (docs/plans/host-sharing.md §4.2): what a
- * link's secret opens and where its guest page dials first. `host` is the machine
- * that runs a mirrored session, with the routes the directory knows for it; null for
- * a resource no host runs. The page falls back to the API's own copy, read only,
- * when the host does not answer.
+ * `POST /auth/share-link` on the Solus API (docs/plans/instant-share-open.md): what a
+ * link's secret opens, for whom, and where it runs. The page sends the secret and, when
+ * it is signed in, its Solus API access token; the API answers in one request whether
+ * the visitor opens it as a member of its organization or as a guest. `host` is the
+ * machine that runs a mirrored session, with the routes the directory knows for it;
+ * null for a resource no host runs.
  */
 export const shareLinkRequestSchema = z.object({ shareSecret: z.string().min(1).max(256) })
 export type ShareLinkRequest = z.infer<typeof shareLinkRequestSchema>
@@ -169,11 +170,21 @@ export type ShareLinkRequest = z.infer<typeof shareLinkRequestSchema>
 /** The resolve door's 404 for a secret it does not know; a host's 404 on the same path carries no code. */
 export const SHARE_LINK_UNKNOWN = 'SHARE_LINK_UNKNOWN'
 
+/**
+ * Whom the link opens the resource as. A member whose own role is at least the
+ * link's opens it as themselves, with that role and the whole app; anyone else is a
+ * guest with the link's role. So a link never gives a member less than a stranger.
+ */
+export const shareLinkVisitorSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('member'), role: resourceRoleSchema }),
+  z.object({ kind: z.literal('guest'), role: shareRoleSchema }),
+])
+export type ShareLinkVisitor = z.infer<typeof shareLinkVisitorSchema>
+
 export const shareLinkTargetSchema = z.object({
   resource: shareResourceSchema,
-  role: shareRoleSchema,
-  /** The resource's organization: a signed-in member of it opens the member link instead. */
   organizationId: z.string().min(1),
+  opensAs: shareLinkVisitorSchema,
   host: z.object({ hostId: z.string().min(1), routes: z.array(hostRouteSchema) }).nullable(),
 })
 export type ShareLinkTarget = z.infer<typeof shareLinkTargetSchema>

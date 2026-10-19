@@ -4,10 +4,14 @@ import {
   bucketCountForWidth,
   bucketPoints,
   costAxisMax,
+  countAxisTicks,
+  providerTotals,
   rebucketVolume,
+  stackGapUnits,
+  stackedSegment,
   type VolumePoint,
 } from '@solus/workspace-ui/components/insights/lib/volume'
-import { axisInstantFormat, formatCostTick } from '@solus/workspace-ui/components/insights/lib/format'
+import { axisInstantFormat, formatCost, formatCostTick } from '@solus/workspace-ui/components/insights/lib/format'
 
 
 describe('Insights volume chart bucket density', () => {
@@ -107,6 +111,71 @@ describe('Insights volume chart spend line', () => {
     expect(formatCostTick(20)).toBe('$20')
   })
 
+  test('a spend figure is grouped from a thousand up', () => {
+    // WHY: `$31351.49` in the stat line is read digit by digit; grouping is
+    // what makes the magnitude readable at a glance.
+    expect(formatCost(31351.49)).toBe('$31,351.49')
+    expect(formatCost(0.437)).toBe('$0.437')
+    expect(formatCostTick(5000)).toBe('$5,000')
+  })
+})
+
+describe('Insights volume chart stacked segments', () => {
+  // WHY: the gap is a pixel size the reader sees, but the bars are drawn in
+  // rows; a 200px plot with a top of 100 rows has two rows to the pixel.
+  test('the surface gap converts to the count axis\'s own units', () => {
+    expect(stackGapUnits(100, 200)).toBe(1)
+    expect(stackGapUnits(100, 0)).toBe(0)
+    expect(stackGapUnits(0, 200)).toBe(0)
+  })
+
+  test('an upper segment is lifted off the one below by the gap', () => {
+    expect(stackedSegment(10, 30, 1)).toEqual([11, 30])
+  })
+
+  test('a sliver too thin for the gap keeps its height rather than vanishing', () => {
+    // WHY: a one-row segment drawn as a gap and nothing else says the bucket had
+    // no such rows, and a lift larger than the segment is a negative rectangle.
+    expect(stackedSegment(10, 11, 1)).toEqual([10, 11])
+    expect(stackedSegment(10, 10, 1)).toEqual([10, 10])
+  })
+})
+
+describe('Insights volume chart count axis', () => {
+  test('every count rung is a whole row, so no two labels read the same', () => {
+    // WHY: a top of 1 with a midpoint of 0.5 printed "0, 1, 1" down the axis.
+    expect(countAxisTicks(1)).toEqual([0, 1])
+    expect(countAxisTicks(0)).toEqual([0, 1])
+    expect(countAxisTicks(3)).toEqual([0, 2, 4])
+    expect(countAxisTicks(8)).toEqual([0, 4, 8])
+    for (const tallest of [2, 5, 17, 101]) {
+      const ticks = countAxisTicks(tallest)
+      expect(ticks.every(Number.isInteger)).toBe(true)
+      expect(ticks.at(-1)).toBeGreaterThanOrEqual(tallest)
+    }
+  })
+})
+
+describe('Insights volume chart provider breakdown', () => {
+  test('the header counts each backend from the bars it sits above', () => {
+    // WHY: the breakdown keys the bar colours; a count that disagreed with the
+    // plot would name a split the reader cannot see.
+    const at = Date.UTC(2026, 0, 1)
+    const point = (offsetMs: number, provider: string, costUsd: number | null): VolumePoint => (
+      { at: at + offsetMs, provider, failed: false, costUsd, durationMs: 1000 }
+    )
+    const buckets = bucketPoints(
+      [point(0, 'claude-code', 1), point(60_000, 'codex', null), point(120_000, 'claude-code', null)],
+      at,
+      at + 60 * 60_000,
+      4,
+    )
+    const totals = providerTotals(buckets)
+    expect(totals).toEqual({ claudeCode: 2, codex: 1, unknownProvider: 0 })
+    expect(totals.claudeCode + totals.codex + totals.unknownProvider).toBe(
+      buckets.reduce((sum, bucket) => sum + bucket.total, 0),
+    )
+  })
 })
 
 describe('Insights time axis labels', () => {

@@ -42,7 +42,9 @@ export function PullRequestInlineCommentScreen({ navigation, route }: ScreenProp
     if (!canSave || pending.current) return
     pending.current = true
     setBusy(true)
-    try {
+    // The React Compiler cannot compile try/finally. The async wrapper turns a
+    // synchronous throw into a rejection, so finally sees both.
+    await (async () => {
       if (saved) app.reviewDrafts.editComment(ref, saved.id, body)
       else {
         const comment: Omit<PendingReviewComment, 'id'> = { path, side, line, body, headSha }
@@ -51,10 +53,10 @@ export function PullRequestInlineCommentScreen({ navigation, route }: ScreenProp
       }
       await app.reviewDrafts.flush()
       navigation.goBack()
-    } finally {
+    })().finally(() => {
       pending.current = false
       setBusy(false)
-    }
+    })
   }
   const remove = () => {
     if (!saved) return

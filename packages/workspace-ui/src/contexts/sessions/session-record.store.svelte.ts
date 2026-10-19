@@ -1,7 +1,7 @@
 import type { Message, SessionMeta } from '@solus/contracts/types'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
-import { readSessionMeta } from '@solus/client-core/session-meta'
+import { readSessionRecordMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { readSessionRecordPage, type SessionRecordPage } from './session-record-transcript'
@@ -24,6 +24,9 @@ const MAX_WIDEN_TURNS = 8
  * reconnect refreshes the page. */
 export class SessionRecordStore {
   meta = $state<SessionMeta | null>(null)
+  /** The account host id of the runner that holds the transcript, as the workspace
+   *  service's record names it; null on a host, or when the record names none. */
+  runnerHostId = $state<string | null>(null)
   /** The newest page. A refresh reconciles it in place. */
   messages = $state<Message[] | null>(null)
   /** Older pages above `messages`, oldest first. Each one is prepended once. */
@@ -130,9 +133,10 @@ export class SessionRecordStore {
   }
 
   private async refresh(): Promise<void> {
-    const meta = await readSessionMeta(this.serverId, this.sessionId)
+    const { meta, runnerHostId } = await readSessionRecordMeta(this.serverId, this.sessionId)
     if (this.disposed) return
     this.meta = meta
+    this.runnerHostId = runnerHostId
     if (!meta) { this.error = 'The workspace has no record of this session.'; return }
     this.error = null
     const page = await this.readNewest(meta)

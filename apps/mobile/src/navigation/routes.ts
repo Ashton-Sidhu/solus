@@ -9,8 +9,11 @@ export type RootStackParamList = {
   Thread: { hostId: string; sessionId: string }
   /** The newest turn's agents, as a sheet over its thread. `conversationId` names the open conversation. */
   ThreadAgents: { hostId: string; conversationId: string }
+  ThreadSubagent: { hostId: string; conversationId: string; itemId: string }
   /** The prompts queued behind the running turn, as a sheet over its thread. `conversationId` names the open conversation. */
   ThreadQueue: { hostId: string; conversationId: string }
+  /** The model, reasoning, and permission mode for the next prompt, as T3 Code's form-sheet route over its thread or new-task draft. `conversationId` names the open conversation. */
+  ThreadSettings: { hostId: string; conversationId: string }
   /** T3 Code's new-task sheet; the pickers preselect a host and project. */
   NewTask: { hostId?: string; projectPath?: string } | undefined
   /** The host a new-task draft runs on, pushed in the new-task sheet. `hostId` and `projectPath` name the draft. */
@@ -29,6 +32,7 @@ export type RootStackParamList = {
   ProjectFromGithub: { hostId: string }
   CloneProject: { hostId: string }
   Notifications: undefined
+  /** Android's third workspace destination beside Chats and Pull Requests; iOS opens it from the header. */
   Settings: undefined
   /** The person's own settings and their sync (plans/018); no host needed. */
   AccountSync: undefined

@@ -15,7 +15,7 @@
   import { measureMount } from "../../lib/mount-timing";
   measureMount("ConversationTurn");
   let { turn, index, total, expanded, isAwaitingInput, activityLabel, turnStart, attempt,
-    hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem, serverId, sessionId }: {
+    hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem, serverId }: {
     turn: Turn; index: number; total: number; expanded: boolean; isAwaitingInput: boolean;
     activityLabel?: string; turnStart: TurnStartKind | null; attempt: number;
     /** The session's turn ended, but a task it launched is still running. */
@@ -24,8 +24,6 @@
     transcriptItem: Snippet<[GroupedItem, boolean]>;
     /** The session's host, for naming who stopped a turn. */
     serverId?: string;
-    /** The session, for naming whose turn the live row works for. */
-    sessionId?: string;
   } = $props();
   const settings = getSettingsContext();
   const body = $derived(visibleTurnBody(turn, settings.showToolCalls));
@@ -146,8 +144,6 @@
     {activityLabel}
     turnStart={turnStart}
     backgroundWait={describeBackgroundWait(turn.body)}
-    {serverId}
-    {sessionId}
     expanded={false}
     attempt={attempt}
     onToggle={() => {}}

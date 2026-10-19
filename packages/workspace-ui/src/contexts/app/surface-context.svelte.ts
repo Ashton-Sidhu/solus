@@ -135,6 +135,7 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   | 'openInsights'
   | 'openPrs'
   | 'openRoute'
+  | 'warmRoute'
   | 'openUrlInBrowser'
   | 'showSettings'
 > & {

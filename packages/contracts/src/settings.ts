@@ -59,6 +59,10 @@ export type PromptFontFamily = 'interface' | AppFontFamily | AppCodeFontFamily
 export const TAB_GROUP_MODES = ['flat', 'status', 'unread'] as const
 export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
 
+/** How wide the conversation's reading column runs in its pane (`--solus-reading-max`). */
+export const CONVERSATION_WIDTHS = ['narrow', 'comfortable', 'full'] as const
+export type ConversationWidth = (typeof CONVERSATION_WIDTHS)[number]
+
 /** Days a done task stays on the sidebar's Completed shelf. Display only: it deletes nothing. */
 export const DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS = 2
 /** How long a sidebar row takes to arrive, leave, or move, in milliseconds.
@@ -171,8 +175,11 @@ export const PERSONAL_SETTING_SCHEMAS = {
   promptFontSize: z.number().min(8).max(32),
   /** Opacity of the agent's reply text, in percent. Headings keep full ink. */
   assistantTextOpacity: z.number().int().min(MIN_ASSISTANT_TEXT_OPACITY).max(100),
+  conversationWidth: z.enum(CONVERSATION_WIDTHS),
   /** Bounded because it is added to each agent run. */
   extraInstructions: z.string().max(MAX_INSTRUCTIONS),
+  /** Extra instructions keyed by resolved model id, appended when that model runs. */
+  modelInstructions: z.record(z.string().max(MAX_MODEL_ID), z.string().max(MAX_INSTRUCTIONS)).refine((value) => Object.keys(value).length <= 50),
   tabGroupMode: z.enum(TAB_GROUP_MODES),
   sidebarCompletedRetentionDays: z.number().int().min(1).max(365),
   sidebarMotionMs: z.number().int().min(0).max(MAX_SIDEBAR_MOTION_MS),
@@ -256,7 +263,9 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   promptFontFamily: 'interface',
   promptFontSize: 13,
   assistantTextOpacity: 100,
+  conversationWidth: 'comfortable',
   extraInstructions: '',
+  modelInstructions: {},
   tabGroupMode: 'flat',
   sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
   sidebarMotionMs: DEFAULT_SIDEBAR_MOTION_MS,
@@ -299,6 +308,7 @@ export const EXECUTION_PREFERENCE_KEYS = [
   'rateLimitBehavior',
   'autoRenameSessions',
   'extraInstructions',
+  'modelInstructions',
   'leadModel',
   'agentTaskLifecyclePolicy',
   'leadInstructions',
@@ -326,10 +336,18 @@ function executionPreferenceDefaultsOf(): Pick<PersonalSettings, ExecutionPrefer
  * Strict: an unknown key or a bad value refuses the request. A value is never
  * healed into a choice the person did not make.
  */
-export const executionPreferencesSchema = personalSettingsSchema
+const executionPreferencesShape = personalSettingsSchema
   .pick(Object.fromEntries(EXECUTION_PREFERENCE_KEYS.map((key) => [key, true])) as { [K in ExecutionPreferenceKey]: true })
   .partial()
-  .strict() satisfies z.ZodType<ExecutionPreferences, unknown>
+
+export const executionPreferencesSchema = executionPreferencesShape.strict() satisfies z.ZodType<ExecutionPreferences, unknown>
+
+/**
+ * Parses execution preferences this host stored earlier. A key that a later
+ * version removed is dropped, so the record keeps
+ * the person's other choices. A bad value still refuses the record.
+ */
+export const storedExecutionPreferencesSchema = z.object(executionPreferencesShape.shape) satisfies z.ZodType<ExecutionPreferences, unknown>
 
 /** The preferences a background record runs with: the ones its creator or last editor sent. */
 export interface ExecutionPreferenceSnapshot {
@@ -339,7 +357,7 @@ export interface ExecutionPreferenceSnapshot {
 
 export const executionPreferenceSnapshotSchema = z.object({
   capturedAt: z.number(),
-  preferences: executionPreferencesSchema,
+  preferences: storedExecutionPreferencesSchema,
 }) satisfies z.ZodType<ExecutionPreferenceSnapshot, unknown>
 
 // ─── Device settings ───

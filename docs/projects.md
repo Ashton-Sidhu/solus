@@ -68,6 +68,17 @@ In the project panel, click the project row to open the **Open in** menu:
   host without a desktop, or a Linux host that has no application for folders,
   does not show it.
 
+New file, new folder, rename, and delete in the files pane stay in the project
+folder. A link (a symbolic link) in the project is an ordinary entry: the host
+refuses a change whose path goes through a link to a place outside the
+project, or through a link whose target is gone. Delete or rename a link, and
+the link itself changes; the folder it points to stays. A link to a folder
+inside the project works as that folder. A rename never replaces another
+entry, also when both names lead to the same file (two links, or a file and a
+link to it). A rename that changes only the case of a name works. Saving an
+open file is a different operation: it saves the file where it is, also
+outside the project.
+
 ## The folder browser
 
 The folder browser opens a folder and saves a file. It has the same folder

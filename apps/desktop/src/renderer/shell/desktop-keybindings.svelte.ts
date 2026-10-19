@@ -37,8 +37,14 @@ export function installDesktopKeybindings(
   ui: DesktopDialogs,
   actions: DesktopKeyboardActions,
 ) {
-  const { settings, planStore, sessionEnvironmentStore, session, keybindings } =
-    core;
+  const {
+    settings,
+    planStore,
+    sessionEnvironmentStore,
+    session,
+    sessionSidebarStore,
+    keybindings,
+  } = core;
   const {
     startOpenProject,
     handleScreenshot,
@@ -52,11 +58,6 @@ export function installDesktopKeybindings(
   const visibleTabOrder = $derived(
     session.tabOrder.filter((id) => session.tabs[id]),
   );
-  // Tabs of the active branch, in the same visual (grouped) order the tab strip
-  // shows — so next/prev-session cycles what the user sees. Filtering the raw
-  // backend tabOrder here would diverge from the strip whenever tabs are grouped
-  // by status/unread. Computed lazily on keypress (like navigateTab) rather than
-  // as a $derived that recomputes on every backend status tick.
   // A focused browser page is its own process, so its keys never reach the
   // dispatcher's listener. Main takes these out of the page and sends them back.
   $effect(() => {
@@ -67,12 +68,6 @@ export function installDesktopKeybindings(
       keybindings.dispatch(guestShortcutEvent(shortcut)),
     ),
   );
-  function scopedSessionTabOrder(): string[] {
-    const activeKey = branchKeyFor(session.sessionFor(activeTabId));
-    return visualTabOrder(visibleTabOrder).filter(
-      (id) => branchKeyFor(session.sessionFor(id)) === activeKey,
-    );
-  }
   useKeybinding("global.open-host-project", () => {
     const pageServerId =
       session.projectPageScope.kind === "project"
@@ -187,24 +182,12 @@ export function installDesktopKeybindings(
   // In the companion pane the tab keys move between its surfaces.
   useKeybinding("global.next-tab", () => session.moveBetweenSurfaces(1) || navigateTab(1));
   useKeybinding("global.prev-tab", () => session.moveBetweenSurfaces(-1) || navigateTab(-1));
+  // Next/previous session walks the sidebar rows in the order they are listed.
   useKeybinding("global.next-session", () => {
-    const order = scopedSessionTabOrder();
-    const idx = order.indexOf(activeTabId);
-    if (idx !== -1) {
-      session.selectTab(order[(idx + 1) % order.length], "keybinding");
-      requestInputFocus();
-    }
+    void sessionSidebarStore.selectAdjacentRow(1).then(() => requestInputFocus());
   });
   useKeybinding("global.prev-session", () => {
-    const order = scopedSessionTabOrder();
-    const idx = order.indexOf(activeTabId);
-    if (idx !== -1) {
-      session.selectTab(
-        order[(idx - 1 + order.length) % order.length],
-        "keybinding",
-      );
-      requestInputFocus();
-    }
+    void sessionSidebarStore.selectAdjacentRow(-1).then(() => requestInputFocus());
   });
   useKeybinding("global.screenshot", () => handleScreenshot(keyboardTabId), {
     enabled: () => desktopHandlersAvailable,

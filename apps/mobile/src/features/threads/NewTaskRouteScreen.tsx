@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/NewTaskRouteScreen.tsx and
 // NewTaskDraftScreen.tsx (MIT, see UPSTREAM.md).
-import { CommonActions, StackActions, useNavigation } from "@react-navigation/native";
+import { CommonActions, StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from "@solus/contracts/rpc";
@@ -36,7 +36,7 @@ import { MOBILE_FONTS } from "../../lib/typography";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
-import type { ConversationMeta, ConversationStore } from "../conversation/conversation-store";
+import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import type { PickedFile } from "../conversation/lib/attachments";
 import { modelLabel, offersPlanToggle, PERMISSION_MODE_ICON, PERMISSION_MODE_TEXT } from "../conversation/lib/run-settings";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
@@ -51,7 +51,6 @@ import {
 } from "./new-task-project-selection";
 import { hostMachineKind, useNewTaskEnvironments } from "./NewTaskContextPickerScreens";
 import { COMPOSER_LAYOUT_TRANSITION, ComposerSurface } from "./ThreadComposer";
-import { ThreadSettingsSheet } from "./ThreadSettingsSheet";
 import { NewTaskConnectHost, useNewTaskHostGate } from "./NewTaskConnectHost";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -475,19 +474,20 @@ function PlanModeToggle(props: {
   const mode = props.meta.run.permissionMode;
   const planMode = mode === "plan";
   // Leaving Plan returns to the mode before it: the person's default to start.
-  const otherModeRef = useRef<PermissionMode>(planMode ? "supervised" : mode);
-  if (!planMode) otherModeRef.current = mode;
+  // Kept in state and updated during render, so React re-renders at once.
+  const [otherMode, setOtherMode] = useState<PermissionMode>(planMode ? "supervised" : mode);
+  if (!planMode && otherMode !== mode) setOtherMode(mode);
   if (!offersPlanToggle(props.meta.runOptions.capabilities)) return null;
   return (
     <ComposerInlineControl
-      accessibilityHint={`Switches to ${planMode ? PERMISSION_MODE_TEXT[otherModeRef.current].label : "Plan"}`}
+      accessibilityHint={`Switches to ${planMode ? PERMISSION_MODE_TEXT[otherMode].label : "Plan"}`}
       accessibilityLabel={`Permission mode: ${PERMISSION_MODE_TEXT[mode].label}`}
       disabled={props.disabled}
       emphasized
       icon={PERMISSION_MODE_ICON[mode]}
       label={PERMISSION_MODE_TEXT[mode].label}
       onPress={() =>
-        props.store.controller.updateRun({ permissionMode: planMode ? otherModeRef.current : "plan" })
+        props.store.controller.updateRun({ permissionMode: planMode ? otherMode : "plan" })
       }
       showChevron={false}
     />
@@ -523,7 +523,16 @@ function NewTaskDraftContent(props: {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [isPromptFocused, setIsPromptFocused] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // The settings are T3's root form-sheet route over this draft; the draft
+  // regains focus when it is dismissed.
+  const settingsPresentedRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!settingsPresentedRef.current) return;
+      settingsPresentedRef.current = false;
+      setTimeout(() => promptInputRef.current?.focus(), 100);
+    }, []),
+  );
 
   useEffect(
     () => () => {
@@ -593,7 +602,9 @@ function NewTaskDraftContent(props: {
     if (!canStart) return;
     setSubmitting(true);
     const text = prompt.trim();
-    try {
+    // The React Compiler cannot compile branches inside try/catch. The async
+    // wrapper turns a synchronous throw into a rejection that catch answers.
+    await (async () => {
       props.onStarted();
       rememberNewThreadTarget(props.hostId, {
         sessionId: props.sessionId,
@@ -617,10 +628,10 @@ function NewTaskDraftContent(props: {
         }),
       );
       await sending;
-    } catch (error) {
+    })().catch((error) => {
       Alert.alert("Could not start task", error instanceof Error ? error.message : String(error));
       setSubmitting(false);
-    }
+    });
   };
 
   const startFromKeyboard = () => {
@@ -814,7 +825,8 @@ function NewTaskDraftContent(props: {
                       maxWidth="100%"
                       onPress={() => {
                         promptInputRef.current?.blur();
-                        setSettingsOpen(true);
+                        settingsPresentedRef.current = true;
+                        navigation.navigate("ThreadSettings", { hostId: props.hostId, conversationId: conversationIdOf(store) });
                       }}
                     />
                   </View>
@@ -840,15 +852,6 @@ function NewTaskDraftContent(props: {
           </View>
         </Animated.View>
       </ComposerSurface>
-      <ThreadSettingsSheet
-        visible={settingsOpen}
-        onClose={() => {
-          setSettingsOpen(false);
-          setTimeout(() => promptInputRef.current?.focus(), 100);
-        }}
-        store={store}
-        meta={meta}
-      />
     </View>
   );
 

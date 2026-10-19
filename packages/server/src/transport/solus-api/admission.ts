@@ -49,6 +49,22 @@ export function workspaceCredentialsForHttp(options: HttpServerOptions): Workspa
 }
 
 /**
+ * A person's own access token, as a member of one organization: how a share link's
+ * resolve learns whether the visitor opens it as themselves
+ * (docs/plans/instant-share-open.md). Null for no token, a host's delegated token, or a
+ * person the token does not list in that organization.
+ */
+export async function organizationMemberFor(options: HttpServerOptions, bearer: string, organizationId: string): Promise<Principal | null> {
+  if (!bearer || bearer.length > 16_384) return null
+  const verdict = await options.verifyAccessToken?.(bearer)
+  if (!verdict?.ok || verdict.claims.act) return null
+  const admitted = await ticketForGrant(verdict.claims, { workspace: true, organizationId })
+  const ticket = admitted.ok ? consumeWsTicket(admitted.ticket) : null
+  const principal = ticket ? principalFor({ kind: 'ticket', ticket }) : null
+  return principal?.kind === 'org-member' ? principal : null
+}
+
+/**
  * A link guest: the same guest, bound to the same one resource, as the ticket door
  * admits (host-sharing.md §4.1 step 4). Its role is the link's as it stands at each
  * request, and it ends when the link is removed or regenerated (`ShareManager.roleFor`).

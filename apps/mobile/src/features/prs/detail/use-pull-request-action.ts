@@ -18,16 +18,18 @@ export function usePullRequestAction(ref: PullRequestRef) {
     if (pending.current) return false
     pending.current = true
     setBusy(true)
-    try {
+    // The React Compiler cannot compile try/finally. The async wrapper turns a
+    // synchronous throw into a rejection, so catch and finally see both.
+    return await (async () => {
       await write()
       return true
-    } catch (cause) {
+    })().catch((cause) => {
       Alert.alert(failureTitle, cause instanceof Error ? cause.message : 'Try again.')
       return false
-    } finally {
+    }).finally(() => {
       pending.current = false
       setBusy(false)
-    }
+    })
   }
   /** Asks first; `destructive` paints the confirm button red. */
   const confirm = <Result>(title: string, message: string, confirmText: string, write: () => Promise<Result>, destructive = false) => {

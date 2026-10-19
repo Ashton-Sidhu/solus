@@ -1,0 +1,251 @@
+[
+  {
+    "number": 20292,
+    "disposition": "ready",
+    "finding": "Add a transform-output coverage guard for native mobile before enabling the compiler. The current config performs no React compilation; an enabled probe has real skips. Do not add a blanket no-manual-memo rule.",
+    "evidence": [
+      "apps/mobile/babel.config.js:3",
+      "node_modules/babel-preset-expo/build/common.js:187",
+      "node_modules/@expo/cli/build/src/start/server/metro/MetroBundlerDevServer.js:871",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/expo-transformer-probe-results.json"
+    ],
+    "proof": "117 local files, 234 serial Babel/Expo-preset transforms: current caller has zero compiler events; enabled caller compiles 232 functions and skips 31 distinct functions with 76 diagnostics. Zero transform crashes. Preset58.0.12, compiler1.0.0, Babel7.29.0. A separate direct installed Expo Metro Babel-transformer smoke on SourceFileSurface, with actual local Babel config, emits0 memo-cache calls with the compiler flag false and2 with true.",
+    "next_step": "Use the installed Expo preset in a focused diagnostic check. Record function-level baseline failures and fail on new failures or dropped successes. Enable expo.experiments.reactCompiler only within the staged mobile project; retain existing memos until the relevant function compiles and resource lifetime is verified. Confirm release graph integration and behavior on both native device platforms before release; the direct Expo transformer smoke is already proved.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 20379,
+    "disposition": "reject",
+    "finding": "Do not port the T3 web ChatView implementation into Solus. The native diagnostic pilot is now complete and supplies a baseline for #20967/#20292; this PR adds no separate implementation task.",
+    "evidence": [
+      "apps/mobile/babel.config.js:3",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json"
+    ],
+    "proof": "Current app.json has no reactCompiler experiment. Installed Expo CLI converts its absence to false; the preset returns no compiler plugin. Enabling the reconstructed caller in memory produces232 successes/31 skipped functions across117 files.",
+    "next_step": "Use this baseline in the single staged native compiler project (#20967/#20292). No separate ChatView port. Transform success does not establish a latency benefit.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 20384,
+    "disposition": "defer",
+    "finding": "The Android fingerprint bug is present locally, but no current Solus OTA/fingerprint release workflow uses it. Fix and guard it before adopting fingerprint-based native compatibility.",
+    "evidence": [
+      "node_modules/@expo/fingerprint/build/sourcer/Expo.js:371",
+      "node_modules/expo-widgets/expo-module.config.json:9",
+      "apps/mobile/package.json:57",
+      "apps/mobile/app.json:120",
+      "plans/t3-performance-review-2026-10-19/fingerprint-probe-results.json"
+    ],
+    "proof": "Installed fingerprint0.21.4 resolves33 Expo modules but returns0 Android sources. expo-widgets declares a Maven plugin with no sourceDir. A sourceDir guard applied only in probe memory returns35 sources, including34 native directories. The repo has no eas.json, expo-updates dependency, runtimeVersion, or mobile EAS workflow in the inspected app/workflow files.",
+    "next_step": "When adding native fingerprint/OTA release policy, use a fixed Expo version or a narrow dependency patch and reject a zero-native-source result before publishing. Test Android native input hash changes and iOS stability then. No current runtime performance change.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 20396,
+    "disposition": "reject",
+    "finding": "Do not port the T3 web Sidebar compiler rewrite. The native Sidebar has specific measured failures and is addressed by the direct mobile change #21145.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx:225",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "Native Sidebar outer wrapper and container compile; SidebarPane skips on render-time reset-key ref access at226\u2013227. An in-memory state-reset rewrite exposes four subsequent manual-cache preservation diagnostics.",
+    "next_step": "Apply the native Sidebar work under #21145 with clock and interaction checks. A separate web Sidebar migration would duplicate work and use the wrong framework.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 20397,
+    "disposition": "reject",
+    "finding": "Do not port the T3 web ChatComposer rewrite. The native ThreadComposer has a smaller local send-cleanup blocker and is addressed by #21142.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:388",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "Native SendActionButton and ComposerSurface compile. ThreadComposer skips on try/finally in handleSend. An in-memory promise-finalization rewrite exposes a second ref-inference diagnostic at composerDraftView line307.",
+    "next_step": "Use the exact native compiler diagnostics in #21142. Keep send locking, draft persistence and queued-edit behavior; no separate web composer migration.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 21119,
+    "disposition": "ready",
+    "finding": "Scope settings migration to the local hooks that actually skip. About and NotificationSettings already compile in the enabled probe; blanket settings memo removal is unnecessary.",
+    "evidence": [
+      "apps/mobile/src/features/settings/use-github-connection.ts:78",
+      "apps/mobile/src/features/settings/use-agent-profile.ts:106",
+      "apps/mobile/src/features/settings/use-integrations.ts:285",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json"
+    ],
+    "proof": "AboutScreen:2 compiled functions/no skips. NotificationSettingsScreen:1/no skips. useGithubConnection skips on finally; useAgentProfile skips on a conditional inside try/catch; useIntegrations skips on try/finally/throw and useIntegrationConnect has a local/context-reference diagnostic.",
+    "next_step": "Use supported settlement or focused module helpers only at diagnosed sites. Preserve rejected host request errors, busy reset and stale-result checks. Keep unresolved hooks in a baseline until exact compilation is proved; verify sign-in, failure and cancellation in the staged mobile project.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21124,
+    "disposition": "ready",
+    "finding": "FileMarkdownPreview has the exact refresh try/finally compiler blocker. SourceFileSurface already compiles in the enabled probe.",
+    "evidence": [
+      "apps/mobile/src/features/files/FileMarkdownPreview.tsx:46",
+      "apps/mobile/src/features/files/SourceFileSurface.tsx:1",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "FileMarkdownPreview skips at51. An in-memory async refresh wrapper with finalization compiles the function without removing memos. SourceFileSurface compiles2 functions with no diagnostic.",
+    "next_step": "Adapt only refresh settlement, preserving synchronous throws, rejected promises and the optional void-returning callback. Verify refresh indicator clears on failure and retry, and file/media navigation is unchanged. Leave the already compiling source viewer alone.",
+    "effort": "S",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21133,
+    "disposition": "ready",
+    "finding": "Home, overlay, status animation and pane helpers have measured compiler blockers; AdaptiveWorkspaceLayout itself already compiles.",
+    "evidence": [
+      "apps/mobile/src/features/home/HomeScreen.tsx:266",
+      "apps/mobile/src/components/OverlayPortal.tsx:25",
+      "apps/mobile/src/features/home/WorkspaceConnectionTitle.tsx:61",
+      "apps/mobile/src/features/layout/workspace-inspector-pane.tsx:72",
+      "apps/mobile/src/features/layout/workspace-pane-divider.tsx:23",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "AdaptiveWorkspaceLayout compiles with98 memo slots. Home skips on reset-key ref reads/writes; state reset exposes six memo-preservation diagnostics. StatusFadeIn compiles after lazy-state Animated.Value initialization in memory. Overlay lazy state alone still fails on the module counter increment, so allocate through a focused helper. Pane divider refs and inspector SharedValue assignment also skip.",
+    "next_step": "Migrate these owners in stages; retain real timestamp state before changing Home memo dependencies. Use SharedValue setters and handlers that read current committed values. Verify snooze expiry without a rapid timer loop, shelf reset, overlay removal, divider drag and animation cancellation on native devices.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21136,
+    "disposition": "ready",
+    "finding": "Fix a local hook-order violation first, then migrate the PR action cleanup that actually skips. This is a correctness prerequisite as well as compiler work.",
+    "evidence": [
+      "apps/mobile/src/features/prs/detail/PullRequestGuide.tsx:43",
+      "apps/mobile/src/features/prs/detail/PullRequestGuide.tsx:65",
+      "apps/mobile/src/features/prs/detail/PullRequestGuide.tsx:69",
+      "apps/mobile/src/features/prs/detail/use-pull-request-action.ts:21",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "GuideNoticeCard is mounted across notice changes but returns for ready before useState. Compiler rejects conditional hook order. Moving the hook before the guard in probe memory compiles all4 functions in the file. usePullRequestAction skips on finally; a promise-finalization variant preserving catch/boolean result compiles. No runtime crash was reproduced.",
+    "next_step": "Make hook order unconditional and test ready/non-ready transitions. For PR mutations, preserve the pending lock, busy reset and failure alert for both synchronous throws and rejected writes. Other diagnosed PR screens need the same targeted cleanup; do not replace their rejecting promises with assumed nonthrowing T3 commands.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21137,
+    "disposition": "ready",
+    "finding": "The local ComposerEditor skips because props.ref makes other props reads look like ref reads to the compiler. The inspected video modals already compile.",
+    "evidence": [
+      "apps/mobile/src/components/ComposerEditor.tsx:52",
+      "apps/mobile/src/components/ComposerEditor.tsx:65",
+      "apps/mobile/src/components/VideoPreviewModal.tsx:1",
+      "apps/mobile/src/components/VideoPreviewModal.ios.tsx:1",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "ComposerEditor emits17 ref diagnostics. Destructuring ref once and passing that variable to useImperativeHandle in probe memory compiles the function without changing behavior or removing memos. Each inspected video modal compiles2 functions/no skips.",
+    "next_step": "Use the narrow ref-destructuring fix and verify focus/blur/selection, paste and retained editor handle. Treat the diagnostics as a compiler alias-analysis limit, not proof that current unrelated props reads violate React. Leave video lease lifetime unchanged.",
+    "effort": "S",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21141,
+    "disposition": "ready",
+    "finding": "Limit draft/settings migration to actual local failures. Several direct upstream counterparts already compile, while draft content and settings context still skip.",
+    "evidence": [
+      "apps/mobile/src/features/threads/NewTaskRouteScreen.tsx:478",
+      "apps/mobile/src/features/threads/NewTaskRouteScreen.tsx:616",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:180",
+      "apps/mobile/src/features/threads/ThreadSettingsSheet.tsx:318",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json"
+    ],
+    "proof": "NewTaskContextPickerScreens compiles4 functions/no skips. NewTaskRouteScreen has a PlanModeToggle ref read/write and NewTaskDraftContent conditional-in-try diagnostic. ThreadSettingsSheet compiles8 functions but skips its session provider and catalog hook on manual-cache preservation.",
+    "next_step": "Keep draft/outbox failure ownership local to Solus. Remove render-time latest-ref writes only with an equivalent current-value handler, and isolate throwing draft work from compiler-managed render functions. Prove provider/catalog identities before removing any manual cache. Verify failed draft preparation keeps the draft and clears pending state.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21142,
+    "disposition": "ready",
+    "finding": "ThreadComposer has a confirmed compiler blocker in send cleanup; ThreadRouteScreen already compiles. Treat this as one stage of the mobile compiler project.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:377",
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:388",
+      "apps/mobile/src/features/threads/ThreadComposer.tsx:307",
+      "apps/mobile/src/features/threads/ThreadRouteScreen.tsx:1",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "ThreadComposer skips on try without catch/finally; its2 child functions compile. Moving only send cleanup to in-memory promise finalization removes that diagnostic but exposes ref inference through composerDraftView. ThreadRouteScreen compiles4 functions/no skips.",
+    "next_step": "Resolve the send cleanup and then the precise queued-edit/ref alias boundary, retaining current manual caches until the function compiles. Verify send rejection and synchronous callback throws release the lock, failed queued-edit uploads remain recoverable, and drafts are not cleared for the wrong session. Device streaming/typing proof remains required.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21145,
+    "disposition": "ready",
+    "finding": "ThreadDetail and native Sidebar have reproducible compiler skips. The local fixes must retain end-follow state and a live snooze clock.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadDetailScreen.tsx:377",
+      "apps/mobile/src/features/threads/ThreadDetailScreen.tsx:389",
+      "apps/mobile/src/features/threads/ThreadDetailScreen.tsx:267",
+      "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx:225",
+      "apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx:261",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "ThreadDetail skips on two answer-cleanup try/finally blocks; finalization rewrites reveal a render-time endFollowEnabledRef write. SidebarPane skips on its reset-key ref; a state reset reveals four memo-preservation diagnostics. Sidebar currently uses explicit minute/wake memo dependencies around Date.now.",
+    "next_step": "Convert answer settlement with failure cleanup intact and update end-follow references after commit or use current-value handlers. Use keyed state for Sidebar reset. Make the actual clock a state input before any memo removal, then resolve only the diagnosed callback dependencies. Verify permission failure, tab switch, scroll-follow, tablet Sidebar and snooze boundary behavior.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  },
+  {
+    "number": 21260,
+    "disposition": "reject",
+    "finding": "No current local hookless-use violation justifies a new lint rule or naming pass. The upstream lexical rule also needs explicit platform-stub and alias handling.",
+    "evidence": [
+      "plans/t3-performance-review-2026-10-19/hook-name-probe-results.json"
+    ],
+    "proof": "A syntax-only scan matching the upstream rule checks484 native .ts/.tsx files and87 use-prefixed function definitions; it finds0 functions without a direct hook call. The rule detects callee spelling, not binding identity: aliased hook imports can be false positives, and legitimate platform stubs require an exception.",
+    "next_step": "Do not add this rule now. If a concrete false hook appears later, rename that helper and verify compiler output. Any future rule should resolve imports and have fixtures for platform stubs and aliased React hooks; a name-only lint must not be treated as a compiler success check.",
+    "effort": "S",
+    "risk": "LOW",
+    "confidence": "high"
+  },
+  {
+    "number": 21268,
+    "disposition": "ready",
+    "finding": "ThreadFeed has the same props.listRef alias-analysis issue as upstream, followed by a narrower manual-callback preservation blocker.",
+    "evidence": [
+      "apps/mobile/src/features/threads/ThreadFeed.tsx:529",
+      "apps/mobile/src/features/threads/ThreadFeed.tsx:625",
+      "apps/mobile/src/features/threads/ThreadFeed.tsx:548",
+      "plans/t3-performance-review-2026-10-19/compiler-probe-results.json",
+      "plans/t3-performance-review-2026-10-19/compiler-variant-results.json"
+    ],
+    "proof": "The file compiles8 functions but skips ThreadFeed with7 ref diagnostics. Destructuring listRef once in probe memory removes those7 diagnostics and leaves1 memo-preservation diagnostic in setEndFollow. The per-item subscription architecture remains intact.",
+    "next_step": "Destructure the ref and current callbacks at the component boundary, then resolve the single callback dependency before selectively removing manual memoization. Do not rebuild the transcript store. Verify scroll-follow, history prepend, disclosure expansion, keyboard insets and unchanged-row renders on iOS/Android; no measured streaming speedup is claimed.",
+    "effort": "M",
+    "risk": "MED",
+    "confidence": "high"
+  }
+]

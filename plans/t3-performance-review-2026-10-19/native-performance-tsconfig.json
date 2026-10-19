@@ -1,0 +1,17 @@
+{
+  "extends": "../../apps/mobile/tsconfig.json",
+  "include": [
+    "../../apps/mobile/uniwind-types.d.ts",
+    "../../apps/mobile/src/**/*.d.ts",
+    "../../apps/mobile/src/features/threads/ThreadFeed.tsx",
+    "../../apps/mobile/src/features/threads/thread-feed-item-type.ts",
+    "../../apps/mobile/src/features/threads/thread-list-clock.ts",
+    "../../apps/mobile/src/features/threads/thread-list-v2-items.tsx",
+    "../../apps/mobile/src/features/threads/threadListV2.ts",
+    "../../apps/mobile/src/features/threads/ThreadNavigationSidebar.tsx",
+    "../../apps/mobile/src/features/home/HomeScreen.tsx",
+    "../../apps/mobile/src/features/settings/AgentDefaultsScreen.tsx",
+    "../../apps/mobile/src/features/settings/NotificationSettingsScreen.tsx",
+    "../../apps/mobile/src/lib/time.ts"
+  ]
+}

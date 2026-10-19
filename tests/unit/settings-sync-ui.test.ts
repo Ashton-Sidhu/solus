@@ -65,7 +65,7 @@ function installDom(storage: Storage) {
     addEventListener() {},
     removeEventListener() {},
     visibilityState: 'visible',
-    documentElement: { classList: { toggle() {}, contains: () => false }, style },
+    documentElement: { classList: { toggle() {}, contains: () => false }, style, dataset: {} },
     body: { style },
     querySelectorAll: () => [],
     querySelector: () => null,
@@ -207,6 +207,23 @@ describe('account isolation', () => {
     expect(settings.leadInstructions).toBe(DEFAULT_PERSONAL_SETTINGS.leadInstructions)
     expect(profileOf(storage).leadInstructions).toBeUndefined()
     expect(storage.getItem('solus.personal-settings.v1:https://solus.test|user-a')).toBeNull()
+  })
+})
+
+describe('conversation width', () => {
+  test('the root paints the saved width at boot and follows a synced change', async () => {
+    // WHY: workspace.css picks the reading column from this attribute. A width
+    // that reaches the profile but not the root leaves the conversation stale.
+    const storage = memoryStorage()
+    storage.setItem('solus.personal-settings.v1:anonymous', JSON.stringify({ conversationWidth: 'full' }))
+    const settings = await settingsOn(storage)
+    const root = (globals.document as { documentElement: { dataset: { conversationWidth?: string } } }).documentElement
+    expect(root.dataset.conversationWidth).toBe('full')
+
+    settings.personal.applyRemote({ set: { conversationWidth: 'narrow' }, reset: [] })
+    expect(root.dataset.conversationWidth).toBe('narrow')
+    settings.personal.applyRemote({ set: {}, reset: ['conversationWidth'] })
+    expect(root.dataset.conversationWidth).toBe('comfortable')
   })
 })
 

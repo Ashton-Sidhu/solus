@@ -124,13 +124,16 @@
       >
         {cardCopy.primary}
       </button>
-      <button
-        type="button"
-        class="rounded-md border border-(--solus-input-border) px-2.5 py-1  text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-        onclick={() => serversStore.useLocalHost()}
-      >
-        Use this Mac
-      </button>
+      <!-- A web client has no machine of its own to fall back to. -->
+      {#if serversStore.local}
+        <button
+          type="button"
+          class="rounded-md border border-(--solus-input-border) px-2.5 py-1  text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+          onclick={() => serversStore.useLocalHost()}
+        >
+          Use this Mac
+        </button>
+      {/if}
     </div>
   </div>
 {:else if confirmingReconnect}

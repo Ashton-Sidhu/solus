@@ -1,8 +1,8 @@
-import { dirname, join } from 'path'
-import { mkdir, realpath, rename, rm, writeFile as writeTextFile } from 'fs/promises'
+import { basename, dirname, join } from 'path'
+import { lstat, mkdir, readdir, realpath, rename, rm, writeFile as writeTextFile } from 'fs/promises'
 import { z } from 'zod'
 import type { ProjectFileMutation, ProjectFileMutationResult } from '@solus/contracts/types'
-import { toRootRelativePath } from '../paths'
+import { isInsideRoot, toRootRelativePath } from '../paths'
 
 const filesystemErrorSchema = z.object({ code: z.string().optional() })
 
@@ -18,7 +18,8 @@ export function friendlyMutationError(error: Error, fallback: string): string {
 
 /**
  * One structural edit inside `root`. Every path is re-derived from the root, so
- * a client cannot reach outside the project by sending `..` or an absolute path.
+ * a client cannot reach outside the project by sending `..` or an absolute path,
+ * and a link inside the project cannot carry the edit out of it.
  * Creates never overwrite: the caller is told the name is taken instead.
  */
 export async function applyProjectFileMutation(
@@ -37,9 +38,11 @@ async function runProjectFileMutation(
   root: string,
   mutation: ProjectFileMutation,
 ): Promise<ProjectFileMutationResult> {
+  const realRoot = await realpath(root)
   // A name the user types in the file tree loses stray outer whitespace.
-  const relativePath = toRootRelativePath(root, mutation.path.trim())
-  const target = join(root, relativePath)
+  const rawPath = mutation.path.trim()
+  const relativePath = toRootRelativePath(realRoot, rawPath)
+  const target = await resolveInsideRoot(realRoot, relativePath, rawPath)
 
   switch (mutation.op) {
     case 'createFile': {
@@ -56,17 +59,12 @@ async function runProjectFileMutation(
       return { ok: true, path: `${relativePath}/` }
     }
     case 'rename': {
-      const destinationRelative = toRootRelativePath(root, mutation.toPath.trim())
-      const destination = join(root, destinationRelative)
+      const rawDestination = mutation.toPath.trim()
+      const destinationRelative = toRootRelativePath(realRoot, rawDestination)
+      const destination = await resolveInsideRoot(realRoot, destinationRelative, rawDestination)
       await mkdir(dirname(destination), { recursive: true })
-      // `rename` would replace an occupied destination without a word. A
-      // case-only rename on a case-insensitive filesystem resolves to the
-      // source itself, and that one is allowed through.
-      const [occupant, source] = await Promise.all([
-        realpath(destination).catch(() => null),
-        realpath(target).catch(() => null),
-      ])
-      if (occupant && occupant !== source) {
+      // `rename` would replace an occupied destination without a word.
+      if (await isNameTaken(destination, target)) {
         return { ok: false, error: 'Something with that name already exists here.' }
       }
       await rename(target, destination)
@@ -75,9 +73,56 @@ async function runProjectFileMutation(
     case 'delete': {
       // `force` because the row can outlive the entry: an agent, a branch
       // switch, or the user's own editor may have removed it already, and the
-      // pane's only job here is to end up with it gone.
+      // pane's only job here is to end up with it gone. A link is removed
+      // itself; what it points to stays.
       await rm(target, { recursive: true, force: true })
       return { ok: true, path: '' }
     }
+  }
+}
+
+/**
+ * Whether `destination` names an entry other than `source`. Entries are
+ * compared as entries, never through a link: two links to one file, or a file
+ * and a link to it, are two names. A case-only rename on a case-insensitive
+ * filesystem finds the source itself under the new name, which its folder
+ * does not list; a hard link to the source is listed, so it is taken.
+ */
+async function isNameTaken(destination: string, source: string): Promise<boolean> {
+  if (destination === source) return false
+  const [occupant, entry] = await Promise.all([lstat(destination).catch(() => null), lstat(source).catch(() => null)])
+  if (!occupant) return false
+  const isSameEntry = !!entry && entry.ino === occupant.ino && entry.dev === occupant.dev && dirname(destination) === dirname(source)
+  if (!isSameEntry) return true
+  return (await readdir(dirname(destination))).includes(basename(destination))
+}
+
+/**
+ * Where `relativePath` really is: its parent with every link resolved, joined
+ * with its own name. The name itself is not followed: a link there is the
+ * entry, so a create finds the name taken, and a rename or delete moves or
+ * removes the link. A parent that resolves outside the project is refused.
+ */
+async function resolveInsideRoot(realRoot: string, relativePath: string, raw: string): Promise<string> {
+  const lexical = join(realRoot, relativePath)
+  const parent = await realExistingPath(dirname(lexical))
+  if (!isInsideRoot(realRoot, parent)) throw new Error(`File path is outside the repository: ${raw}`)
+  return join(parent, basename(lexical))
+}
+
+/** The real path of `path`, with only the part that exists resolved. The
+ *  missing rest is created later, beneath that real part. */
+async function realExistingPath(path: string): Promise<string> {
+  try {
+    return await realpath(path)
+  } catch (error) {
+    const parsed = filesystemErrorSchema.safeParse(error)
+    if (!parsed.success || parsed.data.code !== 'ENOENT') throw error
+    // A link whose target is gone is not missing: creating beneath it would
+    // create its target, wherever that is.
+    if (await lstat(path).then(() => true, () => false)) throw error
+    const parent = dirname(path)
+    if (parent === path) throw error
+    return join(await realExistingPath(parent), basename(path))
   }
 }

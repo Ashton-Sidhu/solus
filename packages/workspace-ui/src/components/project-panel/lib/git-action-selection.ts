@@ -15,6 +15,8 @@ export type GitPrimaryAction =
   | { kind: 'publish'; label: string }
   /** The publish path needs a GitHub connection first. */
   | { kind: 'connect'; label: string }
+  /** The branch is behind its upstream; syncing is the next step. */
+  | { kind: 'sync'; label: string }
   | { kind: 'disabled'; label: string; reason: string }
 
 /**
@@ -32,8 +34,9 @@ export interface GitMenuStep {
 
 export interface GitPublishModel {
   readiness: GitReadiness
-  /** Local work and how far it travels: staging, message, push. */
-  commit: { primary: GitPrimaryAction; steps: GitMenuStep[] }
+  /** Local work and how far it travels: staging, message, push. `hasWork`
+   *  says there is something to commit or push, which is when the row shows. */
+  commit: { primary: GitPrimaryAction; steps: GitMenuStep[]; hasWork: boolean }
   /** The remote and the pull request — including creating the remote. */
   pullRequest: { primary: GitPrimaryAction; steps: GitMenuStep[] }
   sync: { disabled: boolean; reason?: string }
@@ -104,6 +107,8 @@ export function gitPublishModel(
           commitWithOptionsStep('commit', true, reason),
           pushStep(true, reason),
         ],
+        // A detached HEAD with changes keeps the row, so its reason is visible.
+        hasWork: !!status && hasUncommittedChanges(status),
       },
       pullRequest: {
         primary: { kind: 'disabled', label: 'Pull requests', reason },
@@ -125,6 +130,7 @@ export function gitPublishModel(
           commitWithOptionsStep('commit', !!changesReason, changesReason),
           pushStep(true, NO_REMOTE_REASON),
         ],
+        hasWork: !changesReason,
       },
       pullRequest: {
         // Publishing creates the remote, so the pull-request row owns it.
@@ -138,16 +144,25 @@ export function gitPublishModel(
     }
   }
 
+  const hasUnpushed = hasUnpushedCommits(status)
+  const push = pushStepFor(status)
   return {
     readiness,
     commit: {
-      primary: { kind: 'run', label: 'Commit and push', action: 'commit_push' },
+      // A clean tree with unpushed commits has only the push left to do.
+      primary:
+        !changesReason || !hasUnpushed
+          ? { kind: 'run', label: 'Commit and push', action: 'commit_push' }
+          : push.reason
+            ? { kind: 'disabled', label: 'Push', reason: push.reason }
+            : { kind: 'run', label: 'Push', action: 'push' },
       steps: [
         // "Commit only" lives inside the composer, so the menu offers the
         // composer once and the dialog decides how far the commit travels.
         commitWithOptionsStep('commit_push', !!changesReason, changesReason),
-        pushStepFor(status),
+        push,
       ],
+      hasWork: !changesReason || hasUnpushed,
     },
     pullRequest: {
       primary: pullRequestPrimary(status),
@@ -169,14 +184,17 @@ function pushStep(disabled: boolean, reason?: string): GitMenuStep {
   return { key: 'push', label: 'Push', action: 'push', disabled, reason }
 }
 
-function pushStepFor(status: GitState): GitMenuStep {
+function hasUnpushedCommits(status: GitState): boolean {
   // Without an upstream nothing has ever been published, so commits measured
   // against the target branch are what a push would carry.
-  const hasUnpushedCommits = status.upstreamRef ? status.aheadCount > 0 : (status.targetAheadCount ?? 0) > 0
+  return status.upstreamRef ? status.aheadCount > 0 : (status.targetAheadCount ?? 0) > 0
+}
+
+function pushStepFor(status: GitState): GitMenuStep {
   const reason =
     status.behindCount > 0
       ? 'The branch is behind its upstream — sync first.'
-      : hasUnpushedCommits
+      : hasUnpushedCommits(status)
         ? undefined
         : 'There is nothing to push.'
   return pushStep(!!reason, reason)
@@ -200,7 +218,7 @@ function createPullRequestStepFor(status: GitState): GitMenuStep {
 function pullRequestPrimary(status: GitState): GitPrimaryAction {
   const isDefaultBranch = status.branch === status.targetBranch
   if (status.behindCount > 0) {
-    return { kind: 'disabled', label: 'Sync before publishing', reason: 'The branch is behind its upstream.' }
+    return { kind: 'sync', label: 'Sync before publishing' }
   }
   if (hasUncommittedChanges(status)) {
     if (isDefaultBranch) {

@@ -81,6 +81,7 @@
     onComplete: () => void;
     onClose: () => void;
     onOpenPr: (choice: TaskPrChoice) => void;
+    onWarmPr?: (choice: TaskPrChoice) => void;
     /** Open a pull request's own menu. */
     onMorePr: (event: MouseEvent, choice: TaskPrChoice) => void;
     /** Open the task a session's chip names. */
@@ -113,6 +114,7 @@
     onComplete,
     onClose,
     onOpenPr,
+    onWarmPr,
     onMorePr,
     onOpenLinkedTask,
     onSelectSession,
@@ -519,7 +521,7 @@
             ? 'opacity-75 group-hover/row:opacity-100'
             : ''}"
         >
-          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} />
+          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} />
         </span>
       {/if}
       {@render trailingSlot()}
@@ -643,7 +645,7 @@
                 ? 'opacity-75 group-hover/row:opacity-100'
                 : ''}"
             >
-              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} />
+              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} />
             </span>
           {/if}
         </span>

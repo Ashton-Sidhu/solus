@@ -18,7 +18,7 @@ import {
   deliveryActorOf,
 } from './outbox/outbox-store'
 import { ackMirrorThrough, listMirror, mirrorDestinations, onMirrorChanged } from './mirror/mirror-log'
-import { admissionIdFor, getSessionRecord, onSessionRecordChanged } from '../data/sessions/session-records'
+import { admissionIdFor, getSessionRecord, isOrganizationWork, onSessionRecordChanged } from '../data/sessions/session-records'
 import { isChat } from '@solus/contracts/chat'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import type { FetchLike } from '../admission/access-tokens'
@@ -245,7 +245,7 @@ export class RunnerDelivery {
   private reportSession(record: SessionRecord): void {
     const registration = this.deps.registration()
     if (!registration) return
-    if (record.organizationId === LOCAL_ORGANIZATION_ID || record.publication !== 'published') return
+    if (!isOrganizationWork(record)) return
     // A session the API admitted before its provider started names that admission, which is where its owner comes from (organization-vms §3).
     const report: SessionRecordUpsert = { ...record, runnerHostId: registration.hostId }
     const admissionId = admissionIdFor(record.sessionId)

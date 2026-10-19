@@ -403,6 +403,8 @@ export interface HeadlessSessionRequest {
    *  starts chooses it; absent, the host chooses one. */
   sessionId?: string
   prompt: string
+  /** The requester's name for the session; absent, the host names it from the prompt. */
+  title?: string
   provider: AgentId
   modelId: string | null
   reasoningEffort: ReasoningEffort
@@ -650,6 +652,8 @@ export interface PermissionRequest {
   options: Array<{ optionId: string; kind?: string; label: string }>
   /** Whose turn asks, as the host stamped it; live only. */
   turnAuthor?: User
+  /** A link guest sent the turn, so it runs in Ask mode whatever the session's mode is. */
+  guestTurn?: true
   /** Set when the request can no longer be answered. */
   expired?: RequestExpiry
 }
@@ -1731,6 +1735,10 @@ export interface StatusCardState {
    *  GitHub connection, with `recoveryUrl` naming the account's Connections page. */
   recovery?: 'worktree' | 'connect-github'
   recoveryUrl?: string
+  /** Bounded setup output, oldest first. No provider transcript is included. */
+  output?: string[]
+  /** The start branch to use when another client retries this setup. */
+  worktreeBaseBranch?: string
 }
 
 // ─── Agent conversations (one agent talking to another agent) ───
@@ -1892,7 +1900,7 @@ export type NormalizedEvent =
   | { type: 'usage'; context?: ContextUsage; run?: UsageData }
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
-  | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number; turnAuthor?: User }
+  | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number; turnAuthor?: User; guestTurn?: true }
   /** Who decided is an `activity` of its own; this event only clears the request.
    *  With `expired`, nobody answered: the host closed the request (its run ended),
    *  and clients keep the card, without answer controls, to say why. */
@@ -1936,6 +1944,7 @@ export type NormalizedEvent =
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
   | { type: 'browser_recording_captured'; recording: BrowserRecordingRef }
   | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
+  | { type: 'status_card'; card: StatusCardState }
 
 type ToolCallEvent = Extract<NormalizedEvent, { type: 'tool_call' }>
 type ToolCallUpdateEvent = Extract<NormalizedEvent, { type: 'tool_call_update' }>
@@ -1947,7 +1956,6 @@ export type WireNormalizedEvent =
   | Omit<ToolCallEvent, 'content'>
   | Omit<ToolCallUpdateEvent, 'content'>
   | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number; toolImages?: ToolResultImage[] }
-  | { type: 'status_card'; card: StatusCardState }
 
 // ─── Prompt Options ───
 
@@ -2161,6 +2169,8 @@ export interface SessionRunInput {
   rateLimitBehavior: 'ask' | 'queue' | 'continue' | 'stop'
   /** App-wide user instructions added through the provider's instruction extension point. */
   extraInstructions: string
+  /** Extra instructions scoped to the model in use, resolved from the sender's execution preferences at dispatch time. */
+  modelInstructions?: string
   /** System-level context used only when starting a new provider session. */
   handoff?: {
     fromProvider: AgentId
@@ -2434,6 +2444,10 @@ export interface SessionMeta {
   /** The organization of the session's record: `local` or an organization id
    *  (organization-scope §3). Absent when the host keeps no record of it. */
   organizationId?: string
+  /** Whether the record is published to its organization's Solus API, which
+   *  is then the session's home (docs/plans/session-archive.md). Absent with
+   *  `organizationId`. */
+  publication?: RecordPublication
   /** The session is out of the person's list (docs/plans/session-archive.md).
    *  The session picker still lists it, with a mark. */
   archived?: boolean

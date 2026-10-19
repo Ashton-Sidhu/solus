@@ -10,7 +10,7 @@ import * as Haptics from "expo-haptics";
 import { imageFileChips, replyImages } from "@solus/client-core/reply-images";
 import { Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
-import { memo, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, memo, useCallback, useContext, useMemo, useState } from "react";
 import { Linking } from "react-native";
 
 import { useApp } from "../../app/app-context";
@@ -40,10 +40,18 @@ import {
   ThreadMarkdownImageView,
 } from "./ThreadMarkdownImage";
 import { ThreadMarkdownVideo } from "./ThreadMarkdownVideo";
+import { parseReviewCommentMessageSegments } from "@solus/contracts/review-comment";
+import { ReviewCommentCard } from "../review/ReviewCommentCard";
 
 function isAbsoluteHostPath(path: string): boolean {
   return path.startsWith("/") || path.startsWith("~") || /^[A-Za-z]:[\\/]/.test(path);
 }
+
+/**
+ * "Quote in reply" for the selection menu of transcript Markdown. Only the
+ * thread screen gives it, where the composer that takes the quote is mounted.
+ */
+export const QuoteInReplyContext = createContext<((text: string) => void) | null>(null);
 
 /**
  * Selectable transcript Markdown, drawn by Enriched on iOS and Android. A
@@ -60,9 +68,16 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
   readonly imageLabel?: string;
 }) {
   const markdown = useMemo(() => props.tone === "assistant" && !props.imagesOnly ? imageFileChips(props.markdown) : props.markdown, [props.markdown, props.tone, props.imagesOnly]);
+  // A user message can hold review cards between its prose.
+  const reviewSegments = useMemo(
+    () => (props.tone === "user" ? parseReviewCommentMessageSegments(markdown) : []),
+    [markdown, props.tone],
+  );
+  const hasReviewComments = reviewSegments.some((segment) => segment.kind === "review-comment");
   const fileChipHrefs = useMemo(() => props.tone === "assistant" && !props.imagesOnly ? replyImages(props.markdown).map((image) => image.href) : [], [props.markdown, props.tone, props.imagesOnly]);
   const images = useMemo(() => props.imagesOnly ? replyImages(props.markdown) : [], [props.markdown, props.imagesOnly]);
   const gallery = useContext(FilePreviewGallery);
+  const quoteInReply = useContext(QuoteInReplyContext);
   const withGallery = useFilePreviewGallery();
   const app = useApp();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -196,7 +211,17 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
 
   return (
     <>
-      {props.imagesOnly ? images.map((image, index) => (
+      {hasReviewComments ? (
+        <View className="w-full gap-2">
+          {reviewSegments.map((segment) =>
+            segment.kind === "review-comment" ? (
+              <ReviewCommentCard key={segment.comment.id} comment={segment.comment} />
+            ) : (
+              <ThreadMarkdown key={segment.id} markdown={segment.text} tone={props.tone} store={props.store} />
+            ),
+          )}
+        </View>
+      ) : props.imagesOnly ? images.map((image, index) => (
         <Pressable
           key={index}
           accessibilityRole="imagebutton"
@@ -225,6 +250,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
         renderImage={renderImage}
         resolveImageSource={resolveImageSource}
         onImagePress={onImagePress}
+        onQuote={quoteInReply ?? undefined}
       />}
       <FilePreviewModal source={filePreview} onRequestClose={() => setFilePreview(null)} />
       <VideoPreviewModal source={videoPreview} onRequestClose={() => setVideoPreview(null)} />

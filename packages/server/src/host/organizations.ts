@@ -11,7 +11,6 @@ import {
 import { createLogger } from '../logger'
 import type { FetchLike } from '../admission/access-tokens'
 import { HostCredentialError, type HostCredential } from './host-credential'
-import { hostCategory } from './host-category'
 import { LOCAL_ORGANIZATION_ID } from './host-category'
 
 const log = createLogger('main', 'host-organizations')
@@ -87,13 +86,6 @@ export class HostOrganizations {
   policyFor(organizationId: string): OrganizationPolicy | null {
     if (organizationId === LOCAL_ORGANIZATION_ID) return null
     return this.organization(organizationId)?.policy ?? DEFAULT_ORGANIZATION_POLICY
-  }
-
-  /** Whether this machine may run `organizationId`'s work under its policy (§3.1). A self-hosted server or a managed machine always may. */
-  mayExecute(organizationId: string): boolean {
-    if (organizationId === LOCAL_ORGANIZATION_ID) return true
-    if (hostCategory() !== 'personal') return true
-    return this.policyFor(organizationId)?.allowsPersonalHosts !== false
   }
 
   /** The account this host is registered to, as the control plane knows it. */

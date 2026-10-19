@@ -1,0 +1,11 @@
+{
+  "extends": "../../apps/mobile/tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": [
+    "../../apps/mobile/uniwind-types.d.ts",
+    "../../apps/mobile/src/components/AppSymbol.tabler.d.ts",
+    "../../apps/mobile/src/features/threads/agent-roster.ts",
+    "../../apps/mobile/src/features/threads/ThreadAgents.tsx",
+    "../../apps/mobile/src/features/threads/ThreadDetailScreen.tsx"
+  ]
+}

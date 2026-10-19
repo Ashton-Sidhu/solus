@@ -26,6 +26,10 @@
     },
     { id: "font-size", keywords: ["font", "size", "text", "zoom"] },
     {
+      id: "conversation-width",
+      keywords: ["conversation", "chat", "transcript", "width", "column", "wide", "narrow", "full", "layout"],
+    },
+    {
       id: "reply-opacity",
       keywords: ["reply", "assistant", "message", "text", "opacity", "contrast", "fade", "transcript"],
     },
@@ -115,11 +119,12 @@
     IS_MAC_OS,
   } from "../../contexts/app/settings-display";
   import { getSettingsContext } from "../../contexts";
-  import { MIN_ASSISTANT_TEXT_OPACITY } from "@solus/contracts/settings";
+  import { MIN_ASSISTANT_TEXT_OPACITY, type ConversationWidth } from "@solus/contracts/settings";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
   import FontFamilyPicker from "./FontFamilyPicker.svelte";
+  import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import ThemeModeTiles from "./ThemeModeTiles.svelte";
   import SettingsRow from "./SettingsRow.svelte";
@@ -142,6 +147,11 @@
   // Presets only; the picker adds every installed family behind them.
   const appFontPresets = APP_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
   const codeFontPresets = APP_CODE_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
+  const conversationWidths: ReadonlyArray<{ value: ConversationWidth; label: string }> = [
+    { value: "narrow", label: "Narrow" },
+    { value: "comfortable", label: "Comfortable" },
+    { value: "full", label: "Full" },
+  ];
 
 
   function isVisible(id: string): boolean {
@@ -192,6 +202,23 @@
     value={theme.themeMode}
     onSelect={(mode) => theme.setPersonal("themeMode", mode)}
   />
+</SettingsSection>
+
+<SettingsSection label="Layout" visible={isVisible("conversation-width")}>
+  <SettingsRow
+    label="Conversation width"
+    description="How wide messages run in the conversation pane. Narrow panes always fill their width."
+    visible={isVisible("conversation-width")}
+  >
+    {#snippet control()}
+      <SettingsSelect
+        options={conversationWidths}
+        value={theme.conversationWidth}
+        onSelect={(value) => theme.setPersonal("conversationWidth", value)}
+        ariaLabel="Conversation width"
+      />
+    {/snippet}
+  </SettingsRow>
 </SettingsSection>
 
 <SettingsSection

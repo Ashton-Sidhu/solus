@@ -28,17 +28,23 @@ import { RATE_LIMIT_CHOICES, STREAMING_CHOICES } from "./lib/settings-labels";
 export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
   const app = useApp();
   const insets = useSafeAreaInsets();
-  const settings = useListened(app.personal.changes, app.personal.current);
+  // Each value is read alone, so a change to another setting (a sync from
+  // another device) does not re-render the page.
+  const { changes, current } = app.personal;
+  const agent = useListened(changes, () => current().activeAgent);
+  const defaultModel = useListened(changes, () => current().defaultModels[agent] ?? null);
+  const defaultPermissionMode = useListened(changes, () => current().defaultPermissionMode);
+  const responseStreamingMode = useListened(changes, () => current().responseStreamingMode);
+  const rateLimitBehavior = useListened(changes, () => current().rateLimitBehavior);
+  const autoRenameSessions = useListened(changes, () => current().autoRenameSessions);
   const update = (patch: PersonalSettingsDocument) => {
     app.personal.set(patch);
   };
 
-  const agent = settings.activeAgent;
   const agentLabel = PROVIDERS.find((provider) => provider.id === agent)?.label ?? agent;
-  const defaultModel = settings.defaultModels[agent] ?? null;
   // `defaultModels` is replaced as a whole, so the other agents' choices ride along.
   const setDefaultModel = (modelId: string | null) => {
-    const next: PersonalSettings["defaultModels"] = { ...settings.defaultModels };
+    const next: PersonalSettings["defaultModels"] = { ...current().defaultModels };
     if (modelId) next[agent] = modelId;
     else delete next[agent];
     update({ defaultModels: next });
@@ -98,7 +104,7 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
                 label={PERMISSION_MODE_TEXT[mode].label}
                 description={PERMISSION_MODE_TEXT[mode].description}
                 icon={PERMISSION_MODE_ICON[mode]}
-                selected={settings.defaultPermissionMode === mode}
+                selected={defaultPermissionMode === mode}
                 onPress={() => update({ defaultPermissionMode: mode })}
               />
             ))}
@@ -113,7 +119,7 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
               separated={index > 0}
               label={choice.label}
               description={choice.description}
-              selected={settings.responseStreamingMode === choice.mode}
+              selected={responseStreamingMode === choice.mode}
               onPress={() => update({ responseStreamingMode: choice.mode })}
             />
           ))}
@@ -126,7 +132,7 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
                 key={choice.mode}
                 separated={index > 0}
                 label={choice.label}
-                selected={settings.rateLimitBehavior === choice.mode}
+                selected={rateLimitBehavior === choice.mode}
                 onPress={() => update({ rateLimitBehavior: choice.mode })}
               />
             ))}
@@ -139,7 +145,7 @@ export function AgentDefaultsScreen(_props: ScreenProps<"AgentDefaults">) {
             icon="pencil"
             label="Name sessions automatically"
             subtitle="Summarize the first prompt into a short session name."
-            value={settings.autoRenameSessions}
+            value={autoRenameSessions}
             onValueChange={(next) => update({ autoRenameSessions: next })}
           />
         </SettingsSection>
