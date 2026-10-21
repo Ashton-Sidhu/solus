@@ -19,12 +19,20 @@ function present(entries: FeedSourceEntry[], options: { turnActive?: boolean; wo
 const shape = (rows: ThreadFeedRow[]) => rows.filter((row) => row.type !== 'turn-images').map((row) => row.type === 'message' ? `${row.role}:${row.id}` : row.type === 'work-toggle' ? `work:${row.toolIds.join(',')}${row.live ? ':live' : ''}` : row.type)
 
 describe('native thread feed', () => {
-  test('a finished turn folds its work behind "Worked", keeping the first and last prose', () => {
+  test('a finished turn folds its work and progress notes behind "Worked", keeping the final answer', () => {
+    // As on desktop, the opening note is a step toward the answer, not the answer.
     const rows = present([user('u1'), assistant('a1'), tool('t1'), tool('t2'), assistant('a2'), tool('t3'), assistant('a3')])
-    expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'run-fold', 'assistant:a3'])
+    expect(shape(rows)).toEqual(['user:u1', 'run-fold', 'assistant:a3'])
     // The person can open the fold and read every step again.
     const opened = present([user('u1'), assistant('a1'), tool('t1'), tool('t2'), assistant('a2'), tool('t3'), assistant('a3')], { expandedTurnIds: ['turn:u1'] })
-    expect(shape(opened)).toEqual(['user:u1', 'assistant:a1', 'run-fold', 'work:t1,t2', 'assistant:a2', 'work:t3', 'assistant:a3'])
+    expect(shape(opened)).toEqual(['user:u1', 'run-fold', 'assistant:a1', 'work:t1,t2', 'assistant:a2', 'work:t3', 'assistant:a3'])
+    // While the turn runs, nothing folds: the notes are how the person follows the work.
+    const running = present([user('u1'), assistant('a1'), tool('t1'), assistant('a2')], { turnActive: true })
+    expect(shape(running)).toEqual(['user:u1', 'assistant:a1', 'work:t1', 'assistant:a2'])
+  })
+
+  test('a settled turn with only a progress note and an answer folds the note', () => {
+    expect(shape(present([user('u1'), assistant('a1'), assistant('a2')]))).toEqual(['user:u1', 'run-fold', 'assistant:a2'])
   })
 
   test('the running turn never folds, and its trailing tool group is the live slot', () => {
@@ -43,7 +51,7 @@ describe('native thread feed', () => {
   test('tool calls fold without adding their images to the reply gallery', () => {
     // Raw tool image sources must not be promoted into reply output.
     const rows = present([user('u1'), assistant('a1'), tool('t1'), tool('s1'), tool('t2'), assistant('a2')])
-    expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'run-fold', 'assistant:a2'])
+    expect(shape(rows)).toEqual(['user:u1', 'run-fold', 'assistant:a2'])
   })
 
   test("a turn's screenshots follow its reply, as on desktop", () => {
@@ -70,7 +78,7 @@ describe('native thread feed', () => {
   })
 
   test('only the final prose of a settled turn carries its copy row', () => {
-    const rows = present([user('u1'), assistant('a1'), assistant('a2')])
+    const rows = present([user('u1'), assistant('a1'), assistant('a2')], { expandedTurnIds: ['turn:u1'] })
     expect(rows.filter((row) => row.type === 'message' && row.role === 'assistant').map((row) => row.type === 'message' && row.showMeta)).toEqual([false, true])
   })
 })

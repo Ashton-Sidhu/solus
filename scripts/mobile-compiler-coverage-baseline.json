@@ -740,6 +740,12 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/home/ThreadUndoNotice.tsx": {
+      "compiled": [
+        "ThreadUndoNotice"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/home/use-workspace-state.ts": {
       "compiled": [
         "useWorkspaceState"
@@ -1195,6 +1201,7 @@
     },
     "apps/mobile/src/features/prs/PullRequestsScreen.tsx": {
       "compiled": [
+        "HostNotices",
         "PullRequestScrollView",
         "PullRequestsScreen",
         "useDebouncedValue"
@@ -1694,6 +1701,7 @@
     "apps/mobile/src/features/threads/thread-list-v2-items.tsx": {
       "compiled": [
         "ThreadListV2ArchivedSectionHeader",
+        "ThreadListV2Duration",
         "ThreadListV2Row",
         "ThreadListV2Section",
         "ThreadListV2SettledShelfHeader",

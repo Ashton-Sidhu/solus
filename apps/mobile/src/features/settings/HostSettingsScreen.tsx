@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsEnvironmentDetailRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -10,6 +10,7 @@ import { ScreenScrollView } from "../../components/ScreenScrollView";
 import type { ScreenProps } from "../../navigation/routes";
 import { ConnectionEnvironmentRow } from "../connection/ConnectionEnvironmentRow";
 import { confirmForgetHost } from "../hosts/confirm-forget-host";
+import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsRow } from "./components/SettingsRow";
@@ -19,7 +20,7 @@ import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsValueRow } from "./components/SettingsValueRow";
 import { accountConnectionValue } from "./lib/account-connections";
 import { retentionDayChoices, retentionDaysLabel } from "./lib/retention-choices";
-import { updateStatusText } from "./lib/update-status";
+import { hostUpdateControls, serverUpdateText, updateStatusText } from "./lib/update-status";
 import { useGithubConnection } from "./use-github-connection";
 import { useHostSettings } from "./use-host-settings";
 import { useHostUpdateStatus } from "./use-host-update-status";
@@ -37,7 +38,11 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
   const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase);
   const github = useGithubConnection(hostId);
   const { state, reload, update } = useHostSettings(hostId);
-  const { version, status } = useHostUpdateStatus(hostId);
+  const hostUpdate = useHostUpdateStatus(hostId);
+  const { version, status } = hostUpdate;
+  const isAdmin = useListened(app.connections.changes, () => app.connections.may(hostId, "host.admin"));
+  const updateControls = hostUpdateControls(status, isAdmin);
+  const operation = status?.serverUpdate?.operation ?? null;
   // Unset follows the connection: a host that failed to connect opens with
   // Reconnect and Forget in view; a tap then decides.
   const [connectionToggled, setConnectionToggled] = useState<boolean | null>(null);
@@ -106,14 +111,71 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               />
             </SettingsSection>
 
-            <SettingsSection title="Solus">
-              <SettingsValueRow
-                icon="info.circle"
-                label="Version"
-                value={version}
-                detail={status ? updateStatusText(status) : undefined}
-              />
-            </SettingsSection>
+            <View className="gap-3">
+              <SettingsSection title="Solus">
+                <SettingsValueRow
+                  icon="info.circle"
+                  label="Version"
+                  value={version}
+                  detail={
+                    operation && operation.phase !== "succeeded"
+                      ? serverUpdateText(operation)
+                      : status
+                        ? updateStatusText(status)
+                        : undefined
+                  }
+                />
+                {updateControls.canCheck ? (
+                  <SettingsActionRow
+                    icon="arrow.clockwise"
+                    label="Check for updates"
+                    disabled={hostUpdate.requesting}
+                    onPress={hostUpdate.check}
+                  />
+                ) : null}
+                {updateControls.action.kind === "update" ? (
+                  <SettingsActionRow
+                    icon="arrow.up.circle"
+                    label={
+                      updateControls.action.retry
+                        ? "Retry update"
+                        : `Update to ${updateControls.action.version}`
+                    }
+                    disabled={hostUpdate.requesting}
+                    loading={hostUpdate.requesting}
+                    onPress={() => {
+                      const action = updateControls.action;
+                      if (action.kind !== "update") return;
+                      Alert.alert(
+                        `Update ${host.label}?`,
+                        `Solus ${action.version} installs on this host. The host waits for running work to finish, then restarts and reconnects.`,
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          { text: "Update", onPress: hostUpdate.install },
+                        ],
+                      );
+                    }}
+                  />
+                ) : updateControls.action.kind === "cancel" ? (
+                  <SettingsActionRow
+                    icon="xmark"
+                    label="Cancel update"
+                    tone="danger"
+                    disabled={hostUpdate.requesting}
+                    loading={hostUpdate.requesting}
+                    onPress={hostUpdate.cancel}
+                  />
+                ) : null}
+              </SettingsSection>
+              {updateControls.action.kind === "manual" ? (
+                <SettingsNote>{updateControls.action.text}</SettingsNote>
+              ) : updateControls.action.kind === "limited" ? (
+                <SettingsNote>
+                  Limited permissions: only a host administrator can update Solus on this host.
+                </SettingsNote>
+              ) : null}
+              {hostUpdate.error ? <SettingsNote tone="danger">{hostUpdate.error}</SettingsNote> : null}
+            </View>
 
             {state.kind === "loaded" ? (
               <>

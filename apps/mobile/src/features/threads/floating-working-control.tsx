@@ -78,6 +78,8 @@ export function FloatingWorkingControl(props: {
   const { width: windowWidth } = useWindowDimensions();
   const [overlayWidth, setOverlayWidth] = useState(windowWidth);
   const [queueWidth, setQueueWidth] = useState(0);
+  const [actionWidth, setActionWidth] = useState(0);
+  const action = props.status?.kind === "background" ? props.status.action : null;
   const [agentsWidth, setAgentsWidth] = useState(0);
   const hasQueue = props.queuedCount > 0;
   const agents = props.agents ?? null;
@@ -89,6 +91,7 @@ export function FloatingWorkingControl(props: {
     Math.min(overlayWidth, windowWidth) -
       CONTROL_HEIGHT -
       32 -
+      (action !== null ? actionWidth : 0) -
       (hasQueue ? queueWidth : 0) -
       (hasAgents ? agentsWidth : 0),
   );
@@ -147,9 +150,9 @@ export function FloatingWorkingControl(props: {
     return null;
   }
 
-  // The queue and reconnect labels have separate tap targets.
+  // The queue, reconnect, and background Stop controls have separate tap targets.
   const statusInteractive = props.status?.kind === "connection";
-  const capsuleInteractive = statusInteractive || hasQueue || hasAgents;
+  const capsuleInteractive = statusInteractive || action !== null || hasQueue || hasAgents;
   // The host stays centered on the capsule, but its measurement constraint
   // comes from the overlay, independent of the capsule's current width.
   const statusContent =
@@ -180,6 +183,22 @@ export function FloatingWorkingControl(props: {
   const capsuleContent = (
     <View className="flex-row items-center">
       {statusContent}
+      {action !== null ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={action.accessibilityLabel}
+          accessibilityState={{ disabled: action.disabled }}
+          disabled={action.disabled}
+          onPress={action.onPress}
+          onLayout={(event) => setActionWidth(event.nativeEvent.layout.width)}
+          className={`h-11 flex-row items-center gap-1.5 px-3 active:opacity-70 ${action.disabled ? "opacity-50" : ""}`}
+        >
+          <View className="mr-1 h-4 w-px bg-border" />
+          <Text className="font-t3-medium text-xs text-foreground" numberOfLines={1}>
+            {action.label}
+          </Text>
+        </Pressable>
+      ) : null}
       {hasQueue ? (
         <Pressable
           accessibilityRole="button"

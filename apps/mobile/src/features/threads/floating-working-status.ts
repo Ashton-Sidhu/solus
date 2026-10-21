@@ -1,6 +1,14 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/floating-working-status.ts (MIT, see UPSTREAM.md).
 import type { HostConnectionPhase } from '../hosts/host-connections'
 
+/** A control the pill carries beside its label. */
+export interface FloatingStatusAction {
+  readonly label: string
+  readonly accessibilityLabel: string
+  readonly disabled: boolean
+  readonly onPress: () => void
+}
+
 /**
  * What the floating pill says. Connection, syncing, and working share one
  * element so the label swaps in place instead of one pill fading out for
@@ -10,7 +18,7 @@ export type FloatingWorkingStatus =
   | { readonly kind: 'working'; readonly startedAt: number }
   | { readonly kind: 'syncing'; readonly label: string }
   // The turn ended while a background task it started still runs.
-  | { readonly kind: 'background'; readonly label: string; readonly accessibilityLabel: string; readonly waiting: boolean }
+  | { readonly kind: 'background'; readonly label: string; readonly accessibilityLabel: string; readonly waiting: boolean; readonly action: FloatingStatusAction }
   // A new session the host has not started yet.
   | { readonly kind: 'preparing'; readonly label: string }
   | { readonly kind: 'connection'; readonly tone: 'reconnecting' | 'unavailable'; readonly label: string; readonly onPress: () => void }
@@ -49,6 +57,31 @@ export function connectionFloatingStatus(input: {
       return unavailable(`${hostLabel} is not connected`)
     case 'connected':
       return null
+  }
+}
+
+/**
+ * The pill while the turn has ended but work it started still runs. Its Stop
+ * ends only that work, as the desktop and web background row does; it stays
+ * there when the composer holds a draft and shows Send in place of Stop. A
+ * viewer cannot stop the session, so the control is disabled for them.
+ */
+export function backgroundFloatingStatus(input: {
+  readonly mayDrive: boolean
+  readonly stopping: boolean
+  readonly onStop: () => void
+}): FloatingWorkingStatus {
+  return {
+    kind: 'background',
+    label: 'Background task running',
+    accessibilityLabel: 'A background task the agent started is still running',
+    waiting: true,
+    action: {
+      label: input.stopping ? 'Stopping...' : 'Stop',
+      accessibilityLabel: input.stopping ? 'Stopping the background work' : 'Stop the background work',
+      disabled: !input.mayDrive || input.stopping,
+      onPress: input.onStop,
+    },
   }
 }
 

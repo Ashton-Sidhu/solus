@@ -7,7 +7,7 @@ import type { SessionStatus } from "@solus/contracts/types";
 import { Listeners } from "../../lib/listeners";
 import type { KeyValueStore } from "../../platform/ports";
 import { threadKey } from "./thread-directory";
-import type { ThreadListV2Facts } from "./threadListV2";
+import { resolveThreadListV2Status, type ThreadListV2Facts } from "./threadListV2";
 
 /**
  * What T3 Code's thread list shows beyond a session's record, from each host:
@@ -69,6 +69,7 @@ export class ThreadListState {
   private readonly states = new Map<string, SessionState>();
   private readonly views = new Map<string, SessionView>();
   private readonly liveStatus = new Map<string, SessionStatus>();
+  private readonly statusSince = new Map<string, number>();
   private readonly unread = new Map<string, boolean>();
   private readonly pullRequests = new Map<string, ReadonlyArray<SessionPullRequestLink>>();
   private readonly watched = new WeakSet<ThreadListConnection>();
@@ -169,6 +170,7 @@ export class ThreadListState {
     this.dropHostEntries(this.views, hostId);
     this.dropHostEntries(this.pullRequests, hostId);
     this.dropHostEntries(this.liveStatus, hostId);
+    this.dropHostEntries(this.statusSince, hostId);
     this.dropHostEntries(this.unread, hostId);
     this.publish();
   }
@@ -190,21 +192,33 @@ export class ThreadListState {
     connection.events.subscribe("session.pullRequestsChanged", ({ sessionId }) => {
       void this.refreshPullRequests(hostId, sessionId);
     });
-    connection.events.subscribe("session.statusChanged", ({ sessionId, agentSessionId, status }) => {
+    connection.events.subscribe("session.statusChanged", ({ sessionId, agentSessionId, status, at }) => {
       // A list may hold either id for the same session.
-      this.liveStatus.set(threadKey(hostId, sessionId), status);
-      if (agentSessionId) this.liveStatus.set(threadKey(hostId, agentSessionId), status);
+      this.setLiveStatus(threadKey(hostId, sessionId), status, at);
+      if (agentSessionId) this.setLiveStatus(threadKey(hostId, agentSessionId), status, at);
       this.publish();
     });
     // A fresh server session forgets what was live, and a change may have
     // been missed; the records read again answer it.
     connection.onReset(() => {
       this.dropHostEntries(this.liveStatus, hostId);
+      this.dropHostEntries(this.statusSince, hostId);
       this.dropHostEntries(this.states, hostId);
       this.dropHostEntries(this.views, hostId);
       this.dropHostEntries(this.pullRequests, hostId);
       this.publish();
     });
+  }
+
+  /** A row's elapsed time counts from the change into what it shows: a
+   *  connecting session that starts running is still the same "Working". */
+  private setLiveStatus(key: string, status: SessionStatus, at: number): void {
+    const previous = this.liveStatus.get(key);
+    const shown = (value: SessionStatus) => resolveThreadListV2Status({ status: "idle" }, value);
+    if (previous === undefined || shown(previous) !== shown(status)) {
+      this.statusSince.set(key, at);
+    }
+    this.liveStatus.set(key, status);
   }
 
   /** A state or view the host announced or answered overrides the record
@@ -249,6 +263,7 @@ export class ThreadListState {
       states: new Map(this.states),
       views: new Map(this.views),
       liveStatus: new Map(this.liveStatus),
+      statusSince: new Map(this.statusSince),
       unread: new Map(this.unread),
       pullRequests: new Map(this.pullRequests),
     };

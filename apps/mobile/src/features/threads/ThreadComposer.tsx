@@ -49,7 +49,7 @@ import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import type { RootStackParamList } from "../../navigation/routes";
 import type { PickedFile } from "../conversation/lib/attachments";
-import { modelLabel } from "../conversation/lib/run-settings";
+import { modelLabel, modelOptionsSummary } from "../conversation/lib/run-settings";
 import {
   resolveComposerSendPresentation,
   type ActiveTurnComposerAction,
@@ -311,7 +311,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     restoreToConversationDraft,
   });
   const editing = queuedEdit !== null;
-  const { text, onChangeText, hasContent, stripAttachments, stripUploading, attachmentsFull, queuedAttachments } =
+  const { text, onChangeText, hasContent, stripAttachments, stripUploading, attachmentsFull, queuedAttachments, locked } =
     composerDraftView(queuedEdit, {
       text: draftMessage,
       onChangeText: onChangeDraftMessage,
@@ -405,6 +405,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   useEffect(
     () =>
       store.onQuoteInReply((selected) => {
+        if (locked) return;
         const quoted = quotedReplyDraft(selected);
         if (!quoted) return;
         const next = text.trim() ? `${text}\n\n${quoted}` : quoted;
@@ -414,7 +415,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           inputRef.current?.setSelection({ start: next.length, end: next.length });
         });
       }),
-    [inputRef, onChangeText, store, text],
+    [inputRef, locked, onChangeText, store, text],
   );
 
   // Keep the feed inset aligned with the card.
@@ -460,6 +461,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   const attach = useCallback(
     async (pick: (existingCount: number) => Promise<PickedFile[]>) => {
+      if (locked) return;
       try {
         if (queuedEdit) {
           const files = await pick(queuedEdit.attachments.length);
@@ -472,7 +474,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         Alert.alert("Could not attach", error instanceof Error ? error.message : String(error));
       }
     },
-    [meta.attachments.length, meta.uploading, queuedEdit, store],
+    [locked, meta.attachments.length, meta.uploading, queuedEdit, store],
   );
   const onPickDraftMedia = useCallback(() => attach(pickComposerMedia), [attach]);
   const onPickDraftFiles = useCallback(() => attach(pickComposerFiles), [attach]);
@@ -564,7 +566,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           >
             {!usesCard ? (
               <ComposerAttachmentButton
-                disabled={attachmentsFull}
+                disabled={attachmentsFull || locked}
                 supportsFiles
                 onPickMedia={onPickDraftMedia}
                 onPickFiles={onPickDraftFiles}
@@ -610,6 +612,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 multiline
                 value={text}
                 onChangeText={onChangeText}
+                // The save sends a snapshot of the draft; typing after it would be lost.
+                readOnly={locked}
                 placeholder={props.placeholder}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
@@ -719,7 +723,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   >
                     <View className="min-w-0 flex-1 flex-row items-center justify-between">
                       <ComposerAttachmentButton
-                        disabled={attachmentsFull}
+                        disabled={attachmentsFull || locked}
                         supportsFiles
                         onPickMedia={onPickDraftMedia}
                         onPickFiles={onPickDraftFiles}
@@ -729,6 +733,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                           accessibilityLabel="Model and reasoning settings"
                           emphasized
                           label={currentModelLabel}
+                          // The card has room for the reasoning; the one-row composer keeps the name only.
+                          summary={modelOptionsSummary(meta.run)}
                           maxWidth="100%"
                           onPress={openSettings}
                         />

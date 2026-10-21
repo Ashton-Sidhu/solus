@@ -101,11 +101,41 @@ describe('native Home distinguishes a list failure from a lost connection', () =
     expect(deriveHomeEmptyState({ catalogState: recovered, projectCount: 2 }).title).toBe('No threads yet')
   })
 
-  test('reconnecting another host shows progress even when a connected host failed to load', () => {
+  test('a connected host that failed to load keeps its warning while another host reconnects', () => {
+    // WHY: the header speaks for the host the list comes from. A second
+    // host's retry is on the Hosts screen (pingdotgg/t3code#21388).
     const catalog = deriveWorkspaceState([
       host('Studio', 'connected', { kind: 'error', message, previous: null }),
       host('Laptop', 'reconnecting'),
     ])
-    expect(workspaceConnectionStatusPresentation(catalog)).toEqual({ label: 'Reconnecting to Laptop', kind: 'progress' })
+    expect(workspaceConnectionStatusPresentation(catalog)).toEqual({ label: 'Could not load threads', kind: 'load-error' })
+  })
+})
+
+describe('native Home header keeps the brand while a second host retries (pingdotgg/t3code#21388)', () => {
+  const loaded = { kind: 'loaded', value: { threads: [], projects: [], indexing: false } } as const
+
+  test('a usable host keeps the brand while another host connects, reconnects, or is offline', () => {
+    // WHY: a sleeping laptop must not replace the brand with "Reconnecting"
+    // while the Mac it sits beside lists threads and runs work.
+    for (const phase of ['connecting', 'reconnecting', 'offline', 'blocked', undefined] as const) {
+      const catalog = deriveWorkspaceState([host('Studio', 'connected', loaded), host('Laptop', phase)])
+      expect(workspaceConnectionStatusPresentation(catalog)).toBeNull()
+    }
+  })
+
+  test('a usable host still shows its own list loading while another host is down', () => {
+    const catalog = deriveWorkspaceState([
+      host('Studio', 'connected', { kind: 'loading', previous: loaded.value }),
+      host('Laptop', 'reconnecting'),
+    ])
+    expect(workspaceConnectionStatusPresentation(catalog)).toEqual({ label: 'Syncing threads...', kind: 'progress' })
+  })
+
+  test('with no usable host, the header still says the hosts reconnect or are not connected', () => {
+    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([host('Laptop', 'reconnecting')])))
+      .toEqual({ label: 'Reconnecting to Laptop', kind: 'progress' })
+    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([host('Laptop', 'offline')])))
+      .toEqual({ label: 'Not connected', kind: 'offline' })
   })
 })

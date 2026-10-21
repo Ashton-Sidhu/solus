@@ -19,7 +19,7 @@ import { projectContext } from '../conversation/lib/ipc-context'
 import { useAppearancePreferences } from '../settings/appearance/AppearancePreferencesProvider'
 import { FileMarkdownPreview } from './FileMarkdownPreview'
 import { useHostMediaUrl } from './host-media-url'
-import { fileSizeLabel } from './lib/file-tree'
+import { fileSizeLabel, linkedFolderPath } from './lib/file-tree'
 import { fileMediaView, isMarkdownFile, type FileMediaView } from './lib/file-preview-kind'
 import { SourceFileSurface } from './SourceFileSurface'
 import { WorkspaceFileImagePreview } from './WorkspaceFileImagePreview'
@@ -224,7 +224,11 @@ export function FileScreen({ navigation, route }: ScreenProps<'File'>) {
           projectPath={projectPath}
           markdown={view.file.contents}
           path={path}
-          onOpenFile={(target) => navigation.push('File', { hostId, projectPath, path: target })}
+          onOpenFile={(target) => {
+            const folderPath = linkedFolderPath(target, projectPath)
+            if (folderPath !== null) navigation.push('Files', { hostId, projectPath, folderPath })
+            else navigation.push('File', { hostId, projectPath, path: target })
+          }}
           onRefresh={read}
         />
       ) : (

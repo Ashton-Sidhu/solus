@@ -9,16 +9,30 @@ import type { SolusThreadShell } from "../threads/thread-directory";
 import { threadTitle, watchRefusalMessage, type ThreadPrWatchTarget } from "../threads/threadListV2";
 import { useThreadListState } from "../threads/use-thread-list";
 import { withThreadDismissal } from "./thread-dismissal";
+import { threadUndoNotices, type ThreadUndoAction } from "./thread-undo-notice";
 
 /**
  * The thread list's actions on Solus sessions: settle and un-settle, snooze
  * and wake, archive and return to the list (the host's session state), and
- * rename. T3's delete, pin, reorder, auto-settle, and title regeneration have
- * no Solus session counterpart and are not offered.
+ * rename. A settle, snooze, or archive offers Undo for a few seconds
+ * (pingdotgg/t3code#21401). T3's delete, pin, reorder, auto-settle, and title
+ * regeneration have no Solus session counterpart and are not offered.
  */
 
 function selectionHaptic() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+}
+
+/** After a command succeeds, offers its inverse as Undo. */
+async function offerUndo(
+  thread: SolusThreadShell,
+  action: ThreadUndoAction,
+  done: Promise<boolean>,
+  undo: () => void,
+): Promise<boolean> {
+  const succeeded = await done;
+  if (succeeded) threadUndoNotices.show({ action, threadKey: thread.key, undo });
+  return succeeded;
 }
 
 function failureMessage(error: unknown, fallback: string): string {
@@ -50,6 +64,8 @@ export function useThreadListActions(): {
     ): Promise<boolean> => {
       if (inFlightThreadKeys.current.has(thread.key)) return false;
       inFlightThreadKeys.current.add(thread.key);
+      // An older Undo for this thread would act against this action.
+      threadUndoNotices.dismiss(thread.key);
       selectionHaptic();
       // The React Compiler cannot compile try/finally. The async wrapper turns
       // a synchronous throw into a rejection, so finally sees both.
@@ -71,24 +87,10 @@ export function useThreadListActions(): {
     [],
   );
 
-  const settleThread = useCallback(
-    (thread: SolusThreadShell) =>
-      run(thread, "Could not settle thread", "The thread could not be settled.", () =>
-        list.setSettled(thread.hostId, thread.record.sessionId, true),
-      ),
-    [list, run],
-  );
   const unsettleThread = useCallback(
     (thread: SolusThreadShell) =>
       run(thread, "Could not un-settle thread", "The thread could not be un-settled.", () =>
         list.setSettled(thread.hostId, thread.record.sessionId, false),
-      ),
-    [list, run],
-  );
-  const snoozeThread = useCallback(
-    (thread: SolusThreadShell, snoozedUntil: number) =>
-      run(thread, "Could not snooze thread", "The thread could not be snoozed.", () =>
-        list.snooze(thread.hostId, thread.record.sessionId, snoozedUntil),
       ),
     [list, run],
   );
@@ -99,19 +101,48 @@ export function useThreadListActions(): {
       ),
     [list, run],
   );
-  const archiveThread = useCallback(
-    (thread: SolusThreadShell) =>
-      run(thread, "Could not archive thread", "The thread could not be archived.", () =>
-        list.setArchived(thread.hostId, thread.record.sessionId, true),
-      ),
-    [list, run],
-  );
   const unarchiveThread = useCallback(
     (thread: SolusThreadShell) =>
       run(thread, "Could not return thread to the list", "The thread could not be returned to the list.", () =>
         list.setArchived(thread.hostId, thread.record.sessionId, false),
       ),
     [list, run],
+  );
+  const settleThread = useCallback(
+    (thread: SolusThreadShell) =>
+      offerUndo(
+        thread,
+        "Settled",
+        run(thread, "Could not settle thread", "The thread could not be settled.", () =>
+          list.setSettled(thread.hostId, thread.record.sessionId, true),
+        ),
+        () => void unsettleThread(thread),
+      ),
+    [list, run, unsettleThread],
+  );
+  const snoozeThread = useCallback(
+    (thread: SolusThreadShell, snoozedUntil: number) =>
+      offerUndo(
+        thread,
+        "Snoozed",
+        run(thread, "Could not snooze thread", "The thread could not be snoozed.", () =>
+          list.snooze(thread.hostId, thread.record.sessionId, snoozedUntil),
+        ),
+        () => void unsnoozeThread(thread),
+      ),
+    [list, run, unsnoozeThread],
+  );
+  const archiveThread = useCallback(
+    (thread: SolusThreadShell) =>
+      offerUndo(
+        thread,
+        "Archived",
+        run(thread, "Could not archive thread", "The thread could not be archived.", () =>
+          list.setArchived(thread.hostId, thread.record.sessionId, true),
+        ),
+        () => void unarchiveThread(thread),
+      ),
+    [list, run, unarchiveThread],
   );
   const renameThread = useCallback(
     (thread: SolusThreadShell) => {

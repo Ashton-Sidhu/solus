@@ -65,6 +65,30 @@ export function childPath(folderPath: string, name: string): string {
   return folderPath ? `${folderPath}/${name}` : name
 }
 
+/**
+ * The root-relative folder a link names with a trailing separator (`src/`,
+ * `./docs/`, or an absolute path inside the project), or null when the link
+ * names a file or a place outside the project. A `~` link is the host's to
+ * resolve, so it is never a folder of this project here.
+ */
+export function linkedFolderPath(linkPath: string, projectPath: string): string | null {
+  if (!/[\\/]$/.test(linkPath) || linkPath.startsWith('~')) return null
+  const path = linkPath.replaceAll('\\', '/')
+  let relative = path
+  if (path.startsWith('/') || /^[A-Za-z]:\//.test(path)) {
+    const root = projectPath.replaceAll('\\', '/').replace(/\/+$/, '')
+    if (!root || !path.startsWith(`${root}/`)) return null
+    relative = path.slice(root.length)
+  }
+  const segments: string[] = []
+  for (const segment of relative.split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment !== '..') segments.push(segment)
+    else if (segments.pop() === undefined) return null
+  }
+  return segments.join('/')
+}
+
 /** The name a screen title shows for a folder; the root shows the project's. */
 export function folderTitle(folderPath: string, projectName: string): string {
   return folderPath ? folderPath.slice(folderPath.lastIndexOf('/') + 1) : projectName

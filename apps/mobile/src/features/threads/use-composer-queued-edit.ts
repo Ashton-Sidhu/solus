@@ -112,7 +112,12 @@ export function useComposerQueuedEdit(input: {
   };
 }
 
-/** The composer's text, files, and send state: the queued message's while it is edited, else the conversation's draft. */
+/**
+ * The composer's text, files, and send state: the queued message's while it is
+ * edited, else the conversation's draft. While a queued edit saves, the
+ * composer is locked: the save sends a snapshot of the draft, so text typed
+ * or files added after it would be lost when the save ends the edit.
+ */
 export function composerDraftView<Attachment>(
   queuedEdit: ComposerQueuedEditView | null,
   conversation: {
@@ -131,11 +136,13 @@ export function composerDraftView<Attachment>(
       stripUploading: conversation.uploading,
       attachmentsFull: conversation.attachments.length + conversation.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT,
       queuedAttachments: null,
+      locked: false,
     };
   }
+  const locked = queuedEdit.saving;
   return {
     text: queuedEdit.text,
-    onChangeText: queuedEdit.setText,
+    onChangeText: locked ? () => undefined : queuedEdit.setText,
     hasContent: queuedEdit.hasContent,
     stripAttachments: [],
     stripUploading: 0,
@@ -145,5 +152,7 @@ export function composerDraftView<Attachment>(
       queuedEdit.attachments.length > 0
         ? { attachments: queuedEdit.attachments, saving: queuedEdit.saving, remove: queuedEdit.removeAttachment }
         : null,
+    /** Typing, pasting, attaching, and quoting wait for the save to end. */
+    locked,
   };
 }

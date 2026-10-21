@@ -130,17 +130,16 @@ function appendTurnRows(
   input: ThreadFeedPresentationInput,
   latestRevisions: ReadonlyMap<string, string>,
 ): void {
-  const assistants = turn.entries.filter((entry) => entry.kind === 'assistant')
-  const firstAssistantId = assistants[0]?.id ?? null
-  const terminalAssistantId = assistants.at(-1)?.id ?? null
+  const terminalAssistantId = turn.entries.findLast((entry) => entry.kind === 'assistant')?.id ?? null
   const failed = turn.entries.some((entry) => entry.kind === 'notice' && entry.tone === 'error')
-  // A finished turn folds its work behind one row, keeping the first and last
-  // prose, anything that asks for attention (plans, notices, compaction and
+  // A finished turn folds its work behind one row, progress notes included, as
+  // desktop does (`buildTurns`). It keeps the final prose, anything that asks
+  // for attention (plans, notices, compaction and
   // handoff dividers, worktree offers), and artifacts. Images follow the reply.
   const hidden = active || failed
     ? new Set<string>()
     : new Set(turn.entries
-        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact' && entry.kind !== 'mcp_app' && entry.kind !== 'setup')
+        .filter((entry) => entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact' && entry.kind !== 'mcp_app' && entry.kind !== 'setup')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
   let foldPlaced = false

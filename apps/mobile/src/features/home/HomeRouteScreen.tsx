@@ -29,10 +29,12 @@ import { HomeScreen } from "./HomeScreen";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { HomeHeader } from "./HomeHeader";
+import { ThreadUndoNotice } from "./ThreadUndoNotice";
 import { ThreadListFilters } from "./ThreadListFilters";
 import { useHomeListOptions } from "./home-list-options";
 import { useHomeThreadSelection } from "./home-thread-navigation";
 import { buildHomeProjectScopes } from "./homeThreadList";
+import { confirmRemoveProject } from "./confirm-remove-project";
 import { useThreadListActions } from "./useThreadListActions";
 import { useWorkspaceState } from "./use-workspace-state";
 import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
@@ -140,6 +142,8 @@ export function HomeRouteScreen() {
   )
     ? listOptions.selectedProjectKey
     : null;
+  const removeProject = (projectKey: string) =>
+    confirmRemoveProject(app, projects, projectKey, () => setSelectedProjectKey(null));
 
   const openSettings = () => navigation.navigate("Settings");
   // Solus keeps its hosts on their own screen; T3 opens environment settings.
@@ -291,6 +295,7 @@ export function HomeRouteScreen() {
                   selectedProjectKey={selectedProjectKey}
                   onEnvironmentChange={setSelectedEnvironmentId}
                   onProjectChange={setSelectedProjectKey}
+                  onRemoveProject={removeProject}
                   onOpenEnvironments={openEnvironments}
                   onOpenSettings={openSettings}
                   onSearchQueryChange={setSearchQuery}
@@ -311,6 +316,7 @@ export function HomeRouteScreen() {
                         selectedProjectKey={selectedProjectKey}
                         onEnvironmentChange={setSelectedEnvironmentId}
                         onProjectChange={setSelectedProjectKey}
+                        onRemoveProject={removeProject}
                       />
                     ) : undefined
                   }
@@ -334,6 +340,7 @@ export function HomeRouteScreen() {
                   threads={threads}
                   unlistedThreads={unlistedThreads}
                 />
+                <ThreadUndoNotice visible={tab === tabs.selectedTab} />
               </>
             </AndroidHomeFabLayout>
           )

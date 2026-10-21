@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
-import { useApp } from "../../app/app-context";
+import { useApp, useListened } from "../../app/app-context";
 import type { ScreenProps } from "../../navigation/routes";
 import { CODE_FONT } from "../../theme/tokens";
 import { SettingsActionRow } from "./components/SettingsActionRow";
@@ -25,6 +25,11 @@ export function GitHubConnectionScreen({ route }: ScreenProps<"GitHubConnection"
   const app = useApp();
   const insets = useSafeAreaInsets();
   const { view, refresh, connect, cancel, disconnect } = useGithubConnection(hostId);
+  // Connecting and disconnecting the host's own GitHub need `host.admin.connections`;
+  // without it the host refuses, so the screen shows the status only (T3 #21402).
+  const canManage = useListened(app.connections.changes, () =>
+    app.connections.may(hostId, "host.admin.connections"),
+  );
 
   const confirmDisconnect = () =>
     Alert.alert(
@@ -119,12 +124,14 @@ export function GitHubConnectionScreen({ route }: ScreenProps<"GitHubConnection"
                     label="Account"
                     value={view.login ?? "Connected"}
                   />
-                  <SettingsActionRow
-                    icon="link"
-                    label="Disconnect"
-                    tone="danger"
-                    onPress={confirmDisconnect}
-                  />
+                  {canManage ? (
+                    <SettingsActionRow
+                      icon="link"
+                      label="Disconnect"
+                      tone="danger"
+                      onPress={confirmDisconnect}
+                    />
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -139,17 +146,25 @@ export function GitHubConnectionScreen({ route }: ScreenProps<"GitHubConnection"
                           : "Not connected"
                     }
                   />
-                  <SettingsActionRow
-                    icon="link"
-                    label="Connect GitHub"
-                    disabled={view.kind === "loading"}
-                    onPress={() => void connect()}
-                  />
+                  {canManage ? (
+                    <SettingsActionRow
+                      icon="link"
+                      label="Connect GitHub"
+                      disabled={view.kind === "loading"}
+                      onPress={() => void connect()}
+                    />
+                  ) : null}
                 </>
               )}
             </SettingsSection>
           )}
           {view.kind === "error" ? <SettingsNote tone="danger">{view.message}</SettingsNote> : null}
+          {view.kind !== "account" && !canManage ? (
+            <SettingsNote>
+              Limited permissions: you can see this host's GitHub connection, but only a host administrator can
+              change it.
+            </SettingsNote>
+          ) : null}
           {view.kind !== "account" ? (
             <SettingsNote>The host keeps the GitHub token. This device never holds it.</SettingsNote>
           ) : null}

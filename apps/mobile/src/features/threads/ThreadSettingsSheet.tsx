@@ -40,6 +40,7 @@ import type { ConversationStore } from "../conversation/conversation-store";
 import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
 import {
   canChoosePermissionMode,
+  effortChoices,
   effortLabel,
   PERMISSION_MODE_ICON,
   supportsFastMode,
@@ -53,7 +54,6 @@ import {
   type PermissionModeChoice,
   providerSectionIsCollapsed,
   permissionModeChoices,
-  selectableEffortChoices,
   type ModelOption,
   type ProviderGroup,
 } from "./thread-settings-options";
@@ -167,7 +167,7 @@ function ThreadSettingsSessionProvider(
   const displayedProvider = pendingModel?.provider ?? props.selectedProvider;
   const displayedModel = pendingModel?.model ?? props.selectedModel;
   const displayedEffort = pendingModel
-    ? (pendingEffort ?? selectableEffortChoices(pendingModel.provider, pendingModel.model)[0] ?? props.reasoningEffort)
+    ? (pendingEffort ?? effortChoices(pendingModel.provider, pendingModel.model)[0] ?? props.reasoningEffort)
     : props.reasoningEffort;
   const displayedFastMode = pendingModel ? (pendingFastMode ?? false) : props.fastMode;
   const autoOption = useMemo(
@@ -392,7 +392,7 @@ function ThreadSettingsOptionsItem(props: {
   const session = useThreadSettingsSession();
   const isAuto = session.displayedModel === AUTO_MODEL_ID;
   // Auto routes with fixed options, so the levels belong to the model it picks.
-  const effortChoices = isAuto ? [] : selectableEffortChoices(session.displayedProvider, session.displayedModel);
+  const efforts = isAuto ? [] : effortChoices(session.displayedProvider, session.displayedModel);
   const offersFastMode = supportsFastMode(session.displayedProvider, session.displayedModel);
   const displayedLabel = session.providerGroups
     .flatMap((group) => group.models)
@@ -410,7 +410,7 @@ function ThreadSettingsOptionsItem(props: {
         className="mx-4 overflow-hidden rounded-2xl bg-grouped-card"
         layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}
       >
-        {effortChoices.length > 1 ? (
+        {efforts.length > 1 ? (
           <DisclosureRow
             label="Reasoning"
             value={effortLabel(session.displayedEffort)}
@@ -608,7 +608,7 @@ function ThreadSettingsChoiceContent(props: {
             props.onSelected();
           },
         }))
-      : selectableEffortChoices(session.displayedProvider, session.displayedModel).map((effort) => ({
+      : effortChoices(session.displayedProvider, session.displayedModel).map((effort) => ({
           id: effort,
           label: effortLabel(effort),
           description: undefined,

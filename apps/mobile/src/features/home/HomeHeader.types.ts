@@ -15,6 +15,8 @@ export interface HomeHeaderProps {
   readonly onSearchQueryChange: (query: string) => void;
   readonly onEnvironmentChange: (environmentId: string | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
+  /** Takes the selected project off its hosts' lists, after a confirmation. */
+  readonly onRemoveProject: (projectKey: string) => void;
   readonly onOpenEnvironments: () => void;
   readonly onOpenSettings: () => void;
   readonly onStartNewTask: () => void;

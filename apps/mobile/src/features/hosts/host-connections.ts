@@ -1,12 +1,14 @@
 import { HostSupervisor, type BlockedReason, type DialOutcome, type HostPhase, type SupervisedTransport } from '@solus/client-core/host-supervisor'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
-import { HostFacts } from '@solus/client-core/host-facts'
+import { HostFacts, type HostFact } from '@solus/client-core/host-facts'
 import { HostIntroducer, type IntroducerHost } from '@solus/client-core/host-introducer'
 import { awaitsManagedCompute, dialableRoutes, installationIdDecision, nextRouteUrl } from '@solus/client-core/server-registry'
 import { chooseRoute, directRouteBack, DIRECT_ROUTE_RECHECK_MS } from '@solus/client-core/route-choice'
 import { classifyVisibilityReturn, type WakeSignal } from '@solus/client-core/wake-signals'
 import type { ConnectionStatus, WsTransportOptions } from '@solus/client-core/ws-transport'
+import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+import { permissionsAllow, type Permission } from '@solus/contracts/permissions'
 import { Listeners } from '../../lib/listeners'
 import { previewHost } from './lib/pair-input'
 import type { HostRegistry, NativeHost } from './host-registry'
@@ -200,6 +202,18 @@ export class HostConnections {
     return fact.state === 'ready' && fact.value.memberWorkspace === 'preparing'
   }
 
+  /**
+   * Whether this phone holds a permission on the host, as desktop's
+   * `HostStanding` answers: the owner's standing until the host answers, so
+   * an owner's controls do not flicker on (docs/plans/permissions.md §4).
+   */
+  may(hostId: string, permission: Permission): boolean {
+    const connection = this.connections.get(hostId)
+    if (!connection) return true
+    connection.facts.ensure('serverInfo')
+    return serverInfoAllows(connection.facts.get('serverInfo'), permission)
+  }
+
   state(hostId: string): HostConnectionState | null {
     return this.connections.get(hostId)?.state ?? this.idleStates.get(hostId) ?? null
   }
@@ -325,4 +339,12 @@ export class HostConnections {
     this.deps.registry.touch(host.id, { os: result.preview.os, reportedName: result.preview.name })
     return true
   }
+}
+
+/** Whether a host's server info grants a permission; the owner's standing until it answers. */
+export function serverInfoAllows(fact: HostFact<Pick<ConnectionsServerInfo, 'permissions' | 'principal'>>, permission: Permission): boolean {
+  if (fact.state !== 'ready') return true
+  if (Array.isArray(fact.value.permissions)) return permissionsAllow(fact.value.permissions, permission)
+  // A host that sends no permissions gives a local owner's standing to its local owner only.
+  return fact.value.principal === 'local-owner'
 }

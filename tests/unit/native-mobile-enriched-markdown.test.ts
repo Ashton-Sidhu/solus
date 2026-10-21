@@ -66,6 +66,14 @@ describe("resolveMarkdownLinkPresentation", () => {
     });
   });
 
+  // T3 #21403: a folder link is a chip that opens the file browser; a bare
+  // extensionless word stays a plain link, so prose like [docs](docs) is not a path.
+  it("makes relative folder links file chips, but not bare words", () => {
+    expect(resolveMarkdownLinkPresentation("src/")).toMatchObject({ kind: "file", path: "src/", label: "src" });
+    expect(resolveMarkdownLinkPresentation("docs/My Folder/")).toMatchObject({ kind: "file", path: "docs/My Folder/" });
+    expect(resolveMarkdownLinkPresentation("docs")).toEqual({ kind: "link", href: null });
+  });
+
   it("recognizes relative source paths and bare filenames", () => {
     expect(resolveMarkdownLinkPresentation("apps/mobile/src/index.ts:10")).toEqual({
       kind: "file",

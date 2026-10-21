@@ -16,6 +16,7 @@ const BOUNDARY_SLACK_MS = 50;
  */
 export class ThreadListClock {
   private readonly changes = new Listeners();
+  private readonly runningChanges = new Listeners();
   private time = Date.now();
   private runs = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -25,6 +26,13 @@ export class ThreadListClock {
 
   /** Epoch milliseconds of the last tick. */
   readonly now = (): number => this.time;
+
+  /** Hears the clock start and stop, not its ticks. */
+  readonly subscribeRunning = this.runningChanges.subscribe;
+
+  /** Whether the list shows and the app is active: a row's second clock
+      (a "Working 26s" label) runs only then. */
+  readonly isRunning = (): boolean => this.timer !== null;
 
   /** Ticks at each minute boundary while the app is active, until the
       returned stop runs. Each start and each return to active ticks at once:
@@ -50,7 +58,10 @@ export class ThreadListClock {
 
   private readonly sync = (state: typeof AppState.currentState): void => {
     if (state !== "active") this.pause();
-    else if (this.timer === null) this.tick();
+    else if (this.timer === null) {
+      this.tick();
+      this.runningChanges.notify();
+    }
   };
 
   private readonly tick = (): void => {
@@ -64,6 +75,7 @@ export class ThreadListClock {
     if (this.timer === null) return;
     clearTimeout(this.timer);
     this.timer = null;
+    this.runningChanges.notify();
   }
 }
 

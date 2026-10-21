@@ -131,6 +131,22 @@ export function modelLabel(provider: AgentId, modelId: string | null): string {
   return MODEL_PROFILES[provider]?.[modelId]?.label ?? modelId
 }
 
+/**
+ * The reasoning and speed the composer's model control shows beside the model
+ * name, as the desktop session chip shows the reasoning label (T3 #21406).
+ * Auto has none: it routes with fixed options.
+ */
+export function modelOptionsSummary(run: {
+  readonly provider: AgentId
+  readonly model: string | null
+  readonly reasoningEffort: ReasoningEffort
+  readonly fastMode: boolean
+}): string {
+  if (run.model === AUTO_MODEL_ID) return ''
+  const fast = run.fastMode && supportsFastMode(run.provider, run.model)
+  return fast ? `${effortLabel(run.reasoningEffort)} · Fast` : effortLabel(run.reasoningEffort)
+}
+
 /** A model with the person's saved options for it, clamped to what it offers. */
 export function selectModel(provider: AgentId, modelId: string, defaults: RunDefaults | null): ModelSelection {
   // Auto is routed by the host on the first prompt, with fixed options.

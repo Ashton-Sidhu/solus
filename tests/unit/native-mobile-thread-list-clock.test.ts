@@ -120,6 +120,26 @@ describe('the thread list clock', () => {
     stop()
     expect(appState.listeners.size).toBe(0)
   })
+
+  test('says when it runs, so a row\'s second clock stops with it; a minute tick is not a change', () => {
+    // WHY: a "Working 26s" label ticks each second (pingdotgg/t3code#21394).
+    // It must stop while the list is hidden or the app sleeps, as the minute
+    // clock does, and a minute tick must not wake every row's second clock.
+    const clock = new ThreadListClock()
+    const changes: boolean[] = []
+    clock.subscribeRunning(() => changes.push(clock.isRunning()))
+    expect(clock.isRunning()).toBe(false)
+    const stop = clock.start()
+    expect(changes).toEqual([true])
+    advance(3 * MINUTE)
+    expect(changes).toEqual([true])
+    appState.set('background')
+    appState.set('active')
+    expect(changes).toEqual([true, false, true])
+    stop()
+    expect(changes).toEqual([true, false, true, false])
+    expect(clock.isRunning()).toBe(false)
+  })
 })
 
 describe('the iPad sidebar clock follows visibility, not the mount', () => {

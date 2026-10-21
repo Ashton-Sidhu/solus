@@ -33,6 +33,7 @@ import {
 import type { ConversationStore } from "../conversation/conversation-store";
 import { projectContext } from "../conversation/lib/ipc-context";
 import { resolveHostMediaUrl, type HostPathRequest } from "../files/host-media-url";
+import { linkedFolderPath } from "../files/lib/file-tree";
 import {
   isSvgImage,
   ThreadMarkdownImage,
@@ -134,6 +135,13 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
       if (presentation.kind === "file") {
         if (!isAbsoluteHostPath(presentation.path) && !workingDirectory) return;
         void Haptics.selectionAsync();
+        // A partial or `~` path goes to the host as written: `readProjectFile`
+        // expands `~` and completes a basename against the project index.
+        const folderPath = workingDirectory ? linkedFolderPath(presentation.path, workingDirectory) : null;
+        if (folderPath !== null) {
+          navigation.navigate("Files", { hostId, projectPath: workingDirectory, folderPath });
+          return;
+        }
         navigation.navigate("File", {
           hostId,
           projectPath: workingDirectory,

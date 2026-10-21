@@ -21,7 +21,9 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useHomeListOptions } from "../home/home-list-options";
 import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
 import { buildHomeProjectScopes, sortHomeProjectScopes } from "../home/homeThreadList";
+import { confirmRemoveProject } from "../home/confirm-remove-project";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
+import { ThreadUndoNotice } from "../home/ThreadUndoNotice";
 import { useThreadListActions } from "../home/useThreadListActions";
 import { useWorkspaceState } from "../home/use-workspace-state";
 import {
@@ -207,6 +209,11 @@ function ThreadNavigationSidebarPane(
     const scope = projectScopes.find((candidate) => candidate.key === options.selectedProjectKey);
     return { selectedProjectScope: scope ?? null, selectedProjectKey: scope?.key ?? null };
   }, [projectScopes, options.selectedProjectKey]);
+  const removeProject = useCallback(
+    (projectKey: string) =>
+      confirmRemoveProject(app, projects, projectKey, () => setSelectedProjectKey(null)),
+    [app, projects, setSelectedProjectKey],
+  );
   const projectByKey = useMemo(() => {
     const map = new Map<string, SolusProjectShell>();
     for (const project of projects) map.set(project.key, project);
@@ -350,6 +357,15 @@ function ThreadNavigationSidebarPane(
                   title: project.label,
                   state: selectedProjectKey === project.key ? ("on" as const) : ("off" as const),
                 })),
+                ...(selectedProjectKey === null
+                  ? []
+                  : [
+                      {
+                        id: "remove-project",
+                        title: "Remove from projects",
+                        attributes: { destructive: true },
+                      },
+                    ]),
               ],
             },
           ] satisfies MenuAction[])),
@@ -370,6 +386,10 @@ function ThreadNavigationSidebarPane(
         if (environment) setSelectedEnvironmentId(environment.environmentId);
         return;
       }
+      if (event === "remove-project") {
+        if (selectedProjectKey !== null) removeProject(selectedProjectKey);
+        return;
+      }
       if (event === "project:all") {
         setSelectedProjectKey(null);
         return;
@@ -382,7 +402,7 @@ function ThreadNavigationSidebarPane(
         return;
       }
     },
-    [environments, projectFilterOptions, setSelectedEnvironmentId, setSelectedProjectKey],
+    [environments, projectFilterOptions, removeProject, selectedProjectKey, setSelectedEnvironmentId, setSelectedProjectKey],
   );
 
   const [measuredHeaderHeight, setMeasuredHeaderHeight] = useState<number | null>(null);
@@ -474,6 +494,8 @@ function ThreadNavigationSidebarPane(
               pr={item.pr}
               snoozable={item.snoozable}
               snoozedUntil={item.snoozedUntil}
+              wokeAt={item.item.wokeAt ?? null}
+              statusStartedAt={item.statusStartedAt}
               timeLabelAt={item.timeLabelAt}
               clock={clock}
               projectPath={threadFaviconRoot(thread.record, projectByKey.get(scopeKey)?.project.path ?? null)}
@@ -570,8 +592,9 @@ function ThreadNavigationSidebarPane(
         selectedProjectKey,
         onEnvironmentChange: setSelectedEnvironmentId,
         onProjectChange: setSelectedProjectKey,
+        onRemoveProject: removeProject,
       }),
-    [environments, options, projectFilterOptions, selectedProjectKey, setSelectedEnvironmentId, setSelectedProjectKey],
+    [environments, options, projectFilterOptions, removeProject, selectedProjectKey, setSelectedEnvironmentId, setSelectedProjectKey],
   );
   const nativeHeaderItems = useMemo(
     () =>
@@ -674,6 +697,7 @@ function ThreadNavigationSidebarPane(
               />
             </GestureDetector>
           </SwipeableScrollGateProvider>
+          <ThreadUndoNotice visible={props.visible} />
         </View>
       </>
     );
@@ -808,6 +832,7 @@ function ThreadNavigationSidebarPane(
           </View>
         </View>
       )}
+      <ThreadUndoNotice visible={props.visible} />
     </View>
   );
 }

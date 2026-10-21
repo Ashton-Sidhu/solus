@@ -257,6 +257,9 @@ export interface ThreadListV2Item {
   readonly snoozed: boolean;
   /** Archived row a search found: offers Return to List. */
   readonly archived?: boolean;
+  /** When an active row's snooze ended; it shows Woke until the person opens
+      or dismisses it. Absent or null: it did not wake. */
+  readonly wokeAt?: number | null;
   readonly isLast: boolean;
 }
 
@@ -301,6 +304,9 @@ export interface ThreadListV2ThreadListItem {
   /** The row's menu offers snooze presets, which the row reads from the list
       clock. */
   readonly snoozable: boolean;
+  /** When the working or waiting status began, for its elapsed time. Null
+      for other statuses, and when this client did not see the status begin. */
+  readonly statusStartedAt: number | null;
   /** Inset hairline drawn under the row. */
   readonly showTrailingDivider: boolean;
 }
@@ -395,7 +401,9 @@ export function threadListV2ListItemsAreEqual(
         previous.item.variant === item.item.variant &&
         previous.item.snoozed === item.item.snoozed &&
         previous.item.archived === item.item.archived &&
+        (previous.item.wokeAt ?? null) === (item.item.wokeAt ?? null) &&
         previous.status === item.status &&
+        previous.statusStartedAt === item.statusStartedAt &&
         samePr(previous.pr, item.pr) &&
         previous.snoozedUntil === item.snoozedUntil &&
         previous.timeLabelAt === item.timeLabelAt &&
@@ -431,6 +439,9 @@ export interface ThreadListV2Facts {
   readonly views: ReadonlyMap<string, SessionView>;
   /** Last live status by thread key. */
   readonly liveStatus: ReadonlyMap<string, SessionStatus>;
+  /** When the live status began, by thread key: the host's time of the
+      change into it. */
+  readonly statusSince?: ReadonlyMap<string, number>;
   /** Read state announced by each host, by thread key. */
   readonly unread?: ReadonlyMap<string, boolean>;
   /** Pull request links by thread key, read again after the record. */
@@ -490,6 +501,7 @@ export function buildThreadListV2ListItems(input: {
     const view = threadView(item.thread, input.facts);
     const status = resolveThreadListV2Status(item.thread.record, input.facts.liveStatus.get(key));
     const snoozedUntil = item.snoozed ? view.snoozedUntil : null;
+    const hasElapsedTime = status === "working" || status === "waiting";
     return {
       type: "v2-thread",
       key: `v2-thread:${key}`,
@@ -500,6 +512,7 @@ export function buildThreadListV2ListItems(input: {
       snoozedUntil,
       timeLabelAt: resolveThreadListV2ItemTimeLabelAt(item, status, state, snoozedUntil !== null),
       snoozable: !item.snoozed && !item.archived && canSnoozeThread(status),
+      statusStartedAt: hasElapsedTime ? (input.facts.statusSince?.get(key) ?? null) : null,
       showTrailingDivider: false,
     };
   });
@@ -558,9 +571,20 @@ function resolveThreadListV2ItemTimeLabelAt(
   showSnoozeWakeLabel: boolean,
 ): number | null {
   if (showSnoozeWakeLabel) return null;
-  if (item.variant === "card" && status !== "ready") return null;
+  // Woke takes the slot of the age, as a status label does.
+  if (item.variant === "card" && (status !== "ready" || item.wokeAt != null)) return null;
   const settledAt = item.variant === "slim" && !item.snoozed && !item.archived ? state.settledAt : null;
   return settledAt ?? item.thread.record.lastActivityAt;
+}
+
+/**
+ * When a thread's snooze ended, while the person has not seen it since: the
+ * host keeps an ended snooze in their view until they open the thread or
+ * dismiss the mark, which clears it (`snooze(null)`), as desktop's woken row
+ * does (pingdotgg/t3code#21394).
+ */
+export function threadWokeAt(view: Pick<SessionView, "snoozedUntil">, now: number): number | null {
+  return view.snoozedUntil !== null && view.snoozedUntil <= now ? view.snoozedUntil : null;
 }
 
 /** A row's age label at `now`; blank when the row shows no age. */
@@ -686,7 +710,8 @@ export function buildThreadListV2Items(input: {
 
   const items: ThreadListV2Item[] = [];
   for (const thread of orderedActive) {
-    items.push({ thread, variant: "card", snoozed: false, isLast: false });
+    const wokeAt = threadWokeAt(threadView(thread, input.facts), now);
+    items.push({ thread, variant: "card", snoozed: false, wokeAt, isLast: false });
   }
   const snoozedShelfHeaderIndex = orderedSnoozed.length > 0 ? items.length : null;
   for (const thread of visibleSnoozed) {

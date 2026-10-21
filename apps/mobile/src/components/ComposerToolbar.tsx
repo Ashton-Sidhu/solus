@@ -27,6 +27,8 @@ export function ComposerInlineControl(props: {
   readonly icon?: ComponentProps<typeof SymbolView>["name"];
   readonly renderIcon?: (size: number) => ReactNode;
   readonly label: string;
+  /** Muted text after the label (the model's reasoning); it shrinks before the label does. */
+  readonly summary?: string;
   readonly maxWidth?: ViewStyle["maxWidth"];
   readonly onPress?: () => void;
   readonly selected?: boolean;
@@ -37,7 +39,7 @@ export function ComposerInlineControl(props: {
   const { scale, smallIconSize } = useAndroidControlSizing();
   return (
     <Pressable
-      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      accessibilityLabel={[props.accessibilityLabel ?? props.label, props.summary].filter(Boolean).join(", ")}
       accessibilityHint={props.accessibilityHint}
       accessibilityRole={props.static ? undefined : "button"}
       accessibilityState={
@@ -74,6 +76,11 @@ export function ComposerInlineControl(props: {
       >
         {props.label}
       </Text>
+      {props.summary ? (
+        <Text className="min-w-0 text-xs text-foreground-muted" numberOfLines={1} style={{ flexShrink: 100 }}>
+          {props.summary}
+        </Text>
+      ) : null}
       {props.showChevron === false ? null : (
         <SymbolView
           name={props.chevronDirection === "right" ? "chevron.right" : "chevron.down"}

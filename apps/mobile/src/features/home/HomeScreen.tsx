@@ -393,6 +393,8 @@ export function HomeScreen(props: HomeScreenProps) {
           pr={item.pr}
           snoozable={item.snoozable}
           snoozedUntil={item.snoozedUntil}
+          wokeAt={item.item.wokeAt ?? null}
+          statusStartedAt={item.statusStartedAt}
           timeLabelAt={item.timeLabelAt}
           clock={clock}
           showTrailingDivider={item.showTrailingDivider}

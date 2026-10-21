@@ -168,6 +168,18 @@ export function pullRequestListFacets(rows: readonly PullRequestRow[]): PullRequ
   }
 }
 
+/**
+ * The one compact row the host notices fold into, or null when they show in
+ * full. While rows show, the notices (offline, GitHub not connected, a failed
+ * read) would push them off screen, so they fold behind a count, as desktop
+ * reports a partial failure in a toast. With no rows they explain the empty
+ * list, so they stay open.
+ */
+export function hostNoticesSummary(noticeCount: number, rowCount: number): string | null {
+  if (noticeCount === 0 || rowCount === 0) return null
+  return `${noticeCount} ${noticeCount === 1 ? 'host' : 'hosts'} could not be read`
+}
+
 /** The review state a row shows, changes requested first. */
 export function pullRequestRowReviewStatus(pr: Pick<PullRequest, 'reviewStatus' | 'needsMyReview'>): { label: string; accessibleLabel: string; tone: 'danger' | 'success' | 'warning' | 'muted' } | null {
   if (pr.reviewStatus === 'changes-requested') return { label: 'Changes', accessibleLabel: 'Changes requested', tone: 'danger' }

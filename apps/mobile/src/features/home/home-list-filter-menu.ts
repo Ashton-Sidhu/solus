@@ -15,6 +15,7 @@ type HomeListFilterMenuAction = {
   readonly title: string;
   readonly subtitle?: string;
   readonly state?: "on" | "off";
+  readonly destructive?: boolean;
   readonly onPress: () => void;
 };
 
@@ -36,7 +37,9 @@ export function buildHomeListFilterMenu(props: {
   readonly selectedProjectKey: string | null;
   readonly onEnvironmentChange: (environmentId: string | null) => void;
   readonly onProjectChange: (projectKey: string | null) => void;
+  readonly onRemoveProject: (projectKey: string) => void;
 }): HomeListFilterMenu {
+  const selectedProjectKey = props.selectedProjectKey;
   const items: Array<HomeListFilterMenuAction | HomeListFilterMenuSubmenu> = [];
 
   items.push({
@@ -80,6 +83,16 @@ export function buildHomeListFilterMenu(props: {
           state: props.selectedProjectKey === project.key ? ("on" as const) : ("off" as const),
           onPress: () => props.onProjectChange(project.key),
         })),
+        ...(selectedProjectKey === null
+          ? []
+          : [
+              {
+                type: "action" as const,
+                title: "Remove from projects",
+                destructive: true,
+                onPress: () => props.onRemoveProject(selectedProjectKey),
+              },
+            ]),
       ],
     });
   }

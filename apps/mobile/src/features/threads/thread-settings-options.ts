@@ -1,8 +1,8 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/thread-settings-options.ts and
 // thread-settings-sheet-state.ts (MIT, see UPSTREAM.md).
-import { MODEL_PROFILES, isLegacyModel, providerModelsFor, type AgentId, type AgentMetadata, type PermissionMode, type ReasoningEffort } from '@solus/contracts/types'
+import { MODEL_PROFILES, isLegacyModel, providerModelsFor, type AgentId, type AgentMetadata, type PermissionMode } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
-import { effortChoices, PERMISSION_MODE_TEXT, permissionModesFor, PROVIDERS, type AgentCapabilities } from '../conversation/lib/run-settings'
+import { PERMISSION_MODE_TEXT, permissionModesFor, PROVIDERS, type AgentCapabilities } from '../conversation/lib/run-settings'
 
 /**
  * The thread settings sheet's catalog and options, on Solus terms: a T3
@@ -11,9 +11,6 @@ import { effortChoices, PERMISSION_MODE_TEXT, permissionModesFor, PROVIDERS, typ
  * "Permission mode" is the Solus permission mode, as the desktop composer
  * names them.
  */
-
-/** Desktop-only effort keywords that are workflow triggers, not reasoning levels. */
-const HIDDEN_EFFORT_OPTION_IDS: ReadonlySet<ReasoningEffort> = new Set(['ultracode'])
 
 export interface PermissionModeChoice {
   readonly mode: PermissionMode
@@ -107,11 +104,6 @@ export function buildProviderGroups(input: {
       }
     })
     .filter((group) => group.models.length > 0)
-}
-
-/** Reasoning levels a phone offers for a model. A value set elsewhere still shows. */
-export function selectableEffortChoices(provider: AgentId, model: string | null): ReasoningEffort[] {
-  return effortChoices(provider, model).filter((effort) => !HIDDEN_EFFORT_OPTION_IDS.has(effort))
 }
 
 /** Match the terms a user can actually see or recognize in the model picker. */

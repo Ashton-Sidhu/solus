@@ -47,7 +47,7 @@ import { PendingUserInputCard } from "./PendingUserInputCard";
 import { AgentPlanCard } from "./ThreadPlanCard";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { FLOATING_WORKING_CONTROL_COVERAGE, FloatingWorkingControl } from "./floating-working-control";
-import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
+import { backgroundFloatingStatus, connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
 import {
@@ -190,6 +190,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   // Rows are added rarely; an agent's status changes its own item only.
   const agentRows = useAgentRoster(store);
   const agentsPill = agentsPillLabel(agentRows, turnActive);
+  // The pill's Stop is pending until the host takes the request; it is released
+  // after, so a stop that left work running can be tried again. Keyed by the
+  // session, so another thread's pill is not shown as stopping.
+  const [stoppingBackgroundKey, setStoppingBackgroundKey] = useState<string | null>(null);
+  const stoppingBackground = stoppingBackgroundKey === props.threadKey;
+  const stopBackgroundWork = () => {
+    if (stoppingBackground) return;
+    const threadKey = props.threadKey;
+    setStoppingBackgroundKey(threadKey);
+    void store.controller
+      .stopBackgroundWork()
+      .finally(() => setStoppingBackgroundKey((current) => (current === threadKey ? null : current)));
+  };
   // One floating pill above the composer: the connection while disconnected,
   // the sync state while messages load, then the working timer.
   const floatingStatus = ((): FloatingWorkingStatus | null => {
@@ -211,12 +224,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       return { kind: "working", startedAt: activeWorkStartedAt };
     }
     if (meta.status === "background" && contentPresentationKind === "ready") {
-      return {
-        kind: "background",
-        label: "Background task running",
-        accessibilityLabel: "A background task the agent started is still running",
-        waiting: true,
-      };
+      return backgroundFloatingStatus({ mayDrive, stopping: stoppingBackground, onStop: stopBackgroundWork });
     }
     return null;
   })();

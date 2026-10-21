@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { PrProjectListing } from '@solus/contracts/providers'
 import { PullRequestDirectory, type HostPullRequests } from '../../apps/mobile/src/features/prs/pull-request-directory'
 import {
-  DEFAULT_PULL_REQUEST_LIST_CONTROLS, filterPullRequestRows, pullRequestLabelColor, pullRequestListFacets,
+  DEFAULT_PULL_REQUEST_LIST_CONTROLS, filterPullRequestRows, hostNoticesSummary, pullRequestLabelColor, pullRequestListFacets,
   pullRequestRowKey, pullRequestRowReviewStatus, pullRequestRows, type PullRequestRow,
 } from '../../apps/mobile/src/features/prs/lib/pull-request-list'
 import { shownValue } from '../../apps/mobile/src/features/prs/pull-request-reads'
@@ -131,5 +131,22 @@ describe('pull request rows across hosts', () => {
     const listing = shownValue(directory.hostOf('inst-a'))
     const page = listing?.projects[0]
     expect(page?.kind === 'page' && [page.prs.map((pr) => pr.number), page.hasMore, page.page]).toEqual([[3, 2, 1], false, 2])
+  })
+})
+
+// T3 #21389: host notices above the list (offline, GitHub not connected, a
+// failed read) pushed the pull requests off screen while a host reconnected.
+describe('pull request host notices', () => {
+  test('fold into one counted row while pull requests show', () => {
+    expect(hostNoticesSummary(1, 4)).toBe('1 host could not be read')
+    expect(hostNoticesSummary(3, 4)).toBe('3 hosts could not be read')
+  })
+
+  test('stay open when the list is empty, because they explain why', () => {
+    expect(hostNoticesSummary(2, 0)).toBeNull()
+  })
+
+  test('show no row when no host has a notice', () => {
+    expect(hostNoticesSummary(0, 4)).toBeNull()
   })
 })

@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import { providerModelsFor, type ProjectEntry, type PromptOptions } from '@solus/contracts/types'
+import { MODEL_PROFILES, providerModelsFor, type ProjectEntry, type PromptOptions } from '@solus/contracts/types'
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
 import { resolveComposerSendPresentation } from '../../apps/mobile/src/features/threads/composerSendPresentation'
-import { connectionFloatingStatus, formatWorkingDuration } from '../../apps/mobile/src/features/threads/floating-working-status'
+import { backgroundFloatingStatus, connectionFloatingStatus, formatWorkingDuration } from '../../apps/mobile/src/features/threads/floating-working-status'
 import {
   buildProviderGroups,
   modelMatchesCatalogQuery,
@@ -14,8 +15,8 @@ import {
   agentUnavailableReason,
   autoModelOption,
   permissionModeChoices,
-  selectableEffortChoices,
 } from '../../apps/mobile/src/features/threads/thread-settings-options'
+import { effortChoices, modelOptionsSummary } from '../../apps/mobile/src/features/conversation/lib/run-settings'
 import { filterProjectScopes, getProjectScopeSelectionTarget, groupProjectScopes, scopeOfProject } from '../../apps/mobile/src/features/threads/new-task-project-selection'
 import type { SolusProjectShell } from '../../apps/mobile/src/features/threads/thread-directory'
 
@@ -52,6 +53,20 @@ describe('native floating working pill', () => {
     expect(connectionFloatingStatus({ connectionState: 'reconnecting', hostLabel: 'Studio', onReconnect })).toMatchObject({ kind: 'connection', tone: 'reconnecting', label: 'Reconnecting to Studio...' })
     expect(connectionFloatingStatus({ connectionState: 'offline', hostLabel: 'Studio', onReconnect })).toMatchObject({ tone: 'unavailable', label: 'Studio is offline' })
     expect(connectionFloatingStatus({ connectionState: null, hostLabel: null, onReconnect })).toMatchObject({ label: 'Host is not connected' })
+  })
+
+  test('background work carries its own Stop, pending until the host takes it, and closed to a viewer', () => {
+    // T3 Code #21395: the composer shows Send, not Stop, while it holds a draft, so the pill must offer Stop.
+    let stops = 0
+    const onStop = () => { stops += 1 }
+    const idle = backgroundFloatingStatus({ mayDrive: true, stopping: false, onStop })
+    expect(idle.kind === 'background' && idle.action).toMatchObject({ label: 'Stop', disabled: false })
+    if (idle.kind === 'background') idle.action.onPress()
+    expect(stops).toBe(1)
+    const pending = backgroundFloatingStatus({ mayDrive: true, stopping: true, onStop })
+    expect(pending.kind === 'background' && pending.action).toMatchObject({ label: 'Stopping...', disabled: true })
+    const viewer = backgroundFloatingStatus({ mayDrive: false, stopping: false, onStop })
+    expect(viewer.kind === 'background' && viewer.action.disabled).toBe(true)
   })
 
   test('the working timer reads seconds, then minutes and padded seconds, then hours', () => {
@@ -129,10 +144,25 @@ describe('native thread settings sheet', () => {
     expect(providerSectionIsCollapsed({ defaultExpanded: true, hasExpansionOverride: true, isNarrowed: false })).toBe(true)
   })
 
-  test('workflow triggers are not offered as reasoning levels', () => {
-    for (const group of buildProviderGroups({ currentProvider: 'claude-code', currentModel: null, canSwitchProvider: true, agents: null })) {
-      for (const model of group.models) expect(selectableEffortChoices(group.providerKey, model.model)).not.toContain('ultracode')
+  // T3 #21406: the phone offers the same reasoning levels as the desktop chip
+  // (the model profile's list), so a level chosen on desktop is choosable here too.
+  test('every reasoning level of the model profile is offered, Ultra Code too', () => {
+    const levels = Object.values(MODEL_PROFILES['claude-code']).flatMap((profile) => profile.reasoningLevels ?? [])
+    expect(levels).toContain('ultracode')
+    for (const [model, profile] of Object.entries(MODEL_PROFILES['claude-code'])) {
+      if (profile.reasoningLevels) expect(effortChoices('claude-code', model)).toEqual(profile.reasoningLevels)
     }
+  })
+
+  // T3 #21406: the composer shows the reasoning beside the model, as the desktop
+  // chip does; fast mode shows only where the model supports it, and Auto has none.
+  test('the model control summary names the reasoning and fast mode the next prompt uses', () => {
+    const fastModel = Object.entries(MODEL_PROFILES.codex).find(([, profile]) => profile.supportsFastMode)![0]
+    const claudeModel = Object.keys(MODEL_PROFILES['claude-code'])[0]!
+    expect(modelOptionsSummary({ provider: 'codex', model: fastModel, reasoningEffort: 'high', fastMode: true })).toBe('High · Fast')
+    expect(modelOptionsSummary({ provider: 'codex', model: fastModel, reasoningEffort: 'low', fastMode: false })).toBe('Low')
+    expect(modelOptionsSummary({ provider: 'claude-code', model: claudeModel, reasoningEffort: 'ultracode', fastMode: true })).toBe('Ultra Code')
+    expect(modelOptionsSummary({ provider: 'codex', model: AUTO_MODEL_ID, reasoningEffort: 'high', fastMode: false })).toBe('')
   })
 })
 

@@ -1518,7 +1518,19 @@ export class SessionSidebarStore {
     }
     const settling = sessionListStore.setSettled(target, true)
     this.closeTask(row)
-    await settling
+    const { toasts } = await import('../../lib/toasts')
+    try {
+      await settling
+    } catch (error) {
+      toasts.error("Couldn't settle it", { description: error instanceof Error ? error.message : String(error) })
+      return
+    }
+    // Undo makes the session active again, as the mobile list's Undo does.
+    toasts.undo('Session settled', () => {
+      void sessionListStore.setSettled(target, false).catch(() => {
+        toasts.error("Couldn't make it active again")
+      })
+    })
   }
 
   /** Put a durable task and every linked attempt back into the sidebar. The

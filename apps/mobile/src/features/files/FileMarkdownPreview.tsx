@@ -140,7 +140,9 @@ export function FileMarkdownPreview(props: {
       }
       const presentation = resolveMarkdownLinkPresentation(href);
       if (presentation.kind === "file") {
-        props.onOpenFile(resolveMarkdownRelativePath(props.path, presentation.path));
+        const target = resolveMarkdownRelativePath(props.path, presentation.path);
+        // Keep a folder link's trailing separator: the file screen opens it in the file browser.
+        props.onOpenFile(/[\\/]$/.test(presentation.path) && !target.endsWith("/") ? `${target || "."}/` : target);
       } else if (presentation.kind === "external") {
         void app.platform.openBrowser(presentation.href);
       } else if (presentation.href) {

@@ -13,6 +13,7 @@ export function ThreadListFilters(
     | "selectedProjectKey"
     | "onEnvironmentChange"
     | "onProjectChange"
+    | "onRemoveProject"
   >,
 ) {
   const selectedEnvironment = props.environments.find(
@@ -71,9 +72,21 @@ export function ThreadListFilters(
             title: project.label,
             state: project.key === props.selectedProjectKey ? ("on" as const) : ("off" as const),
           })),
+          ...(selectedProject === undefined
+            ? []
+            : [
+                {
+                  id: "remove",
+                  title: "Remove from projects",
+                  attributes: { destructive: true },
+                },
+              ]),
         ]}
         onSelect={(id) => {
           if (id === "all") props.onProjectChange(null);
+          else if (id === "remove") {
+            if (selectedProject) props.onRemoveProject(selectedProject.key);
+          }
           else {
             const project = props.projects.find(
               (candidate) => JSON.stringify(candidate.key) === id,

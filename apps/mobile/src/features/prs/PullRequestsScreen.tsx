@@ -10,8 +10,9 @@ import { AppText as Text } from '../../components/AppText'
 import { EmptyState } from '../../components/EmptyState'
 import type { RootStackParamList } from '../../navigation/routes'
 import { resolvePullRequestListScope, type PullRequestListPreferences } from '../workspace/list-preferences'
+import { PullRequestCardGroup, PullRequestCardRow } from './detail/pull-request-ui'
 import { prUnavailableTitle } from './lib/pr-presentation'
-import { filterPullRequestRows, pullRequestListFacets, pullRequestRowKey, type PullRequestRow } from './lib/pull-request-list'
+import { filterPullRequestRows, hostNoticesSummary, pullRequestListFacets, pullRequestRowKey, type PullRequestRow } from './lib/pull-request-list'
 import { PullRequestListFilters, type PullRequestFilterProject } from './PullRequestListFilters'
 import { PullRequestListRow } from './PullRequestListRow'
 import { shownValue } from './pull-request-reads'
@@ -62,6 +63,45 @@ interface HostNotice {
   detail: string
   actionLabel: string | null
   onAction: (() => void) | null
+}
+
+/**
+ * The host notices above the list. With a summary they fold into one compact
+ * row that shows or hides them (T3 #21389).
+ */
+function HostNotices(props: { readonly notices: readonly HostNotice[]; readonly summary: string | null }) {
+  const [expanded, setExpanded] = useState(false)
+  const shown = props.summary === null || expanded
+  return (
+    <>
+      {props.summary !== null ? (
+        <View className="mx-4 mb-2">
+          <PullRequestCardGroup>
+            <PullRequestCardRow
+              title={props.summary}
+              icon="exclamationmark.triangle"
+              compact
+              last
+              expanded={expanded}
+              accessibilityLabel={`${props.summary}. ${expanded ? 'Hide' : 'Show'} details`}
+              onPress={() => setExpanded((value) => !value)}
+            />
+          </PullRequestCardGroup>
+        </View>
+      ) : null}
+      {shown ? props.notices.map((notice) => (
+        <View key={notice.key} className="mx-4 mb-2 rounded-[20px] border border-border bg-card p-4">
+          <Text className="text-sm font-t3-bold text-foreground">{notice.title}</Text>
+          <Text className="mt-1 text-sm text-foreground-muted">{notice.detail}</Text>
+          {notice.actionLabel && notice.onAction ? (
+            <Pressable accessibilityRole="button" className="mt-2 self-start active:opacity-60" onPress={notice.onAction}>
+              <Text className="text-sm font-t3-bold text-primary-text">{notice.actionLabel}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      )) : null}
+    </>
+  )
 }
 
 /**
@@ -184,17 +224,12 @@ export function PullRequestsScreen(props: {
             labels={facets.labels}
             projects={projects}
           />
-          {notices.map((notice) => (
-            <View key={notice.key} className="mx-4 mb-2 rounded-[20px] border border-border bg-card p-4">
-              <Text className="text-sm font-t3-bold text-foreground">{notice.title}</Text>
-              <Text className="mt-1 text-sm text-foreground-muted">{notice.detail}</Text>
-              {notice.actionLabel && notice.onAction ? (
-                <Pressable accessibilityRole="button" className="mt-2 self-start active:opacity-60" onPress={notice.onAction}>
-                  <Text className="text-sm font-t3-bold text-primary-text">{notice.actionLabel}</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ))}
+          <HostNotices
+            // A new scope starts folded again.
+            key={`${scope.hostIds.join(',')}\u0000${scope.project?.hostId ?? ''}\u0000${scope.project?.projectPath ?? ''}`}
+            notices={notices}
+            summary={hostNoticesSummary(notices.length, rows.length)}
+          />
         </>
       ) : undefined}
       ListEmptyComponent={

@@ -23,6 +23,7 @@ function toNativeHeaderMenuItems(items: HomeListFilterMenu["items"]): NativeHead
           description: item.subtitle,
           onPress: item.onPress,
           state: item.state === "on" ? ("on" as const) : undefined,
+          destructive: item.destructive,
         }
       : {
           type: "submenu" as const,

@@ -63,7 +63,14 @@ export interface WorkspaceConnectionStatusPresentation {
   readonly kind: "progress" | "load-error" | "offline";
 }
 
+/**
+ * While one host is connected the header keeps the brand: a second host that
+ * retries or fails does not take it (pingdotgg/t3code#21388). Only a connected
+ * host's own session list, loading or failed, shows. Each host's state stays
+ * on the Hosts screen.
+ */
 function shouldShowWorkspaceConnectionStatus(state: WorkspaceState): boolean {
+  if (state.hasReadyEnvironment) return state.connectionError !== null || state.hasPendingShellSnapshot;
   return (
     state.connectionError !== null ||
     state.hasConnectingEnvironment ||
@@ -72,12 +79,18 @@ function shouldShowWorkspaceConnectionStatus(state: WorkspaceState): boolean {
   );
 }
 
+/** The hosts the header names as reconnecting: none while another host is connected. */
+function reconnectingHosts(state: WorkspaceState): WorkspaceState["connectingEnvironments"] {
+  return state.hasReadyEnvironment ? [] : state.connectingEnvironments;
+}
+
 function workspaceConnectionStatusLabel(state: WorkspaceState): string {
-  if (state.connectingEnvironments.length === 1) {
-    return `Reconnecting to ${state.connectingEnvironments[0]!.environmentLabel}`;
+  const reconnecting = reconnectingHosts(state);
+  if (reconnecting.length === 1) {
+    return `Reconnecting to ${reconnecting[0]!.environmentLabel}`;
   }
-  if (state.connectingEnvironments.length > 1) {
-    return `Reconnecting ${state.connectingEnvironments.length} hosts`;
+  if (reconnecting.length > 1) {
+    return `Reconnecting ${reconnecting.length} hosts`;
   }
   if (state.connectionError !== null) return "Could not load threads";
   if (state.hasPendingShellSnapshot) {
@@ -94,7 +107,7 @@ export function workspaceConnectionStatusPresentation(
   return {
     label: workspaceConnectionStatusLabel(state),
     kind:
-      state.connectingEnvironments.length > 0
+      reconnectingHosts(state).length > 0
         ? "progress"
         : state.connectionError !== null
           ? "load-error"

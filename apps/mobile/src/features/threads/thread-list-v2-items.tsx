@@ -8,7 +8,7 @@ import {
 } from "./thread-list-v2-row-appearance";
 import { RowPressable } from "../../components/RowPressable";
 import type { MenuAction } from "@react-native-menu/menu";
-import { memo, useCallback, useMemo, type ComponentProps } from "react";
+import { memo, useCallback, useMemo, useSyncExternalStore, type ComponentProps } from "react";
 import { Alert, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
@@ -24,7 +24,9 @@ import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useSwipeRowDormant } from "../home/swipe-row-activation";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import type { SolusThreadShell } from "./thread-directory";
+import { formatWorkingDuration } from "./floating-working-status";
 import { useThreadListTime, type ThreadListClock } from "./thread-list-clock";
+import { useVisibleSecondClock } from "./use-visible-second-clock";
 import { resolveSnoozePresets, resolveThreadListV2SnoozeMenuSelection, snoozeWakeLabel } from "./thread-snooze";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
@@ -59,6 +61,15 @@ const STATUS_LABEL_BY_STATUS: Record<
   limited: { label: "Limited", className: "text-warning-foreground" },
   ready: null,
 };
+
+/** " 26s" after Working or Waiting. Only this text ticks, once a second, and
+    only while the list's clock runs (the list shows and the app is active);
+    the row and the list do not re-render (pingdotgg/t3code#21394). */
+function ThreadListV2Duration(props: { readonly startedAt: number; readonly clock: ThreadListClock }) {
+  const running = useSyncExternalStore(props.clock.subscribeRunning, props.clock.isRunning, props.clock.isRunning);
+  const nowMs = useVisibleSecondClock(running);
+  return ` ${formatWorkingDuration(props.startedAt, nowMs)}`;
+}
 
 /** Archive removes the thread from the list on its host, for every device. */
 const ARCHIVE_MENU_ACTION: MenuAction = { id: "archive", title: "Archive", image: "archivebox" };
@@ -236,6 +247,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly timeLabelAt: number | null;
   /** The row's menu offers snooze presets. */
   readonly snoozable: boolean;
+  /** When the row's snooze ended, while the person has not seen it. */
+  readonly wokeAt: number | null;
+  /** When Working or Waiting began; the label counts from it. */
+  readonly statusStartedAt: number | null;
   /** The list's clock. A tick re-renders this row only when its time text or
       its snooze menu changes. */
   readonly clock: ThreadListClock;
@@ -300,18 +315,31 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const rowAppearance = getThreadListV2RowAppearance(theme, sidebarPane, selected);
 
   const statusLabel = STATUS_LABEL_BY_STATUS[status];
+  const showsWoke = variant === "card" && status === "ready" && props.wokeAt !== null;
   const timeLabel = useThreadListTime(props.clock, (now) => threadListV2TimeLabel(props.timeLabelAt, now));
   const snoozedUntil = props.snoozedUntil;
   const snoozeWakeLabelText = useThreadListTime(props.clock, (now) =>
     snoozedUntil === null ? undefined : snoozeWakeLabel(snoozedUntil, now),
   );
 
+  // Seeing a woken thread clears its ended snooze on the host, as opening it
+  // on desktop does. A failed clear is not shown: the next open tries again.
+  const hasWoken = props.wokeAt !== null;
+  const handleAcknowledgeWoke = useCallback(() => {
+    if (hasWoken) void list.snooze(thread.hostId, record.sessionId, null).catch(() => undefined);
+  }, [hasWoken, list, record.sessionId, thread.hostId]);
   const handleSelect = useCallback(() => {
     if (props.unread) {
       void list.markRead(thread.hostId, record.sessionId, true).catch(() => undefined);
     }
+    handleAcknowledgeWoke();
     onSelectThread(thread);
-  }, [list, onSelectThread, props.unread, record.sessionId, thread]);
+  }, [handleAcknowledgeWoke, list, onSelectThread, props.unread, record.sessionId, thread]);
+  // VoiceOver cannot focus the Woke button inside the accessible row.
+  const rowAccessibilityActions = useMemo(
+    () => (showsWoke ? [{ name: "dismissWoke", label: "Dismiss Woke notification" }] : undefined),
+    [showsWoke],
+  );
 
   const handleRename = useCallback((): void => onRenameThread(thread), [onRenameThread, thread]);
   const handleSettle = useCallback((): Promise<boolean> => onSettleThread(thread), [onSettleThread, thread]);
@@ -525,17 +553,48 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         >
           {props.projectTitle}
         </Text>
-        <Text
-          className={cn(
-            "text-xs tabular-nums",
-            statusLabel?.className ??
-              (selected
-                ? selectedThreadRowColors.foregroundClassName
-                : rowAppearance.tertiaryForegroundClassName),
-          )}
-        >
-          {statusLabel?.label ?? timeLabel}
-        </Text>
+        {showsWoke ? (
+          <Pressable
+            className="-m-2.5 flex-row items-center gap-1 p-2.5"
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss Woke notification"
+            onPress={handleAcknowledgeWoke}
+            onLongPress={() => undefined}
+            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+          >
+            <SymbolView
+              name="bell.badge"
+              size={13}
+              tintColorClassName={
+                selected ? selectedThreadRowColors.iconTintClassName : "accent-warning-foreground"
+              }
+              type="monochrome"
+            />
+            <Text
+              className={cn(
+                "text-xs font-t3-bold",
+                selected ? selectedThreadRowColors.foregroundClassName : "text-warning-foreground",
+              )}
+            >
+              Woke
+            </Text>
+          </Pressable>
+        ) : (
+          <Text
+            className={cn(
+              "text-xs tabular-nums",
+              statusLabel?.className ??
+                (selected
+                  ? selectedThreadRowColors.foregroundClassName
+                  : rowAppearance.tertiaryForegroundClassName),
+            )}
+          >
+            {statusLabel?.label ?? timeLabel}
+            {statusLabel && props.statusStartedAt !== null ? (
+              <ThreadListV2Duration startedAt={props.statusStartedAt} clock={props.clock} />
+            ) : null}
+          </Text>
+        )}
       </View>
       <Text
         className={cn(
@@ -647,6 +706,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         accessibilityLabel={title}
         accessibilityRole="button"
         accessibilityState={{ selected }}
+        accessibilityActions={rowAccessibilityActions}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === "dismissWoke") handleAcknowledgeWoke();
+        }}
         onPress={() => {
           close();
           handleSelect();

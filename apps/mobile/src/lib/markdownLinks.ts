@@ -11,6 +11,8 @@ import { fileMentionPath } from "./fileMentions";
 import type { MARKDOWN_FILE_ICON_SOURCES } from "./markdownFileIcons.generated";
 
 const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
+// T3 #21403: `src/`, `docs/My Folder/`. A bare `docs` stays a plain link, as on web.
+const RELATIVE_FOLDER_LINK_PATTERN = /^(?:[A-Za-z0-9._-]+(?: +[A-Za-z0-9._-]+)*\/)+$/;
 // T3's `packages/shared/src/video.ts` extensions.
 const VIDEO_FILE_PATTERN = /\.(?:avi|m4v|mkv|mov|mp4|ogv|webm)$/;
 
@@ -284,7 +286,10 @@ export function resolveMarkdownLinkPresentation(href: string): MarkdownLinkPrese
     // Relative paths and non-URL link destinations are handled below.
   }
 
-  const target = parseMarkdownFileLink(normalized) ?? (mentionPath === null ? null : { path: normalized });
+  // A relative folder link (`src/`) is a file chip too: it opens the file browser at that folder.
+  const target =
+    parseMarkdownFileLink(normalized) ??
+    (mentionPath !== null || RELATIVE_FOLDER_LINK_PATTERN.test(normalized) ? { path: normalized } : null);
   if (target) {
     return {
       kind: "file",

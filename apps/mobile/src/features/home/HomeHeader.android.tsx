@@ -52,6 +52,15 @@ export function HomeHeader(props: HomeHeaderProps) {
                   title: project.label,
                   state: checkedMenuState(props.selectedProjectKey === project.key),
                 })),
+                ...(props.selectedProjectKey === null
+                  ? []
+                  : [
+                      {
+                        id: "remove-project",
+                        title: "Remove from projects",
+                        attributes: { destructive: true },
+                      },
+                    ]),
               ],
             },
           ] satisfies MenuAction[])),
@@ -74,6 +83,11 @@ export function HomeHeader(props: HomeHeaderProps) {
         if (environment) {
           props.onEnvironmentChange(environment.environmentId);
         }
+        return;
+      }
+
+      if (id === "remove-project") {
+        if (props.selectedProjectKey !== null) props.onRemoveProject(props.selectedProjectKey);
         return;
       }
 

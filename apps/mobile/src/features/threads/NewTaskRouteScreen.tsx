@@ -38,7 +38,7 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import type { PickedFile } from "../conversation/lib/attachments";
-import { modelLabel, offersPlanToggle, PERMISSION_MODE_ICON, PERMISSION_MODE_TEXT } from "../conversation/lib/run-settings";
+import { modelLabel, modelOptionsSummary, offersPlanToggle, PERMISSION_MODE_ICON, PERMISSION_MODE_TEXT } from "../conversation/lib/run-settings";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { pastedComposerImages, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
@@ -822,6 +822,7 @@ function NewTaskDraftContent(props: {
                       disabled={isComposerInteractionLocked}
                       emphasized
                       label={meta.run.model ? modelLabel(meta.run.provider, meta.run.model) : "Choose model"}
+                      summary={meta.run.model ? modelOptionsSummary(meta.run) : undefined}
                       maxWidth="100%"
                       onPress={() => {
                         promptInputRef.current?.blur();

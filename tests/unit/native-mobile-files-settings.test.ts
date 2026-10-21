@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
-import { buildFileTree, childPath, folderListing, folderTitle, visibleTreeRows } from '../../apps/mobile/src/features/files/lib/file-tree'
+import { buildFileTree, childPath, folderListing, folderTitle, linkedFolderPath, visibleTreeRows } from '../../apps/mobile/src/features/files/lib/file-tree'
 import { ProjectFiles } from '../../apps/mobile/src/features/files/project-files'
 import { AppearancePreference, type AppearanceMode } from '../../apps/mobile/src/features/settings/appearance'
 import { HostSettings } from '../../apps/mobile/src/features/settings/host-settings'
@@ -51,6 +51,25 @@ describe('project file tree', () => {
   test('a search finds files in closed folders and keeps the folders that lead to them', () => {
     const rows = visibleTreeRows(tree, '', new Set(), 'util')
     expect(rows.map((row) => row.path)).toEqual(['src', 'src/lib', 'src/lib/util.ts'])
+  })
+
+  // T3 #21403: a transcript link to a folder opens the file browser there, not
+  // a "File unavailable" screen. Only a written trailing separator marks a
+  // folder; the phone cannot stat a path, and `~` is the host's to expand.
+  test('a link with a trailing separator names a folder of the project', () => {
+    expect(linkedFolderPath('src/', '/work/app')).toBe('src')
+    expect(linkedFolderPath('./docs/drafts/', '/work/app')).toBe('docs/drafts')
+    expect(linkedFolderPath('src/../docs/', '/work/app')).toBe('docs')
+    expect(linkedFolderPath('./', '/work/app')).toBe('')
+    expect(linkedFolderPath('/work/app/src/', '/work/app/')).toBe('src')
+    expect(linkedFolderPath('C:\\work\\app\\src\\', 'C:\\work\\app')).toBe('src')
+  })
+
+  test('a file link or a folder outside the project is not a project folder', () => {
+    expect(linkedFolderPath('src/app.ts', '/work/app')).toBeNull()
+    expect(linkedFolderPath('../other/', '/work/app')).toBeNull()
+    expect(linkedFolderPath('/work/application/', '/work/app')).toBeNull()
+    expect(linkedFolderPath('~/notes/', '/work/app')).toBeNull()
   })
 
   test('reads a project once through the host index, scoped to the project folder', async () => {
