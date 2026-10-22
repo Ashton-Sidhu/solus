@@ -27,11 +27,10 @@ import {
 import type { Integration } from '@solus/contracts/integration-types'
 import { vaultConnectionSchema, type VaultConnection } from '@solus/contracts/vault'
 import { SEAT_PROVIDERS, type SeatProvider } from '@solus/contracts/seats'
-import type { AgentId, SkillInstallResult } from '@solus/contracts/types'
-import type { SkillListResult, SkillRemoveResult } from '@solus/contracts/skill-types'
+import type { SkillListResult } from '@solus/contracts/skill-types'
 import { createLogger } from '../../logger'
-import type { MemberSkillHomes } from '../../skills/skills-cli'
-import { planProfileFiles, readProfileFiles, resolvedHome, writeProfileFiles } from './profile-files'
+import type { RegistrySkillFile } from '../../skills/registry-skill-cache'
+import { planProfileFiles, readProfileFiles, resolvedHome, sha256Hex, writeProfileFiles } from './profile-files'
 import { applyMemberFiles } from './member-files'
 import type { ProcessUser } from '../../cli-env'
 import { hostClaudeDir, hostCodexHome } from './seat-login'
@@ -45,8 +44,8 @@ const log = createLogger('seats', 'agent-profile.ts')
  * plans/020-agent-profile.md). One owner: it reads this machine's profile,
  * applies a profile to a person's seats (or to the homes of a host they own),
  * pulls a profile from the person's account, and answers what a host holds.
- * An apply sequences three appliers — the files, the registry skills through
- * the skills CLI, and the person's MCP servers as personal integrations — and
+ * An apply sequences two appliers — the files, registry skills included as
+ * plain files, and the person's MCP servers as personal integrations — and
  * writes one manifest last. Nothing here moves a login, a key, or a token.
  */
 
@@ -105,11 +104,12 @@ export class AgentProfileRefused extends Error {
   }
 }
 
-/** The skills CLI as the profile uses it (`skills-cli.ts`), injected so a test needs no `npx`. */
+/** Registry skills as the profile uses them, injected so a test needs no `npx`. */
 export interface ProfileSkills {
-  list(homes?: MemberSkillHomes): Promise<SkillListResult>
-  install(id: string, agents: AgentId[], homes?: MemberSkillHomes): Promise<SkillInstallResult>
-  remove(name: string, homes?: MemberSkillHomes): Promise<SkillRemoveResult>
+  /** This machine's registry skills, which a read carries as references. */
+  list(): Promise<SkillListResult>
+  /** A registry skill's files, by path inside its folder (`registry-skill-cache.ts`). */
+  files(entry: AgentProfileSkillEntry): Promise<RegistrySkillFile[]>
 }
 
 /**
@@ -146,16 +146,12 @@ export interface ProfileAccount {
 export interface AgentProfileDeps {
   /** The homes this machine's profile is read from, per provider; first one wins a path. */
   sourceHomes: (provider: SeatProvider) => string[]
-  /** The target's home for a provider (`SeatStore.homeFor`). */
+  /** The folder the target's agent reads for a provider: where their profile is written. */
   homeFor: (target: AgentProfileTarget, provider: SeatProvider) => string
   /** The OS user a target's files are written as where each member is their own user; absent or null: the server's own. */
   processUserFor?: (target: AgentProfileTarget) => ProcessUser | null
   now: () => number
   skills: ProfileSkills
-  /** A member's seat homes for the skills CLI; undefined for the owner, whose skills are the host's. */
-  skillHomesFor: (target: AgentProfileTarget) => MemberSkillHomes | undefined
-  /** The providers installed here: a registry skill is installed for each. */
-  agentIds: () => AgentId[]
   integrations: ProfileIntegrations
   /** Whose records a target's integrations become; the owner's own on a read. */
   integrationOwnerFor: (target: AgentProfileTarget) => ProfileIntegrationOwner
@@ -171,10 +167,6 @@ interface IntegrationApplyOutcome {
 /** A host record as the profile names it: the record, never its connection. */
 function integrationEntryOf(integration: Integration): AgentProfileIntegrationEntry {
   return { kind: 'integration', slug: integration.slug, name: integration.name, url: integration.url, auth: integration.auth }
-}
-
-function registrySkillId(entry: AgentProfileSkillEntry): string {
-  return `${entry.source}@${entry.skillId}`
 }
 
 function byKind(profile: AgentProfile) {
@@ -204,7 +196,8 @@ export class AgentProfileManager {
   async read(): Promise<AgentProfileCopy> {
     const entries: AgentProfileEntry[] = []
     const installed = await this.deps.skills.list()
-    const registrySkills = new Set<string>()
+    // A skill a profile placed here is the account's, not this machine's own.
+    const registrySkills = new Set<string>(this.manifestFor({ kind: 'owner' })?.skills ?? [])
     if (installed.ok) {
       for (const skill of installed.skills) {
         if (!skill.source) continue
@@ -228,25 +221,28 @@ export class AgentProfileManager {
    */
   async apply(target: AgentProfileTarget, copy: AgentProfileCopy, origin: AgentProfileOrigin): Promise<AgentProfileStatus> {
     const { files, skills, integrations } = byKind(copy.profile)
-    const previous = this.manifestFor(target)
+    const user = this.deps.processUserFor?.(target) ?? null
+    // A member who is their own user owns their home: a missing agent folder is made as them.
+    const missingHomes = SEAT_PROVIDERS.map((provider) => this.deps.homeFor(target, provider)).filter((home) => !existsSync(home))
+    applyMemberFiles(user, missingHomes.map((path) => ({ kind: 'folder', path, mode: 0o750 })))
+    const previousFor = (provider: SeatProvider) => this.readManifest(this.deps.homeFor(target, provider))?.files ?? []
+    const registry = await this.registryFiles(skills, previousFor)
     const writes = planProfileFiles({
-      entries: files,
-      skipped: copy.skipped,
+      entries: [...files, ...registry.files],
+      skipped: [...copy.skipped, ...registry.retained],
       homeFor: (provider) => this.deps.homeFor(target, provider),
-      previousFor: (provider) => this.readManifest(this.deps.homeFor(target, provider))?.files ?? [],
+      previousFor,
       ownerHost: target.kind === 'owner',
     })
     const syncedAt = this.deps.now()
     const writtenFiles = new Map<SeatProvider, string[]>()
     const kept: AgentProfileSkip[] = []
-    const user = this.deps.processUserFor?.(target) ?? null
     for (const write of writes) {
       writtenFiles.set(write.provider, writeProfileFiles(write, user))
       kept.push(...write.kept)
     }
-    const skillOutcome = await this.applySkills(target, skills, previous?.skills ?? [])
-    const integrationOutcome = this.applyIntegrations(target, integrations, previous?.integrations ?? [], origin)
-    const held = [...copy.skipped, ...kept, ...skillOutcome.skipped, ...integrationOutcome.skipped]
+    const integrationOutcome = this.applyIntegrations(target, integrations, this.manifestFor(target)?.integrations ?? [], origin)
+    const held = [...copy.skipped, ...kept, ...registry.failed, ...integrationOutcome.skipped]
     const empty = Object.keys(copy.profile).length === 0 && copy.skipped.length === 0
     for (const provider of SEAT_PROVIDERS) {
       const home = resolvedHome(this.deps.homeFor(target, provider))
@@ -262,7 +258,7 @@ export class AgentProfileManager {
         revision: origin.kind === 'account' ? origin.revision : null,
         syncedAt,
         files: ownFiles,
-        skills: skillOutcome.installed,
+        skills: registry.placed,
         integrations: integrationOutcome.ids,
         skipped: held.filter((skip) => !skip.provider || skip.provider === provider),
       }
@@ -287,7 +283,8 @@ export class AgentProfileManager {
       source: first.source,
       revision: first.revision,
       counts: {
-        files: manifests.reduce((count, manifest) => count + manifest.files.length, 0),
+        // A registry skill's files count as the skill, not as files.
+        files: manifests.reduce((count, manifest) => count + manifest.files.filter((path) => !manifest.skills.includes(path.split('/')[1] ?? '') || !path.startsWith('skills/')).length, 0),
         skills: first.skills.length,
         integrations: first.integrations.length,
       },
@@ -444,34 +441,44 @@ export class AgentProfileManager {
   // ── The appliers ──
 
   /**
-   * Registry skills: a name in the manifest and not in the profile is removed;
-   * a reference not installed yet, or installed from another source, is
-   * installed. A failed install is reported and the rest goes on.
+   * Registry skills as profile files: each skill's files under `skills/<name>/`
+   * in every provider home, so they are written, kept, and removed with the rest
+   * of the profile, as the person. A skill whose files cannot be read keeps what
+   * an earlier copy wrote there, and is reported.
    */
-  private async applySkills(target: AgentProfileTarget, entries: AgentProfileSkillEntry[], previous: string[]): Promise<{ installed: string[]; skipped: AgentProfileSkip[] }> {
-    const homes = this.deps.skillHomesFor(target)
-    const skipped: AgentProfileSkip[] = []
-    const wanted = new Map(entries.map((entry) => [entry.name, entry]))
-    for (const name of previous) {
-      if (wanted.has(name)) continue
-      const removed = await this.deps.skills.remove(name, homes)
-      if (!removed.ok) log.warn('agent_profile_skill_remove_failed', { skillName: name, error: removed.error })
-    }
-    if (entries.length === 0) return { installed: [], skipped }
-    const listed = await this.deps.skills.list(homes)
-    const present = new Map(listed.ok ? listed.skills.map((skill) => [skill.name, skill.source]) : [])
-    const installed: string[] = []
-    const agents = this.deps.agentIds()
+  private async registryFiles(entries: AgentProfileSkillEntry[], previousFor: (provider: SeatProvider) => string[]): Promise<{
+    files: AgentProfileFileEntry[]
+    /** The earlier copy's files of a skill that could not be read: kept as they are. */
+    retained: AgentProfileSkip[]
+    placed: string[]
+    failed: AgentProfileSkip[]
+  }> {
+    const files: AgentProfileFileEntry[] = []
+    const retained: AgentProfileSkip[] = []
+    const placed: string[] = []
+    const failed: AgentProfileSkip[] = []
     for (const entry of entries) {
-      if (present.get(entry.name) === entry.source) {
-        installed.push(entry.name)
+      let skillFiles: RegistrySkillFile[]
+      try {
+        skillFiles = await this.deps.skills.files(entry)
+      } catch (error) {
+        log.warn('agent_profile_skill_unavailable', { skillName: entry.name, source: entry.source, error: error instanceof Error ? error.message : String(error) })
+        failed.push({ path: entry.name, reason: 'install-failed' })
+        for (const provider of SEAT_PROVIDERS) {
+          for (const path of previousFor(provider)) if (path.startsWith(`skills/${entry.name}/`)) retained.push({ provider, path, reason: 'install-failed' })
+        }
         continue
       }
-      const result = await this.deps.skills.install(registrySkillId(entry), agents, homes)
-      if (result.ok) installed.push(entry.name)
-      else skipped.push({ path: entry.name, reason: 'install-failed' })
+      placed.push(entry.name)
+      for (const provider of SEAT_PROVIDERS) {
+        for (const file of skillFiles) {
+          const written: AgentProfileFileEntry = { kind: 'file', provider, path: `skills/${entry.name}/${file.path}`, contentBase64: file.content.toString('base64'), hash: sha256Hex(file.content) }
+          if (file.executable) written.executable = true
+          files.push(written)
+        }
+      }
     }
-    return { installed, skipped }
+    return { files, retained, placed, failed }
   }
 
   /**

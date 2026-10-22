@@ -38,7 +38,7 @@ export function profileIntegrations(deps: {
     remove: (id) => {
       gateway.invalidate(id)
       const integration = store.get(id, ANY_ORGANIZATION)
-      if (!integration) throw new Error('That integration is no longer on this host.')
+      if (!integration) return
       if (!store.remove(id, integration.organizationId)) return
       connections.removeAllFor(integration)
       void events.broadcast('integration.changed', { integrationId: id, change: 'removed' })

@@ -9,7 +9,9 @@
 # with the terminal instead of outliving it.
 trap 'trap - INT TERM HUP; kill 0' INT TERM HUP
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-bun run electron-vite dev 2>&1 | tee dev-console.log &
+# Appended, not replaced: after a crash, the output before the restart is the
+# evidence.
+bun run electron-vite dev 2>&1 | tee -a dev-console.log &
 # The host serves the web client to other devices from `dist/client`, a built
 # artifact: a guest link or a browser on the LAN gets that bundle, not the dev
 # server's renderer. Build it once at start so it matches the code the dev host

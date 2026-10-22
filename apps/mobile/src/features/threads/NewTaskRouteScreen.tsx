@@ -12,7 +12,6 @@ import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp, useListened } from "../../app/app-context";
-import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ComposerAttachmentButton } from "../../components/ComposerAttachmentButton";
@@ -31,10 +30,11 @@ import { MaterialScreenContent } from "../../components/MaterialScreenContent";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { ScreenScrollView } from "../../components/ScreenScrollView";
+import { SheetHeader } from "../../components/SheetHeader";
 import { cn } from "../../lib/cn";
 import { MOBILE_FONTS } from "../../lib/typography";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
+import { NativeStackScreenOptions } from "../../native/StackHeader";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import type { PickedFile } from "../conversation/lib/attachments";
@@ -859,7 +859,11 @@ function NewTaskDraftContent(props: {
     return (
       <View className="flex-1 bg-sheet" collapsable={false}>
         <NativeStackScreenOptions options={{ headerShown: false }} />
-        <AndroidScreenHeader title="New session" hideBottomBorder onBack={closeNewTask} />
+        <SheetHeader
+          title="New session"
+          onCancel={closeNewTask}
+          accessibilityLabel="Cancel new task"
+        />
         <MaterialScreenContent>
           {heroViewport}
 
@@ -876,20 +880,12 @@ function NewTaskDraftContent(props: {
 
   return (
     <View className="flex-1 bg-sheet" collapsable={false}>
-      <NativeStackScreenOptions
-        options={{
-          headerBackVisible: false,
-          headerShadowVisible: false,
-          title: "",
-        }}
+      <NativeStackScreenOptions options={{ headerShadowVisible: false }} />
+      <SheetHeader
+        title="New session"
+        onCancel={closeNewTask}
+        accessibilityLabel="Cancel new task"
       />
-      <NativeHeaderToolbar placement="left">
-        <NativeHeaderToolbar.Button
-          accessibilityLabel="Cancel new task"
-          label="Cancel"
-          onPress={closeNewTask}
-        />
-      </NativeHeaderToolbar>
 
       {heroViewport}
       <KeyboardStickyView

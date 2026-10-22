@@ -7,7 +7,7 @@ have a seat on:
 |---|---|
 | Instructions | Your extra instructions, and your per-model instructions that are added only when that model runs: settings every prompt carries, edited on the Agent profile page. A home's `CLAUDE.md` or `AGENTS.md` is not part of it: an instructions file belongs with a project. |
 | Files | `agents/`, `commands/` in `~/.claude`; `prompts/` in `~/.codex` |
-| Skills | Skills installed from skills.sh, as references the host installs itself; hand-written skills as their files |
+| Skills | Skills installed from skills.sh, as references the host downloads itself; hand-written skills as their files |
 | MCP servers | The servers you added: name, address, and how they sign in. Never a key or a token. |
 
 It is one document (`plans/020-agent-profile.md`). Each file, each skill, and
@@ -102,6 +102,13 @@ the server's record, and you sign in once on each host, as with a provider
 seat. When a host stops being linked to you (the account removed it, or you
 signed out on the desktop), it keeps no connection of yours.
 
+A server that asks for a sign-in has no tools on a host until you connect it.
+Settings → Agent profile shows each server's status on one host: the host
+Settings is set to on the desktop and the web, or the host you picked on a
+phone. "Not connected", "Needs sign-in", and "Not added yet" come with
+Connect, which signs you in on that host (a phone opens the host's MCP
+screen to do it).
+
 ## What is not copied
 
 - Logins, `settings.json`, plugins, hooks, and transcripts.
@@ -112,7 +119,7 @@ signed out on the desktop), it keeps no connection of yours.
 ## Removing it
 
 **Remove** on a host deletes what the profile put there: the copied files, the
-registry skills it installed, and the MCP records it made, with their
+registry skills' files, and the MCP records it made, with their
 connections. Your logins and anything else in your seats stay.
 
 ## How it works
@@ -124,12 +131,23 @@ connections. Your logins and anything else in your seats stay.
   computer. `agentProfilePull` makes the host read the document from your
   account with your delegated token.
 - `AgentProfileManager` (`execution/seats/agent-profile.ts`) owns the profile
-  on a host: the read, the apply, the pull, and the status. An apply runs three
-  appliers in order — the files (`profile-files.ts`), the registry skills
-  through the skills CLI, and the MCP records
+  on a host: the read, the apply, the pull, and the status. An apply runs two
+  appliers in order — the files (`profile-files.ts`), and the MCP records
   (`integrations/profile-integrations.ts`) — and writes one manifest last,
-  `.solus-profile.json` in each seat home, with the source, the account
-  revision, and every entry it owns. A pull applies only when the account
+  `.solus-profile.json` in each agent home, with the source, the account
+  revision, and every entry it owns.
+- A registry skill is files like a hand-written one. The host downloads each
+  `source@skillId` once, as itself, with the skills CLI into a temporary home,
+  and keeps it under `registry-skills/` in its data folder
+  (`skills/registry-skill-cache.ts`). The apply writes the files to
+  `skills/<name>/` in the Claude Code and the Codex home. A skill the host
+  cannot download keeps the files an earlier copy wrote, and Settings reports
+  it.
+- The agent homes are the folders the person's agents read. On a host where
+  each member is their own Linux user, they are `~/.claude` and `~/.codex` in
+  the member's home. Elsewhere they are the member's seat folders (the agent
+  runs with `CLAUDE_CONFIG_DIR` and `CODEX_HOME` set to them), and the host's
+  own homes for its owner. Every write runs as the person. A pull applies only when the account
   revision moved, then asks `IntegrationConnections.reconcile` to move the
   person's host-local MCP connections into their account.
 - A home's `CLAUDE.md` or `AGENTS.md` in an older copy is dropped by every

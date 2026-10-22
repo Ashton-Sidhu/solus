@@ -55,7 +55,7 @@ interface Room {
   doc: Y.Doc
   clientSeqs: Map<string, number>
   clients: Map<string, RoomClient>
-  /** Pushes the body does not have yet. */
+  /** Pushes the stored state and the body do not have yet. */
   dirty: boolean
   lastAuthor: Attribution | null
   cancelIdle: (() => void) | null
@@ -137,15 +137,12 @@ export class WorkLiveManager {
       if (this.locks.has(room.workId)) return { status: 'locked' }
       const last = room.clientSeqs.get(request.clientKey) ?? 0
       if (request.seq <= last) return { status: 'duplicate', seq: last }
-      Y.applyUpdate(room.doc, base64ToBytes(request.update), clientId)
+      const changed = captureUpdates(room.doc, () => Y.applyUpdate(room.doc, base64ToBytes(request.update), clientId)).length > 0
+        || room.doc.store.pendingStructs !== null || room.doc.store.pendingDs !== null
       room.clientSeqs.set(request.clientKey, request.seq)
-      try {
-        await saveLiveDoc(room.organizationId, room.workId, { state: Y.encodeStateAsUpdate(room.doc), clientSeqs: room.clientSeqs })
-      } catch (error) {
-        // Memory is ahead of the disk: forget it, so the next open reads what is stored.
-        this.drop(room)
-        throw error
-      }
+      // A push the doc already holds (a reconnect resending deletions) changes
+      // nothing: there is nothing to relay, store, or project.
+      if (!changed) return { status: 'accepted', seq: request.seq }
       this.publish(this.othersIn(room, clientId), 'workLive.update', { workId: room.workId, update: request.update })
       room.lastAuthor = input.author
       this.markDirty(room)
@@ -202,9 +199,12 @@ export class WorkLiveManager {
   }
 
   /**
-   * Write the pushes the body does not have yet. Called before every read of a
-   * work, and when edits pause. The room is marked clean before the write, so
-   * the read inside the write does not flush again.
+   * Store the doc and write the body, with the pushes they do not have yet.
+   * Called before every read of a work, when edits pause, and when the room
+   * closes. A push is answered from memory: until this runs, the clients'
+   * device copies hold it, and a reconnect after a host crash sends it again.
+   * The room is marked clean before the write, so the read inside the write
+   * does not flush again.
    */
   async flush(workId: string): Promise<void> {
     const room = this.rooms.get(workId)
@@ -212,13 +212,18 @@ export class WorkLiveManager {
     room.dirty = false
     this.cancelTimers(room)
     try {
+      await saveLiveDoc(room.organizationId, room.workId, { state: Y.encodeStateAsUpdate(room.doc), clientSeqs: room.clientSeqs })
       const content = projectLiveDoc(room.type, room.doc)
       const work = await Work.byId(room.organizationId, room.workId)
       await work.applyLiveProjection({ content, author: room.lastAuthor })
     } catch (error) {
-      room.dirty = true
-      log.error('work_live_projection_failed', { workId, error: error instanceof Error ? error.message : String(error) })
+      // Try again later. The room stays in memory until its doc is stored.
+      this.markDirty(room)
+      log.error('work_live_flush_failed', { workId, error: error instanceof Error ? error.message : String(error) })
+      return
     }
+    // A retry that stored the doc of a room everyone has left lets it go.
+    if (room.clients.size === 0 && this.rooms.get(workId) === room) this.drop(room)
   }
 
   /**
@@ -331,12 +336,11 @@ export class WorkLiveManager {
     if (!room.clients.delete(clientId)) return
     this.publish([...room.clients.keys()], 'workLive.awareness', { workId: room.workId, clientId, update: null })
     if (room.clients.size > 0) return
-    // The last client left: write the body, then let the doc go. Its state is
-    // already stored with every push.
+    // The last client left: store the doc and write the body, then let it go.
     void this.serial(room.workId, async () => {
       if (room.clients.size > 0 || this.rooms.get(room.workId) !== room) return
       await this.flush(room.workId)
-      if (room.clients.size === 0) this.drop(room)
+      if (room.clients.size === 0 && !room.dirty) this.drop(room)
     })
   }
 

@@ -14,6 +14,7 @@ import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { SolusServer } from '../server'
 import { hostUserKey } from '../../host/host-user'
 import { memberUsers } from '../../host/member-users'
+import { recentEventLoopStall } from '../../host/event-loop-stalls'
 import type { IntroducedHosts } from '../../execution/orchestration/introduced-hosts'
 import { z } from 'zod'
 
@@ -102,6 +103,9 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
       answer.userId = principal.accountUserId
       answer.share = { resource: principal.share.resource, role: principal.share.role }
     }
+    // A client that just came back after a drop learns if this host froze (docs/mobile-connections.md).
+    const stall = recentEventLoopStall()
+    if (stall) answer.recentEventLoopStall = stall
     return answer
   })
 

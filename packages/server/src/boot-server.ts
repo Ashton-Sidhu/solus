@@ -67,7 +67,8 @@ import { IntegrationOAuth, type IntegrationConnectionEvents } from './integratio
 import { setIntegrationGateway } from './integrations/integration-tools'
 import { AgentProfileManager, hostProfileHomes, type AgentProfileTarget } from './execution/seats/agent-profile'
 import { profileIntegrations } from './integrations/profile-integrations'
-import { installSkill, listInstalledSkills, removeSkill } from './skills/skills-provider'
+import { listInstalledSkills } from './skills/skills-provider'
+import { RegistrySkillCache } from './skills/registry-skill-cache'
 import { publishPresenceRoom, registerPresenceHandlers } from './transport/handlers/presence-handlers'
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
@@ -772,15 +773,21 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The agent profile (plans/020-agent-profile.md): one owner applies a person's
   // files, registry skills, and MCP servers to their seats, or to the host's own
   // homes on a host they own; a pull reads it from their account.
+  // Registry skills are downloaded once per host and written into each person's homes as files.
+  const registrySkills = new RegistrySkillCache(join(dataDir(), 'registry-skills'))
   const profileSeat = (target: AgentProfileTarget): Seat => target.kind === 'owner' ? HOST_LOGIN_SEAT : memberSeat(target.userId, target.name)
   const profiles = new AgentProfileManager({
     sourceHomes: hostProfileHomes,
-    homeFor: (target, provider) => seats.homeFor(profileSeat(target), provider),
+    // Where the person's agent reads: a member who is their own Linux user runs with
+    // the CLI's own `~/.claude` and `~/.codex` in their home; elsewhere the seat folder.
+    homeFor: (target, provider) => {
+      const seat = profileSeat(target)
+      if (memberUsers && seat.kind === 'user') return join(memberUserOf(seat).home, provider === 'claude-code' ? '.claude' : '.codex')
+      return seats.homeFor(seat, provider)
+    },
     processUserFor: (target) => identityFor(profileSeat(target)).processUser(),
     now: Date.now,
-    skills: { list: listInstalledSkills, install: installSkill, remove: removeSkill },
-    skillHomesFor: (target) => target.kind === 'member' ? { claudeHome: seats.homeFor(profileSeat(target), 'claude-code'), codexHome: seats.homeFor(profileSeat(target), 'codex') } : undefined,
-    agentIds: () => opts.sessionRuntime.getBackendIds(),
+    skills: { list: () => listInstalledSkills(), files: (entry) => registrySkills.files(`${entry.source}@${entry.skillId}`, entry.name) },
     integrations: profileIntegrations({ store: integrations, gateway: integrationGateway, connections: integrationConnections, events }),
     integrationOwnerFor: (target) => target.kind === 'member'
       ? { organizationId: target.organizationId, ownerKey: target.userId }
@@ -1548,7 +1555,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The workspace service has no tunnel and no link to resume (cloud-service-model.md §15).
   if (!apiMode) {
     tunnelPort = await bindTunnelListener(tunnelHttp, readStoredTunnel()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT)
-    void registrar.resume().then((remote) => uplinkManager.resume(remote)).catch((err) => {
+    void registrar.resumeUntilAnswered((remote, isRetrying) => uplinkManager.resume(remote, isRetrying)).catch((err) => {
       log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
     }).finally(() => {
       runnerDelivery?.start()
@@ -1703,6 +1710,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         await managedHostActivity.stop()
         liveActivityRelay.stop()
         await runnerDelivery?.stop()
+        // A registration check still retrying could start cloudflared again after it stops.
+        registrar.stopResuming()
         await uplinkConnector.stop()
         prSync.dropClients()
         try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }

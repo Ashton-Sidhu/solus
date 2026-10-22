@@ -176,9 +176,35 @@ describe('native host connections', () => {
     expect(await transport?.options.acquireGrant?.({ fresh: true })).toBe('grant-for-inst-cloud')
     expect(grantOptions).toEqual([undefined, { fresh: true }])
     expect(transport?.serverUrl).toBe('http://10.0.0.20:51234')
+    await flushRouteChecks()
     transport?.fail('dial-failed')
     expect(transport?.serverUrl).toBe('https://build.tunnel.solus.sh')
     timers.runAll()
+    await flushRouteChecks()
+    expect(transport?.dials).toBe(2)
+  })
+
+  test('a phone away from the host network dials the tunnel first, and returns to the network on wake', async () => {
+    // WHY: a dead local address used to cost a ticket timeout on every dial, and a
+    // phone that fell back to the tunnel stayed there until that socket dropped.
+    const answering: Record<string, string> = { 'https://build.tunnel.solus.sh': 'inst-cloud' }
+    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch(answering) })
+    await registry.load()
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
+      routes: [{ kind: 'direct', url: 'http://10.0.0.20:51234' }, { kind: 'tunnel', url: 'https://build.tunnel.solus.sh' }],
+    })])
+    connections.connection('inst-cloud')
+    const transport = transports[0]
+    await flushRouteChecks()
+    expect(transport?.serverUrl).toBe('https://build.tunnel.solus.sh')
+    expect(transport?.dials).toBe(1)
+    await transport?.accept()
+    expect(connections.state('inst-cloud')?.phase).toBe('connected')
+
+    answering['http://10.0.0.20:51234'] = 'inst-cloud'
+    connections.wake('activation')
+    await flushRouteChecks()
+    expect(transport?.serverUrl).toBe('http://10.0.0.20:51234')
     expect(transport?.dials).toBe(2)
   })
 
@@ -264,3 +290,8 @@ describe('pairing input', () => {
     expect(pairFailureMessage(new Error('Invalid or expired pair token'))).toContain('expired')
   })
 })
+
+/** Lets the parallel route checks before a dial settle. */
+function flushRouteChecks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}

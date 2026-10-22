@@ -12,7 +12,9 @@ import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPill } from "../../components/ControlPill";
 import { cn } from "../../lib/cn";
+import type { ConversationStore } from "../conversation/conversation-store";
 import type { PendingQuestion } from "../conversation/lib/transcript-model";
+import { ThreadMarkdown } from "./ThreadMarkdown";
 
 /** One question's answer as it is being filled in: chosen labels and a free remark. */
 interface PendingUserInputDraftAnswer {
@@ -22,6 +24,7 @@ interface PendingUserInputDraftAnswer {
 
 export interface PendingUserInputCardProps {
   readonly pendingUserInput: PendingQuestion;
+  readonly store: ConversationStore;
   /** Constant while a request is pending (it reserves keyboard space). */
   readonly maxHeight: number;
   readonly collapsed: boolean;
@@ -174,6 +177,10 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         {questions.map((question) => {
           const key = questionKey(question);
           const draft = drafts[key];
+          // As on desktop and web: the chosen option's preview, else the first option's.
+          const previewOption =
+            question.options.find((option) => draft?.selected.includes(option.label)) ??
+            question.options[0];
           return (
             <View key={key} className="gap-2 pt-1">
               {question.header ? (
@@ -220,6 +227,14 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                   );
                 })}
               </View>
+              {previewOption?.preview?.trim() ? (
+                <View className="gap-1.5 rounded-2xl border border-border bg-input p-3.5">
+                  <Text className="font-t3-bold text-xs text-foreground-muted">
+                    Preview · {previewOption.label}
+                  </Text>
+                  <ThreadMarkdown markdown={previewOption.preview} tone="assistant" store={props.store} />
+                </View>
+              ) : null}
               <TextInput
                 accessibilityLabel={`Your own answer to: ${question.question}`}
                 editable={!responseDisabled}

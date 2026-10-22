@@ -12,7 +12,7 @@ desktop and web clients. It adds no server code and no mobile protocol.
 
 ## Stack
 
-- Expo SDK 58 (`expo` 58.0.3), React Native 0.88.0-rc.3, React 19.3.0 — T3
+- Expo SDK 58 (`expo` 58.0.3), React Native 0.88.0, React 19.3.0 — T3
   Code's runtime, so that T3's dependency patches apply at their exact
   versions (plan 017 §3 amendment). The root `package.json` lists the patches
   under `patchedDependencies`, and its `overrides` keep one React Native: Expo

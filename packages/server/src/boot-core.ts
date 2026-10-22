@@ -8,7 +8,8 @@ import { useMemberSwitch } from './cli-env'
 import { bootServer, type BootOptions, type BootedServer } from './boot-server'
 import { configureOtel } from './otel'
 import { getHostConfig, getServerSettings } from './host/settings'
-import { createLogger, isDebugEnabled } from './logger'
+import { createLogger } from './logger'
+import { watchEventLoopStalls } from './host/event-loop-stalls'
 import { warmCliPath } from './cli-env'
 import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
 import { withHostScope } from './execution/seats/acting-identity'
@@ -34,22 +35,6 @@ export type BootCoreOptions = Omit<BootOptions, 'sessionRuntime' | 'agentIdFromC
 
 function agentIdFromContext(ctx?: IpcContext): AgentId {
   return ctx?.session.provider ?? ctx?.settings.activeAgent ?? DEFAULT_AGENT_ID
-}
-
-/** A blocked main thread shows up as a late timer. Debug builds log the gap
- *  when it frees up, so a stall lines up in `dev.log` against the RPC that
- *  preceded it. Off outside debug: one timer per 50 ms is not free. */
-function watchEventLoopStalls(): void {
-  if (!isDebugEnabled()) return
-  const TICK_MS = 50
-  const REPORT_AT_MS = 100
-  let last = performance.now()
-  setInterval(() => {
-    const now = performance.now()
-    const stalledMs = Math.round(now - last - TICK_MS)
-    if (stalledMs >= REPORT_AT_MS) log.warn('event_loop_stalled', { stalledMs })
-    last = now
-  }, TICK_MS).unref()
 }
 
 /**

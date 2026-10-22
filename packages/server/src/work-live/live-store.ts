@@ -6,8 +6,9 @@ import { workLiveDocs } from '../data/works/schema'
 
 /**
  * The stored live doc of one work: its Yjs state and the last push each client
- * key applied, in one row, so an acknowledged push and its receipt are durable
- * together (docs/plans/work-review-and-live-editing.md, phase 3b).
+ * key applied, in one row (docs/plans/work-review-and-live-editing.md, phase
+ * 3b). The host writes it when edits pause and when the room closes, not on
+ * each push: the clients' device copies hold anything newer.
  */
 export interface StoredLiveDoc {
   state: Uint8Array

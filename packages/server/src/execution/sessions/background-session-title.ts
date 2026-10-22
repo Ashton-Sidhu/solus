@@ -6,12 +6,16 @@ import { getIndexedSession, setSessionGeneratedTitle } from '../../db/session-in
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import { renamePinnedSession } from '../../data/sessions/pinned-sessions'
 import { createLogger } from '../../logger'
-import type { HostEventPublisher } from '../../transport/events/host-event-publisher'
 import type { SessionRuntime } from '../session-runtime'
 import { generateSessionMetadata } from './session-title'
 
 const log = createLogger('main', 'background-session-title')
 const naming = new Map<string, Promise<string | null>>()
+
+/** The one event naming sends. The host's event publisher answers it; Execution does not import Transport. */
+export interface SessionTitleBroadcaster {
+  broadcast(type: 'session.titleChanged', payload: SessionTitleChangedEvent): Promise<unknown>
+}
 
 /** Narrow domain operations; supplied directly by tests. */
 export interface BackgroundSessionTitlePorts {
@@ -46,7 +50,7 @@ export interface BackgroundSessionTitleRequest {
 /** Name one worker on its execution host. The indexed title is the authority. */
 export function ensureBackgroundSessionTitle(
   runtime: SessionRuntime,
-  events: HostEventPublisher,
+  events: SessionTitleBroadcaster,
   request: BackgroundSessionTitleRequest,
   ports: BackgroundSessionTitlePorts = defaultPorts,
 ): Promise<string | null> {
@@ -73,7 +77,7 @@ function generatedMetadata(
 
 async function nameSession(
   runtime: SessionRuntime,
-  events: HostEventPublisher,
+  events: SessionTitleBroadcaster,
   request: BackgroundSessionTitleRequest,
   ports: BackgroundSessionTitlePorts,
 ): Promise<string | null> {

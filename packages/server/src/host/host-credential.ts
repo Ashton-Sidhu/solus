@@ -24,7 +24,7 @@ export interface HostCredential {
   readonly clientId: string
   /** The account plane's token endpoint, where every assertion of this credential goes. */
   readonly tokenEndpoint: string
-  /** A signed client assertion (RFC 7523) for `audience`: one minute of life, used once. */
+  /** A signed client assertion (RFC 7523) for `audience`: 150 s of life, used once. */
   assertion(audience: string): Promise<string>
   /** The host's own access token (client credentials) for its link routes; kept until 60 s before its end. */
   hostAccessToken(): Promise<string>
@@ -49,7 +49,13 @@ export class HostCredentialError extends Error {
 }
 
 const ECDSA_P256 = { name: 'ECDSA', namedCurve: 'P-256' } as const
-const ASSERTION_LIFE_SECONDS = 60
+/**
+ * The account plane takes an assertion while its `exp` is ahead of the account
+ * plane's clock and at most 300 s ahead (better-auth's `assertionMaxLifetime`). Half
+ * of that lets this host's clock be up to 150 s behind or ahead. The account plane
+ * keeps each `jti` until `exp`, so an assertion is still used once.
+ */
+const ASSERTION_LIFE_SECONDS = 150
 /** A control token this close to its end is replaced before it is used. */
 const RENEWAL_MARGIN_MS = 60_000
 const REQUEST_TIMEOUT_MS = 15_000
@@ -68,6 +74,11 @@ export function publicJwkOf(privateJwk: PrivateJwk): HostPublicJwk {
 
 const tokenAnswerSchema = z.object({ access_token: z.string().min(1), expires_in: z.number().positive() })
 const oauthErrorSchema = z.object({ error: z.string(), error_description: z.string().optional() })
+
+/** better-auth's refusals of an assertion's `exp` and `iat` (`consumeClientAssertion`). */
+function isClockRefusal(description: string | undefined): boolean {
+  return !!description && /^client assertion (has expired|exp is too far in the future|iat is too far in the past)/.test(description)
+}
 
 function base64url(bytes: Uint8Array | string): string {
   return Buffer.from(bytes).toString('base64url')
@@ -130,6 +141,11 @@ export function clientCredential(input: {
     }
     // `invalid_client`: the account plane no longer knows this key — another copy linked, or the link is gone.
     const refusal = oauthErrorSchema.safeParse(body)
+    // The account plane also says `invalid_client` when the assertion's times do not fit its clock.
+    // The key is good: the clock is wrong, and is often set right soon after boot.
+    if (refusal.success && isClockRefusal(refusal.data.error_description)) {
+      throw new HostCredentialError('unreachable', `Solus cloud refused the time on this host’s clock: ${refusal.data.error_description}. Check the clock.`)
+    }
     if (refusal.success && (refusal.data.error === 'invalid_client' || refusal.data.error === 'unauthorized_client')) {
       throw new HostCredentialError('refused', refusal.data.error_description ?? 'Solus does not accept this host’s key.')
     }

@@ -16,6 +16,7 @@
 // Responses to individual requests still live in `PrMirrors`, keyed and shared,
 // because those are answers with a lifetime rather than the pull request itself.
 
+import { changeBreakdown, type ChangeBreakdownPart } from '@solus/client-core/change-breakdown'
 import type { HostApi } from '@solus/client-core/host-api'
 import { combinedChecksState, type PrChecksState, type PrChecksSummary } from '@solus/contracts/checks-types'
 import type * as Contracts from '@solus/contracts/providers'
@@ -380,6 +381,12 @@ export class PullRequest implements Contracts.PullRequest {
     const comments = await this.store.mirrors.comments.read(this.key, !!opts.force, () => this.api.prListComments(ctx, this.number))
     if (this.store.mirrors.comments.holds(this.key, comments)) this.comments = comments
     return comments
+  }
+
+  /** The change's lines by kind, once the changed files are read. Empty
+   *  before then, and when the files do not add up to the listed totals. */
+  get changeBreakdown(): ChangeBreakdownPart[] {
+    return this.changedFileStats ? changeBreakdown(this.changedFileStats, this) : []
   }
 
   async loadChangedFiles(opts: ReadOptions = {}): Promise<ChangedFileStat[]> {

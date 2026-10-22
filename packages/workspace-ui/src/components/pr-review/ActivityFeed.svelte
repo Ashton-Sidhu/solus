@@ -36,6 +36,7 @@
   import type { CheckItem } from "@solus/contracts/checks-types";
   import type { PrGuideStatus } from "@solus/contracts/review";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
+  import { changeBreakdown } from "@solus/client-core/change-breakdown";
   import { changedFileTotals } from "../../lib/diff-stats";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -299,6 +300,7 @@
   // Size of the change, stated once under the title in the meta band. The rail
   // lists the files; the band only says how big a read this is.
   const diffStat = $derived(changedFileTotals(changedFiles));
+  const diffBreakdown = $derived(changeBreakdown(changedFiles));
 
   const baseRef = $derived(pr.baseRef ?? detail?.baseRef ?? "");
   const headBranch = $derived(pr.headRef ?? detail?.headRef ?? "");
@@ -908,6 +910,7 @@
               {filesLoading}
               additions={diffStat.additions}
               deletions={diffStat.deletions}
+              breakdown={diffBreakdown}
             />
           </div>
 

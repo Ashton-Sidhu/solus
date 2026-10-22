@@ -141,7 +141,7 @@
     onUnbindWork={() => (draft.boundWorkId = null)}
     collapseWhenIdle={false}
     {idlePlaceholder}
-    bind:prompt={draft.prompt}
+    bind:prompt={() => draft.prompt, (next) => (draft.prompt = next)}
     {onDispatch}
     {onDispatchInBackground}
     {onSent}

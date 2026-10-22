@@ -62,9 +62,11 @@ on the gallery row, "Editing <work>" and jump-to in the phone roster, and follow
 mode into works. The pane reports editing when it saves.
 
 **Phase 3b.** Host: `packages/server/src/work-live/` — `WorkLiveManager` (rooms,
-pushes stored with their receipt in `work_live_docs` before the answer, relay
-to the room only, projection 800 ms after the last push and at least every
-4 s, the agent edit lock), `live-codec.ts` (seed, projection of a copy, and
+pushes answered from memory and relayed to the room only; the doc and its
+receipts stored in `work_live_docs` with the projection, 800 ms after the last
+push and at least every 4 s, and when the room closes; a push the doc already
+holds is acknowledged and not relayed, stored, or projected; the agent edit
+lock), `live-codec.ts` (seed, projection read in place, and
 structural absorb with `updateYFragment` for documents, field diffs for
 diagrams), `live-store.ts`. Table `work_live_docs` (sqlite `0030`, postgres
 `0019`). RPCs `workLiveOpen/Push/Awareness/Close`; topics `workLive.update`,
@@ -436,7 +438,9 @@ update from that person, and sends no extra message.
     the host's `works.content` copy drop an edge whose node was deleted at the
     same time.
 - The Yjs state is kept in a new table, `work_live_docs`, with the columns
-  `work_id`, `state`, `updated_at`, and `organization_id`.
+  `work_id`, `state`, `updated_at`, and `organization_id`. The host writes it
+  when edits pause and when the room closes, never once per push: a write is
+  the whole doc, and an edit is a few bytes.
 - The `works.content` column stays the readable copy for agents, export,
   search, and preview. The host writes it from the live doc when the edits
   pause. The host owns this conversion, so the agent always reads the same
@@ -505,10 +509,12 @@ replace their body.
 - **The access check runs on each push.** An editor can push updates. A
   commenter or a viewer can open the work and receives updates, but cannot
   push. A guest stays limited to the one work that was shared with them.
-- **The host confirms each push.** The client removes an update from its
-  queue only after its state and retry receipt are durably committed. A host
-  restart cannot lose an acknowledged edit. A lost response causes a safe retry;
-  markdown projection may be debounced separately.
+- **The host confirms each push from memory.** The host applies a push, relays
+  it, and answers at once; it stores the doc when edits pause and when the room
+  closes. Every client keeps the whole doc on its device, so after a host crash
+  a reconnect sends back what the host lost. An acknowledged edit is lost only
+  when the host crashes before it stores the doc and the client that made the
+  edit never reconnects. A lost response causes a safe retry.
 - **Ordinary edits send deltas.** A client sends
   small incremental updates during ordinary editing. Initial sync or a client
   with no state can require a full state transfer. If the host has no live
@@ -518,11 +524,13 @@ replace their body.
 **Flows.**
 1. **Open.** The client loads its IndexedDB copy and shows it at once. Then it
    calls `workLiveOpen` with its state vector. Each side sends only the updates
-   that the other side does not have.
+   that the other side does not have. A state vector names content, never
+   deletions, so the client compares its deletions with the host's answer and
+   sends only the ones the host lacks.
 2. **Edit.** A local change becomes a small Yjs update. The client writes it to
    IndexedDB and sends it with `workLivePush`. The host applies it to its
-   `Y.Doc`, durably commits the accepted state and receipt, and sends the update
-   to the other clients in the room. When edits pause, it refreshes `works.content`.
+   `Y.Doc`, answers, and sends the update to the other clients in the room.
+   When edits pause, it stores the doc and refreshes `works.content`.
    Agent reads, exports, and review checkpoints must obtain a projection that
    matches the returned content version even before that debounce fires.
 3. **Offline.** Updates collect in IndexedDB and in the queue, also across a

@@ -1,4 +1,4 @@
-import { appendFile, appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
+import { appendFile, appendFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import { inspect } from 'util'
 import { join } from 'path'
 import { trace, type AttributeValue, type Attributes } from '@opentelemetry/api'
@@ -104,7 +104,7 @@ function formatDevData<Data extends object>(data: Data): string {
 }
 
 // ─── Buffered NDJSON file writer ───
-// Dev: <repo root>/dev.log, truncated on boot — pure NDJSON so agents can query it
+// Dev: <repo root>/dev.log, kept across restarts — pure NDJSON so agents can query it
 // with grep/jq (one entry per line, sessionId top-level). Prod: <logsDir>/solus.log.
 
 const FLUSH_INTERVAL_MS = 500
@@ -145,18 +145,27 @@ export function productionLogFilePath(): string {
   return path
 }
 
+/** A development log past this size starts again empty at the next boot. */
+const MAX_DEV_LOG_BYTES = 50 * 1024 * 1024
+
 /**
  * The file this host writes its log to: `<repo root>/dev.log` in development,
- * `<logsDir>/solus.log` when packaged. Resolving it also creates (and, in
- * development, truncates) the file, exactly as the first log write would.
+ * `<logsDir>/solus.log` when packaged. Resolving it also creates the file,
+ * exactly as the first log write would.
+ *
+ * A development log is kept across restarts: when the app dies, the entries
+ * before the crash are the evidence. It starts again empty only when it has
+ * grown past `MAX_DEV_LOG_BYTES`.
  * `SOLUS_DEV_LOG` names another development file: the test run sets it so a
- * test never truncates or writes into the running dev server's `dev.log`.
+ * test never writes into the running dev server's `dev.log`.
  */
 export function logFilePath(): string {
   if (!logPath) {
     if (isDevRuntime()) {
       logPath = process.env.SOLUS_DEV_LOG || join(process.cwd(), 'dev.log')
-      try { writeFileSync(logPath, '') } catch {}
+      try {
+        if (!existsSync(logPath) || statSync(logPath).size > MAX_DEV_LOG_BYTES) writeFileSync(logPath, '')
+      } catch {}
     } else {
       const dir = logsDir()
       mkdirSync(dir, { recursive: true })

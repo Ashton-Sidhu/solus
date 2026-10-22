@@ -578,6 +578,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     <PendingUserInputCard
                       key={activePendingUserInput.questionId}
                       pendingUserInput={activePendingUserInput}
+                      store={store}
                       maxHeight={pendingUserInputMaxHeight}
                       collapsed={userInputCollapsed}
                       onToggleCollapsed={handleToggleUserInputCollapsed}

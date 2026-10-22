@@ -1,4 +1,4 @@
-import { assertPathInScope } from '../../admission/scope'
+import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { z } from 'zod'
 import { projectScopeOf, type GitInitRepositoryResult, type GithubPublishRepositoryResult, type GitRepositoryStatus } from '@solus/contracts/types'
 import type { SolusServer } from '../server'

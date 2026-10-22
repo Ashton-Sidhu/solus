@@ -14,9 +14,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
-import { MaterialButton } from "../../components/MaterialButton";
 import { MaterialIconButton } from "../../components/MaterialIconButton";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
+import { SheetHeader } from "../../components/SheetHeader";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NativeHeaderToolbar, NativeStackScreenOptions, nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
@@ -678,7 +678,9 @@ function ThreadSettingsModelsScreen() {
   const session = useThreadSettingsSession();
   const presentation = useThreadSettingsPickerPresentation();
   const navigation = useNavigation<NativeStackNavigationProp<ThreadSettingsPickerStackParams>>();
-  const colors = useUniwindTheme();
+  const closeLabel = session.pendingModel
+    ? "Close without saving the model"
+    : "Close session settings";
   const commitAndClose = useCallback(() => {
     session.commitPendingModel();
     presentation.onClose();
@@ -704,26 +706,22 @@ function ThreadSettingsModelsScreen() {
   return (
     <>
       {Platform.OS === "android" ? (
-        <AndroidScreenHeader
+        <SheetHeader
           trailing={
-            <View className="flex-row items-center">
-              {session.hasLegacyModels ? (
-                <MaterialIconButton
-                  accessibilityLabel={session.showLegacy ? "Hide legacy models" : "Show legacy models"}
-                  icon="line.3.horizontal.decrease"
-                  selected={session.showLegacy}
-                  variant={session.showLegacy ? "tonal" : "standard"}
-                  onPress={() => session.setShowLegacy(!session.showLegacy)}
-                />
-              ) : null}
-              {session.pendingModel ? (
-                <MaterialButton label="Save" tone="text" onPress={commitAndClose} />
-              ) : null}
-            </View>
+            session.hasLegacyModels ? (
+              <MaterialIconButton
+                accessibilityLabel={session.showLegacy ? "Hide legacy models" : "Show legacy models"}
+                icon="line.3.horizontal.decrease"
+                selected={session.showLegacy}
+                variant={session.showLegacy ? "tonal" : "standard"}
+                onPress={() => session.setShowLegacy(!session.showLegacy)}
+              />
+            ) : undefined
           }
-          onBack={presentation.onClose}
+          onCancel={presentation.onClose}
+          accessibilityLabel={closeLabel}
           title="Session settings"
-          hideBottomBorder
+          confirm={session.pendingModel ? { label: "Save", onPress: commitAndClose } : undefined}
         />
       ) : null}
       <NativeStackScreenOptions
@@ -772,31 +770,23 @@ function ThreadSettingsModelsScreen() {
           }
         />
       </MaterialScreenContent>
-      {/* As T3 Code #21319: X closes, a prominent checkmark applies. Only a
-          staged model and its options wait for the checkmark; reasoning, fast
-          mode and permission changes to the current model apply at once, so X
-          closes without undoing them and says only that it discards a staged
-          model. */}
-      <NativeHeaderToolbar placement="left">
-        <NativeHeaderToolbar.Button
-          accessibilityLabel={
-            session.pendingModel ? "Close without saving the model" : "Close session settings"
+      {/* As T3 Code #21319 and #21978: X closes, a prominent checkmark applies.
+          Only a staged model and its options wait for the checkmark;
+          reasoning, fast mode and permission changes to the current model
+          apply at once, so X closes without undoing them and says only that
+          it discards a staged model. */}
+      {Platform.OS === "ios" ? (
+        <SheetHeader
+          title="Session settings"
+          onCancel={presentation.onClose}
+          accessibilityLabel={closeLabel}
+          confirm={
+            session.pendingModel
+              ? { label: "Save session settings", onPress: commitAndClose }
+              : undefined
           }
-          icon="xmark"
-          onPress={presentation.onClose}
         />
-      </NativeHeaderToolbar>
-      <NativeHeaderToolbar placement="right">
-        {session.pendingModel ? (
-          <NativeHeaderToolbar.Button
-            accessibilityLabel="Save session settings"
-            icon="checkmark"
-            variant="prominent"
-            tintColor={colors["--color-prominent-action"]}
-            onPress={commitAndClose}
-          />
-        ) : null}
-      </NativeHeaderToolbar>
+      ) : null}
       {Platform.OS === "ios" && !USES_MAIL_SEARCH_TOOLBAR && session.hasLegacyModels ? (
         <NativeHeaderToolbar placement="bottom">
           <NativeHeaderToolbar.Menu

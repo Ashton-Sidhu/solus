@@ -211,6 +211,59 @@ describe('lazily created connections', () => {
     }
   })
 
+  test('a host away from its network is dialed on its tunnel first, not after a dead direct route', async () => {
+    // WHY: routes were tried one at a time, so a dead local address cost a ticket
+    // timeout on every dial and was sent the credential (T3 Code #15467).
+    startedTransports.length = 0
+    switchedUrls.length = 0
+    const direct = 'http://10.0.0.9:51234'
+    const tunnel = 'https://studio.tunnel.solus.test'
+    const saved = {
+      id: 'studio',
+      label: 'Studio',
+      url: direct,
+      routes: [{ kind: 'direct', url: direct }, { kind: 'tunnel', url: tunnel }],
+      sessionToken: '',
+      installationId: 'inst-studio',
+      lastConnected: 1,
+      uplink: { hostId: 'h_studio', directoryUrl: 'https://app.solus.test', kind: 'personal' },
+    }
+    const healthAsked: string[] = []
+    const previousFetch = globalThis.fetch
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input)
+      healthAsked.push(url)
+      if (url !== `${tunnel}/health`) throw new Error('unreachable')
+      return new Response(JSON.stringify({ ok: true, installationId: 'inst-studio', name: 'Studio' }), { status: 200 })
+    }) as typeof fetch
+    const previousLocalStorage = globalThis.localStorage
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: { getItem: (key: string) => key === 'solus.servers' ? JSON.stringify([saved]) : null },
+    })
+    const connections = new ServerConnections()
+    try {
+      connections.startCatalogSupervisors()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(healthAsked.sort()).toEqual([`${direct}/health`, `${tunnel}/health`])
+      expect(switchedUrls).toEqual([`studio:${tunnel}`])
+      expect(startedTransports).toEqual(['studio'])
+    } finally {
+      connections.release('studio')
+      globalThis.fetch = previousFetch
+      if (previousLocalStorage === undefined) {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+      } else {
+        Object.defineProperty(globalThis, 'localStorage', {
+          configurable: true,
+          writable: true,
+          value: previousLocalStorage,
+        })
+      }
+    }
+  })
+
   test('defers listeners and the socket out of the caller\'s frame', async () => {
     // `ensure()` is reached from derived renderer state, where writing Svelte
     // state throws. Nothing reactive may fire before the caller's frame ends.

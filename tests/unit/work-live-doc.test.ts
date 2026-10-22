@@ -175,6 +175,42 @@ describe('the push queue', () => {
   })
 })
 
+describe('opening', () => {
+  // WHY: a state vector names content, never deletions, so the update a client
+  // computes against it always carries every deletion the doc ever had. Pushed
+  // on each open, it made every open an edit: stored, relayed, and projected.
+  test('opening a doc that has deletions pushes nothing the host already holds', async () => {
+    const fake = fakeHost((doc) => doc.getText('t').insert(0, 'Hello world'))
+    fake.hostDoc.getText('t').delete(5, 6)
+    const device = { state: null as Uint8Array | null, meta: new Map<string, string | number>() }
+    const first = await liveDoc(fake.host, memoryOffline(device))
+    await flush()
+    await first.destroy()
+    const again = await liveDoc(fake.host, memoryOffline(device))
+    await flush()
+    expect(text(again.doc)).toBe('Hello')
+    expect(fake.pushes).toHaveLength(0)
+    expect(again.unsent).toBe(0)
+  })
+
+  test('a deletion made offline is still sent when the connection returns', async () => {
+    const fake = fakeHost((doc) => doc.getText('t').insert(0, 'Hello world'))
+    const device = { state: null as Uint8Array | null, meta: new Map<string, string | number>() }
+    const first = await liveDoc(fake.host, memoryOffline(device))
+    fake.setConnected(false)
+    first.doc.getText('t').delete(5, 6)
+    await flush()
+    await first.destroy()
+
+    const second = await liveDoc(fake.host, memoryOffline(device))
+    fake.setConnected(true)
+    await flush()
+    await flush()
+    expect(text(fake.hostDoc)).toBe('Hello')
+    expect(second.unsent).toBe(0)
+  })
+})
+
 describe('offline edits', () => {
   test('edits made offline survive a restart and merge with the host when the connection returns', async () => {
     const fake = fakeHost((doc) => doc.getText('t').insert(0, 'Base'))

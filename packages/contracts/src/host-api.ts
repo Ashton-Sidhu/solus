@@ -80,6 +80,17 @@ export interface HostIntroduction {
 }
 
 /** How this host is reached and who this client is to it. */
+/** A time the host's event loop stopped for 5 s or more (CPU starved or long sync work).
+ *  A client cannot tell this from a network drop, so the host tells it after it recovers. */
+export interface HostEventLoopStall {
+  /** When the host saw the stall end, in ms since the epoch on the host's clock. One stall has one value. */
+  endedAt: number
+  durationMs: number
+  /** The host's one-minute load average, to one decimal. Absent where the OS has none (Windows). */
+  loadAverage?: number
+  cpuCount: number
+}
+
 export interface ConnectionsServerInfo {
   /** Account-owned integration settings; absent for signed-out local access. */
   accountConnectionsUrl?: string
@@ -112,6 +123,8 @@ export interface ConnectionsServerInfo {
   permissions: Permission[]
   /** `preparing` while the host is still making this member's Linux user and folders (docs/plans/member-isolation.md §8.1): their turns are refused until `connection.memberWorkspaceReady`. Absent when ready, and for everyone who is not such a member. */
   memberWorkspace?: 'preparing'
+  /** The last stall of 5 s or more, when the host saw it in the last 5 minutes. Absent from an older host. */
+  recentEventLoopStall?: HostEventLoopStall
 }
 
 export interface LocalConnectionInfo {

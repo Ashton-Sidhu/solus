@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { networkInterfaces } from 'os'
 import { solusDir } from '@solus/server/platform/paths'
+import { lanAddressesInReachOrder } from '@solus/server/transport/endpoints'
 import { z } from 'zod'
 
 const lockSchema = z.object({ host: z.string(), port: z.number() })
@@ -16,12 +17,7 @@ function candidateHosts(bindHost: string): string[] {
   if (bindHost && bindHost !== '0.0.0.0' && bindHost !== '::') {
     return [bindHost]
   }
-  const lan: string[] = []
-  for (const addrs of Object.values(networkInterfaces())) {
-    for (const addr of addrs ?? []) {
-      if (addr.family === 'IPv4' && !addr.internal) lan.push(addr.address)
-    }
-  }
+  const lan = lanAddressesInReachOrder(networkInterfaces()).map(({ address }) => address)
   // LAN first — loopback can collide with other local dev servers on the same port.
   return [...lan, '127.0.0.1']
 }

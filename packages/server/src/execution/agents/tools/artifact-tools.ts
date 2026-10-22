@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { resolveArtifactTitle } from '@solus/contracts/work-preview'
 import { serializeWorkEmbed } from '@solus/contracts/work-embed'
 import { join } from 'node:path'
 import { createLogger } from '../../../logger'
@@ -60,8 +59,8 @@ const artifactFields = {
   html_path: z.string().optional().describe(
     'The path of a compiled HTML file on this host, such as the visual-artifacts bundle.html. A relative path is relative to your working directory. Solus reads the file, so its content does not pass through your output. Pass this or html, not both.',
   ),
-  title: z.string().optional().describe(
-    'A short, human-readable title for the artifact, as it should read in the works gallery and on a task. Defaults to the document <title>.',
+  title: z.string().describe(
+    'A short, human-readable title for the artifact, as it should read in the works gallery and on a task.',
   ),
   link_to_task: z.boolean().optional().describe(
     'Also link the artifact to the session\'s task, so it shows on the task page and on any pull request the task is linked to. Default false: the reader links or pins it from the render\'s rail when they want it there. Pass true when the user asked for it on the task.',
@@ -80,8 +79,15 @@ export const ARTIFACT_TOOL_DESC = [
   'The artifact is saved as a work: the result names its work_id, which read_work and update_work accept, which link_to_task files on the session\'s task, and which embeds it in a document or plan.',
   'Only call this when the render needs that durable identity — you will revise it by id, it belongs on a task, or the user asked to keep it. It is not linked to a task unless link_to_task is true.',
   'For something visual the user reads once, write a fenced ```html block in your reply instead: Solus renders it live in the same sandboxed frame, with no tool call. A fence carrying a <style>, a <script>, or a whole document renders; a bare fragment stays code to read. Write ```html render or ```html source to say which when the content does not make it obvious.',
-  'Solus injects its active theme as CSS custom properties on :root, and they follow the user\'s light or dark mode live: --background (page background, identical to the conversation around the frame), --foreground, --muted, --muted-foreground, --card, --card-foreground, --popover, --popover-foreground, --secondary, --secondary-foreground, --border, --input, --ring, --primary, --primary-foreground (solid buttons), --accent, --accent-foreground (brand accent), --accent-surface, --accent-surface-foreground, --destructive, --destructive-foreground, --destructive-surface, --warning, --warning-foreground, --warning-surface, --success, --success-foreground, --info, --info-foreground, --code-background, --code-foreground, --chart-1 … --chart-6 (categorical series for charts, in order), --radius, --font-sans, --font-mono. The base stylesheet sets html background, color, and a 14px font from these, body margin to 0, and monospace for code; your own CSS overrides it. Style with these variables, never fixed colors.',
-  'The frame is borderless on the conversation background and as wide as the reply column. Use a fluid width with no horizontal padding on the outermost element, and no outer card, border, or banner title: the page is part of your reply. Give charts fixed pixel heights rather than heights that scale with width. Let content set the page height; avoid 100vh or height:100% on html or body. To show a local image such as a screenshot, write its absolute path in src or CSS url(); Solus writes the file into the page.',
+  'The reader sees the page as part of your reply, so do not announce it, say where it is, or restate it: write only what the page does not say.',
+  'Solus injects its active theme as CSS custom properties on :root, and they follow the user\'s light or dark mode live: --background (page background, identical to the conversation around the frame), --foreground, --muted, --muted-foreground, --card, --card-foreground, --popover, --popover-foreground, --secondary, --secondary-foreground, --border, --input, --ring, --primary, --primary-foreground (solid buttons), --accent, --accent-foreground (brand accent), --accent-surface, --accent-surface-foreground, --destructive, --destructive-foreground, --destructive-surface, --warning, --warning-foreground, --warning-surface, --success, --success-foreground, --info, --info-foreground, --code-background, --code-foreground, --chart-1 … --chart-6 (categorical series for charts), --radius, --font-sans, --font-mono. The base stylesheet sets html background, color, and a 14px font from these, body margin to 0, monospace for code, and hides the page\'s scrollbar; your own CSS overrides it. Style with these variables, never fixed colors.',
+  `The frame is borderless on the conversation background and as wide as the reply column (${HTML_PREVIEW_DEFAULT_WIDTH}px by default, wider when the reader widens the conversation, about 360px on a phone), and its left edge lines up with your reply text.`,
+  'The page sits on the conversation background, so by default give html, body, and the outermost element no background color. This overrides general style preferences such as a fixed black page background.',
+  'Use a fluid width with no horizontal padding on the outermost element, and no outer card, border, or banner title: the page is part of your reply.',
+  'If a box needs its own background (a mock of a specific screen, a panel that must stand apart), give it at least 16px of padding on every side and var(--radius) corners, so content never touches its edge.',
+  'Give charts fixed pixel heights rather than heights that scale with width.',
+  'Let content set the page height. Avoid viewport-based heights such as 100vh or height:100% on html or body: the frame grows to fit the page, so they can make it grow again and again.',
+  'To show a local image such as a screenshot, write its absolute path in src or CSS url(); Solus writes the file into the page. Remote http(s) URLs, such as a chart library from a CDN, load as they are.',
   'Give inline HTML fences a stable conversation-local identity: ```html render artifact=revenue-chart. Reuse that artifact= value when revising the same visual in later replies; use a new value for a separate visual or alternative. Use only letters, digits, hyphens, and underscores, up to 80 characters. Completed revisions collapse earlier previews, which remain available. Emit only one completed revision per identity in a reply. Saved artifact works are revised with update_work, which renders the new version inline automatically.',
   'Check a page before the user sees it: call render_artifact with preview: true. It renders the HTML in a headless browser with the Solus theme at the reply width and returns a screenshot you see in the result, the height the page needs, its console output and errors, and any local image it could not find. A preview saves nothing and shows nothing. Fix what it shows, then write the ```html fence in your reply or call render_artifact again without preview to save it.',
   'For a compiled file, such as the visual-artifacts bundle.html, pass html_path rather than the file content: Solus reads the file on this host.',
@@ -91,7 +97,7 @@ export const ARTIFACT_TOOL_DESC = [
 interface ArtifactToolArgs {
   html?: string
   html_path?: string
-  title?: string
+  title: string
   link_to_task?: boolean
   preview?: boolean
   preview_width?: number
@@ -165,7 +171,8 @@ export async function executeArtifactTool(
       html = read.html
     }
     if (!html.trim()) return { ok: false, text: 'render_artifact requires non-empty html or an html_path.' }
-    const title = resolveArtifactTitle(input.title, html)
+    const title = input.title.trim()
+    if (!title) return { ok: false, text: 'render_artifact requires a title.' }
     if (input.preview) {
       const preview = await (deps.preview ?? previewArtifactHtml)({
         html,
@@ -201,7 +208,7 @@ export async function executeArtifactTool(
 const artifactInputSchema = z.object({
   html: z.string().catch(''),
   html_path: z.string().optional().catch(undefined),
-  title: z.string().optional().catch(undefined),
+  title: z.string().catch(''),
   link_to_task: z.boolean().optional().catch(undefined),
   preview: z.boolean().optional().catch(undefined),
   preview_width: z.number().int().optional().catch(undefined),

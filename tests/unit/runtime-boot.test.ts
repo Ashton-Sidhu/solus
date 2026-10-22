@@ -6,6 +6,10 @@ mock.module('@solus/workspace-ui/contexts/workspace/session-bootstrap', () => ({
   bootstrapRuntimeTabs,
   prioritizeTabHydration: () => {},
 }))
+// The stall toasts have their own test (host-stall-notice.test.ts); here they only add a listener.
+mock.module('@solus/workspace-ui/contexts/connections/host-stall-toasts', () => ({
+  startHostStallToasts: () => () => {},
+}))
 
 import { serverConnections } from '@solus/client-core/server-connections'
 

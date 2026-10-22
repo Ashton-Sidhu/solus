@@ -37,9 +37,11 @@ import {
   NativeWorkspaceModeContext,
 } from "../../native/v5-workspace-context";
 import {
+  collapsedSplitTransition,
   nativeWorkspacePopAction,
   partitionStackPresentations,
   projectWorkspaceStack,
+  type CollapsedSplitColumn,
 } from "../../native/workspace-stack-projection";
 import type { RootStackParamList } from "../../navigation/routes";
 import { threadKey } from "../threads/thread-directory";
@@ -56,6 +58,7 @@ function ColumnScreen(props: {
   readonly primary?: boolean;
   readonly selectedThreadKey?: string | null;
   readonly onDismiss: (routeKey: string) => void;
+  readonly onAppearance: (type: "willAppear" | "didAppear" | "willDisappear", key: string) => void;
   readonly navigation: ViewProps["navigation"];
 }) {
   const { descriptor } = props;
@@ -70,15 +73,18 @@ function ColumnScreen(props: {
       onDismiss={(event) => {
         if (event.nativeEvent.isNativeDismiss) props.onDismiss(key);
       }}
-      onWillAppear={() =>
-        props.navigation.emit({ type: "transitionStart", target: key, data: { closing: false } })
-      }
-      onDidAppear={() =>
-        props.navigation.emit({ type: "transitionEnd", target: key, data: { closing: false } })
-      }
-      onWillDisappear={() =>
-        props.navigation.emit({ type: "transitionStart", target: key, data: { closing: true } })
-      }
+      onWillAppear={() => {
+        props.onAppearance("willAppear", key);
+        props.navigation.emit({ type: "transitionStart", target: key, data: { closing: false } });
+      }}
+      onDidAppear={() => {
+        props.onAppearance("didAppear", key);
+        props.navigation.emit({ type: "transitionEnd", target: key, data: { closing: false } });
+      }}
+      onWillDisappear={() => {
+        props.onAppearance("willDisappear", key);
+        props.navigation.emit({ type: "transitionStart", target: key, data: { closing: true } });
+      }}
       onDidDisappear={() =>
         props.navigation.emit({ type: "transitionEnd", target: key, data: { closing: true } })
       }
@@ -113,7 +119,8 @@ function WorkspaceColumns(
   const hostRef = useRef<SplitHostCommands>(null);
   const activeDetailKey = props.detail.at(-1)?.key;
   const compactColumn = activeDetailKey ? "secondary" : "primary";
-  const shownCompactColumn = useRef(compactColumn);
+  const collapsed = useRef(!layout.usesSplitView);
+  const collapsedColumn = useRef<CollapsedSplitColumn>({ visible: compactColumn, leaving: null });
   const handleNativeDismiss = useCallback(
     (key: string) => {
       const action = nativeWorkspacePopAction(props.navigation.getState(), key);
@@ -121,14 +128,28 @@ function WorkspaceColumns(
     },
     [props.navigation],
   );
+  const followCollapsedSplit = (
+    type: "willAppear" | "didAppear" | "willDisappear",
+    key: string,
+  ) => {
+    if (!collapsed.current || layout.usesSplitView) return;
+    const transition = collapsedSplitTransition(
+      collapsedColumn.current,
+      { type, key },
+      props.navigation.getState(),
+      props.primary.key,
+    );
+    collapsedColumn.current = transition.column;
+    if (transition.pop) props.navigation.dispatch(transition.pop);
+  };
 
   useEffect(() => {
     // In compact size classes UIKit exposes one column. Selecting a thread
     // changes the visible column without rebuilding either navigation stack.
     // The initial column is a native prop, so it is applied before the host
     // attaches. Commands only handle later navigation changes.
-    if (layout.usesSplitView || shownCompactColumn.current === compactColumn) return;
-    shownCompactColumn.current = compactColumn;
+    if (layout.usesSplitView || collapsedColumn.current.visible === compactColumn) return;
+    collapsedColumn.current = { ...collapsedColumn.current, visible: compactColumn };
     hostRef.current?.show(compactColumn);
   }, [compactColumn, layout.usesSplitView]);
 
@@ -140,6 +161,13 @@ function WorkspaceColumns(
       testID="adaptive-workspace-layout"
       preferredSplitBehavior="tile"
       topColumnForCollapsing={compactColumn}
+      onCollapse={() => {
+        collapsed.current = true;
+        collapsedColumn.current = { visible: compactColumn, leaving: null };
+      }}
+      onExpand={() => {
+        collapsed.current = false;
+      }}
       preferredDisplayMode={
         panes.primarySidebarVisible || !activeDetailKey ? "oneBesideSecondary" : "secondaryOnly"
       }
@@ -159,6 +187,7 @@ function WorkspaceColumns(
             primary
             selectedThreadKey={selectedThreadKeyOf(props.detail)}
             onDismiss={handleNativeDismiss}
+            onAppearance={followCollapsedSplit}
             navigation={props.navigation}
           />
         </Split.Stack>
@@ -196,6 +225,7 @@ function WorkspaceColumns(
                 key={route.key}
                 descriptor={descriptor}
                 onDismiss={handleNativeDismiss}
+                onAppearance={followCollapsedSplit}
                 navigation={props.navigation}
               />
             ) : null;

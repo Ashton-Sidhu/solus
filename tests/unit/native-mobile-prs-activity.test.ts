@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrConversationItem, ReviewThread } from '@solus/contracts/providers'
-import { DEFAULT_ACTIVITY_FILTER, filterPullRequestActivity, isPullRequestTestFile } from '../../apps/mobile/src/features/prs/lib/pull-request-activity'
+import { DEFAULT_ACTIVITY_FILTER, filterPullRequestActivity } from '../../apps/mobile/src/features/prs/lib/pull-request-activity'
+import { isPullRequestTestFile } from '../../apps/mobile/src/features/prs/lib/pull-request-file-filters'
 
 // The Activity filter hides noise, never a person's discussion; the Files
 // filter hides tests by path, never a source file that only sounds like one.

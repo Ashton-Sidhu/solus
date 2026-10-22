@@ -41,6 +41,17 @@ const cacheKey = (hostId: string, request: HostMediaRequest) =>
       ? `${hostId}\u0000github\u0000${request.githubMediaUrl}`
       : `${hostId}\u0000${request.ctx?.session.workingDirectory ?? ''}\u0000${request.path}`
 
+/**
+ * The expo-image `cacheKey` for a host image. Each mint signs a new URL, so a
+ * cache keyed by the URL misses after every renewal or reconnect. An asset in
+ * the host asset store never changes after the host stores it, so its host and
+ * asset id name it. Null for a workspace path or GitHub media: their content
+ * can change, so they keep the URL as the key (as in T3 Code #18824).
+ */
+export function stableImageCacheKey(hostId: string, request: HostMediaRequest): string | null {
+  return 'assetId' in request ? `solus-asset:${JSON.stringify([hostId, request.assetId])}` : null
+}
+
 async function mint(connection: HostConnection, request: HostMediaRequest): Promise<SignedUrl> {
   const capability = 'githubMediaUrl' in request ? 'githubMediaUrls' : 'assetUrls'
   if (!hasHostCapability(await connection.facts.when('capabilities'), capability)) {

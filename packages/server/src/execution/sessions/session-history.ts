@@ -6,7 +6,7 @@ import { isRawReviewSkill } from '../agents/review-command'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import type { AgentId, AgentUsageLimits, IpcContext, PlanDescriptor, PluginCommandsResult, SessionMeta, SessionDescription, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
-import type { SessionHistoryPageRequest, SessionSubagentRequest, ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
+import { startsHistoryTurn, type SessionHistoryPageRequest, type SessionSubagentRequest, type ProviderHistoryPage, type SessionLoadMessage, type SessionPreviewResult } from '@solus/contracts/session-history'
 import { type TurnSeat } from '../seats/seat-manager'
 import type { SessionRuntime } from '../session-runtime'
 
@@ -72,11 +72,31 @@ export class SessionHistory {
         divider: previous ? lineageSwitchDivider(lineage.sessionId, previous, member) : undefined,
       }
     }) : [{ provider, sessionId, projectPath }]
-    return loadHistoryPage(
+    const page = await loadHistoryPage(
       JSON.stringify(lineage ? [lineage.sessionId] : [provider, sessionId]), segments,
       request.turnLimit, request.before,
       (segment, turnLimit, before) => this.readProviderPage(segment, turnLimit, before),
     )
+    const starting = request.before ? null : this.startingPrompt(sessionId, page.messages)
+    if (starting) page.messages.push(starting)
+    return page
+  }
+
+  /**
+   * The prompt of a run the provider has not started yet. Its echo went to the
+   * clients watching when the run launched, and the provider has not written it
+   * to disk, so a client that opens the session now finds it nowhere else.
+   */
+  private startingPrompt(sessionId: string, messages: SessionLoadMessage[]): SessionLoadMessage | null {
+    const run = this.rt.activeRunRequests.get(sessionId)
+    if (!run || this.rt.activeSessions.has(sessionId)) return null
+    const text = run.options.displayPrompt ?? run.options.prompt
+    const lastPrompt = messages.findLast(startsHistoryTurn)
+    if (lastPrompt?.content.trim() === text.trim()) return null
+    const prompt: SessionLoadMessage = { role: 'user', content: text, timestamp: Date.now() }
+    if (run.options.imageAttachmentRefs?.length) prompt.imageAttachmentRefs = run.options.imageAttachmentRefs
+    else if (run.options.imageAttachments?.length) prompt.imageAttachments = run.options.imageAttachments
+    return prompt
   }
 
   private async readProviderPage(segment: HistorySegment, turnLimit: number, before?: string): Promise<ProviderHistoryPage> {

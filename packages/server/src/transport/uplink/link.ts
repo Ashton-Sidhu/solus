@@ -151,14 +151,18 @@ export class UplinkLinkManager {
   /**
    * Boot, after the registration's check (`HostRegistrar.resume`), with what Solus cloud
    * said about the host: finish an interrupted unlink, adopt a provisioned machine's
-   * link, or start the connector of a link Solus cloud still has.
+   * link, or start the connector of a link Solus cloud still has. Runs again when a boot
+   * check Solus cloud did not answer is answered later (`isRetrying`).
    */
-  async resume(remote: HostLinkResponse | null): Promise<void> {
+  async resume(remote: HostLinkResponse | null, isRetrying = false): Promise<void> {
     try {
       await this.resumeLink(remote)
     } catch (err) {
       log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
-      this.setObservation({ observed: 'error', error: 'The tunnel could not start. Restart Solus to try again.' })
+      const error = isRetrying
+        ? 'The tunnel could not start. Solus tries again when it reaches Solus cloud.'
+        : 'The tunnel could not start. Restart Solus to try again.'
+      this.setObservation({ observed: 'error', error })
     }
   }
 
@@ -186,6 +190,8 @@ export class UplinkLinkManager {
     }
     if (remote && remote.desired !== 'linked') {
       // Solus cloud no longer has this link (the host was unlinked or deleted elsewhere).
+      // A boot check answered late finds the connector started from the stored token.
+      await this.deps.connector.stop()
       this.forgetLink('uplink_link_ended_elsewhere')
       return
     }

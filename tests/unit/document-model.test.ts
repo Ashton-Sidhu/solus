@@ -256,7 +256,7 @@ describe('the markdown codec', () => {
     // WHY: the table writer stores a cell's line breaks as `<br>`. The host
     // seeds a live work with no DOM, where raw HTML is literal text, so the
     // cell showed "<br>" to everyone editing the work.
-    const markdown = '| Where |\n| ----- |\n| [one.ts:60](/a/one.ts:60)<br>[two.tsx:266](/a/two.tsx:266) |'
+    const markdown = '| Where                                                      |\n| ---------------------------------------------------------- |\n| [one.ts:60](/a/one.ts:60)<br>[two.tsx:266](/a/two.tsx:266) |'
     const cell = parseDocumentMarkdown(markdown).content?.[0].content?.[1].content?.[0].content?.[0]
     expect(cell?.content?.map((node: JSONContent) => node.type)).toEqual(['text', 'hardBreak', 'text'])
     expect(serializeDocumentMarkdown(parseDocumentMarkdown(markdown))).toBe(markdown)

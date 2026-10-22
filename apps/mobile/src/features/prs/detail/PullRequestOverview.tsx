@@ -1,7 +1,8 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestRouteScreen.tsx (overview) and PullRequestStackCard.tsx (MIT, see UPSTREAM.md).
 import { useNavigation } from '@react-navigation/native'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
-import { useState } from 'react'
+import { changeBreakdown, changeBreakdownText } from '@solus/client-core/change-breakdown'
+import { useMemo, useState } from 'react'
 import { Pressable, View } from 'react-native'
 import { useApp } from '../../../app/app-context'
 import { SymbolView } from '../../../components/AppSymbol'
@@ -117,11 +118,13 @@ function ChangedFilesSummary({ view, onOpenFile }: { readonly view: PullRequestV
   const [expanded, setExpanded] = useState(true)
   const files = view.detail.files
   const count = view.pr.changedFiles ?? files.length
+  const { additions, deletions } = view.pr
+  const breakdownText = useMemo(() => changeBreakdownText(changeBreakdown(files, { additions, deletions })), [files, additions, deletions])
   return (
     <View className="gap-3 border-t border-border-subtle pt-4">
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Changed files, ${count} ${count === 1 ? 'file' : 'files'}`}
+        accessibilityLabel={`Changed files, ${count} ${count === 1 ? 'file' : 'files'}${breakdownText ? `, ${breakdownText}` : ''}`}
         accessibilityState={{ expanded }}
         onPress={() => setExpanded(!expanded)}
         className="flex-row items-center gap-2 active:opacity-70"
@@ -129,6 +132,11 @@ function ChangedFilesSummary({ view, onOpenFile }: { readonly view: PullRequestV
         <View className="min-w-0 flex-1 gap-1">
           <PullRequestSectionHeading>Changed files</PullRequestSectionHeading>
           <Text className="text-2xs text-foreground-muted">{count} {count === 1 ? 'file' : 'files'}</Text>
+          {breakdownText ? (
+            <Text className="text-2xs tabular-nums text-foreground-muted">
+              {breakdownText}
+            </Text>
+          ) : null}
         </View>
         <PullRequestDiffStats additions={view.pr.additions} deletions={view.pr.deletions} compact />
         <SymbolView name={expanded ? 'chevron.up' : 'chevron.down'} size={11} tintColorClassName="accent-icon-muted" />

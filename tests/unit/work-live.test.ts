@@ -29,6 +29,7 @@ let works: typeof import('@solus/server/data/works/works')
 let workModule: typeof import('@solus/server/data/works/work')
 let liveModule: typeof import('@solus/server/work-live/work-live-manager')
 let codec: typeof import('@solus/server/work-live/live-codec')
+let store: typeof import('@solus/server/work-live/live-store')
 let bridge: typeof import('@solus/server/data/works/work-live-bridge')
 let uninstall: (() => void) | null = null
 
@@ -39,6 +40,7 @@ beforeAll(async () => {
   workModule = await import('@solus/server/data/works/work')
   liveModule = await import('@solus/server/work-live/work-live-manager')
   codec = await import('@solus/server/work-live/live-codec')
+  store = await import('@solus/server/work-live/live-store')
   bridge = await import('@solus/server/data/works/work-live-bridge')
 })
 
@@ -101,7 +103,7 @@ function editTo(doc: Y.Doc, markdown: string): string {
 }
 
 describe('pushes', () => {
-  test('a push is stored before it is acknowledged, relayed to the room, and a resent push applies once', async () => {
+  test('a push is relayed to the room, a resent push applies once, and the doc is stored when edits pause', async () => {
     const work = await works.createWork('local', 'Spec', 'doc', '# Spec\n\nFirst.', '', undefined, 'claude-code')
     const { live, published } = manager()
     const alice = await openClient(live, 'alice', work.id)
@@ -119,11 +121,42 @@ describe('pushes', () => {
     expect(await live.push({ clientId: 'alice', author: null, request: { workId: work.id, clientKey: 'key-alice', seq: 1, update } })).toEqual({ status: 'duplicate', seq: 1 })
     expect(published.filter((event) => event.type === 'workLive.update')).toHaveLength(1)
 
+    // WHY: storing the whole doc on every push cost the size of the doc per
+    // keystroke. A push is answered from memory; the clients' device copies
+    // hold it until edits pause and the host stores the doc.
+    const storedState = async () => {
+      const stored = await store.loadLiveDoc(work.id)
+      const doc = new Y.Doc()
+      if (stored) Y.applyUpdate(doc, stored.state)
+      return codec.projectLiveDoc('doc', doc)
+    }
+    expect(await storedState()).toBe('# Spec\n\nFirst.')
+    await live.flushAll()
+    expect(await storedState()).toBe('# Spec\n\nFirst, edited.')
+
     // A restarted host has the edit and the receipt.
     const restarted = manager()
     const again = await openClient(restarted.live, 'alice', work.id)
     expect(codec.projectLiveDoc('doc', again.doc)).toBe('# Spec\n\nFirst, edited.')
     expect(again.result.mode !== 'unsupported' && again.result.lastSeq).toBe(1)
+  })
+
+  // WHY: a client reopening a doc sends deletions the host already holds. Each
+  // used to be stored, relayed, and projected as an edit by whoever opened it.
+  test('a push the doc already holds is acknowledged, and not stored, relayed, or projected', async () => {
+    const work = await works.createWork('local', 'Spec', 'doc', '# Spec\n\nFirst.', '', undefined, 'claude-code')
+    const { live, published } = manager()
+    const alice = await openClient(live, 'alice', work.id)
+    await openClient(live, 'bob', work.id)
+    const update = editTo(alice.doc, '# Spec\n\nFirst, edited.')
+    await live.push({ clientId: 'alice', author: null, request: { workId: work.id, clientKey: 'key-alice', seq: 1, update } })
+    await live.flushAll()
+    const versionAfterEdit = (await workModule.Work.byId('local', work.id)).contentVersion
+
+    expect(await live.push({ clientId: 'alice', author: null, request: { workId: work.id, clientKey: 'key-alice', seq: 2, update } })).toEqual({ status: 'accepted', seq: 2 })
+    expect(published.filter((event) => event.type === 'workLive.update')).toHaveLength(1)
+    await live.flushAll()
+    expect((await workModule.Work.byId('local', work.id)).contentVersion).toBe(versionAfterEdit)
   })
 
   test('a reader cannot push, and a client with another schema opens read-only', async () => {

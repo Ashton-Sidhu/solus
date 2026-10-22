@@ -107,8 +107,9 @@ export const workReviewers = defineTable('work_reviewers', {
 /**
  * The live doc of a work people edit live (docs/plans/work-review-and-live-editing.md,
  * phase 3b): its Yjs state and, in the same row, the last push each client key
- * applied, so a push the host acknowledged survives a restart and a resent one
- * applies once. `works.content` stays the readable copy the host projects from it.
+ * applied, so a resent push applies once. The host writes it when edits pause
+ * and when the room closes; the clients' device copies hold anything newer.
+ * `works.content` stays the readable copy the host projects from it.
  */
 export const workLiveDocs = defineTable('work_live_docs', {
   work_id: text({ primaryKey: true, references: { table: works, column: 'id', onDelete: 'cascade' } }),

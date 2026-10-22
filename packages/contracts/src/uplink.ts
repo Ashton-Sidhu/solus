@@ -312,7 +312,7 @@ export function tokenAudiences(claims: Pick<AccessTokenClaims, 'aud'>): string[]
 export function normalizeDisplayName(value: string | undefined): string | null {
   if (!value) return null
   // eslint-disable-next-line no-control-regex
-  const cleaned = value.replace(/[ -]/g, '').trim().slice(0, MAX_DISPLAY_NAME_LENGTH)
+  const cleaned = value.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, MAX_DISPLAY_NAME_LENGTH)
   return cleaned.length > 0 ? cleaned : null
 }
 

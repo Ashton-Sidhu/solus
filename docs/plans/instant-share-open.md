@@ -68,6 +68,20 @@ The account's tokens still come one at a time: the refresh token rotates, and a
 replay ends the whole grant (ADR 0001 §5). The boot puts the runner's token
 first instead of running refreshes side by side.
 
+### 4.1 Measured on production (2026-10-19)
+
+A tail of a member's visit in Safari showed the server answering in under 300 ms
+and the runner's socket open 3 s after the resolve. The 22 s before the resolve was
+the app's code: 206 files (1.4 MB), each through the one container at 110 to
+290 ms, with no cache header. The same files come in 1.1 s when they are fetched
+side by side, so the server was not the limit; a browser that fetches a few at a
+time was.
+
+- The resolve goes first. `openShareLink` loads nothing before it; the app's code
+  loads while the runner's token is minted.
+- Cloudflare's edge serves the client's files, cached for a year
+  (solus-cloud `docs/deploy-cloudflare.md`, "Static files").
+
 ## 5. Removed
 
 - `apps/client/src/lib/guest-member.ts` and its test: the client's membership
@@ -95,4 +109,5 @@ first instead of running refreshes side by side.
 `share-link-opening.test.ts`,
 `guest-link.test.ts`, `web-sign-in.test.ts`,
 `session-record-runner-state.test.ts`, and solus-cloud
-`sign-in-clients.test.ts` ("the web page signs in with one fetch").
+`sign-in-clients.test.ts` ("the web page signs in with one fetch") and
+`scripts/asset-rules.test.ts`.

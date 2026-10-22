@@ -172,8 +172,10 @@
     ed.on("focus", onEditorChange);
     ed.on("blur", onEditorChange);
     ed.on("update", onUpdate);
-    ed.view.dom.addEventListener("pointermove", trackPointer);
-    ed.view.dom.addEventListener("pointerleave", leaveTowards);
+    // Kept for the cleanup: a destroyed editor throws when its view is read.
+    const dom = ed.view.dom;
+    dom.addEventListener("pointermove", trackPointer);
+    dom.addEventListener("pointerleave", leaveTowards);
     // A table can move without a transaction — the pane resizing, the rail
     // opening, the document scrolling under it.
     window.addEventListener("resize", scheduleSync);
@@ -186,8 +188,8 @@
       ed.off("focus", onEditorChange);
       ed.off("blur", onEditorChange);
       ed.off("update", onUpdate);
-      ed.view.dom.removeEventListener("pointermove", trackPointer);
-      ed.view.dom.removeEventListener("pointerleave", leaveTowards);
+      dom.removeEventListener("pointermove", trackPointer);
+      dom.removeEventListener("pointerleave", leaveTowards);
       window.removeEventListener("resize", scheduleSync);
       window.removeEventListener("scroll", scheduleSync, true);
     };

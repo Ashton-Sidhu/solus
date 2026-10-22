@@ -313,11 +313,35 @@ describe('sheet close and apply affordances (T3 #21319)', () => {
     expect(sheet).toContain('onDismiss={props.onClose}')
   })
 
-  test('session settings: X never says Cancel; the checkmark exists only for a staged model', () => {
+  test('session settings: X never says Cancel; the confirmation exists only for a staged model', () => {
     const settings = read('src/features/threads/ThreadSettingsSheet.tsx')
     expect(settings).not.toContain('Cancel session settings')
-    expect(settings).toMatch(/\{session\.pendingModel \? \(\s*<NativeHeaderToolbar\.Button\s+accessibilityLabel="Save session settings"\s+icon="checkmark"/)
-    // Android keeps its native Back and the Save text button.
-    expect(settings).toContain('<MaterialButton label="Save" tone="text" onPress={commitAndClose} />')
+    // T3 #21978: both platforms use SheetHeader; iOS shows the checkmark, Android the Save label.
+    expect(settings).toMatch(/session\.pendingModel\s*\?\s*\{ label: "Save session settings", onPress: commitAndClose \}\s*:\s*undefined/)
+    expect(settings).toMatch(/session\.pendingModel \? \{ label: "Save", onPress: commitAndClose \} : undefined/)
+  })
+})
+
+describe('shared sheet header (T3 #21978)', () => {
+  test('iOS: an X that dismisses on the left, a prominent checkmark only when the sheet confirms', () => {
+    const header = read('src/components/SheetHeader.tsx')
+    expect(header).toMatch(/placement="left">\s*<NativeHeaderToolbar\.Button\s+icon="xmark"/)
+    expect(header).toContain('onPress={props.onCancel ?? props.onClose}')
+    expect(header).toContain('disabled={props.dismissDisabled}')
+    expect(header).toMatch(/\{confirmation \? \(\s*<NativeHeaderToolbar placement="right">\s*<NativeHeaderToolbar\.Button\s+icon="checkmark"\s+variant="prominent"/)
+    expect(header).toContain('accessibilityLabel={confirmation.label}')
+  })
+
+  test('Android: an X and a labeled confirmation; inline sheets use the embedded bar', () => {
+    const header = read('src/components/SheetHeader.android.tsx')
+    expect(header).toContain('icon="xmark"')
+    expect(header).toContain('<MaterialButton label={confirmation.label} tone="text" onPress={confirmation.onPress} />')
+    expect(header).toContain('embedded={props.presentation === "inline"}')
+  })
+
+  test('a pull request sheet cannot be dismissed while a write runs (T3 #22390)', () => {
+    const content = read('src/features/prs/detail/PullRequestSheetContent.tsx')
+    expect(content).toContain('dismissDisabled={props.busy}')
+    expect(content).toContain('gestureEnabled: !props.busy')
   })
 })

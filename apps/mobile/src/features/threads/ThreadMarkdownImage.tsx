@@ -2,6 +2,7 @@
 // Host files load through `useHostMediaUrl`. No presentation source for a Quick Look
 // zoom transition. React Native `Image` draws raster images; SVG draws through react-native-svg.
 import { fetch } from "expo/fetch";
+import { Image as CachedImage } from "expo-image";
 import { createContext, useContext, useEffect, useEffectEvent, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,7 +23,7 @@ import {
 import { MediaActionsMenu } from "../../components/MediaActionsMenu";
 import { useMediaActions } from "../../lib/mediaActions";
 import type { HostConnection } from "../hosts/host-connections";
-import { useHostMediaUrl, type HostMediaRequest } from "../files/host-media-url";
+import { stableImageCacheKey, useHostMediaUrl, type HostMediaRequest } from "../files/host-media-url";
 import {
   MARKDOWN_IMAGE_MAX_WIDTH,
   type MarkdownImageDisplaySize,
@@ -55,6 +56,8 @@ export function ThreadMarkdownImageView(props: {
   /** Pixel size from the server, when it could read the header; the frame is final from the first render. */
   readonly knownSize?: { readonly width: number; readonly height: number } | undefined;
   readonly format?: "svg";
+  /** A key for the image cache that outlives the signed URL; the URL is the key without it. */
+  readonly cacheKey?: string;
   /** What a press opens; by default the loaded URL itself. */
   readonly preview?: FilePreviewItem;
   readonly onPressPreview: (source: FilePreviewSource) => void;
@@ -141,6 +144,7 @@ export function ThreadMarkdownImageView(props: {
                 key={props.uri}
                 uri={props.uri}
                 format={props.format}
+                cacheKey={props.cacheKey}
                 onLoad={setDecodedSize}
                 onError={() => setFailedUri(props.uri)}
               />
@@ -162,6 +166,7 @@ function ThreadMarkdownImageRequest(props: {
   readonly onLoad: (sourceSize: { width: number; height: number }) => void;
   readonly onError: () => void;
   readonly format?: "svg";
+  readonly cacheKey?: string;
 }) {
   const [loaded, setLoaded] = useState(false);
 
@@ -175,6 +180,21 @@ function ThreadMarkdownImageRequest(props: {
             if (size) props.onLoad(size);
           }}
           onError={props.onError}
+        />
+      ) : props.cacheKey ? (
+        // An asset never changes, but its signed URL does every hour: the stable key
+        // keeps a reconnect from downloading it again (T3 Code #18824).
+        <CachedImage
+          source={{ uri: props.uri, cacheKey: props.cacheKey }}
+          cachePolicy="memory-disk"
+          contentFit="contain"
+          accessible={false}
+          onLoad={(event) => {
+            setLoaded(true);
+            props.onLoad({ width: event.source.width, height: event.source.height });
+          }}
+          onError={props.onError}
+          style={{ width: "100%", height: "100%", opacity: loaded ? 1 : 0 }}
         />
       ) : (
         <Image
@@ -253,6 +273,7 @@ export function ThreadMarkdownImage(props: {
   readonly onPressPreview: (source: FilePreviewSource) => void;
 }) {
   const { state } = useHostMediaUrl(props.connection, props.request);
+  const cacheKey = props.connection ? stableImageCacheKey(props.connection.hostId, props.request) : null;
 
   return (
     <ThreadMarkdownImageView
@@ -261,6 +282,7 @@ export function ThreadMarkdownImage(props: {
       unavailable={state.kind === "failed"}
       thumbnail={props.thumbnail}
       format={"path" in props.request && isSvgImage(props.request.path) ? "svg" : undefined}
+      {...(cacheKey ? { cacheKey } : {})}
       alt={props.alt}
       {...(props.preview ? { preview: props.preview } : {})}
       onPressPreview={props.onPressPreview}

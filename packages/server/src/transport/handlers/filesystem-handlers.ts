@@ -1,4 +1,4 @@
-import { assertPathInScope } from '../../admission/scope'
+import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { basename, dirname, join, relative as pathRelative, resolve as pathResolve } from 'path'
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'fs/promises'
 import { z } from 'zod'

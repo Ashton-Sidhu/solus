@@ -1,8 +1,8 @@
-import { isInsideRoot } from '../paths'
-import { getIndexedSession } from '../db/session-indexer'
-import { resolveSessionLineageById } from '../data/sessions/session-lineage'
-import { RpcAccessError } from './access-policy'
-import type { Principal } from './principal'
+import { isInsideRoot } from '../../paths'
+import { getIndexedSession } from '../../db/session-indexer'
+import { resolveSessionLineageById } from './session-lineage'
+import { RpcAccessError } from '../../admission/access-policy'
+import type { Principal } from '../../admission/principal'
 import type { RpcMethod } from '@solus/contracts/rpc'
 
 /**

@@ -6,9 +6,11 @@
     Diff as DiffIcon,
     GitBranch as GitBranchIcon,
   } from "@lucide/svelte";
+  import type { ChangeBreakdownPart } from "@solus/client-core/change-breakdown";
   import type { Snippet } from "svelte";
   import { MiddleTruncate } from "../ui/middle-truncate";
   import { Skeleton } from "../ui/skeleton";
+  import ChangeBreakdownParts from "../prs/ChangeBreakdownParts.svelte";
   import { changeBlocks } from "./lib/change-blocks";
 
   /**
@@ -27,6 +29,10 @@
    * need to type, so the whole branch row is the copy target. Long refs stay on
    * one line and truncate in the middle, so both the owner prefix and the
    * identifying suffix survive. The receipt shows in place of the copy glyph.
+   *
+   * `breakdown` splits the churn into code, tests, mocks, generated files, and
+   * docs, so a reviewer sees how much of the change is logic. It is empty when
+   * the change is one kind, and then no split shows.
    */
   let {
     headBranch,
@@ -34,6 +40,7 @@
     filesLoading,
     additions,
     deletions,
+    breakdown,
     leading,
   }: {
     headBranch: string;
@@ -41,6 +48,7 @@
     filesLoading: boolean;
     additions: number;
     deletions: number;
+    breakdown: ChangeBreakdownPart[];
     /** A `dt` + `dd` pair rendered as the list's first row. */
     leading?: Snippet;
   } = $props();
@@ -133,4 +141,11 @@
       <span>No changes</span>
     {/if}
   </dd>
+
+  {#if !filesLoading && breakdown.length > 0}
+    <dt class="sr-only">Changes by kind</dt>
+    <dd class="col-start-2 min-w-0">
+      <ChangeBreakdownParts parts={breakdown} />
+    </dd>
+  {/if}
 </dl>

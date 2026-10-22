@@ -1839,6 +1839,12 @@ button.solus-token {
   text-decoration: underline;
   cursor: pointer;
 }
+/* A link to a file path shows as a file chip (fileLinkExtension.ts), so the
+   anchor around it drops the web-link treatment. */
+.solus-doc-editor .ProseMirror a:has(> .solus-token--file) {
+  color: inherit;
+  text-decoration: none;
+}
 /* Pasted/dropped images — sit inline as block figures, rounded + outlined to
    match the app's image treatment (warm hairline, never a hard black edge). */
 .solus-doc-editor .ProseMirror img {

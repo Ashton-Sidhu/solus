@@ -5,6 +5,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { connectedRunnerFor } from '@solus/client-core/session-runner'
 import { sessionHomeId } from '@solus/client-core/session-home'
 import { isSolusApiId } from '@solus/contracts/uplink'
+import { keepEqual } from '@solus/client-core/keep-equal'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { rememberRoles } from '../sharing/resource-roles'
 
@@ -110,7 +111,9 @@ export class SessionListStore {
       const runner = isCloud && record.runnerHostId ? this.hosts.connectedRunnerFor(record.runnerHostId) : null
       // The composer and the cards ask "may I drive it" of the host it opens on (access-model.md §2.7).
       rememberRoles(runner ?? serverId, [{ kind: 'session', id: record.sessionId, role: record.role }])
-      this.listedBySession.set(record.sessionId, {
+      // Each reconnect reads the list again: an equal row keeps its object, so
+      // its sidebar row does not draw again.
+      const listed: ListedSession = {
         serverId: runner ?? serverId,
         homeServerId: serverId,
         runnerOffline: isCloud && !runner,
@@ -119,7 +122,8 @@ export class SessionListStore {
         projectPath: record.projectRoot ?? record.projectPath,
         createdAt: record.createdAt,
         opensWith: { provider: record.provider, projectPath: record.projectPath, cwd: record.cwd ?? '' },
-      })
+      }
+      this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))
       this.writeState(record.sessionId, record.state)
       this.writeView(record.sessionId, record.view)
     }
@@ -165,12 +169,12 @@ export class SessionListStore {
   }
 
   private writeState(sessionId: string, state: SessionState | null | undefined): void {
-    if (state?.settledAt != null) this.statesBySession.set(sessionId, state)
+    if (state?.settledAt != null) this.statesBySession.set(sessionId, keepEqual(state, this.statesBySession.get(sessionId) ?? state))
     else this.statesBySession.delete(sessionId)
   }
 
   private writeView(sessionId: string, view: SessionView | null | undefined): void {
-    if (view && (view.archivedAt !== null || view.snoozedUntil !== null)) this.viewsBySession.set(sessionId, view)
+    if (view && (view.archivedAt !== null || view.snoozedUntil !== null)) this.viewsBySession.set(sessionId, keepEqual(view, this.viewsBySession.get(sessionId) ?? view))
     else this.viewsBySession.delete(sessionId)
   }
 

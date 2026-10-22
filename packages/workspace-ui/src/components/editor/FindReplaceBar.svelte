@@ -131,6 +131,7 @@
   current={currentMatch}
   total={matchCount}
   onQueryChange={runSearch}
+  debounceMs={120}
   onNext={next}
   onPrev={prev}
   onClose={close}

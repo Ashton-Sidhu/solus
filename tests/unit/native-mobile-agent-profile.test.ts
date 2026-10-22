@@ -23,6 +23,7 @@ import {
   entryValueText,
   hostProfileText,
   integrationEntryFromProbe,
+  profileServerStatus,
   skillEntryFromRemote,
 } from '../../apps/mobile/src/features/settings/lib/agent-profile-entries'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
@@ -395,5 +396,31 @@ describe('navigation', () => {
     for (const screen of ['features/settings/SettingsScreen.tsx', 'features/account/CloudHostsScreen.tsx']) {
       expect(readFileSync(join(mobile, screen), 'utf8')).toContain('navigate("AgentProfile")')
     }
+  })
+})
+
+describe('a profile server on the chosen host', () => {
+  const entry = {
+    kind: 'integration' as const, slug: 'planetscale', name: 'PlanetScale', url: 'https://mcp.pscale.dev/mcp/planetscale',
+    auth: { kind: 'oauth' as const, discover: 'https://mcp.pscale.dev/.well-known/oauth-protected-resource/mcp/planetscale', registration: 'dynamic' as const },
+  }
+  const onHost = {
+    id: 'int-1', organizationId: 'local', ownerKey: 'person', kind: 'mcp' as const, slug: 'planetscale', name: 'PlanetScale',
+    url: entry.url, auth: entry.auth, disabledTools: [], createdBy: null, createdAt: '', updatedAt: '',
+  }
+  const list = { kind: 'loaded' as const, integrations: [onHost] }
+
+  test('a synced server with no sign-in on the host says so and offers Connect, as the desktop does', () => {
+    expect(profileServerStatus(entry, list, { kind: 'loaded', byIntegration: new Map() })).toEqual({ text: 'Not connected', tone: 'muted', action: 'connect' })
+  })
+
+  test('a sign-in in the account reads as connected', () => {
+    const byIntegration = new Map([['int-1', { integrationId: 'int-1', status: 'connected' as const, source: 'cloud' as const, label: null, info: null, error: null, updatedAt: '' }]])
+    expect(profileServerStatus(entry, list, { kind: 'loaded', byIntegration })).toEqual({ text: 'Connected in your Solus account', tone: 'muted', action: null })
+  })
+
+  test('a host without the server yet, and a host that cannot list servers', () => {
+    expect(profileServerStatus(entry, { kind: 'loaded', integrations: [] }, { kind: 'loading' })).toMatchObject({ text: 'Not added yet', action: 'connect' })
+    expect(profileServerStatus(entry, { kind: 'unsupported' }, { kind: 'unsupported' })).toBeNull()
   })
 })

@@ -43,7 +43,7 @@
     onContextMenu: (event: MouseEvent, pr: PullRequest) => void;
     onToggleReview: (pr: PullRequest) => void;
     onRowAction: (pr: PullRequest, kind: PrRowActionKind) => void;
-    /** The row's pull request in the store, for its stack menu. */
+    /** The row's pull request in the store, for its stack menu and its churn by kind. */
     storedPullRequest: (pr: PullRequest) => StoredPullRequest | null;
     /** Open another layer of the row's stack. */
     onOpenStackLayer: (pr: PullRequest, number: number) => void;
@@ -100,6 +100,7 @@
         </ListGroup>
       {:else}
         {@const pr = prByKey(item.row.key)}
+        {@const stored = pr ? storedPullRequest(pr) : null}
         {@const checked = reviewSelection.has(item.row.key)}
         {@const rowSelected = selectedKey === item.row.key || checked}
         {#snippet reviewCheckbox()}
@@ -145,7 +146,7 @@
           {#if pr && item.row.stack}
             <PrStackChip
               membership={item.row.stack}
-              pullRequest={storedPullRequest(pr)}
+              pullRequest={stored}
               onOpen={(number) => onOpenStackLayer(pr, number)}
             />
           {/if}
@@ -157,6 +158,8 @@
           leading={canReview ? reviewCheckbox : undefined}
           stack={item.row.stack ? stackChip : undefined}
           actions={showRowActions ? quickActions : undefined}
+          breakdown={stored?.changeBreakdown}
+          onWantBreakdown={() => void stored?.loadChangedFiles().catch(() => {})}
           onSelect={() => {
             if (pr) onSelect(pr);
           }}

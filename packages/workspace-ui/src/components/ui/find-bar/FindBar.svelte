@@ -161,9 +161,9 @@
       autocomplete="off"
       class="find-bar__input"
     />
-    <span class="find-bar__count" aria-live="polite" aria-atomic="true">
-      {query.trim().length >= minQueryLength ? `${current}/${total}` : ""}
-    </span>
+    <span class="find-bar__count" aria-live="polite" aria-atomic="true"
+      >{query.trim().length >= minQueryLength ? `${current}/${total}` : ""}</span
+    >
     {#if onCaseSensitiveChange}
       <button
         type="button"
@@ -294,6 +294,11 @@
     color: var(--solus-text-tertiary);
     font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
+  }
+  /* Before a search, the empty count takes no room, so the field reaches the buttons. */
+  .find-bar__count:empty {
+    min-width: 0;
+    padding-inline: 0;
   }
   .find-bar__btn {
     display: inline-flex;

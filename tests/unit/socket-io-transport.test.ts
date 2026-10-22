@@ -363,6 +363,31 @@ describe('Socket.IO transport', () => {
     expect(authFailures).toBe(1)
   })
 
+  test('a refresh the host does not answer retries instead of blocking the host', async () => {
+    // WHY: a network error or 5xx during the refresh says nothing about the token. Before
+    // T3 Code #16554's fix in Solus, one such blip blocked the host until the person retried.
+    const harness = await createHarness(true)
+    const refreshedToken = issueSessionToken('Test browser').token
+    let refreshes = 0
+    let authFailures = 0
+    const statuses: ConnectionStatus[] = []
+    const client = createClient(harness.url, {
+      sessionToken: 'expired',
+      refreshToken: async () => {
+        refreshes++
+        return refreshes === 1 ? { result: 'unavailable' } : { result: 'refreshed', sessionToken: refreshedToken }
+      },
+      onAuthFailed: () => { authFailures++ },
+      onStatusChange: (status) => statuses.push(status),
+    })
+
+    client.start()
+    await waitForStatus(client, 'connected')
+    expect(refreshes).toBe(2)
+    expect(authFailures).toBe(0)
+    expect(statuses).not.toContain('blocked')
+  })
+
   test('an Uplink client asks its grant source on every dial', async () => {
     // WHY: the source decides whether a kept grant still serves; the transport never
     // holds one past the dial, so a refused or expired grant is never presented twice.
@@ -491,6 +516,35 @@ describe('Socket.IO transport', () => {
     await waitForStatus(client, 'connected')
     expect(resets).toBe(1)
   })
+
+  test('a late wake probe keeps a socket that still receives data, and drops a silent one', async () => {
+    // WHY: a busy host answers the probe late but keeps streaming. Hanging up on it
+    // cut a working session and forced a full reconnect (T3 Code #14518).
+    const harness = await createHarness(false)
+    let releaseProbe = () => {}
+    // SAFETY: the probe reads only that an answer came, never its fields.
+    harness.server.register('connectionsGetServerInfo', () => new Promise((resolve) => {
+      releaseProbe = () => resolve({ installationId: 'busy' } as never)
+    }))
+    const client = createClient(harness.url)
+    client.start()
+    await waitForStatus(client, 'connected')
+
+    const stream = setInterval(() => harness.events.broadcast('tasks.invalidated', {}), 200)
+    try {
+      await client.probe()
+    } finally {
+      clearInterval(stream)
+      releaseProbe()
+    }
+    expect((client as unknown as { status: ConnectionStatus }).status).toBe('connected')
+
+    // Let the first probe's late answer arrive, so it is not traffic during the next one.
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    // The same late answer with nothing else arriving: the socket is dead.
+    await expect(client.probe()).rejects.toThrow('timeout')
+    releaseProbe()
+  }, 15_000)
 
   test('delivers targeted events only to sockets in the owning client room', async () => {
     const harness = await createHarness(false)

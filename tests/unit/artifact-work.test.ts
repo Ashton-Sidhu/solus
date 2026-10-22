@@ -107,7 +107,7 @@ describe('render_artifact persists a work', () => {
     // the work without a second read.
     const emitted: Array<{ html: string; workId: string; title: string }> = []
     const result = await artifactTools.executeArtifactTool(
-      { html: HTML },
+      { html: HTML, title: 'Latency & throughput' },
       {
         ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' },
         onArtifact: (artifact) => emitted.push(artifact),
@@ -165,8 +165,19 @@ describe('render_artifact persists a work', () => {
   })
 
   test('empty html is refused before anything is written', async () => {
-    const result = await artifactTools.executeArtifactTool({ html: '   ' })
+    const result = await artifactTools.executeArtifactTool({ html: '   ', title: 'Empty' })
     expect(result.ok).toBe(false)
+    expect(await works.listWorks('local')).toHaveLength(0)
+  })
+
+  test('a render without a title is refused before anything is written', async () => {
+    // WHY: the title is how the work reads in the gallery and on a task. The
+    // document <title> of a compiled bundle is often the starter's, so every
+    // render must name itself.
+    for (const title of ['', '   ']) {
+      const result = await artifactTools.executeArtifactTool({ html: HTML, title })
+      expect(result).toEqual({ ok: false, text: 'render_artifact requires a title.' })
+    }
     expect(await works.listWorks('local')).toHaveLength(0)
   })
 
@@ -206,7 +217,7 @@ describe('an artifact read from a compiled file', () => {
   test('render_artifact saves the file a relative html_path names, resolved from the working directory', async () => {
     const emitted: Array<{ html: string; workId: string }> = []
     const result = await artifactTools.executeArtifactTool(
-      { html_path: writeBundle(HTML) },
+      { html_path: writeBundle(HTML), title: 'Chart' },
       { ctx: ctx(), onArtifact: (artifact) => emitted.push(artifact) },
     )
     expect(result.ok).toBe(true)
@@ -216,7 +227,7 @@ describe('an artifact read from a compiled file', () => {
 
   test('update_work replaces an artifact with the file html_path names', async () => {
     const emitted: Array<{ workId: string }> = []
-    await artifactTools.executeArtifactTool({ html: HTML }, { ctx: ctx(), onArtifact: (artifact) => emitted.push(artifact) })
+    await artifactTools.executeArtifactTool({ html: HTML, title: 'Chart' }, { ctx: ctx(), onArtifact: (artifact) => emitted.push(artifact) })
     const revised = HTML.replace('<h1>Chart</h1>', '<h1>Revised</h1>')
     const result = await workTools.executeWorkTool('update_work', {
       work_id: emitted[0].workId, html_path: writeBundle(revised), expected_content_version: 1,
@@ -238,10 +249,10 @@ describe('an artifact read from a compiled file', () => {
 
   test('an ambiguous, missing, empty, or non-HTML file is refused before anything is written', async () => {
     const refusals = [
-      { html: HTML, html_path: writeBundle(HTML) },
-      { html_path: 'chart/missing.html' },
-      { html_path: writeBundle('  ', 'empty.html') },
-      { html_path: writeBundle(HTML, 'bundle.txt') },
+      { html: HTML, html_path: writeBundle(HTML), title: 'Chart' },
+      { html_path: 'chart/missing.html', title: 'Chart' },
+      { html_path: writeBundle('  ', 'empty.html'), title: 'Chart' },
+      { html_path: writeBundle(HTML, 'bundle.txt'), title: 'Chart' },
     ]
     for (const args of refusals) {
       expect((await artifactTools.executeArtifactTool(args, { ctx: ctx() })).ok).toBe(false)
@@ -256,7 +267,7 @@ describe('an artifact Share moved to an organization', () => {
     // Share that host keeps only the location; "no work found" would send the
     // agent to make a second copy instead of telling the person where it is.
     const emitted: Array<{ workId: string }> = []
-    await artifactTools.executeArtifactTool({ html: HTML }, { ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' }, onArtifact: (artifact) => emitted.push(artifact) })
+    await artifactTools.executeArtifactTool({ html: HTML, title: 'Chart' }, { ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' }, onArtifact: (artifact) => emitted.push(artifact) })
     const workId = emitted[0].workId
     await works.markWorkMoved('local', workId, (await works.exportWorkForCloud('local', workId)).fingerprint, 'org-1')
 
@@ -321,7 +332,7 @@ describe('render_artifact checks a page before and after it is shown', () => {
   const fakePreview = (result: Partial<Preview>, seen: Array<{ html: string; width?: number; appearance?: 'light' | 'dark' }> = []) =>
     async (input: { html: string; width?: number; appearance?: 'light' | 'dark' }): Promise<Preview> => {
       seen.push(input)
-      return { screenshot: SCREENSHOT, width: input.width ?? 760, appearance: input.appearance ?? 'light', contentHeight: 412, console: [], missingImages: [], ...result }
+      return { screenshot: SCREENSHOT, width: input.width ?? 736, appearance: input.appearance ?? 'light', contentHeight: 412, console: [], missingImages: [], ...result }
     }
 
   test('a preview saves nothing and shows nothing, and reports what the page did', async () => {
@@ -330,7 +341,7 @@ describe('render_artifact checks a page before and after it is shown', () => {
     const emitted: unknown[] = []
     const seen: Array<{ html: string; width?: number; appearance?: 'light' | 'dark' }> = []
     const result = await artifactTools.executeArtifactTool(
-      { html: HTML, preview: true, preview_width: 390, preview_appearance: 'dark' },
+      { html: HTML, title: 'Chart', preview: true, preview_width: 390, preview_appearance: 'dark' },
       {
         ctx: ctx(),
         onArtifact: (artifact) => emitted.push(artifact),
@@ -355,7 +366,7 @@ describe('render_artifact checks a page before and after it is shown', () => {
     // WHY: providers refuse an oversized tool result. The agent must still be
     // able to look at a tall page, so the image becomes a file instead.
     const large = `data:image/png;base64,${Buffer.concat([ONE_PIXEL_PNG, Buffer.alloc(6 * 1024 * 1024)]).toString('base64')}`
-    const result = await artifactTools.executeArtifactTool({ html: HTML, preview: true }, { ctx: ctx(), preview: fakePreview({ screenshot: large }) })
+    const result = await artifactTools.executeArtifactTool({ html: HTML, title: 'Chart', preview: true }, { ctx: ctx(), preview: fakePreview({ screenshot: large }) })
     expect(result.image).toBeUndefined()
     const screenshotPath = /screenshot: (\S+)/.exec(result.text)![1]
     expect(await Bun.file(screenshotPath).exists()).toBe(true)
@@ -363,7 +374,7 @@ describe('render_artifact checks a page before and after it is shown', () => {
 
   test('a saved page that raises errors says so instead of failing silently', async () => {
     const result = await artifactTools.executeArtifactTool(
-      { html: HTML },
+      { html: HTML, title: 'Chart' },
       { ctx: ctx(), preview: fakePreview({ console: [{ at: 1, level: 'error', text: 'Failed to load https://cdn.example/chart.js' }, { at: 2, level: 'log', text: 'drawn' }] }) },
     )
     expect(result.ok).toBe(true)
@@ -380,7 +391,7 @@ describe('render_artifact checks a page before and after it is shown', () => {
     writeFileSync(imagePath, ONE_PIXEL_PNG)
     const emitted: Array<{ html: string }> = []
     await artifactTools.executeArtifactTool(
-      { html: `<style>p{}</style><img src="${imagePath}">` },
+      { html: `<style>p{}</style><img src="${imagePath}">`, title: 'Shot' },
       { ctx: ctx(), onArtifact: (artifact) => emitted.push(artifact), preview: fakePreview({}) },
     )
     expect(emitted[0].html).toContain('src="data:image/png;base64,')
@@ -418,7 +429,7 @@ describe('render_artifact checks a page before and after it is shown', () => {
       expect(page).toContain('src="data:image/png;base64,')
       expect(preview.missingImages).toEqual(['/no/such.png'])
       // The capture grows to the page rather than stopping at one screen.
-      expect(viewports.at(-1)).toMatchObject({ width: 760, height: 1234 })
+      expect(viewports.at(-1)).toMatchObject({ width: 736, height: 1234 })
       expect(preview.contentHeight).toBe(1234)
       expect(preview.console[0].text).toContain('TypeError')
       expect(disposed).toBe(true)

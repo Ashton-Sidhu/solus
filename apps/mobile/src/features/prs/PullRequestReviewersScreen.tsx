@@ -1,11 +1,12 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestReviewersScreen.tsx (MIT, see UPSTREAM.md).
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, FlatList, Pressable, View } from 'react-native'
+import { ActivityIndicator, FlatList, Platform, Pressable, View } from 'react-native'
 import type { PrReviewerCandidate } from '@solus/contracts/providers'
 import { useApp, useListened } from '../../app/app-context'
 import { SymbolView } from '../../components/AppSymbol'
 import { AppText as Text, AppTextInput as TextInput } from '../../components/AppText'
 import { EmptyState } from '../../components/EmptyState'
+import { SheetHeader } from '../../components/SheetHeader'
 import type { ScreenProps } from '../../navigation/routes'
 import { pullRequestPermissions } from './lib/pull-request-permissions'
 import { shownValue } from './pull-request-reads'
@@ -19,7 +20,7 @@ type UserCandidate = Extract<PrReviewerCandidate, { kind: 'user' }>
  * review; GitHub teams are asked on GitHub, because the host requests people
  * by login only. A person who already reviewed is not "requested" any more.
  */
-export function PullRequestReviewersScreen({ route }: ScreenProps<'PullRequestReviewers'>) {
+export function PullRequestReviewersScreen({ navigation, route }: ScreenProps<'PullRequestReviewers'>) {
   const { hostId, projectPath, number } = route.params
   const ref = useMemo(() => ({ hostId, projectPath, number }), [hostId, projectPath, number])
   const app = useApp()
@@ -78,6 +79,13 @@ export function PullRequestReviewersScreen({ route }: ScreenProps<'PullRequestRe
 
   return (
     <View className="flex-1 bg-sheet">
+      <SheetHeader
+        presentation={Platform.OS === 'android' ? 'inline' : 'native'}
+        title="Request review"
+        subtitle={`#${number}`}
+        onClose={() => navigation.goBack()}
+        accessibilityLabel="Close request review"
+      />
       <FlatList
         data={rows}
         keyExtractor={(user) => user.login}

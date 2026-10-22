@@ -15,6 +15,7 @@ import {
   hostMachineKind,
   type HostConnectionStatus,
 } from "./lib/host-connection-status";
+import { hostStallLine } from "./lib/host-stall-line";
 
 const STATE_STATUS = {
   stopped: { dot: "available", text: "Stopped", failed: false, retrying: false },
@@ -114,6 +115,9 @@ function CloudEnvironmentRow(props: {
   const status =
     state === "ready" ? hostConnectionStatus(props.host, connection) : STATE_STATUS[state];
   const statusText = [status.text, props.host.uplink?.ownerName].filter(Boolean).join(" · ");
+  const stallLine = useListened(app.connections.changes, () =>
+    hostStallLine(app.connections, props.host),
+  );
 
   return (
     <Pressable
@@ -147,6 +151,11 @@ function CloudEnvironmentRow(props: {
           >
             {statusText}
           </Text>
+          {stallLine ? (
+            <Text className="min-w-0 text-xs text-warning-foreground" numberOfLines={2}>
+              {stallLine}
+            </Text>
+          ) : null}
         </View>
         {state === "stopped" ? (
           <Pressable

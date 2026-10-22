@@ -204,6 +204,20 @@ describe('runtime instructions', () => {
     expect(await claudeAppend([])).not.toContain('## Chat')
   })
 
+  test('both providers are told when a visual says more than prose, only when they can render one', async () => {
+    // WHY: the tool description says how to show a page, but an agent reads it
+    // only once it has chosen to make one. The prompt is where it learns to
+    // choose a chart over a paragraph of numbers.
+    const renderArtifactTool = tool('render_artifact')
+    const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [renderArtifactTool])
+    const claude = await claudeAppend([renderArtifactTool])
+    for (const prompt of [codex, claude]) {
+      expect(prompt).toContain('## Showing visuals')
+      expect(prompt).toContain('would say more than prose')
+    }
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('## Showing visuals')
+  })
+
   test('collaboration-mode text stays Codex-only', async () => {
     expect(await claudeAppend([browserStatusTool])).not.toContain('<collaboration_mode>')
   })

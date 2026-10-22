@@ -78,8 +78,9 @@ function openPreviewPage(
   })
 }
 
-/** The reply column at its usual width, where a page in a reply renders. */
-export const HTML_PREVIEW_DEFAULT_WIDTH = 760
+/** The reply column at its usual width, where a page in a reply renders:
+ *  the 46rem floor of `--solus-reading-max` in workspace.css. */
+export const HTML_PREVIEW_DEFAULT_WIDTH = 736
 export const HTML_PREVIEW_MIN_WIDTH = 320
 export const HTML_PREVIEW_MAX_WIDTH = 1440
 /** The viewport the page is first laid out and measured in. */

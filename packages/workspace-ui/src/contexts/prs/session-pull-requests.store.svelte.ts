@@ -3,6 +3,7 @@ import type { SessionPullRequestLink } from '@solus/contracts/session-pull-reque
 import type { TaskSidebarPrLink } from '@solus/contracts/task-types'
 import type { SessionRecord } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { keepEqual } from '@solus/client-core/keep-equal'
 
 /**
  * The pull requests sessions work on (docs/plans/session-pull-requests.md).
@@ -78,8 +79,9 @@ export class SessionPullRequestsStore {
     this.write(sessionId, links)
   }
 
+  /** Equal links keep the held list, so a reload changes no linked pull request reader. */
   private write(sessionId: string, links: SessionPullRequestLink[]): void {
-    if (links.length) this.linksBySession.set(sessionId, links)
+    if (links.length) this.linksBySession.set(sessionId, keepEqual(links, this.linksBySession.get(sessionId) ?? links))
     else this.linksBySession.delete(sessionId)
   }
 

@@ -67,6 +67,10 @@ const CHAT_INSTRUCTIONS = `## Chat
 
 This session is a chat with no project. The person did not choose a folder or a repository. Your working folder is a private scratch folder that Solus made for this chat. It is not a Git repository. Do not mention its path, and do not run Git commands in it. You can create files there when a task needs them; refer to them by file name. If the work grows into a project, tell the person that they can start a session in a project.`
 
+const VISUALS_INSTRUCTIONS = `## Showing visuals
+
+When a chart, table, diagram, image collage, or mockup would say more than prose, show it as an HTML page in your reply, as the render_artifact tool describes.`
+
 export interface AgentRuntime {
   harness: 'Claude Code' | 'Codex'
   model: string
@@ -81,7 +85,7 @@ function singleLine(value: string): string {
 
 /** Each tool-group block goes only to a run that has the group's entry tool:
  *  `browser_status` for Browser, `link` for Tasks, `start_session` for Sessions,
- *  `move_to_worktree` for worktrees. */
+ *  `move_to_worktree` for worktrees, `render_artifact` for visuals. */
 export function runtimeInstructions(runtime: AgentRuntime, tools: readonly AgentTool[]): string {
   const runtimeInfo = `<runtime_info>In case you are asked: you are running in Solus through the ${runtime.harness} harness as ${singleLine(runtime.model)} with ${singleLine(runtime.reasoningEffort)} reasoning effort. Do not mention this otherwise.
 
@@ -100,6 +104,7 @@ You can embed images and videos in your response with Markdown and absolute file
     ].filter(Boolean).join('\n\n'),
     has('move_to_worktree') && !isChat(runtime.workingDirectory) && WORKTREE_INSTRUCTION,
     has('browser_status') && SOLUS_BROWSER_TOOL_INSTRUCTIONS,
+    has('render_artifact') && VISUALS_INSTRUCTIONS,
     has('link') && [
       has('list_session_pull_requests')
         ? `${PULL_REQUEST_LINKING_INSTRUCTIONS} ${PULL_REQUEST_CHECK_INSTRUCTION}`

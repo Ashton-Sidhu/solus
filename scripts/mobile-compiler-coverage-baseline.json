@@ -462,6 +462,19 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/components/SheetHeader.android.tsx": {
+      "compiled": [
+        "SheetCloseButton",
+        "SheetHeader"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/components/SheetHeader.tsx": {
+      "compiled": [
+        "SheetHeader"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/components/ThemedSwitch.tsx": {
       "compiled": [
         "ThemedSwitch"
@@ -1268,6 +1281,7 @@
         "FilesSection",
         "HandWrittenSkillRow",
         "HostRow",
+        "HostServerRows",
         "HostsSection",
         "InstructionsEditor",
         "InstructionsSection",

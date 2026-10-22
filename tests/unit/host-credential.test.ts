@@ -25,13 +25,13 @@ function verified(assertion: string, publicJwk: HostPublicJwk): { iss: string; s
 }
 
 describe('the host credential', () => {
-  test('an assertion is signed by the host’s key and names the client as issuer and subject, the audience, a one-time id, and one minute of life', async () => {
+  test('an assertion is signed by the host’s key and names the client as issuer and subject, the audience, a one-time id, and 150 s of life', async () => {
     const key = await generateHostKey()
     expect(key.publicJwk).not.toHaveProperty('d')
     const credential = clientCredential({ clientId: 'host_h1', privateJwk: key.privateJwk, tokenEndpoint: TOKEN_ENDPOINT, now: () => 1_700_000_000_000 })
     const first = verified(await credential.assertion(TOKEN_ENDPOINT), key.publicJwk)
     const second = verified(await credential.assertion(TOKEN_ENDPOINT), key.publicJwk)
-    expect(first).toEqual({ iss: 'host_h1', sub: 'host_h1', aud: TOKEN_ENDPOINT, jti: expect.any(String), iat: 1_700_000_000, exp: 1_700_000_060 })
+    expect(first).toEqual({ iss: 'host_h1', sub: 'host_h1', aud: TOKEN_ENDPOINT, jti: expect.any(String), iat: 1_700_000_000, exp: 1_700_000_150 })
     expect(second?.jti).not.toBe(first?.jti)
     // Another key's public half does not verify it: the assertion proves this key only.
     const other = await generateHostKey()

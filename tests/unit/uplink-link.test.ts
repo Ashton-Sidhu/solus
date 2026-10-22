@@ -365,7 +365,7 @@ describe('the link: a tunnel, and nothing else (rule 9)', () => {
     state.linked = false
     const rebooted = hostOf(fakeControlPlane({ state }))
     await rebooted.boot()
-    expect(rebooted.connector.events).toEqual([])
+    expect(rebooted.connector.events).toEqual(['stop'])
     expect(rebooted.status()).toMatchObject({ registration: { registered: true }, link: { linked: false } })
   })
 

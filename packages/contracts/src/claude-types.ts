@@ -177,7 +177,9 @@ export interface StatusEvent {
   subtype: 'status'
   /** `'compacting'` while the provider rewrites its own context, else `'requesting'` or null. */
   status: string | null
-  permissionMode: string
+  /** Only on a status that reports the permission mode. A status that only
+   *  moves `status` leaves it out. */
+  permissionMode?: string
   /** Present only on the status that closes a compaction, which is what ends it. */
   compact_result?: 'success' | 'failed'
   compact_error?: string

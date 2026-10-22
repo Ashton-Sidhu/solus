@@ -67,27 +67,27 @@ function laptop() {
 const MEMBER = { kind: 'member', userId: 'member-1', organizationId: 'org-a' } as const
 const OWNER = { kind: 'owner' } as const
 
-/** The skills CLI as a map of installed skills per home set. */
+/**
+ * The registry as the profile reads it: this machine's own installs for a read,
+ * and each skill's files. A skill in `unavailable` cannot be read, as when the
+ * registry is unreachable.
+ */
 function fakeSkills() {
-  const installed = new Map<string, Map<string, string>>()
+  const hostInstalled = new Map<string, string>()
+  const unavailable = new Set<string>()
   const log: string[] = []
-  const bucket = (homes?: { claudeHome: string }) => {
-    const key = homes?.claudeHome ?? 'host'
-    if (!installed.has(key)) installed.set(key, new Map())
-    return installed.get(key)!
-  }
   const skills: ProfileSkills = {
-    list: async (homes) => ({ ok: true, skills: [...bucket(homes)].map(([name, source]) => ({ name, path: `/${name}`, agents: ['claude-code'], source })) }),
-    install: async (id, agents, homes) => {
-      log.push(`install:${id}`)
-      if (id.endsWith('@broken')) return { ok: false, agents, error: 'nope' }
-      const [source, name] = id.split('@')
-      bucket(homes).set(name, source)
-      return { ok: true, agents }
+    list: async () => ({ ok: true, skills: [...hostInstalled].map(([name, source]) => ({ name, path: `/${name}`, agents: ['Claude Code', 'Codex'], source })) }),
+    files: async (entry) => {
+      log.push(`files:${entry.source}@${entry.skillId}`)
+      if (unavailable.has(entry.name)) throw new Error('registry unreachable')
+      return [
+        { path: 'SKILL.md', content: Buffer.from(`# ${entry.name}`), executable: false },
+        { path: 'scripts/run.sh', content: Buffer.from('echo run'), executable: true },
+      ]
     },
-    remove: async (name, homes) => { log.push(`remove:${name}`); bucket(homes).delete(name); return { ok: true } },
   }
-  return { skills, log, bucket }
+  return { skills, log, hostInstalled, unavailable }
 }
 
 
@@ -134,8 +134,6 @@ function seat(sourceHomes: (provider: SeatProvider) => string[] = () => [], host
     },
     now: () => now,
     skills: skills.skills,
-    skillHomesFor: (target) => target.kind === 'member' ? { claudeHome: homeFor('claude-code'), codexHome: homeFor('codex') } : undefined,
-    agentIds: () => ['claude-code', 'codex'],
     integrations: integrations.integrations,
     integrationOwnerFor: (target) => target.kind === 'member' ? { organizationId: target.organizationId, ownerKey: target.userId } : { organizationId: 'local', ownerKey: HOST_USER },
     account,
@@ -159,7 +157,7 @@ test('a profile carries instructions, skills, subagents, commands, and MCP serve
   // travels as a reference, so the document stays small and the host installs it.
   const { homes } = laptop()
   const host = seat(homes)
-  host.skills.bucket().set('frontend-design', 'anthropics/skills')
+  host.skills.hostInstalled.set('frontend-design', 'anthropics/skills')
   host.integrations.integrations.create({ organizationId: 'local', ownerKey: HOST_USER }, { kind: 'integration', slug: 'deepwiki', name: 'DeepWiki', url: 'https://mcp.deepwiki.com/mcp', auth: { kind: 'none' } })
   const read = await host.profiles.read()
   expect(Object.keys(read.profile).sort()).toEqual([
@@ -208,24 +206,36 @@ test('copying again replaces the profile and leaves everything else in the seat 
   expect(readFileSync(join(claudeHome, '.credentials.json'), 'utf8')).toBe('member login')
 })
 
-test('a registry skill is installed into the target\'s homes, removed when it leaves the profile, and a failed install is reported', async () => {
-  // WHY: the host keeps one installer; a reference must become real files in the
-  // member's seats and nowhere else, and one bad skill must not stop the copy.
+test('a registry skill is written as files into every agent home, kept when the registry cannot be read, and removed with the profile', async () => {
+  // WHY: on a cloud host the skills CLI placed skills for Codex alone, in a folder
+  // no agent of the member read. A registry skill is files in the same homes as a
+  // hand-written one, so Claude and Codex both load it, and one bad skill or a
+  // registry outage never takes away what a person already has.
   const target = seat()
   const skill = (name: string, source = 'anthropics/skills'): AgentProfileEntry => ({ kind: 'skill', name, source, skillId: name })
+  const claudeHome = target.homeFor('claude-code')
+  const codexHome = target.homeFor('codex')
+  target.skills.unavailable.add('broken')
   const status = await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules'), skill('frontend-design'), skill('broken', 'acme')), PUSH)
-  expect(target.skills.log).toEqual(['install:anthropics/skills@frontend-design', 'install:acme@broken'])
+  expect(target.skills.log).toEqual(['files:anthropics/skills@frontend-design', 'files:acme@broken'])
   expect(status.counts).toEqual({ files: 1, skills: 1, integrations: 0 })
   expect(status.skipped).toEqual([{ path: 'broken', reason: 'install-failed' }])
-  expect(target.skills.bucket({ claudeHome: target.homeFor('claude-code') }).get('frontend-design')).toBe('anthropics/skills')
-  expect(target.skills.bucket().size).toBe(0)
+  for (const home of [claudeHome, codexHome]) {
+    expect(readFileSync(join(home, 'skills/frontend-design/SKILL.md'), 'utf8')).toBe('# frontend-design')
+    expect(statSync(join(home, 'skills/frontend-design/scripts/run.sh')).mode & 0o100).toBe(0o100)
+  }
 
-  // Installed already from the same source: no second install. Gone from the profile: removed.
-  target.skills.log.length = 0
-  await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules'), skill('frontend-design')), PUSH)
-  expect(target.skills.log).toEqual([])
+  // The registry is unreachable: the files an earlier copy wrote stay, and the skill is reported.
+  target.skills.unavailable.add('frontend-design')
+  const outage = await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules'), skill('frontend-design')), PUSH)
+  expect(outage.skipped).toEqual([{ path: 'frontend-design', reason: 'install-failed' }])
+  expect(existsSync(join(claudeHome, 'skills/frontend-design/SKILL.md'))).toBe(true)
+
+  // Gone from the profile: its files leave every home.
+  target.skills.unavailable.delete('frontend-design')
   await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules')), PUSH)
-  expect(target.skills.log).toEqual(['remove:frontend-design'])
+  expect(existsSync(join(claudeHome, 'skills/frontend-design'))).toBe(false)
+  expect(existsSync(join(codexHome, 'skills/frontend-design'))).toBe(false)
 })
 
 test('an MCP server becomes the member\'s own record, matched by URL, and a host the person owns keeps its own', async () => {

@@ -13,6 +13,9 @@
     PR_VERDICT_TONE,
   } from "./lib/pr-row-styles";
   import { TouchLongPress } from "../../lib/touch-long-press";
+  import type { ChangeBreakdownPart } from "@solus/client-core/change-breakdown";
+  import * as TooltipUI from "../ui/tooltip";
+  import ChangeBreakdownParts from "./ChangeBreakdownParts.svelte";
 
   /** One pull request in the list: the lifecycle glyph, then a
    *  two-by-two grid. The title leads line one and the outcome — verdict,
@@ -39,8 +42,13 @@
     /** The row's place in a GitHub stack, and its menu of layers. */
     stack?: Snippet;
     actions?: Snippet;
+    /** The churn by kind, for the churn's tooltip. Empty until read. */
+    breakdown?: readonly ChangeBreakdownPart[];
+    /** The pointer reached the churn: read the split. Rows nobody points at
+     *  cost the host nothing. */
+    onWantBreakdown?: () => void;
   }
-  let { row, split = false, selected = false, onSelect, onContextMenu, leading, stack, actions }: Props = $props();
+  let { row, split = false, selected = false, onSelect, onContextMenu, leading, stack, actions, breakdown = [], onWantBreakdown }: Props = $props();
 
   const longPress = new TouchLongPress((event) => onContextMenu?.(event));
 
@@ -114,10 +122,26 @@
           </span>
         {/if}
         {#if row.churn}
-          <span class="flex gap-1 text-[11px] whitespace-nowrap tabular-nums">
-            <span class={PR_ADDITIONS_TONE}>+{compactCount(row.churn.additions)}</span>
-            <span class={PR_DELETIONS_TONE}>−{compactCount(row.churn.deletions)}</span>
-          </span>
+          {@const churn = row.churn}
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <span
+                  {...tooltipProps}
+                  class="flex gap-1 text-[11px] whitespace-nowrap tabular-nums"
+                  onpointerenter={() => onWantBreakdown?.()}
+                >
+                  <span class={PR_ADDITIONS_TONE}>+{compactCount(churn.additions)}</span>
+                  <span class={PR_DELETIONS_TONE}>−{compactCount(churn.deletions)}</span>
+                </span>
+              {/snippet}
+            </TooltipUI.Trigger>
+            {#if breakdown.length > 0}
+              <TooltipUI.Content side="bottom">
+                <ChangeBreakdownParts parts={breakdown} />
+              </TooltipUI.Content>
+            {/if}
+          </TooltipUI.Root>
         {/if}
       </span>
 

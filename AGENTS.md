@@ -384,7 +384,9 @@ dev server of your own.
 - **`dev.log`** — every main-process log entry as structured NDJSON, one JSON object per
   line: `ts`, `level`, `tag`, `file`, `msg`, plus the call's data fields. `msg` is a stable
   snake_case event name, never a prose sentence, so it is safe to match exactly. The file is
-  truncated on each app boot, so it only holds the current run. `bun test` logs to a
+  kept across app restarts, so entries before a crash survive; it starts again empty when it
+  grows past 50 MB. Filter by `ts` (or the latest `core_boot_phase`) to read only the
+  current run. `bun test` logs to a
   temporary file (`SOLUS_DEV_LOG`, set by `tests/preload.ts`), never to `dev.log`.
 - **`dev-console.log`** — raw process output: vite and electron noise, build errors, and
   stray stack traces that never reached the logger.

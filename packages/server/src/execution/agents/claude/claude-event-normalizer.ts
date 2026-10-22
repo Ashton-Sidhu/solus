@@ -123,6 +123,10 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // the SessionRuntime holds the session at 'running' for good. Remember the stop
   // calls so their own results can stand in as the terminal signal.
   private readonly taskStopToolIds = new Set<string>()
+  // A compaction a PreCompact hook skips reports no result: Claude only sets
+  // its status back to null. The status carries no state of its own, so
+  // remember that a compaction runs to know what that null ends.
+  private isCompacting = false
 
   get summary(): TurnSummary {
     return this.turnSummary
@@ -144,7 +148,12 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
     }
 
     const normalized = normalize(raw, this.pendingToolInputs, this.thinkingBlocks)
+    if (this.isCompacting && isBareIdleStatus(raw)) {
+      // A failed stop removes the running divider and draws none.
+      normalized.push({ type: 'context_compaction', state: 'stop', trigger: 'auto', failed: true })
+    }
     for (const event of normalized) {
+      if (event.type === 'context_compaction') this.isCompacting = event.state === 'start'
       if (event.type === 'tool_call' && event.toolId) {
         if (event.isSubagent) this.subagentToolIds.add(event.toolId)
         if (event.toolName === 'TaskStop') this.taskStopToolIds.add(event.toolId)
@@ -198,6 +207,15 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
     }
     return null
   }
+}
+
+/** A status that only sets Claude back to idle. A permission mode change also
+ *  sends `status: null`, but with its mode; that one ends nothing. */
+function isBareIdleStatus(raw: ClaudeEvent): boolean {
+  if (raw.type !== 'system' || raw.subtype !== 'status') return false
+  // SAFETY: The status subtype carries the StatusEvent contract.
+  const status = raw as StatusEvent
+  return status.status === null && status.compact_result === undefined && status.permissionMode === undefined
 }
 
 function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent): NormalizedEvent[] {
@@ -269,7 +287,7 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
       if (status.compact_result === 'failed') stop.failed = true
       events.push(stop)
     }
-    const uiMode = SDK_TO_UI_PERMISSION_MODE[status.permissionMode]
+    const uiMode = status.permissionMode ? SDK_TO_UI_PERMISSION_MODE[status.permissionMode] : undefined
     if (uiMode) events.push({ type: 'permission_mode_changed', permissionMode: uiMode })
     return events
   }

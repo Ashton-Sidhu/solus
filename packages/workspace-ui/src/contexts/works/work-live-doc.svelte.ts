@@ -25,8 +25,40 @@ const AWARENESS_INTERVAL_MS = 100
 /** Reconnect backoff after a failed open or push. */
 const RETRY_BASE_MS = 1_000
 const RETRY_MAX_MS = 30_000
-/** An update that carries nothing: an empty struct set and an empty delete set. */
-const EMPTY_UPDATE_BYTES = 2
+
+/**
+ * Whether `missing` — this doc's update against the host's state vector —
+ * holds anything the host lacks. A state vector names content, never
+ * deletions, so `missing` always carries every deletion the doc has ever had.
+ * Pushing that on each open made every open an edit. The host's answer to the
+ * open carries its own full delete set, so a deletion the host already holds is
+ * not sent again; one made offline is.
+ */
+function holdsMoreThanHost(missing: Uint8Array, hostUpdate: Uint8Array): boolean {
+  const ours = Y.decodeUpdate(missing)
+  if (ours.structs.length > 0) return true
+  if (ours.ds.clients.size === 0) return false
+  const hostDeletions = Y.decodeUpdate(hostUpdate).ds.clients
+  for (const [client, deletions] of ours.ds.clients) {
+    const held = hostDeletions.get(client) ?? []
+    if (deletions.some((deletion) => !withinOne(held, deletion.clock, deletion.clock + deletion.len))) return true
+  }
+  return false
+}
+
+/** Whether one of `ranges` (sorted, merged, as an update encodes them) contains [start, end). */
+function withinOne(ranges: readonly { clock: number; len: number }[], start: number, end: number): boolean {
+  let low = 0
+  let high = ranges.length - 1
+  while (low <= high) {
+    const middle = (low + high) >> 1
+    const range = ranges[middle]!
+    if (range.clock + range.len <= start) low = middle + 1
+    else if (range.clock > start) high = middle - 1
+    else return range.clock + range.len >= end
+  }
+  return false
+}
 
 export type LiveConnection = 'connecting' | 'live' | 'offline' | 'unsupported'
 
@@ -198,7 +230,8 @@ export class WorkLiveDoc {
         this.connection = 'unsupported'
         return
       }
-      Y.applyUpdate(this.doc, base64ToBytes(result.update), REMOTE_ORIGIN)
+      const hostUpdate = base64ToBytes(result.update)
+      Y.applyUpdate(this.doc, hostUpdate, REMOTE_ORIGIN)
       this.mode = result.mode
       this.readReason = result.reason ?? null
       this.lock = result.lock
@@ -207,7 +240,7 @@ export class WorkLiveDoc {
       // Everything the host lacks, including edits made offline or before a
       // restart, is one update; it replaces the queue, which it contains.
       const missing = Y.encodeStateAsUpdate(this.doc, base64ToBytes(result.stateVector))
-      this.pending = missing.length > EMPTY_UPDATE_BYTES ? [missing] : []
+      this.pending = holdsMoreThanHost(missing, hostUpdate) ? [missing] : []
       this.inFlight = null
       if (this.pending.length === 0) this.setUnsent(0)
       else if (this.unsent === 0) this.setUnsent(1)

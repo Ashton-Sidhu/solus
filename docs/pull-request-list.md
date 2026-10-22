@@ -165,6 +165,32 @@ above **Checks**, each with a link to its run on GitHub. When you can approve
 them, **Approve and run** starts them for the current head. If the
 head moved, the host refuses and Solus reads the waiting runs again.
 
+## Changes by kind
+
+Under the **Changes** line of an open pull request, Solus splits the added and
+deleted lines by the kind of file: Code, Tests, Mocks, Generated, and Docs. The
+kind comes from the file path alone (`changedFileKind` in
+`packages/client-core/src/change-breakdown.ts`), and the first match wins:
+
+1. **Generated**: lockfiles, minified files, source maps, and files named
+   `*.generated.*` or `*.gen.*` or in a `generated` folder.
+2. **Mocks**: snapshots, fixtures, mocks, stubs, and fakes.
+3. **Tests**: `*.test.*`, `*.spec.*`, `*_test.*`, `test_*.py`, `FooTest.java`,
+   and files in a `test`, `tests`, `__tests__`, `spec`, or `e2e` folder.
+4. **Docs**: Markdown, reStructuredText, AsciiDoc, and text files, except
+   text files that tools read (such as `requirements.txt`).
+5. **Code**: all other files.
+
+In the list, point at a row's `+N −M` to see the same split in a tooltip.
+The row reads its changed files only then, so rows that nobody points at cost
+the host nothing; the files stay cached for when you open the pull request.
+
+A kind with no changed lines does not show. When the whole change is one kind,
+no split shows. In the mobile app, the split is under the file count of
+**Changed files**. No split shows when the host gave only part of the files
+(GitHub stops at 3000), because then the split would not add up to the total. The mobile **Hide test
+files** filter uses the same rule: it hides Tests and Mocks.
+
 ## Viewed files
 
 When the host keeps GitHub's "Viewed" marks, each file header in the pull

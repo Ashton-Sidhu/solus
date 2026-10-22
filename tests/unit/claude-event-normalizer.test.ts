@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
 import { ClaudeTurnNormalizer } from '@solus/server/execution/agents/claude/claude-event-normalizer'
-import type { ClaudeEvent } from '@solus/contracts/claude-types'
+import type { ClaudeEvent, StatusEvent } from '@solus/contracts/claude-types'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
 async function readClaudeFixture(name: string): Promise<ClaudeEvent[]> {
@@ -118,6 +118,26 @@ describe('ClaudeTurnNormalizer', () => {
       { type: 'context_compaction', state: 'stop', trigger: 'auto' },
       { type: 'permission_mode_changed', permissionMode: 'supervised' },
     ])
+  })
+
+  test('ends a compaction that Claude sets back to idle without a result', () => {
+    // A PreCompact hook can skip the compaction. Claude then only sets its
+    // status back to null, and the running divider must not stay on screen
+    // for the rest of the turn.
+    const normalizer = new ClaudeTurnNormalizer()
+    const status = (fields: Partial<StatusEvent>) => ({ type: 'system', subtype: 'status', status: null, uuid: 'status', session_id: 'claude-session-1', ...fields }) as ClaudeEvent
+
+    normalizer.push(status({ status: 'compacting' }))
+    // A permission mode change also sends a null status, with its mode; the
+    // compaction still runs.
+    expect(normalizer.push(status({ permissionMode: 'default' }))).toEqual([
+      { type: 'permission_mode_changed', permissionMode: 'supervised' },
+    ])
+    expect(normalizer.push(status({}))).toEqual([
+      { type: 'context_compaction', state: 'stop', trigger: 'auto', failed: true },
+    ])
+    // With no compaction running, an idle status says nothing.
+    expect(normalizer.push(status({}))).toEqual([])
   })
 
   test('an ordinary status still reports only its permission mode', () => {

@@ -5,13 +5,13 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp, useListened } from "../../app/app-context";
-import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { ScreenScrollView } from "../../components/ScreenScrollView";
+import { SheetHeader } from "../../components/SheetHeader";
 import { cn } from "../../lib/cn";
-import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
+import { NativeStackScreenOptions } from "../../native/StackHeader";
 import type { RootStackParamList } from "../../navigation/routes";
 import {
   ConnectCardPill,
@@ -187,17 +187,15 @@ export function NewTaskConnectHost(props: {
     return (
       <View className="flex-1 bg-sheet" collapsable={false}>
         <NativeStackScreenOptions options={{ headerShown: false }} />
-        <AndroidScreenHeader title="New session" hideBottomBorder onBack={props.onClose} />
+        <SheetHeader title="New session" onCancel={props.onClose} accessibilityLabel="Cancel new task" />
         {body}
       </View>
     );
   }
   return (
     <View className="flex-1 bg-sheet" collapsable={false}>
-      <NativeStackScreenOptions options={{ headerBackVisible: false, headerShadowVisible: false, title: "" }} />
-      <NativeHeaderToolbar placement="left">
-        <NativeHeaderToolbar.Button accessibilityLabel="Cancel new task" label="Cancel" onPress={props.onClose} />
-      </NativeHeaderToolbar>
+      <NativeStackScreenOptions options={{ headerShadowVisible: false }} />
+      <SheetHeader title="New session" onCancel={props.onClose} accessibilityLabel="Cancel new task" />
       {body}
     </View>
   );

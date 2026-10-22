@@ -343,8 +343,8 @@ async function openShareLink(link: GuestLink): Promise<void> {
   const account = existingWebAccountSession()
   const state = account?.state()
   const signedIn = account && state?.kind === 'signed-in' ? { account, name: state.identity.name || state.identity.email, userId: state.identity.sub } : null
-  // A signed-in visitor is most likely a member: the whole app loads while the link resolves.
-  if (signedIn) void loadWorkspaceApp().catch(() => {})
+  // Nothing loads before the resolve: the app's code is hundreds of requests, and a
+  // browser that fetches a few at a time sends the resolve only after all of them.
   const token = signedIn ? await signedIn.account.accessToken({ kind: 'api' }) : null
   const opening = shareLinkOpening(await resolveShareLink(location.origin, link.secret, token), link, location.origin)
   if (opening.kind !== 'member') {
@@ -354,7 +354,8 @@ async function openShareLink(link: GuestLink): Promise<void> {
   history.replaceState(null, '', opening.address)
   webState.openedFromLink = true
   // The account's tokens are minted one at a time: the runner's goes first, so its
-  // socket is not queued behind every other host this account can reach.
+  // socket is not queued behind every other host this account can reach. The app's
+  // code loads while it is minted (`bootFromCatalog`).
   if (opening.runnerHostId && signedIn) void signedIn.account.accessToken({ kind: 'host', hostId: opening.runnerHostId })
   void bootFromCatalog({ linkRunnerHostId: opening.runnerHostId })
 }

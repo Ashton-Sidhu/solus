@@ -1,4 +1,4 @@
-import { networkInterfaces } from 'os'
+import { networkInterfaces, type NetworkInterfaceInfo } from 'os'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { createLogger } from '../logger'
@@ -64,6 +64,35 @@ interface DiscoveryProbeTarget {
   name: string
 }
 
+/**
+ * Bridges, tunnels, VPNs, and VM or container networks. Other devices on the
+ * LAN usually cannot reach their addresses: macOS keeps a manual address on the
+ * Thunderbolt Bridge (`bridge0`) when nothing is connected, and `utun`, `awdl`,
+ * `llw`, and `anpi` are tunnels and Apple peer links. Host bridges such as
+ * `br0` or `vmbr0` often hold the real LAN address, so they are not here
+ * (as in T3 Code #18085).
+ */
+const HOST_ONLY_INTERFACE =
+  /^(bridge\d|utun|ipsec|ppp|tun|tap|wg|docker|br-|veth|virbr|vmnet|vboxnet|VirtualBox|VMware|awdl|llw|anpi)/
+
+/**
+ * The external IPv4 addresses of this machine, real LAN interfaces first and
+ * host-only interfaces last. Each group keeps the operating system's order.
+ */
+export function lanAddressesInReachOrder(
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>,
+): { name: string; address: string }[] {
+  const lan: { name: string; address: string }[] = []
+  const hostOnly: { name: string; address: string }[] = []
+  for (const [name, addrs] of Object.entries(interfaces)) {
+    for (const addr of addrs ?? []) {
+      if (addr.family !== 'IPv4' || addr.internal) continue
+      ;(HOST_ONLY_INTERFACE.test(name) ? hostOnly : lan).push({ name, address: addr.address })
+    }
+  }
+  return [...lan, ...hostOnly]
+}
+
 const ENDPOINT_REACH = { tailnet: 0, lan: 1, loopback: 2 } satisfies Record<ReachableEndpoint['kind'], number>
 
 /** The URLs another host can reach this one at, the widest reach first. */
@@ -87,18 +116,8 @@ export async function listReachableEndpoints(bindHost: string, port: number): Pr
   // If bound to loopback only, LAN/Tailnet are unreachable from outside.
   if (bindHost === '127.0.0.1') return out
 
-  const ifaces = networkInterfaces()
-  for (const [name, addrs] of Object.entries(ifaces)) {
-    if (!addrs) continue
-    for (const addr of addrs) {
-      if (addr.family !== 'IPv4' || addr.internal) continue
-      out.push({
-        kind: 'lan',
-        label: `${name} (${addr.address})`,
-        host: addr.address,
-        port,
-      })
-    }
+  for (const { name, address } of lanAddressesInReachOrder(networkInterfaces())) {
+    out.push({ kind: 'lan', label: `${name} (${address})`, host: address, port })
   }
 
   const tailnet = await detectTailscaleEndpoint(port)

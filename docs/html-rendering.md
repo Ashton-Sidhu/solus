@@ -124,8 +124,14 @@ to `workspace.css`. Local images are written in, the viewport grows to the
 page's height (up to 4,000px), and the agent gets the screenshot as an image in
 the tool result, the height, the console output with uncaught errors and failed
 loads, and the local images it could not load. A screenshot over the 5 MB tool
-image limit is stored as an asset instead, and the result gives its path to read. `preview_width` (320–1440, default 760) and
+image limit is stored as an asset instead, and the result gives its path to read. `preview_width` (320–1440, default 736, the reply column) and
 `preview_appearance` (light or dark) choose the reading.
+
+Every call names its `title`: it is how a saved work reads in the gallery and
+on a task, and a compiled bundle's document `<title>` is often the starter's.
+The system prompt tells both providers to show a visual when a chart, table,
+diagram, image collage, or mockup says more than prose
+(`runtime-instructions.ts`); the tool description says how.
 
 A save without `preview` runs the same render as a check, for up to 8 seconds,
 and reports console errors and missing images in the tool result. A host with no

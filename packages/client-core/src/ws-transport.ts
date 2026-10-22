@@ -147,10 +147,23 @@ interface DialPreparation {
   identity: Promise<boolean>
 }
 
+/** When each part of one dial finished, in ms from its start: the `connection attempt` log line. */
+interface DialTiming {
+  startedAt: number
+  serverUrl: string
+  ticketMs?: number
+  identityMs?: number
+  socketOpenMs?: number
+}
+
+export type DialAttemptOutcome = 'connected' | 'failed'
+
 const RECONNECT_QUEUE_MAX_AGE_MS = 15_000
 /** A token-admitted socket sends its next access token this long before the current one ends (`authRenew`). */
 export const GRANT_RENEWAL_LEAD_MS = 60_000
 const WAKE_PROBE_TIMEOUT_MS = 5_000
+/** A refresh that does not answer is `unavailable`, never a dial that hangs. */
+const REFRESH_TIMEOUT_MS = 10_000
 const WAKE_PROBE_METHOD: RpcInvokeMethod = 'connectionsGetServerInfo'
 
 export function shouldRejectQueuedRequest(
@@ -187,10 +200,13 @@ export class WsTransport {
   private lastingRefusals = 0
   private authRefreshResetTimer: ReturnType<typeof setTimeout> | null = null
   private wakeProbeInFlight = false
+  /** When this socket last received anything: a packet or the host's heartbeat. */
+  private lastInboundAt = 0
   private connectedGeneration = 0
   private isAcceptedConnection = false
   private pendingHostEvents: HostEvent[] = []
   private dialPreparation: DialPreparation | null = null
+  private dialTiming: DialTiming | null = null
   /** Requests the server sends and waits on, by event; installed on every socket this transport opens. */
   private readonly serverRequests = new Map<string, ServerRequestListener>()
   /** Sends the socket's next access token before the current one ends (docs/adr/0001-standard-authentication.md rule 4). */
@@ -283,11 +299,15 @@ export class WsTransport {
   /** One dial: the credential exchange and the identity check start now, beside
    *  the socket open, instead of one after the other once it is open. */
   private dialSocket(): void {
+    const timing: DialTiming = { startedAt: Date.now(), serverUrl: this.opts.serverUrl }
+    this.dialTiming = timing
     const preparation: DialPreparation = {
       exchange: this.fetchWsTicket(),
       identity: this.opts.verifyConnectedHost?.().catch(() => false) ?? Promise.resolve(true),
     }
     this.dialPreparation = preparation
+    void preparation.exchange.then(() => { timing.ticketMs = Date.now() - timing.startedAt })
+    void preparation.identity.then(() => { timing.identityMs = Date.now() - timing.startedAt })
     void preparation.exchange.then(({ unreachable, accountRefusal }) => {
       if (accountRefusal) {
         this.refuseDial(preparation, accountRefusal)
@@ -300,7 +320,7 @@ export class WsTransport {
       // now so the supervisor can move to the host's next route.
       this.dialPreparation = null
       this.socket.disconnect()
-      this.logConnection('route unreachable', { serverUrl: this.opts.serverUrl })
+      this.logDialAttempt('failed', 'route-unreachable')
       this.opts.onDialOutcome?.({ kind: 'dial-failed' })
     })
     this.socket.connect()
@@ -318,6 +338,7 @@ export class WsTransport {
     this.socket.disconnect()
     this.lastingRefusals = refusal.lasting ? this.lastingRefusals + 1 : 0
     const blocks = this.lastingRefusals >= LASTING_REFUSALS_BEFORE_BLOCK
+    this.logDialAttempt('failed', 'account-refused')
     console.warn('[solus:ws] account refused a grant for this host', {
       clientInstanceId: this.clientInstanceId,
       serverId: this.opts.serverId ?? null,
@@ -511,7 +532,11 @@ export class WsTransport {
 
   private installSocketListeners(): void {
     for (const [event, listener] of this.serverRequests) this.socket.on(event, listener)
+    const markInbound = () => { this.lastInboundAt = Date.now() }
+    this.socket.io.on('packet', markInbound)
+    this.socket.io.on('ping', markInbound)
     this.socket.on('connect', () => {
+      if (this.dialTiming) this.dialTiming.socketOpenMs = Date.now() - this.dialTiming.startedAt
       const generation = ++this.connectedGeneration
       void this.acceptConnectedSocket(generation)
     })
@@ -529,6 +554,7 @@ export class WsTransport {
     })
     this.socket.on('connect_error', (error: Error & { data?: { code?: string } }) => {
       this.logConnection('socket connection error', { message: error.message, code: error.data?.code ?? null })
+      this.logDialAttempt('failed', error.data?.code === 'UNAUTHORIZED' ? 'unauthorized' : 'socket-error')
       if (error.data?.code !== 'UNAUTHORIZED') {
         // With auto-reconnection off nobody else will ever dial again: the
         // failed dial is the supervisor's cue to schedule the next one.
@@ -572,6 +598,7 @@ export class WsTransport {
     const accepted = await identity
     if (this.destroyed || generation !== this.connectedGeneration || !this.socket.connected) return
     if (!accepted) {
+      this.logDialAttempt('failed', 'identity-mismatch')
       this.destroy('identity-mismatch')
       this.opts.onDialOutcome?.({ kind: 'identity-mismatch' })
       return
@@ -587,6 +614,7 @@ export class WsTransport {
       recovered: this.socket.recovered,
       pendingRequests: this.pendingRequestSummary(),
     })
+    this.logDialAttempt('connected', null)
     if (shouldReset) this.onResetCallback?.()
     this.lastingRefusals = 0
     this.opts.onDialOutcome?.({ kind: 'accepted', recovered: this.socket.recovered })
@@ -603,6 +631,14 @@ export class WsTransport {
     let refreshResult: RefreshResult = 'unavailable'
     try { refreshResult = await this.refreshToken() } catch {}
     if (this.destroyed) return
+    if (refreshResult === 'unavailable') {
+      // The host did not answer the refresh (a network error, a 5xx, a tunnel still
+      // coming up): that says nothing about the token. Retry on the supervisor's
+      // backoff, and let the next refusal try the refresh again (T3 Code #16554).
+      this.authRefreshAttempted = false
+      if (!this.blocked) this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+      return
+    }
     if (refreshResult !== 'refreshed') {
       this.blockAuthFailure()
       return
@@ -796,18 +832,42 @@ export class WsTransport {
     })
   }
 
+  /** One line per dial with how it ended and when each part finished, so a slow
+   *  route, ticket, or identity check is visible (T3 Code #22081). */
+  private logDialAttempt(outcome: DialAttemptOutcome, reason: string | null): void {
+    const timing = this.dialTiming
+    if (!timing) return
+    this.dialTiming = null
+    this.logConnection('connection attempt', {
+      outcome,
+      reason,
+      serverUrl: timing.serverUrl,
+      totalMs: Date.now() - timing.startedAt,
+      ticketMs: timing.ticketMs ?? null,
+      identityMs: timing.identityMs ?? null,
+      socketOpenMs: timing.socketOpenMs ?? null,
+    })
+  }
+
   /** Asks the connected socket to prove it is alive. Rejection is a report,
    *  not an action — the supervisor decides what a failed probe means. The
-   *  stale socket is hung up first so the supervisor's next dial is fresh. */
+   *  stale socket is hung up first so the supervisor's next dial is fresh.
+   *  A probe that is late while the socket still receives data is a busy host,
+   *  not a dead socket: the socket is kept (T3 Code #14518). */
   async probe(): Promise<void> {
     if (this.destroyed || this.blocked || this.wakeProbeInFlight) return
     if (!this.socket.connected) {
       throw new Error('socket is not connected')
     }
     this.wakeProbeInFlight = true
+    const startedAt = Date.now()
     try {
       await withTimeout(this.invoke(WAKE_PROBE_METHOD, []), WAKE_PROBE_TIMEOUT_MS)
     } catch (error) {
+      if (this.socket.connected && this.lastInboundAt >= startedAt) {
+        this.logConnection('wake probe late, socket still receiving', { waitedMs: Date.now() - startedAt })
+        return
+      }
       this.socket.disconnect()
       throw error
     } finally {
@@ -823,6 +883,7 @@ async function refreshSessionToken(serverUrl: string, sessionToken: string): Pro
     const res = await fetch(`${serverUrl}/auth/refresh`, {
       method: 'POST',
       headers: { authorization: `Bearer ${sessionToken}` },
+      signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     })
     if (res.status === 401) return { result: 'unauthorized' }
     if (!res.ok) return { result: 'unavailable' }

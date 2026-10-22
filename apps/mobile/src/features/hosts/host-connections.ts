@@ -4,6 +4,7 @@ import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import { HostFacts } from '@solus/client-core/host-facts'
 import { HostIntroducer, type IntroducerHost } from '@solus/client-core/host-introducer'
 import { awaitsManagedCompute, dialableRoutes, installationIdDecision, nextRouteUrl } from '@solus/client-core/server-registry'
+import { chooseRoute, directRouteBack, DIRECT_ROUTE_RECHECK_MS } from '@solus/client-core/route-choice'
 import { classifyVisibilityReturn, type WakeSignal } from '@solus/client-core/wake-signals'
 import type { ConnectionStatus, WsTransportOptions } from '@solus/client-core/ws-transport'
 import { Listeners } from '../../lib/listeners'
@@ -56,6 +57,8 @@ export class HostConnection {
   private readonly resetListeners = new Set<() => void>()
   private readonly acceptedListeners = new Set<() => void>()
   private readonly stopReset: () => void
+  /** While the host is reached through its tunnel: the timer that next checks its direct routes. */
+  directRecheck: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     readonly hostId: string,
@@ -136,7 +139,7 @@ export class HostConnections {
       organizationId: this.deps.organizationId,
     })
     const supervisor = new HostSupervisor({
-      transport,
+      transport: { start: () => this.dialBestRoute(host.id, transport), probe: () => transport.probe() },
       // Host facts reload on a fresh server session and clear on a lost one.
       onSessionChange: (change) => connection?.facts.sessionChanged(change),
       onPhaseChange: (phase, attempt) => {
@@ -147,6 +150,7 @@ export class HostConnections {
           blockedReason: supervisor.blockedReason,
           sessionGeneration: supervisor.sessionGeneration,
         }
+        this.scheduleDirectRecheck(connection)
         this.changes.notify()
       },
       setTimeoutFn: this.deps.setTimeoutFn,
@@ -227,13 +231,18 @@ export class HostConnections {
   }
 
   wake(signal: WakeSignal): void {
-    for (const connection of this.connections.values()) connection.supervisor.handleWakeSignal(signal)
+    for (const connection of this.connections.values()) {
+      connection.supervisor.handleWakeSignal(signal)
+      // A wake is often a network change: a host reached through its tunnel may be on this network now.
+      if (connection.state.phase === 'connected') void this.returnToDirectRoute(connection)
+    }
   }
 
   dispose(hostId: string): void {
     const connection = this.connections.get(hostId)
     this.idleStates.delete(hostId)
     if (!connection) return
+    this.clearDirectRecheck(connection)
     this.connections.delete(hostId)
     connection.dispose()
     this.changes.notify()
@@ -250,6 +259,61 @@ export class HostConnections {
       this.changes.notify()
     }
     return null
+  }
+
+  /** Each dial goes to the route that answers first as this host (`chooseRoute`):
+   *  a phone away from the host's network reaches the tunnel without waiting on a dead address. */
+  private dialBestRoute(hostId: string, transport: HostTransport): void {
+    const dialable = dialableRoutes(this.deps.registry.host(hostId)?.routes ?? [], '')
+    if (dialable.length < 2) {
+      transport.start()
+      return
+    }
+    void chooseRoute(dialable, (url, signal) => this.answersAsHost(hostId, url, signal), this.timers()).then((route) => {
+      if (this.connections.get(hostId)?.transport !== transport) return
+      if (route) transport.switchServerUrl(route.url)
+      transport.start()
+    })
+  }
+
+  /** Moves a host reached through its tunnel back to a direct route that answers, and dials it there. */
+  private async returnToDirectRoute(connection: HostConnection): Promise<void> {
+    const routes = dialableRoutes(this.deps.registry.host(connection.hostId)?.routes ?? [], '')
+    const route = await directRouteBack(routes, connection.transport.serverUrl, (url, signal) => this.answersAsHost(connection.hostId, url, signal), this.timers())
+    if (!route || this.connections.get(connection.hostId) !== connection || connection.state.phase !== 'connected') return
+    connection.transport.switchServerUrl(route.url)
+    connection.supervisor.dialNow()
+  }
+
+  /** While a host is connected through its tunnel, its direct routes are checked again now and then. */
+  private scheduleDirectRecheck(connection: HostConnection): void {
+    this.clearDirectRecheck(connection)
+    const routes = this.deps.registry.host(connection.hostId)?.routes ?? []
+    const current = routes.find((route) => route.url === connection.transport.serverUrl)
+    if (connection.state.phase !== 'connected' || current?.kind !== 'tunnel') return
+    connection.directRecheck = (this.deps.setTimeoutFn ?? setTimeout)(() => {
+      connection.directRecheck = null
+      void this.returnToDirectRoute(connection).finally(() => {
+        if (this.connections.get(connection.hostId) === connection) this.scheduleDirectRecheck(connection)
+      })
+    }, DIRECT_ROUTE_RECHECK_MS)
+  }
+
+  private clearDirectRecheck(connection: HostConnection): void {
+    if (connection.directRecheck) (this.deps.clearTimeoutFn ?? clearTimeout)(connection.directRecheck)
+    connection.directRecheck = null
+  }
+
+  private timers() {
+    return { setTimeoutFn: this.deps.setTimeoutFn, clearTimeoutFn: this.deps.clearTimeoutFn }
+  }
+
+  /** Whether `url` answers `/health` as this saved host. No credential is sent. */
+  private async answersAsHost(hostId: string, url: string, signal: AbortSignal): Promise<boolean> {
+    const host = this.deps.registry.host(hostId)
+    if (!host) return false
+    const result = await previewHost((input, init) => this.deps.fetch(input, { ...init, signal }), url)
+    return result.kind === 'found' && installationIdDecision(host.id, result.preview.installationId, host.uplink) === 'match'
   }
 
   /** A socket that answers must be the host we saved. Only a successful health

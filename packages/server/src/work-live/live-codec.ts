@@ -48,14 +48,12 @@ export function seedLiveDoc(type: LiveWorkType, content: string): Y.Doc {
 
 /**
  * The body the live doc holds, as stored: markdown for a document, JSON for a
- * diagram. It reads a copy, never the live doc: a conversion must not be able
- * to change what people share.
+ * diagram. Both readers only read the doc, so it is read in place: a copy
+ * cost as much as the conversion on a large document.
  */
 export function projectLiveDoc(type: LiveWorkType, live: Y.Doc): string {
-  const copy = new Y.Doc()
-  Y.applyUpdate(copy, Y.encodeStateAsUpdate(live))
-  if (type === 'diagram') return serializeDiagram(readDiagramFromY(copy))
-  return serializeDocumentMarkdown(yXmlFragmentToProseMirrorRootNode(copy.getXmlFragment(DOCUMENT_LIVE_FIELD), documentSchema()).toJSON())
+  if (type === 'diagram') return serializeDiagram(readDiagramFromY(live))
+  return serializeDocumentMarkdown(yXmlFragmentToProseMirrorRootNode(live.getXmlFragment(DOCUMENT_LIVE_FIELD), documentSchema()).toJSON())
 }
 
 /**

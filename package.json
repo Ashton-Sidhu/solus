@@ -87,7 +87,7 @@
     "prosemirror-model": "1.25.11",
     "qs": "6.16.0",
     "socket.io-parser": "4.2.7",
-    "react-native": "0.88.0-rc.3",
+    "react-native": "0.88.0",
     "react-native-screens": "file:deps/react-native-screens-5.0.0-t3.27.tgz",
     "react-native-worklets": "0.13.0"
   },
@@ -278,6 +278,7 @@
     "@legendapp/list@3.3.5": "patches/@legendapp__list@3.3.5.patch",
     "@react-native-menu/menu@2.0.0": "patches/@react-native-menu__menu@2.0.0.patch",
     "@react-navigation/native-stack@7.17.6": "patches/@react-navigation%2Fnative-stack@7.17.6.patch",
+    "expo-network@58.0.3": "patches/expo-network@58.0.3.patch",
     "react-native-gesture-handler@3.2.1": "patches/react-native-gesture-handler@3.2.1.patch",
     "react-native-keyboard-controller@1.22.7": "patches/react-native-keyboard-controller@1.22.7.patch"
   }

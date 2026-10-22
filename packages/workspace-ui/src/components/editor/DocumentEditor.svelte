@@ -52,6 +52,7 @@
   import WorkEmbedPicker from "./WorkEmbedPicker.svelte";
   import type { WorkEmbedChoice } from "./lib/work-embed";
   import { linkActivation } from "./lib/link-preview";
+  import { FileLinkExtension } from "./fileLinkExtension";
   import { requestFilePreview } from "../../lib/filePreview";
 
   interface Props {
@@ -136,7 +137,6 @@
   let emitTimer: ReturnType<typeof setTimeout> | null = null;
 
   let wrapperEl: HTMLDivElement | null = $state(null);
-  let editorDiv: HTMLDivElement | null = $state(null);
   let editorInstance: Editor | null = $state(null);
   let mode = $state<"rich" | "raw">("rich");
   let isFocused = $state(false);
@@ -186,333 +186,341 @@
   const slashFiltered = $derived(filterCommands(slashQuery, slashExtras));
   const slashMenuOpen = $derived(slashMenuIsOpen(slashActive, slashFiltered.length));
 
-  $effect(() => {
-    if (!editorDiv) return;
+  // The editor lives as long as its element: it is attached there, built once,
+  // and destroyed with it. An attachment runs in an effect, so building is
+  // untracked. Building runs other code synchronously — a live doc's caret
+  // sets awareness, and the doc sends it at once, reading its connection
+  // state. Tracked, those reads rebuilt the editor whenever awareness was sent:
+  // with Find open, every search moved the selection, sent awareness, and
+  // rebuilt the editor, which searched again.
+  function mountEditor(element: HTMLDivElement): () => void {
+    return untrack(() => {
+      const ph = placeholder;
+      const exts = extraExtensions;
+      const onChange = onValueChange;
+      const initialValue = value;
+      const initialEditable = !readOnly;
+      const dragEnabled = dragHandle;
+      const blocks = documentBlocks;
 
-    const ph = untrack(() => placeholder);
-    const exts = untrack(() => extraExtensions);
-    const onChange = untrack(() => onValueChange);
-    const initialValue = untrack(() => value);
-    const initialEditable = untrack(() => !readOnly);
-    const dragEnabled = untrack(() => dragHandle);
-    const blocks = untrack(() => documentBlocks);
-
-    const editor = new Editor({
-      element: editorDiv,
-      extensions: [
-        ...editorSchemaExtensions(assetImageResolver(imageContext), blocks),
-        // A live doc takes Collaboration's undo, which reverses only the
-        // reader's own edits; the local history would undo a teammate's.
-        ...(liveBinding
-          ? [
-              Collaboration.configure({ document: liveBinding.live.doc, field: DOCUMENT_LIVE_FIELD }),
-              CollaborationCaret.configure({ provider: { awareness: liveBinding.live.awareness }, user: liveBinding.user }),
-            ]
-          : [UndoRedo.configure({ depth: 100 })]),
-        // Drop indicator shown while dragging a block — accent-tinted, thicker
-        // and rounded (styled via .solus-dropcursor) so the landing spot reads
-        // clearly instead of the default 1px black line.
-        Dropcursor.configure({
-          width: 2,
-          color: "var(--solus-accent)",
-          class: "solus-dropcursor",
-        }),
-        Markdown.configure({ marked: createMarkdownParser() }),
-        // Whole-doc placeholder when empty, otherwise a "/" command hint on the
-        // current empty line so the slash menu is discoverable.
-        Placeholder.configure({
-          includeChildren: false,
-          placeholder: ({ editor: e, node }) => {
-            if (e.isEmpty) return ph;
-            return node.type.name === "paragraph"
-              ? "Type ‘/’ for commands…"
-              : "";
+      const editor = new Editor({
+        element,
+        extensions: [
+          ...editorSchemaExtensions(assetImageResolver(imageContext), blocks),
+          // A live doc takes Collaboration's undo, which reverses only the
+          // reader's own edits; the local history would undo a teammate's.
+          ...(liveBinding
+            ? [
+                Collaboration.configure({ document: liveBinding.live.doc, field: DOCUMENT_LIVE_FIELD }),
+                CollaborationCaret.configure({ provider: { awareness: liveBinding.live.awareness }, user: liveBinding.user }),
+              ]
+            : [UndoRedo.configure({ depth: 100 })]),
+          // Drop indicator shown while dragging a block — accent-tinted, thicker
+          // and rounded (styled via .solus-dropcursor) so the landing spot reads
+          // clearly instead of the default 1px black line.
+          Dropcursor.configure({
+            width: 2,
+            color: "var(--solus-accent)",
+            class: "solus-dropcursor",
+          }),
+          Markdown.configure({ marked: createMarkdownParser() }),
+          FileLinkExtension,
+          // Whole-doc placeholder when empty, otherwise a "/" command hint on the
+          // current empty line so the slash menu is discoverable.
+          Placeholder.configure({
+            includeChildren: false,
+            placeholder: ({ editor: e, node }) => {
+              if (e.isEmpty) return ph;
+              return node.type.name === "paragraph"
+                ? "Type ‘/’ for commands…"
+                : "";
+            },
+          }),
+          // Smart quotes disabled — they surprise people writing technical prose
+          // (paths, code-ish snippets, JSON). Dashes/ellipsis/arrows stay on.
+          Typography.configure({
+            openDoubleQuote: false,
+            closeDoubleQuote: false,
+            openSingleQuote: false,
+            closeSingleQuote: false,
+          }),
+          CellFocus,
+          TableFlow,
+          SlashCommandExtension,
+          SearchExtension,
+          // Hover-to-grab block drag handle. Defaults render a `.drag-handle`
+          // element (styled below) positioned in the left gutter; dragging sets a
+          // NodeRangeSelection over the hovered block, so whole nodes (including
+          // tables) move correctly through ProseMirror's native drop handling.
+          ...(dragEnabled ? [DragHandle] : []),
+          Extension.create({
+            name: "customShortcuts",
+            addKeyboardShortcuts() {
+              return {
+                "Alt-Shift-s": () =>
+                  this.editor.chain().focus().toggleStrike().run(),
+                "Alt-Shift-k": () => {
+                  openLinkPopover();
+                  return true;
+                },
+              };
+            },
+          }),
+          ...exts,
+        ],
+        // A live editor takes its content from the shared doc.
+        content: liveBinding ? undefined : initialValue || "",
+        contentType: "markdown",
+        editable: initialEditable,
+        // Read-only text still needs focus for selection-based comments and copy.
+        coreExtensionOptions: { tabindex: { value: "0" } },
+        editorProps: {
+          handleDOMEvents: {
+            // `handleClickOn` runs on mouseup. The click after it would still
+            // follow the link in a read-only document and leave the workspace.
+            click: (_view, event) => {
+              if (event.target instanceof Element && event.target.closest("a[href]")) event.preventDefault();
+              return false;
+            },
           },
-        }),
-        // Smart quotes disabled — they surprise people writing technical prose
-        // (paths, code-ish snippets, JSON). Dashes/ellipsis/arrows stay on.
-        Typography.configure({
-          openDoubleQuote: false,
-          closeDoubleQuote: false,
-          openSingleQuote: false,
-          closeSingleQuote: false,
-        }),
-        CellFocus,
-        TableFlow,
-        SlashCommandExtension,
-        SearchExtension,
-        // Hover-to-grab block drag handle. Defaults render a `.drag-handle`
-        // element (styled below) positioned in the left gutter; dragging sets a
-        // NodeRangeSelection over the hovered block, so whole nodes (including
-        // tables) move correctly through ProseMirror's native drop handling.
-        ...(dragEnabled ? [DragHandle] : []),
-        Extension.create({
-          name: "customShortcuts",
-          addKeyboardShortcuts() {
-            return {
-              "Alt-Shift-s": () =>
-                this.editor.chain().focus().toggleStrike().run(),
-              "Alt-Shift-k": () => {
-                openLinkPopover();
-                return true;
-              },
-            };
-          },
-        }),
-        ...exts,
-      ],
-      // A live editor takes its content from the shared doc.
-      content: liveBinding ? undefined : initialValue || "",
-      contentType: "markdown",
-      editable: initialEditable,
-      // Read-only text still needs focus for selection-based comments and copy.
-      coreExtensionOptions: { tabindex: { value: "0" } },
-      editorProps: {
-        handleDOMEvents: {
-          // `handleClickOn` runs on mouseup. The click after it would still
-          // follow the link in a read-only document and leave the workspace.
-          click: (_view, event) => {
-            if (event.target instanceof Element && event.target.closest("a[href]")) event.preventDefault();
+          handlePaste: (view, event) => {
+            // 1) Files → store images inline and other attachments as links.
+            const files = attachmentFilesFromDataTransfer(event.clipboardData);
+            if (files.length > 0) {
+              void insertAssetFiles(files);
+              return true;
+            }
+            // 2) A bare URL pasted over a non-empty selection → wrap as a link.
+            const text = event.clipboardData?.getData("text/plain")?.trim();
+            if (text && URL_RE.test(text) && !view.state.selection.empty) {
+              editor.chain().focus().setLink({ href: text }).run();
+              return true;
+            }
+            // 3) Plain-text paste → parse as markdown (smart paste). When the
+            //    clipboard also carries text/html, keep ProseMirror's rich-HTML
+            //    paste path instead.
+            const raw = event.clipboardData?.getData("text/plain");
+            const html = event.clipboardData?.getData("text/html");
+            if (raw && !html) {
+              editor.commands.insertContent(raw, { contentType: "markdown" });
+              return true;
+            }
             return false;
           },
-        },
-        handlePaste: (view, event) => {
-          // 1) Files → store images inline and other attachments as links.
-          const files = attachmentFilesFromDataTransfer(event.clipboardData);
-          if (files.length > 0) {
-            void insertAssetFiles(files);
-            return true;
-          }
-          // 2) A bare URL pasted over a non-empty selection → wrap as a link.
-          const text = event.clipboardData?.getData("text/plain")?.trim();
-          if (text && URL_RE.test(text) && !view.state.selection.empty) {
-            editor.chain().focus().setLink({ href: text }).run();
-            return true;
-          }
-          // 3) Plain-text paste → parse as markdown (smart paste). When the
-          //    clipboard also carries text/html, keep ProseMirror's rich-HTML
-          //    paste path instead.
-          const raw = event.clipboardData?.getData("text/plain");
-          const html = event.clipboardData?.getData("text/html");
-          if (raw && !html) {
-            editor.commands.insertContent(raw, { contentType: "markdown" });
-            return true;
-          }
-          return false;
-        },
-        handleDrop: (view, event) => {
-          const files = attachmentFilesFromDataTransfer(event.dataTransfer);
-          if (files.length > 0) {
-            const coords = view.posAtCoords({
-              left: event.clientX,
-              top: event.clientY,
-            });
-            event.preventDefault();
-            void insertAssetFiles(files, coords?.pos);
-            return true;
-          }
-          return false;
-        },
-        handleKeyDown: (_view, event) => {
-          // Let an autocomplete host intercept first (e.g. Enter to accept a
-          // reference). It returns true when a menu consumed the key.
-          return onKeyDown?.(event) ?? false;
-        },
-        handleClickOn: (_view, pos, node, _nodePos, event) => {
-          // Inline reference tokens open their target on plain click.
-          if (node.type.name === "planReference") {
-            event.preventDefault();
-            onPlanRefClick?.(node.attrs.planId);
-            return true;
-          }
-          if (node.type.name === "workReference") {
-            event.preventDefault();
-            onWorkRefClick?.(node.attrs.workId, node.attrs.title);
-            return true;
-          }
-          if (node.type.name === "prReference") {
-            event.preventDefault();
-            onPrRefClick?.(node.attrs.number, node.attrs.title);
-            return true;
-          }
-          if (node.type.name === "fileReference") {
-            event.preventDefault();
-            openFile(node.attrs.path);
-            return true;
-          }
-          const anchor = event.target instanceof Element
-            ? event.target.closest<HTMLAnchorElement>("a[href]")
-            : null;
-          if (!anchor) return false;
+          handleDrop: (view, event) => {
+            const files = attachmentFilesFromDataTransfer(event.dataTransfer);
+            if (files.length > 0) {
+              const coords = view.posAtCoords({
+                left: event.clientX,
+                top: event.clientY,
+              });
+              event.preventDefault();
+              void insertAssetFiles(files, coords?.pos);
+              return true;
+            }
+            return false;
+          },
+          handleKeyDown: (_view, event) => {
+            // Let an autocomplete host intercept first (e.g. Enter to accept a
+            // reference). It returns true when a menu consumed the key.
+            return onKeyDown?.(event) ?? false;
+          },
+          handleClickOn: (_view, pos, node, _nodePos, event) => {
+            // Inline reference tokens open their target on plain click.
+            if (node.type.name === "planReference") {
+              event.preventDefault();
+              onPlanRefClick?.(node.attrs.planId);
+              return true;
+            }
+            if (node.type.name === "workReference") {
+              event.preventDefault();
+              onWorkRefClick?.(node.attrs.workId, node.attrs.title);
+              return true;
+            }
+            if (node.type.name === "prReference") {
+              event.preventDefault();
+              onPrRefClick?.(node.attrs.number, node.attrs.title);
+              return true;
+            }
+            if (node.type.name === "fileReference") {
+              event.preventDefault();
+              openFile(node.attrs.path);
+              return true;
+            }
+            const anchor = event.target instanceof Element
+              ? event.target.closest<HTMLAnchorElement>("a[href]")
+              : null;
+            if (!anchor) return false;
 
-          event.preventDefault();
-          const href = anchor.getAttribute("href");
-          if (!href) return false;
-          const activation = linkActivation(href, event);
-          if (activation.kind === "file") {
-            openFile(activation.path, activation.line);
-            return true;
-          }
-          if (activation.kind === "open") {
-            void localApi.openExternal(href);
-            return true;
-          }
+            event.preventDefault();
+            const href = anchor.getAttribute("href");
+            if (!href) return false;
+            const activation = linkActivation(href, event);
+            if (activation.kind === "file") {
+              openFile(activation.path, activation.line);
+              return true;
+            }
+            if (activation.kind === "open") {
+              void localApi.openExternal(href);
+              return true;
+            }
 
-          const rect = anchor.getBoundingClientRect();
-          linkPreview = {
-            coords: { left: rect.left, top: rect.top, bottom: rect.bottom },
-            href,
-            pos,
-          };
-          return true;
-        },
-      },
-    });
-
-    editor.on("transaction", () => {
-      const isEditable = editor.isEditable;
-      const selEmpty = editor.state.selection.empty;
-      const isCode = editor.isActive("codeBlock");
-
-      let newSlash: {
-        query: string;
-        from: number;
-        to: number;
-        coords: { left: number; top: number; bottom: number };
-      } | null = null;
-
-      if (isEditable && selEmpty && !isCode) {
-        const head = editor.state.selection.$head;
-        const blockText = head.parent.textBetween(
-          0,
-          head.parentOffset,
-          undefined,
-          "￼",
-        );
-        // Fast bail (P3): skip the regex + coordsAtPos unless a slash precedes
-        // the cursor in this block. Trigger at line start OR after whitespace
-        // so the menu works mid-line, not just at the very start of a block.
-        if (blockText.includes("/")) {
-          const match = blockText.match(/(?:^|\s)\/([a-zA-Z0-9]*)$/);
-          if (match) {
-            const leadingWs = match[0].length - match[0].replace(/^\s+/, "").length;
-            const slashOffset = (match.index ?? 0) + leadingWs;
-            const from = head.start() + slashOffset;
-            const to = head.pos;
-            const c = editor.view.coordsAtPos(from);
-            newSlash = {
-              query: match[1],
-              from,
-              to,
-              coords: { left: c.left, top: c.top, bottom: c.bottom },
+            const rect = anchor.getBoundingClientRect();
+            linkPreview = {
+              coords: { left: rect.left, top: rect.top, bottom: rect.bottom },
+              href,
+              pos,
             };
+            return true;
+          },
+        },
+      });
+
+      editor.on("transaction", () => {
+        const isEditable = editor.isEditable;
+        const selEmpty = editor.state.selection.empty;
+        const isCode = editor.isActive("codeBlock");
+
+        let newSlash: {
+          query: string;
+          from: number;
+          to: number;
+          coords: { left: number; top: number; bottom: number };
+        } | null = null;
+
+        if (isEditable && selEmpty && !isCode) {
+          const head = editor.state.selection.$head;
+          const blockText = head.parent.textBetween(
+            0,
+            head.parentOffset,
+            undefined,
+            "￼",
+          );
+          // Fast bail (P3): skip the regex + coordsAtPos unless a slash precedes
+          // the cursor in this block. Trigger at line start OR after whitespace
+          // so the menu works mid-line, not just at the very start of a block.
+          if (blockText.includes("/")) {
+            const match = blockText.match(/(?:^|\s)\/([a-zA-Z0-9]*)$/);
+            if (match) {
+              const leadingWs = match[0].length - match[0].replace(/^\s+/, "").length;
+              const slashOffset = (match.index ?? 0) + leadingWs;
+              const from = head.start() + slashOffset;
+              const to = head.pos;
+              const c = editor.view.coordsAtPos(from);
+              newSlash = {
+                query: match[1],
+                from,
+                to,
+                coords: { left: c.left, top: c.top, bottom: c.bottom },
+              };
+            }
           }
         }
+
+        queueMicrotask(() => {
+          if (!isEditable || !selEmpty || isCode) {
+            if (slashActive) slashActive = false;
+            return;
+          }
+
+          if (newSlash) {
+            const { query: newQuery, from, to, coords } = newSlash;
+            if (newQuery !== slashQuery) {
+              slashDismissed = false;
+              slashIndex = 0;
+            }
+            if (!slashDismissed) {
+              slashFrom = from;
+              slashTo = to;
+              slashQuery = newQuery;
+              slashActive = true;
+              slashCoords = coords;
+            }
+          } else {
+            if (slashActive) slashActive = false;
+            slashDismissed = false;
+          }
+        });
+      });
+      // P1: don't serialize the whole doc to markdown on every keystroke. Fire a
+      // cheap synchronous signal so the host can mark itself dirty immediately,
+      // and debounce the (expensive) markdown serialization off the hot path.
+      editor.on("update", () => scheduleEmit(onChange));
+      editor.on("focus", () => announceFocus(true));
+      editor.on("blur", () => announceFocus(false));
+
+      // Every handler gates on the *menu*, not on the "/" token: a token that
+      // matches nothing renders no menu, so Enter must still break the line.
+      editor.storage.slashCommand.onArrowDown = () => {
+        if (!slashMenuOpen) return false;
+        slashIndex = (slashIndex + 1) % slashFiltered.length;
+        return true;
+      };
+      editor.storage.slashCommand.onArrowUp = () => {
+        if (!slashMenuOpen) return false;
+        const len = slashFiltered.length;
+        slashIndex = (slashIndex - 1 + len) % len;
+        return true;
+      };
+      editor.storage.slashCommand.onEnter = () => {
+        if (!slashMenuOpen) return false;
+        const filtered = slashFiltered;
+        if (slashIndex < filtered.length) handleSlashSelect(filtered[slashIndex]);
+        return true;
+      };
+      editor.storage.slashCommand.onEscape = () => {
+        if (!slashMenuOpen) return false;
+        slashActive = false;
+        slashDismissed = true;
+        return true;
+      };
+
+      editorInstance = editor;
+      onEditorReady?.(editor);
+      const stopLiveTableResize = installLiveTableResize(editor);
+
+      // The drag-handle extension hands the browser a snapshot of the dragged
+      // node as the drag image — Chromium paints it on a solid white card, and
+      // the source block stays highlighted (node selection / text wash). Both
+      // read as heavy. We swap in an empty off-screen element as the drag image
+      // (our document-level listener runs after the extension's element-level
+      // one, so our setDragImage wins) and flag the editor `is-dragging` so the
+      // selection wash is muted. Moving a block then shows only the accent drop
+      // line gliding to its landing spot. Skipped when the handle is disabled.
+      let dragGhost: HTMLDivElement | null = null;
+      let onDocDragStart: ((e: DragEvent) => void) | null = null;
+      let onDocDragEnd: (() => void) | null = null;
+      if (dragEnabled) {
+        const ghost = document.createElement("div");
+        ghost.style.cssText =
+          "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;";
+        document.body.appendChild(ghost);
+        dragGhost = ghost;
+        onDocDragStart = (e: DragEvent) => {
+          if (!(e.target instanceof Element) || !e.target.closest(".drag-handle")) return;
+          e.dataTransfer?.setDragImage(ghost, 0, 0);
+          element.classList.add("is-dragging");
+        };
+        onDocDragEnd = () => {
+          element.classList.remove("is-dragging");
+        };
+        document.addEventListener("dragstart", onDocDragStart);
+        document.addEventListener("dragend", onDocDragEnd);
       }
 
-      queueMicrotask(() => {
-        if (!isEditable || !selEmpty || isCode) {
-          if (slashActive) slashActive = false;
-          return;
-        }
-
-        if (newSlash) {
-          const { query: newQuery, from, to, coords } = newSlash;
-          if (newQuery !== slashQuery) {
-            slashDismissed = false;
-            slashIndex = 0;
-          }
-          if (!slashDismissed) {
-            slashFrom = from;
-            slashTo = to;
-            slashQuery = newQuery;
-            slashActive = true;
-            slashCoords = coords;
-          }
-        } else {
-          if (slashActive) slashActive = false;
-          slashDismissed = false;
-        }
-      });
+      return () => {
+        if (emitTimer) clearTimeout(emitTimer);
+        emitTimer = null;
+        if (onDocDragStart)
+          document.removeEventListener("dragstart", onDocDragStart);
+        if (onDocDragEnd) document.removeEventListener("dragend", onDocDragEnd);
+        dragGhost?.remove();
+        stopLiveTableResize();
+        editor.destroy();
+        editorInstance = null;
+      };
     });
-    // P1: don't serialize the whole doc to markdown on every keystroke. Fire a
-    // cheap synchronous signal so the host can mark itself dirty immediately,
-    // and debounce the (expensive) markdown serialization off the hot path.
-    editor.on("update", () => scheduleEmit(onChange));
-    editor.on("focus", () => announceFocus(true));
-    editor.on("blur", () => announceFocus(false));
-
-    // Every handler gates on the *menu*, not on the "/" token: a token that
-    // matches nothing renders no menu, so Enter must still break the line.
-    editor.storage.slashCommand.onArrowDown = () => {
-      if (!slashMenuOpen) return false;
-      slashIndex = (slashIndex + 1) % slashFiltered.length;
-      return true;
-    };
-    editor.storage.slashCommand.onArrowUp = () => {
-      if (!slashMenuOpen) return false;
-      const len = slashFiltered.length;
-      slashIndex = (slashIndex - 1 + len) % len;
-      return true;
-    };
-    editor.storage.slashCommand.onEnter = () => {
-      if (!slashMenuOpen) return false;
-      const filtered = slashFiltered;
-      if (slashIndex < filtered.length) handleSlashSelect(filtered[slashIndex]);
-      return true;
-    };
-    editor.storage.slashCommand.onEscape = () => {
-      if (!slashMenuOpen) return false;
-      slashActive = false;
-      slashDismissed = true;
-      return true;
-    };
-
-    editorInstance = editor;
-    untrack(() => onEditorReady?.(editor));
-    const stopLiveTableResize = installLiveTableResize(editor);
-
-    // The drag-handle extension hands the browser a snapshot of the dragged
-    // node as the drag image — Chromium paints it on a solid white card, and
-    // the source block stays highlighted (node selection / text wash). Both
-    // read as heavy. We swap in an empty off-screen element as the drag image
-    // (our document-level listener runs after the extension's element-level
-    // one, so our setDragImage wins) and flag the editor `is-dragging` so the
-    // selection wash is muted. Moving a block then shows only the accent drop
-    // line gliding to its landing spot. Skipped when the handle is disabled.
-    let dragGhost: HTMLDivElement | null = null;
-    let onDocDragStart: ((e: DragEvent) => void) | null = null;
-    let onDocDragEnd: (() => void) | null = null;
-    if (dragEnabled) {
-      const ghost = document.createElement("div");
-      ghost.style.cssText =
-        "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;";
-      document.body.appendChild(ghost);
-      dragGhost = ghost;
-      onDocDragStart = (e: DragEvent) => {
-        if (!(e.target instanceof Element) || !e.target.closest(".drag-handle")) return;
-        e.dataTransfer?.setDragImage(ghost, 0, 0);
-        editorDiv?.classList.add("is-dragging");
-      };
-      onDocDragEnd = () => {
-        editorDiv?.classList.remove("is-dragging");
-      };
-      document.addEventListener("dragstart", onDocDragStart);
-      document.addEventListener("dragend", onDocDragEnd);
-    }
-
-    return () => {
-      if (emitTimer) clearTimeout(emitTimer);
-      emitTimer = null;
-      if (onDocDragStart)
-        document.removeEventListener("dragstart", onDocDragStart);
-      if (onDocDragEnd) document.removeEventListener("dragend", onDocDragEnd);
-      dragGhost?.remove();
-      stopLiveTableResize();
-      editor.destroy();
-      editorInstance = null;
-    };
-  });
+  }
 
   async function insertAssetFiles(files: File[], pos?: number) {
     if (!editorInstance) return;
@@ -830,7 +838,7 @@
     <ContentSkeleton label="Loading editor" />
   {/if}
   <div
-    bind:this={editorDiv}
+    {@attach mountEditor}
     class="solus-doc-editor"
     class:doc-mode-hidden={mode === "raw"}
   ></div>

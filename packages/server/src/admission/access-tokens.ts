@@ -58,8 +58,11 @@ export interface AccessTokenVerifierOptions {
 
 /** Do not refetch JWKS for unknown kids more often than this. */
 export const JWKS_REFRESH_MIN_INTERVAL_MS = 60_000
-/** Allowed clock skew for `iat`. */
-const IAT_SKEW_MS = 60_000
+/**
+ * How far behind the account plane's clock this host's may be: a token's `iat` may be
+ * this far ahead. `exp` gets no leeway: expiry is how removal reaches a host.
+ */
+const IAT_SKEW_MS = 120_000
 /** The longest life a token may state: eight hours, and a little for a provider's rounding. */
 const MAX_TOKEN_LIFE_SECONDS = ACCESS_TOKEN_TTL_SECONDS + 60
 /** The longest life of a host-reach token: eight hours, and the same margin. */

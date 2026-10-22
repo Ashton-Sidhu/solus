@@ -17,7 +17,7 @@ Where it lives:
   `authorize(principal, action, resource)`, the one decision, and
   `RESOURCE_LOCATORS` (where a resource id sits in a call). The RPC gate
   `assertRpcAccess` and the Solus API's `requireResource`
-  (`data/workspace/context.ts`) both call `authorize`. `admission/scope.ts` —
+  (`data/workspace/context.ts`) both call `authorize`. `data/sessions/guest-path-scope.ts` —
   the bound on a guest's permissions.
 - Clients: `Host.me` (`contexts/hosts/host-standing.svelte.ts`) answers
   `may(permission)` and `may(verb, resource)`; the resource verb reads the

@@ -12,6 +12,7 @@ import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { RunLocation, Session } from '@solus/contracts/types'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
+import { startHostStallToasts } from '../connections/host-stall-toasts'
 
 /** Ignore expected connection gaps while still surfacing unrelated read failures. */
 export function logConnectionReadError(operation: string, error: Parameters<typeof String>[0]): void {
@@ -103,12 +104,16 @@ export function initializeRuntime(
     reconcileGoneMachines(session)
   })
 
+  // A host that dropped because it froze says so when it comes back.
+  const stopStallToasts = startHostStallToasts()
+
   // Hosts skip watch-fired freshness work while no client is foregrounded.
   startActivityLeaseHeartbeat()
   return () => {
     stopDirectory()
     stopConnections()
     stopPhases()
+    stopStallToasts()
   }
 }
 

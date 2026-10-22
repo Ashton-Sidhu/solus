@@ -388,6 +388,13 @@ function createMainWindow(): BrowserWindow {
   const mainContents = mainWindow.webContents
   mainContents.once('dom-ready', () => markStartup('renderer.domReady'))
   mainContents.once('did-finish-load', () => markStartup('renderer.didFinishLoad'))
+  // A renderer that dies or hangs leaves nothing in its own console, so the
+  // reason is written here, where it survives the restart.
+  mainContents.on('render-process-gone', (_event, details) => {
+    log.error('renderer_process_gone', { reason: details.reason, exitCode: details.exitCode })
+  })
+  mainWindow.on('unresponsive', () => log.warn('renderer_unresponsive'))
+  mainWindow.on('responsive', () => log.info('renderer_responsive'))
 
   const reloadMain = (): void => {
     if (mainContents.isDestroyed()) return

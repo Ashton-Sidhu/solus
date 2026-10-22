@@ -34,12 +34,15 @@ export function ConfirmDialogHost() {
   const [presented, setPresented] = useState<DialogRequest | null>(null);
   const [inputValue, setInputValue] = useState("");
   useEffect(() => {
-    presentRequest = (request) => {
+    const present = (request: DialogRequest) => {
       setInputValue(request.kind === "text-input" ? request.request.initialValue : "");
       setPresented(request);
     };
+    presentRequest = present;
     return () => {
-      presentRequest = null;
+      // When Android replaces the activity, the new root's host registers before the old root
+      // unmounts. Clearing unconditionally would leave the live host without dialogs.
+      if (presentRequest === present) presentRequest = null;
     };
   }, []);
 

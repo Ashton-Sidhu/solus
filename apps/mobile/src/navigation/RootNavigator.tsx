@@ -118,6 +118,10 @@ export const SHEET_GLASS_HEADER_OPTIONS: AppScreenOptions = {
   unstable_navigationItemStyle: undefined,
 }
 
+/** A pull request form sheet: the native glass header on iOS, the sheet's own header on Android. */
+const PULL_REQUEST_SHEET_HEADER_OPTIONS: AppScreenOptions =
+  Platform.OS === 'ios' ? SHEET_GLASS_HEADER_OPTIONS : { headerShown: false }
+
 /** Settings and the new-task flow, which T3 presents as sheets. */
 const SHEET_ROUTES = new Set<keyof RootStackParamList>(['Settings', 'NewTask'])
 
@@ -314,29 +318,30 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           </Stack.Group>
           <Stack.Screen name="PullRequest" component={PullRequestScreen} options={{ title: 'Pull request' }} />
           <Stack.Screen name="PullRequestFiles" component={PullRequestFilesScreen} options={{ title: 'Changed files' }} />
-          {/* T3 Code's pull request sheets (Stack.tsx): the review and the line comment are form sheets without a header. */}
+          {/* T3 Code's pull request sheets (Stack.tsx, #22390): form sheets with the native glass
+              header on iOS (PullRequestSheetContent fills it); Android draws its own header. */}
           <Stack.Screen
             name="PullRequestReview"
             component={PullRequestReviewSheet}
-            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+            options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="PullRequestAsk"
             component={PullRequestAskScreen}
-            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+            options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="PullRequestInlineComment"
             component={PullRequestInlineCommentScreen}
             options={Platform.OS === 'android'
               ? { presentation: 'fullScreenModal', headerShown: false }
-              : { ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+              : { ...SHEET_GLASS_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
           />
           <Stack.Screen name="PullRequestDiscussion" component={PullRequestDiscussionScreen} options={{ ...SOLID_HEADER_OPTIONS, title: 'Discussion' }} />
           <Stack.Screen
             name="PullRequestReviewers"
             component={PullRequestReviewersScreen}
-            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Request review', headerBackVisible: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Request review', headerBackVisible: false, headerShown: Platform.OS !== 'android', sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
           />
           <Stack.Screen
             name="PullRequestLabels"

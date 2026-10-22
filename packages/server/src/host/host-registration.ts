@@ -52,6 +52,10 @@ const log = createLogger('main', 'host-registration')
 
 const REGISTRATION_FILE = 'host-registration.json'
 const REQUEST_TIMEOUT_MS = 10_000
+/** A boot check Solus cloud did not answer is asked again after this, then after twice the wait each time. */
+const RESUME_RETRY_FIRST_MS = 30_000
+/** The longest wait between two boot checks: Solus cloud is never asked more often than this once the waits have grown. */
+const RESUME_RETRY_MAX_MS = 10 * 60_000
 
 const persistedRegistrationSchema = z.object({
   version: z.literal(1),
@@ -79,6 +83,21 @@ export interface HostRegistrarDeps {
   /** A provisioned machine (managed-hosts.md §2): the registration the control plane put in the environment; null on a machine a person registers. */
   provisionedLink?: () => HostLinkEnv | null
   fetchImpl?: FetchLike
+  /** Runs `run` after `delayMs` and answers how to cancel it; a test drives the boot retries with its own. */
+  schedule?: (run: () => Promise<void>, delayMs: number) => () => void
+}
+
+/** What one boot check found: Solus cloud's answer, and whether it could not be asked, so the check is tried again. */
+interface ResumeAttempt {
+  remote: HostLinkResponse | null
+  isUnanswered: boolean
+}
+
+/** A real timer that does not keep the process alive. */
+function scheduleTimer(run: () => Promise<void>, delayMs: number): () => void {
+  const timer = setTimeout(() => { void run() }, delayMs)
+  timer.unref?.()
+  return () => clearTimeout(timer)
 }
 
 export class HostRegistrationError extends Error {
@@ -93,6 +112,9 @@ export class HostRegistrar {
   private persisted: PersistedRegistration | null
   private heldCredential: { key: string; credential: HostCredential } | null = null
   private registering: Promise<HostRegistrationStatus> | null = null
+  /** Cancels the boot check that waits to be tried again; null while none waits. */
+  private cancelResumeRetry: (() => void) | null = null
+  private isResumeStopped = false
 
   constructor(private readonly deps: HostRegistrarDeps) {
     this.persisted = readPersistedRegistration()
@@ -269,15 +291,70 @@ export class HostRegistrar {
    * cloud said about the host, so the link can follow it; null when it could not ask.
    */
   async resume(): Promise<HostLinkResponse | null> {
+    return (await this.attemptResume()).remote
+  }
+
+  /**
+   * Boot: `resume`, and `follow` gets the answer at once. When Solus cloud could not be
+   * asked (no network yet, or a clock not yet set), `follow` gets null with
+   * `isRetrying`, and the check is tried again after 30 s, then after twice the wait
+   * each time up to 10 minutes, until Solus cloud answers or refuses the registration;
+   * `follow` then gets that answer. `stopResuming` ends the retries.
+   */
+  async resumeUntilAnswered(follow: (remote: HostLinkResponse | null, isRetrying: boolean) => Promise<void>): Promise<void> {
+    const attempt = await this.attemptResume()
+    const isRetrying = attempt.isUnanswered && !this.isResumeStopped
+    if (isRetrying) this.scheduleResumeRetry(follow, RESUME_RETRY_FIRST_MS)
+    await follow(attempt.remote, isRetrying)
+  }
+
+  /** Shutdown: a boot check that waits to be tried again is not. */
+  stopResuming(): void {
+    this.isResumeStopped = true
+    this.cancelResumeRetry?.()
+    this.cancelResumeRetry = null
+  }
+
+  private scheduleResumeRetry(follow: (remote: HostLinkResponse | null, isRetrying: boolean) => Promise<void>, delayMs: number): void {
+    log.info('host_registration_resume_retry_scheduled', { hostId: this.current()?.hostId ?? null, delayMs })
+    const schedule = this.deps.schedule ?? scheduleTimer
+    this.cancelResumeRetry = schedule(() => {
+      this.cancelResumeRetry = null
+      return this.retryResume(follow, delayMs)
+    }, delayMs)
+  }
+
+  private async retryResume(follow: (remote: HostLinkResponse | null, isRetrying: boolean) => Promise<void>, lastDelayMs: number): Promise<void> {
+    const attempt = await this.attemptResume()
+    if (this.isResumeStopped) return
+    if (attempt.isUnanswered) {
+      // Only an answer is followed: the link already runs from what it stored.
+      this.scheduleResumeRetry(follow, Math.min(lastDelayMs * 2, RESUME_RETRY_MAX_MS))
+      return
+    }
+    log.info('host_registration_resume_answered', { hostId: this.current()?.hostId ?? null, registered: this.current() !== null })
+    try {
+      await follow(attempt.remote, false)
+    } catch (error) {
+      log.warn('host_registration_resume_follow_failed', { error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  /**
+   * One boot check. It is unanswered when Solus cloud could not be asked and the host
+   * still holds its registration: a refusal forgets the registration, and that lasts.
+   */
+  private async attemptResume(): Promise<ResumeAttempt> {
     try {
       const env = this.deps.provisionedLink?.()
       if (env && (!this.persisted || env.registration.generation > this.persisted.registration.generation)) {
         await this.adoptProvisioned(env)
       }
-      return await this.check()
+      const remote = await this.check()
+      return { remote, isUnanswered: remote === null && this.credential() !== null }
     } catch (error) {
       log.warn('host_registration_resume_failed', { error: error instanceof Error ? error.message : String(error) })
-      return null
+      return { remote: null, isUnanswered: error instanceof HostRegistrationError && error.code === 'control-plane-unreachable' }
     }
   }
 
@@ -334,6 +411,9 @@ export class HostRegistrar {
       headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify(body),
     })
+    if (response.status >= 500) {
+      throw new HostRegistrationError('control-plane-unreachable', `Solus cloud could not take this machine's key (${response.status}).`)
+    }
     if (!response.ok) {
       log.warn('provisioned_credential_refused', { hostId: registration.hostId, status: response.status })
       throw new HostRegistrationError('register-rejected', `Solus cloud refused this machine's key (${response.status}).`)

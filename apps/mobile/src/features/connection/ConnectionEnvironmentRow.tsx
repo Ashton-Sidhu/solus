@@ -16,6 +16,7 @@ import {
   hostDisplayAddress,
   hostMachineKind,
 } from "./lib/host-connection-status";
+import { hostStallLine } from "./lib/host-stall-line";
 
 /**
  * One saved host. Solus hosts have no on/off switch and no editable label or
@@ -33,6 +34,9 @@ export function ConnectionEnvironmentRow(props: {
   const app = useApp();
   const state = useListened(app.connections.changes, () => app.connections.state(props.host.id));
   const status = hostConnectionStatus(props.host, state);
+  const stallLine = useListened(app.connections.changes, () =>
+    hostStallLine(app.connections, props.host),
+  );
   const address = props.host.uplink ? null : hostDisplayAddress(props.host);
 
   return (
@@ -40,7 +44,7 @@ export function ConnectionEnvironmentRow(props: {
       <Pressable
         className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-70"
         accessibilityRole="button"
-        accessibilityLabel={`${props.host.label}, ${status.text}`}
+        accessibilityLabel={[props.host.label, status.text, stallLine].filter(Boolean).join(", ")}
         accessibilityHint={props.opensDetails ? "Opens the host's settings" : undefined}
         // The row is one accessible element, so its inline Try again is offered as an action.
         accessibilityActions={
@@ -81,6 +85,14 @@ export function ConnectionEnvironmentRow(props: {
           >
             {status.text}
           </Text>
+          {stallLine ? (
+            <Text
+              className="text-xs text-warning-foreground"
+              numberOfLines={props.expanded ? undefined : 2}
+            >
+              {stallLine}
+            </Text>
+          ) : null}
         </View>
 
         {props.opensDetails && status.retryable ? (

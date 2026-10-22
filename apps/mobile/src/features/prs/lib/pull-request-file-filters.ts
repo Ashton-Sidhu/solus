@@ -1,6 +1,12 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/pullRequestFileFilters.ts and pullRequestTabScroll.ts (MIT, see UPSTREAM.md).
 import type { ReviewParsedDiff } from '../../review/reviewModel'
-import { isPullRequestTestFile } from './pull-request-activity'
+import { changedFileKind } from '@solus/client-core/change-breakdown'
+
+/** Test support such as fixtures and snapshots is hidden along with the tests. */
+export function isPullRequestTestFile(path: string): boolean {
+  const kind = changedFileKind(path)
+  return kind === 'tests' || kind === 'mocks'
+}
 
 /**
  * Hides test files from the Files tab. Whole files go; the files that stay
