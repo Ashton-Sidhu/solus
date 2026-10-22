@@ -5,6 +5,8 @@
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import MarkdownLink from "./MarkdownLink.svelte";
+  import MarkdownList from "./MarkdownList.svelte";
+  import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
   import MarkdownText from "./MarkdownText.svelte";
   import MessageHoverRail from "./MessageHoverRail.svelte";
   import TurnAuthorLabel from "../presence/TurnAuthorLabel.svelte";
@@ -39,7 +41,7 @@
 
   // `rawtext` is the leaf: a `text` token in a tight list item carries inline
   // children (code, bold), and an override there would print them as source.
-  const markdownRenderers = { link: MarkdownLink, codespan: CodeSpan, rawtext: MarkdownText };
+  const markdownRenderers = { link: MarkdownLink, codespan: CodeSpan, rawtext: MarkdownText, list: MarkdownList, blockquote: MarkdownBlockquote };
 
   interface Props {
     message?: Message;

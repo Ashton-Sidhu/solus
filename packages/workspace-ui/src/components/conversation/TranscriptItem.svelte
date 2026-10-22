@@ -30,6 +30,8 @@
   import McpAppCard from "./McpAppCard.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
+  import MarkdownList from "./MarkdownList.svelte";
+  import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
   import ReplyImage from "./ReplyImage.svelte";
   import TranscriptTable from "./TranscriptTable.svelte";
   import AssistantAlert from "./AssistantAlert.svelte";
@@ -71,6 +73,8 @@
     image: ReplyImage,
     link: MarkdownLink,
     table: TranscriptTable,
+    list: MarkdownList,
+    blockquote: MarkdownBlockquote,
     [RAW_HTML_TOKEN]: HtmlBlock,
     [ALERT_TOKEN]: AssistantAlert,
     [FOOTNOTE_REF_TOKEN]: FootnoteRef,

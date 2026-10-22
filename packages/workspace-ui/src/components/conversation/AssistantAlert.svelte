@@ -11,13 +11,15 @@
   import CodeSpan from "../ui/CodeSpan.svelte";
   import FencedBlock from "./FencedBlock.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
+  import MarkdownList from "./MarkdownList.svelte";
+  import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
   import type { AlertType } from "./lib/markdown-extensions";
 
   /** A GitHub alert (`> [!NOTE]`) in a reply: a tinted rule and a titled
    *  heading. The body is ordinary reply markdown. */
   let { alertType, text }: { alertType: AlertType; text: string } = $props();
 
-  const markdownRenderers = { code: FencedBlock, codespan: CodeSpan, link: MarkdownLink };
+  const markdownRenderers = { code: FencedBlock, codespan: CodeSpan, link: MarkdownLink, list: MarkdownList, blockquote: MarkdownBlockquote };
   const alerts = {
     note: { title: "Note", icon: InfoIcon, rule: "border-blue-500/70", tint: "text-blue-600 dark:text-blue-400" },
     tip: { title: "Tip", icon: LightbulbIcon, rule: "border-emerald-500/70", tint: "text-emerald-600 dark:text-emerald-400" },
@@ -28,10 +30,13 @@
   const alert = $derived(alerts[alertType]);
 </script>
 
-<div class="my-2.5 border-l-2 pl-3 {alert.rule}" role="note">
+<!-- `dir="auto"` takes the direction of the body: the browser skips the text
+     in `bdi`, so the English title does not set it. A Hebrew or Arabic alert
+     then has its rule and its title on the right. -->
+<div class="my-2.5 border-s-2 ps-3 {alert.rule}" role="note" dir="auto">
   <p class="!mb-0.5 flex items-center gap-1.5 font-medium {alert.tint}">
     <alert.icon class="size-3.5 shrink-0" aria-hidden="true" />
-    {alert.title}
+    <bdi>{alert.title}</bdi>
   </p>
   <div class="[&>:last-child]:!mb-0">
     <SvelteMarkdown source={text} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />

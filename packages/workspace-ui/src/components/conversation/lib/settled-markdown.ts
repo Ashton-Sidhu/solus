@@ -1,4 +1,4 @@
-import { Marked, type MarkedExtension, type Token } from 'marked'
+import { Marked, Renderer, type MarkedExtension, type RendererObject, type Token } from 'marked'
 import { FOOTNOTE_REF_TOKEN, FOOTNOTE_SECTION_TOKEN } from './markdown-extensions'
 import { RAW_HTML_TOKEN } from './raw-html'
 
@@ -29,6 +29,18 @@ function isPlain(token: Token): boolean {
 
 const markedFor = new WeakMap<MarkedExtension[], Marked>()
 
+/** Lists and quotes get `dir="auto"`, as `MarkdownList` and
+ *  `MarkdownBlockquote` give them in the markdown component. A Hebrew or
+ *  Arabic list then has its markers on the right. */
+const messageRenderer: RendererObject = {
+  list(token) {
+    return Renderer.prototype.list.call(this, token).replace(/^<(?:ul|ol)/, '$& dir="auto"')
+  },
+  blockquote(token) {
+    return Renderer.prototype.blockquote.call(this, token).replace(/^<blockquote/, '$& dir="auto"')
+  },
+}
+
 /**
  * Split a finished reply into plain runs, written as HTML once, and the blocks
  * our renderers draw (code, links, images, tables, headings), passed on as
@@ -41,7 +53,7 @@ export function settledMarkdownBlocks(source: string, extensions: MarkedExtensio
   let marked = markedFor.get(extensions)
   if (!marked) {
     // The component's own defaults: GitHub flavour, no hard line breaks.
-    marked = new Marked({ gfm: true, breaks: false, pedantic: false }, ...extensions)
+    marked = new Marked({ gfm: true, breaks: false, pedantic: false, renderer: messageRenderer }, ...extensions)
     markedFor.set(extensions, marked)
   }
   const blocks: SettledBlock[] = []

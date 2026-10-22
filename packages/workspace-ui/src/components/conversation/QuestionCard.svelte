@@ -12,6 +12,8 @@
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
+  import MarkdownList from "./MarkdownList.svelte";
+  import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
   import InterruptCard from "./InterruptCard.svelte";
   import { Textarea } from "../ui/textarea";
   import { getWorkspaceContext } from "../../contexts";
@@ -46,7 +48,7 @@
   // §11 — the body is the assistant's own renderer, so a fenced block keeps its
   // chrome strip and its Copy. `breaks` keeps a hand-drawn question's line
   // endings; `.prose-interrupt` keeps its indentation.
-  const bodyRenderers = { code: CodeBlock, codespan: CodeSpan, link: MarkdownLink };
+  const bodyRenderers = { code: CodeBlock, codespan: CodeSpan, link: MarkdownLink, list: MarkdownList, blockquote: MarkdownBlockquote };
 
   const session = getWorkspaceContext();
   const sess = $derived(session.sessionFor(tabId));

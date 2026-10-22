@@ -30,6 +30,8 @@
   import TurnEndDivider from "../../conversation/TurnEndDivider.svelte";
   import FencedBlock from "../../conversation/FencedBlock.svelte";
   import MarkdownLink from "../../conversation/MarkdownLink.svelte";
+  import MarkdownList from "../../conversation/MarkdownList.svelte";
+  import MarkdownBlockquote from "../../conversation/MarkdownBlockquote.svelte";
   import CodeSpan from "../../ui/CodeSpan.svelte";
   import TranscriptTable from "../../conversation/TranscriptTable.svelte";
   import AssistantAlert from "../../conversation/AssistantAlert.svelte";
@@ -75,6 +77,8 @@
     codespan: CodeSpan,
     link: MarkdownLink,
     table: TranscriptTable,
+    list: MarkdownList,
+    blockquote: MarkdownBlockquote,
     [ALERT_TOKEN]: AssistantAlert,
     [FOOTNOTE_REF_TOKEN]: FootnoteRef,
     [FOOTNOTE_SECTION_TOKEN]: FootnoteSection,

@@ -4,6 +4,8 @@
   import { assistantMarkdownOptions } from "./lib/assistant-markdown";
   import FencedBlock from "./FencedBlock.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
+  import MarkdownList from "./MarkdownList.svelte";
+  import MarkdownBlockquote from "./MarkdownBlockquote.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
 
   /**
@@ -14,7 +16,7 @@
   /** `step`: opened inside a tool group, so it matches the tool steps around it. */
   let { thoughts, step = false }: { thoughts: string[]; step?: boolean } = $props();
 
-  const markdownRenderers = { code: FencedBlock, codespan: CodeSpan, link: MarkdownLink };
+  const markdownRenderers = { code: FencedBlock, codespan: CodeSpan, link: MarkdownLink, list: MarkdownList, blockquote: MarkdownBlockquote };
   // A reasoning summary can put one title per line; a single newline must stay
   // a line break rather than run the titles together.
   const thoughtMarkdownOptions = { ...assistantMarkdownOptions, breaks: true };

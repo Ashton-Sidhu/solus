@@ -1488,7 +1488,7 @@ input::placeholder {
 .prose-cloud td {
   border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
   padding: 0.45em 0.7em;
-  text-align: left;
+  text-align: start;
   overflow-wrap: break-word;
   word-break: normal;
 }
@@ -1499,8 +1499,8 @@ input::placeholder {
 }
 
 .prose-cloud blockquote {
-  border-left: 0.1875rem solid var(--solus-tool-running-border);
-  padding-left: 0.8em;
+  border-inline-start: 0.1875rem solid var(--solus-tool-running-border);
+  padding-inline-start: 0.8em;
   color: var(--solus-text-secondary);
   margin: 0.5em 0;
 }
@@ -2984,12 +2984,12 @@ button.solus-token {
 }
 
 .prose-cloud ul {
-  padding-left: 1.4em;
+  padding-inline-start: 1.4em;
   margin: 0.4em 0;
   list-style: disc;
 }
 .prose-cloud ol {
-  padding-left: 1.4em;
+  padding-inline-start: 1.4em;
   margin: 0.4em 0;
   list-style: decimal;
 }
@@ -3261,12 +3261,12 @@ button.solus-token {
 .prose-transcript ul,
 .prose-transcript ol {
   margin: 0.625rem 0;
-  padding-left: 1.125rem;
+  padding-inline-start: 1.125rem;
 }
 .prose-transcript ul { list-style: none; }
 /* Wide enough that a two-digit numeral still hangs inside the gutter. It
    scales with the marker's font, so a larger font scale cannot clip "10.". */
-.prose-transcript ol { padding-left: calc(1.625rem * var(--solus-font-scale, 1)); list-style: decimal; }
+.prose-transcript ol { padding-inline-start: calc(1.625rem * var(--solus-font-scale, 1)); list-style: decimal; }
 .prose-transcript li {
   position: relative;
   margin: 0 0 0.25rem;
@@ -3275,7 +3275,7 @@ button.solus-token {
 .prose-transcript ul > li::before {
   content: "";
   position: absolute;
-  left: -1.125rem;
+  inset-inline-start: -1.125rem;
   top: 0.625rem;
   width: 0.1875rem;
   height: 0.1875rem;
@@ -3307,7 +3307,8 @@ button.solus-token {
   appearance: none;
   width: 0.8125rem;
   height: 0.8125rem;
-  margin: 0 0.5rem 0 -1.125rem;
+  margin-block: 0;
+  margin-inline: -1.125rem 0.5rem;
   vertical-align: -0.125rem;
   border-radius: 0.1875rem;
   box-shadow: inset 0 0 0 0.0625rem
@@ -3335,8 +3336,8 @@ button.solus-token {
 }
 .prose-transcript blockquote {
   margin: 0.875rem 0 0.625rem;
-  padding-left: 0.75rem;
-  border-left: 0.09375rem solid
+  padding-inline-start: 0.75rem;
+  border-inline-start: 0.09375rem solid
     color-mix(in oklch, var(--foreground) 12%, transparent);
   font-size: calc(0.875rem * var(--solus-font-scale, 1));
   font-style: normal;
@@ -3356,7 +3357,7 @@ button.solus-token {
   border-block: 0.0625rem solid color-mix(in oklch, var(--border) 60%, transparent);
 }
 .prose-transcript details[open] { padding-bottom: 0.75rem; }
-.prose-transcript details > :not(summary) { padding-left: 1.5rem; }
+.prose-transcript details > :not(summary) { padding-inline-start: 1.5rem; }
 .prose-transcript summary {
   display: flex;
   align-items: center;
@@ -3412,7 +3413,7 @@ button.solus-token {
   padding: 0.45rem 0.75rem;
   border: none;
   background: none;
-  text-align: left;
+  text-align: start;
   color: inherit;
 }
 .prose-transcript thead th {
@@ -3689,7 +3690,7 @@ button.solus-token {
 .prose-agent-card ul,
 .prose-agent-card ol {
   margin: 0.5625rem 0 0;
-  padding-left: 1.125rem;
+  padding-inline-start: 1.125rem;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -3701,10 +3702,10 @@ button.solus-token {
 .prose-agent-card ul ol,
 .prose-agent-card ol ul {
   margin-top: 0.375rem;
-  padding-left: 0;
+  padding-inline-start: 0;
 }
 .prose-agent-card blockquote {
-  border-left: 0.125rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  border-inline-start: 0.125rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
   color: var(--muted-foreground);
 }
 /* A table scrolls rather than reflows, for the same reason a code block does: a
@@ -3792,8 +3793,8 @@ button.solus-token {
    rule rather than flattening to a plain line — just scaled to bubble type. */
 .prose-transcript-user blockquote {
   margin: 0.35em 0;
-  padding-left: 0.625rem;
-  border-left: 0.09375rem solid
+  padding-inline-start: 0.625rem;
+  border-inline-start: 0.09375rem solid
     color-mix(in oklch, var(--foreground) 20%, transparent);
   font-style: normal;
   opacity: 0.75;
@@ -3804,6 +3805,24 @@ button.solus-token {
 .prose-transcript-user pre {
   font-size: calc(0.75rem * var(--solus-font-scale, 1));
   margin: 0.35em 0;
+}
+
+/* ─── Right-to-left text in messages ───
+   Each paragraph, heading, and list item takes its direction from its own
+   first letter, so a Hebrew or Arabic paragraph goes right to left beside an
+   English one. The default `text-align: start` follows that direction.
+   English text is not changed. Lists and quotes get `dir="auto"` from their renderers
+   (`MarkdownList`, `MarkdownBlockquote`), because only a direction on the
+   element moves a marker, an indent, or a rule. Code and tables stay left to
+   right in all text. */
+.prose-transcript :is(p, h1, h2, h3, h4, h5, h6, li),
+.prose-transcript-user :is(p, h1, h2, h3, h4, h5, h6, li) {
+  unicode-bidi: plaintext;
+}
+.prose-transcript :is(pre, code, table),
+.prose-transcript-user :is(pre, code, table) {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 /* ─── PR prose ───
