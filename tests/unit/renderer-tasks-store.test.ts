@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, jest, mock, test } from 'bun:test'
-import type { Task } from '@solus/contracts/task-types'
+import type { Task, TaskSidebarSnapshot } from '@solus/contracts/task-types'
 import type { HostPhase } from '@solus/client-core/host-supervisor'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
@@ -605,6 +605,67 @@ describe('renderer task hydration', () => {
     expect(localReads).toBe(1)
     expect(remoteReads).toBe(2)
     expect(store.tasks.map((row) => row.id).sort()).toEqual(['local-task', 'remote-created', 'remote-kept'])
+  })
+
+  test('a reconnect resumes from the revision on screen instead of reading the whole list', async () => {
+    // WHY: web and mobile clients connect again often, and most times nothing
+    // changed. The host names what changed after the revision this client
+    // holds; a task it names and leaves out has gone, and a task it does not
+    // name keeps its row. A host that gives no revision is read whole, as before.
+    installStateRune()
+    const reads: Array<{ since?: string } | undefined> = []
+    let answer: TaskSidebarSnapshot = {
+      tasks: [{ ...task(), id: 'kept' }, { ...task(), id: 'edited' }, { ...task(), id: 'deleted' }],
+      sessionsByTask: {},
+      revision: 'boot.1.reader',
+    }
+    const api = {
+      tasksSidebarSnapshot: async (filter?: { since?: string }) => {
+        reads.push(filter)
+        return answer
+      },
+    }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: { solus: api } })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+    const keptRow = store.get('kept')
+
+    answer = { tasks: [], sessionsByTask: {}, revision: 'boot.1.reader', changedTaskIds: [] }
+    phaseChangeListener?.('local', 'reconnecting')
+    phaseChangeListener?.('local', 'connected')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(reads.at(-1)).toEqual({ since: 'boot.1.reader' })
+    expect(store.tasks.map((row) => row.id)).toEqual(['kept', 'edited', 'deleted'])
+
+    answer = {
+      tasks: [{ ...task(), id: 'edited', title: 'Edited while away' }],
+      sessionsByTask: {},
+      revision: 'boot.3.reader',
+      changedTaskIds: ['edited', 'deleted'],
+    }
+    phaseChangeListener?.('local', 'reconnecting')
+    phaseChangeListener?.('local', 'connected')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.tasks.map((row) => row.id)).toEqual(['kept', 'edited'])
+    expect(store.get('edited').title).toBe('Edited while away')
+    expect(store.get('kept')).toBe(keptRow)
+
+    // A restarted or older host answers whole, without a revision: the next
+    // reconnect cannot resume and reads the whole list again.
+    answer = { tasks: [{ ...task(), id: 'kept' }], sessionsByTask: {} }
+    phaseChangeListener?.('local', 'reconnecting')
+    phaseChangeListener?.('local', 'connected')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(reads.at(-1)).toEqual({ since: 'boot.3.reader' })
+    expect(store.tasks.map((row) => row.id)).toEqual(['kept'])
+    phaseChangeListener?.('local', 'reconnecting')
+    phaseChangeListener?.('local', 'connected')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(reads.at(-1)).toBeUndefined()
+    expect(reads).toHaveLength(5)
   })
 
   test('lists a task once when two hosts serve the same task store', async () => {

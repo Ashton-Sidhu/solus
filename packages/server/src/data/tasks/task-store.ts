@@ -9,6 +9,7 @@ import { appendActivity } from '../activity/activity'
 import { agentAttribution, hostAttribution, parseStoredAttribution } from '../stored-attribution'
 import { taskComments, taskCounters, taskExternalLinks, tasks } from './schema'
 import { scopeClause } from '../scope'
+import { recordTaskChange } from './task-revisions'
 import { hostUserKey } from '../../host/host-user'
 import type { RecordScope } from '../../admission/principal'
 import type {
@@ -109,6 +110,7 @@ export function onTasksChanged(listener: TasksChangedListener): () => void {
  * A write across many tasks, or a delete, names none and clients re-read all. */
 export function emitChanged(taskId?: string): void {
   void afterDatabaseCommit(async () => {
+    recordTaskChange(taskId)
     for (const listener of changedListeners) {
       try {
         listener(taskId)

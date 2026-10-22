@@ -10,7 +10,7 @@ import { prStatusBadge } from '../../prs/lib/pr-utils'
  *
  * `task_links` is a local table, so a task's links are our own data — but the
  * *listed* task does not carry them. Only two reads produce them: the sidebar
- * snapshot's `prLinksByTask`, which is one query over every task and therefore
+ * snapshot's `prLinkListsByTask`, which is one query over every task and therefore
  * already in hand, and a per-task detail read for everything else. That second
  * read is a local DB read for a local task and a provider round trip for an
  * upstream one, so the preview must not fire it on every arrow key.

@@ -20,6 +20,7 @@ import { markTaskRead, recordTaskActivity } from '../../data/tasks/task-lifecycl
 import { readTaskSnoozes, snoozeTaskFor } from '../../data/tasks/task-snoozes'
 import { getDatabase } from '../../db/database'
 import { readTaskSidebarSnapshot } from '../../data/tasks/task-sidebar'
+import { recordTaskChange, taskListRevision, tasksChangedSince } from '../../data/tasks/task-revisions'
 import { searchTaskComments } from '../../data/tasks/comment-search'
 import {
   importTaskTickets,
@@ -30,12 +31,13 @@ import {
   syncTasksNow,
 } from '../../data/tasks/sync-engine'
 import type { HandlerCtx, SolusServer } from '../server'
-import { isHostAdmin, organizationForNew, recordScopeOf } from '../../admission/principal'
+import { isHostAdmin, organizationForNew, recordScopeOf, type Principal } from '../../admission/principal'
 import { attributionOf, ownerKeyOf, type Actor } from '../../admission/actor'
 import type { ShareManager } from '../../sharing/share-manager'
 import { listInboxUpstream } from '../../data/tasks/inbox'
 import type { Task as TaskRecord, TaskSidebarSnapshot } from '@solus/contracts/task-types'
 import { MAX_SIDEBAR_TASK_IDS } from '@solus/contracts/task-types'
+import { createHash } from 'node:crypto'
 import { createLogger, isDebugEnabled } from '../../logger'
 
 const log = createLogger('main', 'tasks-handlers')
@@ -45,6 +47,10 @@ const taskOpenTimingSchema = z.object({
   outcome: z.enum(['completed', 'cancelled', 'failed']),
   marks: z.array(z.object({ stage: z.string().max(64), elapsedMs: z.number().finite().nonnegative() })).max(32),
 })
+const taskSidebarFilterSchema = z.object({
+  taskIds: z.array(z.string()).max(MAX_SIDEBAR_TASK_IDS).optional(),
+  since: z.string().max(200).optional(),
+}).nullish()
 
 /**
  * Global native-task RPCs plus project-scoped upstream-provider reads/writes.
@@ -63,10 +69,33 @@ function personKeyFor(actor: Actor): string {
   return personKey
 }
 
+/** Who reads the task list: two connections with one key see the same list.
+ *  A grant's expiry is left out, because a socket dials again with a new grant
+ *  and must still resume. */
+function taskListReaderKey(principal: Principal): string {
+  const identity = 'expiresAt' in principal ? { ...principal, expiresAt: 0 } : principal
+  return createHash('sha256')
+    .update(JSON.stringify([identity, recordScopeOf(principal)]))
+    .digest('hex')
+    .slice(0, 16)
+}
+
 export function registerTasksHandlers(server: SolusServer, deps: { shares?: ShareManager; sync?: boolean } = {}): void {
   if (deps.sync !== false) startTaskSyncEngine()
   const visibleTasks = async (ctx: HandlerCtx, tasks: TaskRecord[]): Promise<TaskRecord[]> =>
     deps.shares ? deps.shares.filterVisible(ctx.principal, 'task', tasks, (task) => task.id) : tasks
+  /** The snapshot without the tasks this caller may not open. */
+  const visibleSnapshot = async (ctx: HandlerCtx, snapshot: TaskSidebarSnapshot): Promise<TaskSidebarSnapshot> => {
+    const tasks = await visibleTasks(ctx, snapshot.tasks)
+    if (tasks.length === snapshot.tasks.length) return snapshot
+    const visible = new Set(tasks.map((task) => task.id))
+    const keep = <T>(byTask: Record<string, T> | undefined): Record<string, T> | undefined =>
+      byTask && Object.fromEntries(Object.entries(byTask).filter(([taskId]) => visible.has(taskId)))
+    const filtered: TaskSidebarSnapshot = { tasks, sessionsByTask: keep(snapshot.sessionsByTask) ?? {} }
+    const prLinkListsByTask = keep(snapshot.prLinkListsByTask)
+    if (prLinkListsByTask) filtered.prLinkListsByTask = prLinkListsByTask
+    return filtered
+  }
   server.register('tasksProviderStatus', (args) => {
     const [cwd, opts] = args
     return taskProviderStatus(cwd, opts ?? {})
@@ -137,37 +166,43 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
     })
   })
 
+  // A share decides who sees a task, so a resume names the task again.
+  deps.shares?.onChanged((change) => {
+    if (change.resource.kind === 'task') recordTaskChange(change.resource.id)
+  })
+
   server.register('tasksSidebarSnapshot', async (args, ctx) => {
-    const [filter] = args
-    const taskIds = filter?.taskIds
-    if (taskIds && (!Array.isArray(taskIds) || taskIds.length > MAX_SIDEBAR_TASK_IDS || taskIds.some((taskId) => typeof taskId !== 'string'))) {
-      throw new Error(`A sidebar read names at most ${MAX_SIDEBAR_TASK_IDS} task ids.`)
-    }
+    const parsed = taskSidebarFilterSchema.safeParse(args[0])
+    if (!parsed.success) throw new Error(`A sidebar read names at most ${MAX_SIDEBAR_TASK_IDS} task ids and one revision.`)
+    const filter = parsed.data
+    // A narrowed read covers only its rows, so it gives no revision. The
+    // revision is read before the rows: a change that commits during the read
+    // is then in the next resume (docs/plans/task-snapshot-resume.md).
+    const readerKey = taskListReaderKey(ctx.principal)
+    const revision = filter?.taskIds ? undefined : taskListRevision(readerKey)
+    const changed = !filter?.taskIds && filter?.since ? tasksChangedSince(filter.since, readerKey) : null
+    const changedTaskIds = changed && changed.length <= MAX_SIDEBAR_TASK_IDS ? changed : undefined
+    if (changedTaskIds?.length === 0) return { tasks: [], sessionsByTask: {}, revision, changedTaskIds }
+    const taskIds = filter?.taskIds ?? changedTaskIds
     const startedAt = performance.now()
     const snapshot = await readTaskSidebarSnapshot(recordScopeOf(ctx.principal), taskIds)
     // The whole list is large (1,000+ tasks is over 1 MB), so a client reads it
-    // at boot and reconnect and names the changed tasks otherwise. Debug builds
-    // record each read's cost so a regression to whole-list reads shows.
+    // at boot, resumes it at reconnect, and names the changed tasks otherwise.
+    // Debug builds record each read's cost so a regression to whole-list reads shows.
     if (isDebugEnabled()) {
       log.debug('tasks_sidebar_snapshot_read', {
         clientId: ctx.clientId,
         requestedTaskCount: taskIds?.length ?? null,
+        resumed: changedTaskIds !== undefined,
         readMs: Math.round(performance.now() - startedAt),
         taskCount: snapshot.tasks.length,
         bytes: Buffer.byteLength(JSON.stringify(snapshot)),
       })
     }
-    const tasks = await visibleTasks(ctx, snapshot.tasks)
-    if (tasks.length === snapshot.tasks.length) return snapshot
-    const visible = new Set(tasks.map((task) => task.id))
-    const keep = <T>(byTask: Record<string, T> | undefined): Record<string, T> | undefined =>
-      byTask && Object.fromEntries(Object.entries(byTask).filter(([taskId]) => visible.has(taskId)))
-    const filtered: TaskSidebarSnapshot = { tasks, sessionsByTask: keep(snapshot.sessionsByTask) ?? {} }
-    const prLinksByTask = keep(snapshot.prLinksByTask)
-    if (prLinksByTask) filtered.prLinksByTask = prLinksByTask
-    const prLinkListsByTask = keep(snapshot.prLinkListsByTask)
-    if (prLinkListsByTask) filtered.prLinkListsByTask = prLinkListsByTask
-    return filtered
+    const answer = await visibleSnapshot(ctx, snapshot)
+    if (revision) answer.revision = revision
+    if (changedTaskIds) answer.changedTaskIds = changedTaskIds
+    return answer
   })
 
   server.register('tasksSearchComments', (args, ctx) => {

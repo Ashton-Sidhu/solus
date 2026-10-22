@@ -517,10 +517,15 @@ export interface TaskSnapshot {
 export interface TaskSidebarSnapshot {
   tasks: Task[]
   sessionsByTask: Record<string, TaskSessionLink[]>
-  /** Newest link for clients that predate multi-PR task links. */
-  prLinksByTask?: Record<string, TaskSidebarPrLink>
-  /** Every durable PR edge, newest first. */
+  /** Every durable PR edge, newest first. The first entry is the newest link. */
   prLinkListsByTask?: Record<string, TaskSidebarPrLink[]>
+  /** The state of the list this answer covers. A whole read and a resume give
+   *  it; send it back as `since` to resume. Absent from older hosts. */
+  revision?: string
+  /** Present only on a resume: the tasks that changed after `since`. The answer
+   *  holds the rows of those that remain; a named task it leaves out has gone.
+   *  Empty when nothing changed (docs/plans/task-snapshot-resume.md). */
+  changedTaskIds?: string[]
 }
 
 /** `tasksSearchComments`: the tasks whose comments hold every word of a query
@@ -545,6 +550,10 @@ export interface TaskCommentHit {
  *  deleted or is no longer visible to the caller. */
 export interface TaskSidebarFilter {
   taskIds?: string[]
+  /** The `revision` of the last answer this client applied for the whole list.
+   *  The host then names only the tasks changed after it, or sends the whole
+   *  list when it cannot. Ignored with `taskIds`. */
+  since?: string
 }
 
 /** The most task ids one narrowed sidebar read may name. A client with more

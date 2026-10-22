@@ -285,6 +285,9 @@ export class TasksStore {
   private subscribedServerIds = new Set<string>()
   /** Changes whenever the set of hosts included in a sidebar snapshot changes. */
   private hostGeneration = 0
+  /** Per host, the revision of the whole list on screen. A reconnect sends it
+   *  and reads only what changed (docs/plans/task-snapshot-resume.md). */
+  private readonly revisionByServerId = new Map<string, string>()
 
   constructor() {
     taskSnoozesStore.start()
@@ -361,9 +364,11 @@ export class TasksStore {
 
   /**
    * Re-read one host after its socket connects again. It missed its own
-   * invalidations while it was away, so its whole list is read — but only its
-   * list. A granted socket re-dials each time its grant expires, and reading
-   * every host on each of those edges re-read every other host's full list too.
+   * invalidations while it was away, so it is asked what changed since the
+   * revision on screen; a host that cannot say sends its whole list. Only that
+   * host is read: a granted socket re-dials each time its grant expires, and
+   * reading every host on each of those edges re-read every other host's full
+   * list too.
    */
   private async reloadHost(serverId: string): Promise<void> {
     // A cold read in flight has not listed this host: it retries with it. With
@@ -378,18 +383,26 @@ export class TasksStore {
     }
     if (!hosts.hasCollaboration(serverId)) return
     const generation = this.wholeListGeneration
+    const since = this.revisionByServerId.get(serverId)
     let snapshot: TaskSidebarSnapshot
     try {
-      snapshot = await serverConnections.apiFor(serverId).tasksSidebarSnapshot()
+      const api = serverConnections.apiFor(serverId)
+      snapshot = await (since ? api.tasksSidebarSnapshot({ since }) : api.tasksSidebarSnapshot())
     } catch (err) {
       console.error('tasks sidebar host read failed', serverId, err)
       return
     }
     if (generation !== this.wholeListGeneration) return
-    // The host's answer covers every task it listed before, so one it leaves out has gone.
-    const taskIds = new Set(snapshot.tasks.map((record) => record.id))
-    for (const task of this.listedTasks) if (task.serverId === serverId) taskIds.add(task.id)
-    this.applyTaskRows(serverId, [...taskIds], snapshot)
+    if (snapshot.changedTaskIds) {
+      this.applyTaskRows(serverId, snapshot.changedTaskIds, snapshot)
+    } else {
+      // A whole answer covers every task the host listed before, so one it leaves out has gone.
+      const taskIds = new Set(snapshot.tasks.map((record) => record.id))
+      for (const task of this.listedTasks) if (task.serverId === serverId) taskIds.add(task.id)
+      this.applyTaskRows(serverId, [...taskIds], snapshot)
+    }
+    if (snapshot.revision) this.revisionByServerId.set(serverId, snapshot.revision)
+    else this.revisionByServerId.delete(serverId)
   }
 
   /** Read the named rows from their host and merge them into the list in place. */
@@ -425,8 +438,7 @@ export class TasksStore {
       task.serverId = serverId
       task.hydrate(record)
     }
-    const prLinkLists = snapshot.prLinkListsByTask
-      ?? Object.fromEntries(Object.entries(snapshot.prLinksByTask ?? {}).map(([taskId, link]) => [taskId, [link]]))
+    const prLinkLists = snapshot.prLinkListsByTask ?? {}
     for (const taskId of taskIds) {
       const task = this.byId.get(taskId)
       if (!task || task.serverId !== serverId) continue
@@ -836,16 +848,15 @@ export class TasksStore {
       for (const [taskId, links] of Object.entries(snapshot.sessionsByTask)) {
         if (!sessionsById.has(taskId)) sessionsById.set(taskId, links)
       }
-      const prLinkLists = snapshot.prLinkListsByTask
-        ?? Object.fromEntries(Object.entries(snapshot.prLinksByTask ?? {}).map(
-          ([taskId, link]) => [taskId, [link]],
-        ))
-      for (const [taskId, links] of Object.entries(prLinkLists)) {
+      for (const [taskId, links] of Object.entries(snapshot.prLinkListsByTask ?? {})) {
         if (!prLinksById.has(taskId)) prLinksById.set(taskId, links)
       }
     }
 
     this.listedTasks.splice(0, this.listedTasks.length, ...listed)
+    // A host this read left out lost its rows, so its next reconnect cannot resume.
+    this.revisionByServerId.clear()
+    for (const { serverId, snapshot } of ok) if (snapshot.revision) this.revisionByServerId.set(serverId, snapshot.revision)
     this.taskIdBySessionId.clear()
     for (const taskId of new Set([...this.byId.keys(), ...sessionsById.keys(), ...prLinksById.keys()])) {
       const task = this.get(taskId)
