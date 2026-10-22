@@ -13,7 +13,7 @@ import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationCards } from './agent-conversation-cards'
-import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitAttachedFiles, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests } from './session.utils'
+import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitAttachedFiles, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests, dropBlockingQuestions } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
@@ -719,7 +719,7 @@ export class SessionEventReducer {
         // Whose seat reached the limit rides on the card; the host names the turn's author.
         session.rateLimitInfo = event.turnAuthor ? { ...event.info, turnAuthor: event.turnAuthor } : event.info
         session.permissionQueue = []
-        session.questionQueue = session.questionQueue.filter((question) => question.responseMode === 'message')
+        dropBlockingQuestions(session)
         break
 
       case 'plan': {
@@ -1017,7 +1017,7 @@ export class SessionEventReducer {
           session.isStreamingText = false
           session.isReconnecting = false
           session.permissionQueue = []
-          session.questionQueue = session.questionQueue.filter((question) => question.responseMode === 'message')
+          dropBlockingQuestions(session)
           session.permissionDenied = null
         }
         break
@@ -1418,9 +1418,7 @@ export class SessionEventReducer {
     // Empty in place, and only when non-empty: swapping the array reference
     // invalidates every $derived reading the queue; a no-op turn end writes nothing.
     if (session.permissionQueue.length) session.permissionQueue.splice(0, session.permissionQueue.length)
-    for (let index = session.questionQueue.length - 1; index >= 0; index--) {
-      if (session.questionQueue[index].responseMode !== 'message') session.questionQueue.splice(index, 1)
-    }
+    dropBlockingQuestions(session)
     session.permissionDenied = null
     // Thinking that never reached a message has nowhere to be printed; drop it
     // at the turn boundary so it can't attach to the next turn's first message.

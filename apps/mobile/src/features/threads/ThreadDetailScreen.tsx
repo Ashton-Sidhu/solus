@@ -598,6 +598,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       responding={respondingRequestId === activePendingUserInput.questionId}
                       mayDrive={mayDrive}
                       onSubmit={answerQuestion}
+                      onUnsentRemarks={store.returnRemarksToDraft}
                     />
                   ) : null}
                 </Animated.View>

@@ -23,6 +23,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { isSessionBusyStatus, isSteerableStatus } from "@solus/contracts/types";
 import { quotedReplyDraft } from "@solus/client-core/quoted-reply";
+import { draftWithUnsentRemarks } from "@solus/contracts/question-answer";
 
 import { useApp } from "../../app/app-context";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -422,6 +423,17 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         });
       }),
     [inputRef, locked, onChangeText, store, text],
+  );
+
+  // A question that closed unanswered gives back what the user typed for it.
+  // It goes to the conversation's draft, not to a queued message being edited.
+  useEffect(
+    () =>
+      store.onRemarksReturned((remarks) => {
+        const next = draftWithUnsentRemarks(draftMessage, remarks);
+        if (next !== draftMessage) restoreToConversationDraft(next);
+      }),
+    [draftMessage, restoreToConversationDraft, store],
   );
 
   // Keep the feed inset aligned with the card.

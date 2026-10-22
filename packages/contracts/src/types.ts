@@ -707,6 +707,12 @@ export interface QuestionRequest {
   /** Set when the request can no longer be answered. A message-mode question
    *  never expires with its run: it is answered by a new message. */
   expired?: RequestExpiry
+  /** Client only: the words typed in the card's own-words field and not yet
+   *  sent, by question key. The host never sets or reads it. It lives on the
+   *  request, not in the card, so that the text stays when the card is
+   *  mounted again and goes back to the composer if the question closes
+   *  without an answer. */
+  remarks?: Record<string, string>
 }
 
 /** An image the host already holds on disk, named by the absolute path

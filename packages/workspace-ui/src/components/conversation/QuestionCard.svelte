@@ -55,7 +55,10 @@
   // A member who may only read the session reads the question but cannot answer it.
   const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id));
 
-  type QState = { selections: string[]; comment: string };
+  // The typed remark lives on the request (`request.remarks`), so it stays when
+  // the card mounts again and goes back to the composer if the question closes
+  // unanswered. The selections stay here: they mean nothing outside the card.
+  type QState = { selections: string[] };
 
   let states = $state<Record<string, QState>>({});
   let currentIndex = $state(0);
@@ -71,7 +74,7 @@
     void request.questionId;
     const init: Record<string, QState> = {};
     for (const q of request.questions) {
-      init[questionKey(q)] = { selections: [], comment: "" };
+      init[questionKey(q)] = { selections: [] };
     }
     states = init;
     currentIndex = 0;
@@ -130,14 +133,14 @@
     return states[questionKey(q)]?.selections ?? [];
   }
 
-  function getComment(q: QuestionItem): string {
-    return states[questionKey(q)]?.comment ?? "";
+  function getRemark(q: QuestionItem): string {
+    return request.remarks?.[questionKey(q)] ?? "";
   }
 
   function ensureState(q: QuestionItem): QState {
     const key = questionKey(q);
     if (!states[key]) {
-      states[key] = { selections: [], comment: "" };
+      states[key] = { selections: [] };
     }
     return states[key];
   }
@@ -159,7 +162,7 @@
   }
 
   function answerFor(q: QuestionItem): string {
-    return formatAnswer(getSelections(q).join(", "), getComment(q));
+    return formatAnswer(getSelections(q).join(", "), getRemark(q));
   }
 
   function goPrev() {
@@ -459,14 +462,14 @@
             <Textarea
               name="question-answer"
               aria-label="Your answer"
-              value={getComment(currentQuestion)}
+              value={getRemark(currentQuestion)}
               placeholder={hasOptions ? "Or answer in your own words…" : "Type your answer…"}
               disabled={closed}
               rows={1}
               mic
               class="max-h-[7.5rem] min-h-0 mr-8 rounded-none border-0 bg-transparent p-0 text-transcript-card font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
               oninput={(e) => {
-                ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
+                (request.remarks ??= {})[questionKey(currentQuestion)] = (e.target as HTMLTextAreaElement).value;
               }}
             />
             <span class="key-chip shrink-0">⏎</span>

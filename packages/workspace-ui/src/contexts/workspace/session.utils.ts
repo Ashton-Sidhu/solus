@@ -2,6 +2,7 @@ import type { AgentId, Attachment, Message, NormalizedEvent, PromptImageRef, Per
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import { formatReviewComment } from '@solus/contracts/review-comment'
 import { attributionLabel } from '@solus/contracts/user'
+import { draftWithUnsentRemarks } from '@solus/contracts/question-answer'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { videoMimeType } from '@solus/contracts/media-types'
 import { z } from 'zod'
@@ -136,9 +137,34 @@ export function dropExpiredRequests(session: Session): void {
   for (let index = session.permissionQueue.length - 1; index >= 0; index--) {
     if (session.permissionQueue[index].expired) session.permissionQueue.splice(index, 1)
   }
-  for (let index = session.questionQueue.length - 1; index >= 0; index--) {
-    if (session.questionQueue[index].expired) session.questionQueue.splice(index, 1)
+  for (let index = 0; index < session.questionQueue.length;) {
+    const request = session.questionQueue[index]
+    if (!request.expired) { index++; continue }
+    recoverQuestionRemarks(session, request)
+    session.questionQueue.splice(index, 1)
   }
+}
+
+/** Removes the questions that end with their run. A message-mode question is
+ *  answered by a new message, so it stays. */
+export function dropBlockingQuestions(session: Session): void {
+  for (let index = 0; index < session.questionQueue.length;) {
+    const request = session.questionQueue[index]
+    if (request.responseMode === 'message') { index++; continue }
+    recoverQuestionRemarks(session, request)
+    session.questionQueue.splice(index, 1)
+  }
+}
+
+/** A question closed without an answer: the words typed in its card go to the
+ *  end of the session's composer draft, so the user does not lose them. Call
+ *  this only for a question that leaves unanswered. An answered question takes
+ *  its remarks with it. */
+export function recoverQuestionRemarks(session: Session, request: QuestionRequest): void {
+  if (!request.remarks) return
+  const text = draftWithUnsentRemarks(session.prompt.text, Object.values(request.remarks))
+  if (text !== session.prompt.text) session.prompt.text = text
+  delete request.remarks
 }
 
 /** Whether a person can still answer something this session asks. */

@@ -5,7 +5,7 @@ import { encodePathAsFolder } from '@solus/contracts/types'
 import type { SessionHistoryPage, AgentConversationResultProjection, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { uuid } from '@solus/contracts/uuid'
 import { workUpdateFromHistory, loadArtifactFileBodies } from './artifact-history'
-import { imageRefAttachments, isAgentNotice, splitAttachedFiles, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { imageRefAttachments, isAgentNotice, splitAttachedFiles, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest, recoverQuestionRemarks } from './session.utils'
 import { TranscriptAgentConversations, isAgentConversationTool } from './agent-conversation-cards'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import type { SurfaceContext } from '../app/surface-context.svelte'
@@ -535,6 +535,15 @@ export function syncPendingInputFromEvent(ctx: WorkspaceContext, session: Sessio
     else if (event.type === 'question_request') newQuestions.push(toQuestionRequest(event))
   }
   session.permissionQueue.splice(0, session.permissionQueue.length, ...newPermissions)
+  // The host's list replaces each blocking question. One it still holds keeps
+  // what the user typed in its card; one it no longer holds gives that text
+  // back to the composer.
+  for (const question of session.questionQueue) {
+    if (question.responseMode === 'message' || !question.remarks) continue
+    const kept = newQuestions.find((next) => next.questionId === question.questionId)
+    if (kept) kept.remarks = question.remarks
+    else recoverQuestionRemarks(session, question)
+  }
   const asyncQuestions = session.questionQueue.filter((question) => question.responseMode === 'message')
   session.questionQueue.splice(0, session.questionQueue.length, ...newQuestions, ...asyncQuestions)
 

@@ -47,6 +47,7 @@ export class ConversationStore {
   readonly meta = new Listeners()
   private readonly itemListeners = new Map<string, Set<() => void>>()
   private readonly quoteListeners = new Set<(text: string) => void>()
+  private readonly remarkListeners = new Set<(remarks: readonly string[]) => void>()
   private metaSnapshot: ConversationMeta
   /** Where the reader was, kept across a remount (rotation, a split resize). */
   scrollOffset = 0
@@ -102,6 +103,16 @@ export class ConversationStore {
   onQuoteInReply(listener: (text: string) => void): () => void {
     this.quoteListeners.add(listener)
     return () => { this.quoteListeners.delete(listener) }
+  }
+
+  /** A question closed without an answer: the composer adds what the user typed for it to its draft. */
+  returnRemarksToDraft = (remarks: readonly string[]): void => {
+    for (const listener of Array.from(this.remarkListeners)) listener(remarks)
+  }
+
+  onRemarksReturned(listener: (remarks: readonly string[]) => void): () => void {
+    this.remarkListeners.add(listener)
+    return () => { this.remarkListeners.delete(listener) }
   }
 
   orderSnapshot = (): readonly string[] => this.controller.model.order

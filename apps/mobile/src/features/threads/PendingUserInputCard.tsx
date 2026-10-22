@@ -2,7 +2,7 @@
 import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
 import { formatAnswer, questionKey } from "@solus/contracts/question-answer";
 import { requestExpiryText, type QuestionItem } from "@solus/contracts/types";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import Animated, { Easing, FadeInUp, FadeOutDown, LinearTransition } from "react-native-reanimated";
 
@@ -35,6 +35,8 @@ export interface PendingUserInputCardProps {
   /** False for a reader who may only view the session: they read the questions; an editor answers. */
   readonly mayDrive: boolean;
   readonly onSubmit: (answers: Record<string, string>) => Promise<unknown>;
+  /** The question closed without an answer: what the user typed for it, for the composer's draft. */
+  readonly onUnsentRemarks: (remarks: readonly string[]) => void;
 }
 
 const CARD_LAYOUT_TRANSITION = LinearTransition.duration(200);
@@ -67,6 +69,23 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
   const responseDisabled = !canRespond || props.responding || !props.mayDrive;
   const [drafts, setDrafts] = useState<Partial<Record<string, PendingUserInputDraftAnswer>>>({});
   const answers = resolveAnswers(questions, drafts);
+
+  // A question that closed unanswered (Stop, or its run ended) leaves the
+  // screen, and this card unmounts with it. What the user typed then goes to
+  // the composer's draft. An answered question leaves without `expired`, so
+  // its text goes with it.
+  const closing = useRef({ drafts, expired: props.pendingUserInput.expired, onUnsentRemarks: props.onUnsentRemarks });
+  useEffect(() => {
+    closing.current = { drafts, expired: props.pendingUserInput.expired, onUnsentRemarks: props.onUnsentRemarks };
+  });
+  useEffect(
+    () => () => {
+      const { drafts: typed, expired, onUnsentRemarks } = closing.current;
+      if (expired === undefined) return;
+      onUnsentRemarks(Object.values(typed).map((draft) => draft?.customAnswer ?? ""));
+    },
+    [],
+  );
 
   const selectOption = (question: QuestionItem, label: string) => {
     const key = questionKey(question);
