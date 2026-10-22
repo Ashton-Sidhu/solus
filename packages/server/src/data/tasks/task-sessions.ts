@@ -21,6 +21,7 @@ import {
   taskFromRow,
 } from './task-store'
 import { scopeClause } from '../scope'
+import { sessionIdOfThread } from '../sessions/session-lineage'
 import type { RecordScope } from '../../admission/principal'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type {
@@ -291,6 +292,18 @@ export async function sessionIsLead(scope: RecordScope, sessionId: string): Prom
     LIMIT 1
   `))
   return !!link
+}
+
+/** The tasks linked to these sessions. An id may be a provider thread: its
+ *  session is the one a link holds (docs/plans/task-snapshot-resume.md). */
+export async function taskIdsForSessions(scope: RecordScope, sessionIds: readonly string[]): Promise<string[]> {
+  const ids = [...new Set(sessionIds.flatMap((id) => [id, sessionIdOfThread(id)]))]
+  if (!ids.length) return []
+  const rows = taskIdRowSchema.array().parse(await getDatabase().all(sql`
+    SELECT DISTINCT task_id FROM ${taskSessionLinks}
+    WHERE ${scopeClause(scope)} AND session_id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})
+  `))
+  return rows.map((row) => row.task_id)
 }
 
 /** A session's title or branch shows on the attempt rows of every task linked

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentId, SessionLineageMember, SessionLineageResolution } from '@solus/contracts/types'
 import { getDb } from '../../db'
+import { recordSessionChange } from '../tasks/task-revisions'
 import { z } from 'zod'
 
 interface SessionLineageMemberRow {
@@ -180,6 +181,8 @@ export function registerSessionLineage(
 ): SessionLineageResolution {
   const now = input.now ?? Date.now()
   forgetLineageReads(db)
+  // A task row shows the session through its active thread (docs/plans/task-snapshot-resume.md).
+  recordSessionChange(input.sessionId)
   db.exec('BEGIN IMMEDIATE')
   try {
     const existing = resolveSessionLineage(input.provider, input.providerSessionId, db)
@@ -221,6 +224,7 @@ export function replaceSessionLineageThread(
   now = Date.now(),
 ): SessionLineageResolution {
   forgetLineageReads(db)
+  recordSessionChange(input.sessionId)
   db.exec('BEGIN IMMEDIATE')
   try {
     const current = resolutionFromRows(rowsForLineage(db, input.sessionId))
@@ -256,6 +260,7 @@ export function beginSessionHandoff(
 ): SessionLineageResolution {
   const now = input.now ?? Date.now()
   forgetLineageReads(db)
+  recordSessionChange(input.sessionId)
   db.exec('BEGIN IMMEDIATE')
   try {
     let rows = rowsForLineage(db, input.sessionId)
@@ -314,6 +319,7 @@ export function completeSessionHandoff(
   now = Date.now(),
 ): SessionLineageResolution {
   forgetLineageReads(db)
+  recordSessionChange(sessionId)
   db.exec('BEGIN IMMEDIATE')
   try {
     const rows = rowsForLineage(db, sessionId)
@@ -344,6 +350,7 @@ export function cancelProvisionalSessionHandoff(
   now = Date.now(),
 ): SessionLineageResolution | null {
   forgetLineageReads(db)
+  recordSessionChange(sessionId)
   db.exec('BEGIN IMMEDIATE')
   try {
     const rows = rowsForLineage(db, sessionId)

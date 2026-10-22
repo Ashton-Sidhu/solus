@@ -31,6 +31,7 @@ import {
 import { resolveRepositoryKey } from '../git/git-helpers'
 import { withUserScope } from '../vault/acting-scope'
 import { getDb, withTx } from '.'
+import { recordSessionChange } from '../data/tasks/task-revisions'
 
 const log = createLogger('main', 'session-indexer')
 const PROJECTS_ROOT = join(homedir(), '.claude', 'projects')
@@ -173,6 +174,7 @@ function deleteSessionFile(filePath: string): void {
     `).run(sessionId)
     db.prepare('DELETE FROM session_files WHERE path = ?').run(filePath)
   })
+  recordSessionChange(sessionId)
   // Plans are durable Workspace artifacts even after Claude's transcript
   // retention removes the source session. Keep the plan, but make resume
   // attempts fail before they create an empty conversation tab.
@@ -453,6 +455,8 @@ function upsertSession(
     lastTimestamp,
     size,
   )
+  // A task row shows this session's title and activity (docs/plans/task-snapshot-resume.md).
+  recordSessionChange(sessionId)
 }
 
 /** The collaboration plane's record of a session, fed by the same sweep that
@@ -526,6 +530,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
       WHERE session_id = ? AND model IS NULL AND reasoning_effort IS NULL
     `).run(sessionId)
     getDb().prepare('UPDATE session_files SET last_offset = ? WHERE path = ?').run(fileStat.size, filePath)
+    recordSessionChange(sessionId)
     forgetSessionRecordWithRow(sessionId)
     return true
   }
@@ -894,6 +899,7 @@ export function persistIndexedSessionStart(
     ...parent,
     startedBy ? JSON.stringify(startedBy) : null,
   )
+  recordSessionChange(threadId)
   const [parentSessionId, rootSessionId, messageId, depth, intent, createdAt] = parent
   const sessionId = sessionIdOfThread(threadId)
   const projectRoot = projectRootFor(cwd)
@@ -922,6 +928,7 @@ export function persistIndexedSessionStart(
     // local reads, and a thread that joins a named session takes it.
     if (record.customTitle) {
       getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(record.customTitle, threadId)
+      recordSessionChange(threadId)
     }
   }).catch((error) => {
     log.warn('session_record_start_failed', { sessionId, threadId, error: String(error) })
@@ -975,6 +982,7 @@ export function persistRemoteSessionStart(
     Date.now(),
     serverId,
   )
+  recordSessionChange(sessionId)
   void upsertOwnSessionRecord({
     sessionId,
     provider,
@@ -992,6 +1000,7 @@ export function persistRemoteSessionStart(
  * so metadata never creates a session or any task relationship. */
 export function setSessionBranch(sessionId: string, branch: string): void {
   getDb().prepare('UPDATE sessions SET branch = ? WHERE session_id = ?').run(branch, activeThreadOf(sessionId) ?? sessionId)
+  recordSessionChange(sessionId)
   void setSessionRecordBranch(sessionId, branch).catch((error) => {
     log.warn('session_record_branch_failed', { sessionId, error: String(error) })
   })
@@ -1002,6 +1011,7 @@ export function setSessionBranch(sessionId: string, branch: string): void {
  *  sessions land one at session_init, history sessions come from the index). */
 export async function setSessionCustomTitle(sessionId: string, title: string | null): Promise<void> {
   getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run(title, activeThreadOf(sessionId) ?? sessionId)
+  recordSessionChange(sessionId)
   await setSessionRecordTitle(ANY_ORGANIZATION, sessionId, title)
 }
 
@@ -1009,6 +1019,7 @@ export async function setSessionCustomTitle(sessionId: string, title: string | n
 export async function setSessionGeneratedTitle(sessionId: string, title: string): Promise<boolean> {
   const result = getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(title, activeThreadOf(sessionId) ?? sessionId)
   if (result.changes === 0) return false
+  recordSessionChange(sessionId)
   await setSessionRecordGeneratedTitle(sessionId, title)
   return true
 }
@@ -1048,6 +1059,7 @@ export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<voi
         session.size,
         session.branch ?? null,
       )
+      recordSessionChange(session.sessionId)
     }
   })
   for (const session of sessions) {

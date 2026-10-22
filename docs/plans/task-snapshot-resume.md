@@ -20,11 +20,21 @@ again often, and most times nothing changed.
 ## Token shape
 
 `<boot id>.<change number>.<reader key>`. The server makes a new boot id each
-time its process starts. The change number increases after each committed task
-write (`emitChanged`, the same writes that send `tasks.invalidated`) and after
-each share change of a task. The reader key is a hash of the principal (without
-its grant expiry) and its record scope, because two readers can see different
-lists. The server keeps the last 2,048 changes in memory.
+time its process starts. The change number increases after each of these:
+
+- a committed task write (`emitChanged`, the same writes that send
+  `tasks.invalidated`);
+- a share change of a task;
+- a write to a session's index row or lineage (`session-indexer.ts`,
+  `session-lineage.ts`). A task row shows the title, branch, model, checkout,
+  and activity of its linked sessions, and these writes do not send
+  `tasks.invalidated`.
+
+The reader key is a hash of the principal (without its grant expiry) and its
+record scope, because two readers can see different lists. The server keeps the
+last change number of each task and of each session, up to 4,096 of each. A
+session that changes on every turn uses one entry. A resume finds the tasks
+linked to the changed sessions with one query on `task_session_links`.
 
 ## Compatibility rule
 
@@ -34,8 +44,8 @@ lists. The server keeps the last 2,048 changes in memory.
   `revision`. It then does a whole read at each connect, as before.
 - The server gives the whole list when it cannot answer exactly: a different
   boot id or reader key, a revision older than the kept changes, a change that
-  named no task (a delete or a write to many tasks), or more than
-  `MAX_SIDEBAR_TASK_IDS` changed tasks.
+  named no task (a delete or a write to many tasks), more than 1,000 changed
+  sessions, or more than `MAX_SIDEBAR_TASK_IDS` changed tasks.
 
 ## Stale and reverse cases
 
@@ -44,10 +54,14 @@ lists. The server keeps the last 2,048 changes in memory.
 - A server restart: the boot id is different, so the client gets the whole list.
 - A whole read of all hosts forgets the revision of each host that it did not
   read, so the next connect of that host is a whole read.
-- Limit: a resume is as fresh as the `tasks.invalidated` events. A field that
-  changes without that event (for example the `lastActivityAt` of an attempt) is
-  not read again at a reconnect. A second server process on the same data
-  directory does not increase this server's change number.
+- A linked session that changed while the client was away: its tasks are in
+  `changedTaskIds`, so a resume is as fresh as a whole read was.
+- A connected client does not get all of these session changes. Only title and
+  pull request changes send `tasks.invalidated` (`emitSessionTasksChanged`).
+  Activity, branch, and model changes reach a connected client at its next
+  reconnect, as before.
+- Limit: a second server process on the same data directory does not increase
+  this server's change number.
 - Mobile does not read the task list, so it has no change.
 
 The answer no longer has `prLinksByTask`. Each client since the first public

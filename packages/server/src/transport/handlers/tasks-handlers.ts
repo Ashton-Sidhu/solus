@@ -13,14 +13,14 @@ import { Task, taskSnapshot } from '../../data/tasks/task'
 import { readTasksLinkingTargets } from '../../data/tasks/task-links'
 import { attachLinkedContent } from '../../data/tasks/linked-content'
 import { attachArtifactToTask } from '../../data/tasks/task-artifacts'
-import { prepareSessionTask, taskSessions, tasksForSession } from '../../data/tasks/task-sessions'
+import { prepareSessionTask, taskIdsForSessions, taskSessions, tasksForSession } from '../../data/tasks/task-sessions'
 import { stopPullRequestWatch } from '../../data/sessions/pull-request-watches'
 import { startSessionPullRequestWatch } from '../../prs/start-pull-request-watch'
 import { markTaskRead, recordTaskActivity } from '../../data/tasks/task-lifecycle'
 import { readTaskSnoozes, snoozeTaskFor } from '../../data/tasks/task-snoozes'
 import { getDatabase } from '../../db/database'
 import { readTaskSidebarSnapshot } from '../../data/tasks/task-sidebar'
-import { recordTaskChange, taskListRevision, tasksChangedSince } from '../../data/tasks/task-revisions'
+import { recordTaskChange, taskListChangesSince, taskListRevision } from '../../data/tasks/task-revisions'
 import { searchTaskComments } from '../../data/tasks/comment-search'
 import {
   importTaskTickets,
@@ -47,6 +47,8 @@ const taskOpenTimingSchema = z.object({
   outcome: z.enum(['completed', 'cancelled', 'failed']),
   marks: z.array(z.object({ stage: z.string().max(64), elapsedMs: z.number().finite().nonnegative() })).max(32),
 })
+/** The most changed sessions a resume looks up; more, and it sends the whole list. */
+const MAX_RESUMED_SESSION_IDS = 1000
 const taskSidebarFilterSchema = z.object({
   taskIds: z.array(z.string()).max(MAX_SIDEBAR_TASK_IDS).optional(),
   since: z.string().max(200).optional(),
@@ -84,6 +86,15 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
   if (deps.sync !== false) startTaskSyncEngine()
   const visibleTasks = async (ctx: HandlerCtx, tasks: TaskRecord[]): Promise<TaskRecord[]> =>
     deps.shares ? deps.shares.filterVisible(ctx.principal, 'task', tasks, (task) => task.id) : tasks
+  /** The tasks changed after `revision`: the ones written, and the ones linked
+   *  to a session whose title, branch, or activity changed. Null when the log
+   *  cannot say, or when so many sessions changed that a whole read is cheaper. */
+  const changedTasksSince = async (ctx: HandlerCtx, revision: string, readerKey: string): Promise<string[] | null> => {
+    const changes = taskListChangesSince(revision, readerKey)
+    if (!changes || changes.sessionIds.length > MAX_RESUMED_SESSION_IDS) return null
+    const linked = await taskIdsForSessions(recordScopeOf(ctx.principal), changes.sessionIds)
+    return [...new Set([...changes.taskIds, ...linked])]
+  }
   /** The snapshot without the tasks this caller may not open. */
   const visibleSnapshot = async (ctx: HandlerCtx, snapshot: TaskSidebarSnapshot): Promise<TaskSidebarSnapshot> => {
     const tasks = await visibleTasks(ctx, snapshot.tasks)
@@ -180,7 +191,7 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
     // is then in the next resume (docs/plans/task-snapshot-resume.md).
     const readerKey = taskListReaderKey(ctx.principal)
     const revision = filter?.taskIds ? undefined : taskListRevision(readerKey)
-    const changed = !filter?.taskIds && filter?.since ? tasksChangedSince(filter.since, readerKey) : null
+    const changed = !filter?.taskIds && filter?.since ? await changedTasksSince(ctx, filter.since, readerKey) : null
     const changedTaskIds = changed && changed.length <= MAX_SIDEBAR_TASK_IDS ? changed : undefined
     if (changedTaskIds?.length === 0) return { tasks: [], sessionsByTask: {}, revision, changedTaskIds }
     const taskIds = filter?.taskIds ?? changedTaskIds

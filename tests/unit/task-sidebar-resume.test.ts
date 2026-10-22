@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { TaskSidebarFilter, TaskSidebarSnapshot } from '@solus/contracts/task-types'
+import type { SessionMeta } from '@solus/contracts/types'
 import type { HandlerCtx } from '@solus/server/transport/server'
 import { actorFor } from '@solus/server/admission/actor'
 import { resetTestDatabase } from './helpers/test-db'
@@ -73,6 +74,30 @@ describe('task list resume', () => {
     expect(resumed.revision).not.toBe(whole.revision)
     // The new revision covers that change, so the next resume is empty again.
     expect((await read({ since: resumed.revision })).changedTaskIds).toEqual([])
+  })
+
+  test('a linked session that changed while away names its task, with the new title and activity', async () => {
+    // WHY: a task row shows its sessions' titles, branches, and activity. Those
+    // change in the session index, not in a task write, and a full read used
+    // to refresh them at each reconnect. A resume must refresh them too.
+    const { cacheIndexedSessions } = await import('@solus/server/db/session-indexer')
+    const session = (firstMessage: string, lastTimestamp: string): SessionMeta => ({
+      provider: 'codex', sessionId: 'thread-linked', slug: null, firstMessage, lastTimestamp, size: 1, cwd: '/tmp/project', projectPath: '-tmp-project',
+    })
+    const linked = await taskStore.createTask('local', { title: 'Linked' })
+    await taskStore.createTask('local', { title: 'Unlinked' })
+    await (await tasks.Task.byId('local', linked.id)).linkSession('thread-linked')
+    await cacheIndexedSessions([session('First title', '2026-10-01T00:00:00.000Z')])
+    const whole = await read()
+    expect(whole.sessionsByTask[linked.id]?.[0]?.sessionTitle).toBe('First title')
+
+    await cacheIndexedSessions([session('New title', '2026-10-02T00:00:00.000Z')])
+    const resumed = await read({ since: whole.revision })
+    expect(resumed.changedTaskIds).toEqual([linked.id])
+    expect(resumed.sessionsByTask[linked.id]?.[0]).toMatchObject({
+      sessionTitle: 'New title',
+      lastActivityAt: Date.parse('2026-10-02T00:00:00.000Z'),
+    })
   })
 
   test('a delete while away sends the whole list, so the deleted row leaves', async () => {
