@@ -153,6 +153,11 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
         void app.platform.openBrowser(presentation.href);
         return;
       }
+      if (presentation.kind === "session") {
+        void Haptics.selectionAsync();
+        navigation.navigate("Thread", { hostId: presentation.serverId ?? hostId, sessionId: presentation.sessionId });
+        return;
+      }
       if (presentation.href) void Linking.openURL(presentation.href);
     },
     [app, hostId, media, navigation, workingDirectory],

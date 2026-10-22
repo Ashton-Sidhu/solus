@@ -12,6 +12,9 @@
   import ActivityDivider from "./ActivityDivider.svelte";
   import MessageHoverRail from "./MessageHoverRail.svelte";
   import UserMessageBubble from "./UserMessageBubble.svelte";
+  import PullRequestWatchRow from "./PullRequestWatchRow.svelte";
+  import BackgroundCommandRow from "./BackgroundCommandRow.svelte";
+  import { hostNoticeKind } from "./lib/host-notice";
   import SubagentGroup from "./SubagentGroup.svelte";
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import DocumentStackCard from "../work/DocumentStackCard.svelte";
@@ -131,7 +134,16 @@
     onSend={(text) => session.dispatch.sendMessage(text, undefined, tabId, "queue")}
   />
 {:else if item.kind === "user"}
-  <UserMessageBubble message={item.message} {skipMotion} {tabId} />
+  <!-- The host's own caption — a watched pull request's news, a background
+       command that finished — is a row, not a person's bubble. -->
+  {@const notice = hostNoticeKind(item.message)}
+  {#if notice === "pull-request-watch"}
+    <PullRequestWatchRow message={item.message} {skipMotion} />
+  {:else if notice === "background-command"}
+    <BackgroundCommandRow message={item.message} {skipMotion} />
+  {:else}
+    <UserMessageBubble message={item.message} {skipMotion} {tabId} />
+  {/if}
 {:else if item.kind === "assistant"}
   {@const displayContent = item.message.content}
   {#if displayContent.trim()}

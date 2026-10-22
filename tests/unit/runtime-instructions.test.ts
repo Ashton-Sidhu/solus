@@ -218,6 +218,45 @@ describe('runtime instructions', () => {
     expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('## Showing visuals')
   })
 
+  test('the device and automation blocks reach both providers only with their tools', async () => {
+    // WHY: guidance for tools a run does not have talks the agent out of the
+    // automation it still has (raw simctl, a background wait).
+    const deviceListTool = tool('device_list')
+    const createAutomationTool = tool('create_automation')
+    const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [deviceListTool, createAutomationTool])
+    const claude = await claudeAppend([deviceListTool, createAutomationTool])
+    for (const prompt of [codex, claude]) {
+      expect(prompt).toContain('## Solus devices')
+      expect(prompt).toContain('pass its flags on every command')
+      expect(prompt).toContain('## Automations')
+      expect(prompt).toContain('Pass trigger as an object, never as JSON text')
+    }
+    const without = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [browserStatusTool])
+    expect(without).not.toContain('## Solus devices')
+    expect(without).not.toContain('## Automations')
+  })
+
+  test('the browser block sends the agent to the page the user has open', () => {
+    // WHY: "look at this page" means the user's page. A second page on the same
+    // URL loses their state and signs in as the default profile.
+    const prompt = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [browserStatusTool])
+    expect(prompt).toContain('including the pages the user opened')
+    expect(prompt).toContain("use that page's browserPageId")
+  })
+
+  test('orchestration guidance covers retries, workspaces, model options, and session links', () => {
+    // WHY: each rule stops a real failure: a lost response that starts a second
+    // session, a stacked branch that starts without its local commits, a
+    // requested reasoning level that is silently lowered, and a session named
+    // by id where the user cannot open it.
+    const prompt = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [tool('start_session')])
+    expect(prompt).toContain('retry with the same request_id')
+    expect(prompt).toContain('Push the base branch first')
+    expect(prompt).toContain('Do not change a requested level to another one')
+    expect(prompt).toContain('session://open?provider=')
+    expect(prompt).toContain('Do not use start_session only because the user said "subagent"')
+  })
+
   test('collaboration-mode text stays Codex-only', async () => {
     expect(await claudeAppend([browserStatusTool])).not.toContain('<collaboration_mode>')
   })

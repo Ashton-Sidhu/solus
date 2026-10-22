@@ -595,7 +595,36 @@ describe('settings sync', () => {
     expect(device.engine.current.state).toBe('synced')
   })
 
-  test('refreshes every minute only while foreground and online', async () => {
+  test('the tabs of one browser read the account about once a period, however many are open', async () => {
+    // WHY: every tab in front used to read on its own timer, so ten tabs read ten times a
+    // period. A read any tab made is in the shared record; another tab's poll skips it.
+    const cloud = new FakeCloud(ORIGIN_A)
+    const clock = new FakeClock()
+    const storage = memoryStorage()
+    const hub = new BroadcastHub()
+    const tab = client(cloud, 'ada', { clock, storage, hub })
+    await tab.start({ themeMode: 'system' })
+    // The other tabs open a little later, so their timers run out of step with the first.
+    const others = []
+    for (let index = 0; index < 4; index++) {
+      clock.advance(DOCUMENT_SYNC_POLL_MS / 10)
+      const other = client(cloud, 'ada', { clock, storage, hub })
+      await other.start()
+      others.push(other)
+    }
+    const reads = () => cloud.log.filter((entry) => entry.method === 'GET').length
+    const before = reads()
+    // Time passes in small steps, and each read finishes before the next tab's timer fires.
+    for (let step = 0; step < 60; step++) {
+      clock.advance(DOCUMENT_SYNC_POLL_MS / 20)
+      await settle(tab.engine, ...others.map((other) => other.engine))
+    }
+    // Three periods, five tabs: a read per tab would be fifteen.
+    expect(reads() - before).toBeLessThanOrEqual(6)
+    expect(reads() - before).toBeGreaterThanOrEqual(3)
+  })
+
+  test('refreshes every period only while foreground and online', async () => {
     const cloud = new FakeCloud(ORIGIN_A)
     const clock = new FakeClock()
     const device = client(cloud, 'ada', { clock })

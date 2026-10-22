@@ -558,7 +558,10 @@ describe('branch discovery', () => {
     expect((await sessionLinks('reopened-session')).map(({ number }) => number).sort()).toEqual([3, 4])
   })
 
-  test('links isolated attempts from one lookup', async () => {
+  test('links every attempt on the branch from one lookup, in a worktree or on the shared checkout', async () => {
+    // WHY: a session on the shared checkout works on its branch's pull request
+    // as much as one in its own worktree. Only the branch the session last ran
+    // on decides, as a thread's branch does in T3 Code.
     const { getDb } = await import('@solus/server/db')
     const { scope, host, pullRequest } = codeHost('branch-discovery')
     host.known.set(4, pullRequest(4, { headRef: 'feature' }))
@@ -580,7 +583,7 @@ describe('branch discovery', () => {
     expect(host.branchLookups).toEqual([['feature']])
     expect((await linksOf(owners[0]!))[0]?.number).toBe(4)
     expect((await linksOf(owners[1]!))[0]?.number).toBe(4)
-    expect(await linksOf(owners[2]!)).toEqual([])
+    expect((await linksOf(owners[2]!))[0]?.number).toBe(4)
     // The session owns the link; the task reads it.
     expect((await linksOf(owners[0]!))[0]?.ownerSessionId).toBe('pr-sync-branch-0')
   })

@@ -2,10 +2,11 @@ import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspac
 import { mount, unmount } from 'svelte'
 import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } from '@solus/client-core/ws-transport'
-import { createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
+import { connectionTokenResource, createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, newGuestId, resolveShareLink, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
 import { isGuestLinkResource, parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
 import { shareLinkOpening, type GuestOpening } from './lib/share-link-opening'
+import { addressedBootIntent, type BootIntent } from './lib/boot-intent'
 import { savedRunnerFor } from '@solus/client-core/session-runner'
 import { guestBoot, type GuestShare } from './lib/guest-boot.svelte'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
@@ -14,7 +15,8 @@ import { setConnectionState, subscribe } from '@solus/client-core/connection-sta
 import { getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { appPairLink, pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
-import { adoptCloudOriginIfPresent, servingOriginIsCloud } from '@solus/client-core/uplink-account'
+import { adoptAccountOrigin } from '@solus/client-core/uplink-account'
+import { accountOriginShell } from './lib/account-origin'
 import type { HostRoute } from '@solus/contracts/uplink'
 import { startupAccountRead } from '@solus/client-core/cloud-account'
 import { existingWebAccountSession, fetchAuthorize, resumeWebSignIn, webAccountSession } from '@solus/client-core/web-sign-in'
@@ -69,6 +71,8 @@ function consumeColdNotificationRoute(): string | null {
 }
 
 const root = document.getElementById('root')!
+/** The account origin's own word that it is one, with the provider's metadata; null on a host. */
+const accountShell = accountOriginShell(document)
 mount(WebToaster, { target: root })
 
 subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
@@ -104,19 +108,9 @@ function installServiceWorkerMessageBridge(): void {
   })
 }
 
-/**
- * How this page load came to be: from a share link that opens a resource as a member
- * (docs/plans/instant-share-open.md), the host that runs it is dialed before every
- * other, and nothing is read for the tab the last visit ended on.
- */
-interface BootIntent {
-  /** The account host id of the machine that runs the linked resource; null when none does. */
-  linkRunnerHostId: string | null
-}
-
 async function connectToServer(
   target: SolusServerTarget,
-  options: { onPreMountAuthFailure?: () => void; link?: BootIntent } = {},
+  options: { onPreMountAuthFailure?: () => void; intent?: BootIntent } = {},
 ): Promise<void> {
   const generation = ++connectionGeneration
   toasts.dismiss()
@@ -142,12 +136,10 @@ async function connectToServer(
   activeTransport = transport
   installServiceWorkerMessageBridge()
   transport.start()
-  if (options.link) {
-    const runnerId = options.link.linkRunnerHostId ? savedRunnerFor(options.link.linkRunnerHostId) : null
-    if (runnerId) serverConnections.ensure(runnerId)
-  } else {
-    void prefetchStartupTranscript()
-  }
+  // The server the page opens at is dialed before the rest of the catalog.
+  const firstServerId = options.intent?.firstServerId ? serverConnections.resolveId(options.intent.firstServerId) : null
+  if (firstServerId && firstServerId !== target.id) serverConnections.ensure(firstServerId)
+  if (!options.intent?.opensResource) void prefetchStartupTranscript()
   // Every saved host is eagerly desired, not only the one this boot chose.
   serverConnections.startCatalogSupervisors()
   touchLastConnected(target.id)
@@ -248,9 +240,12 @@ async function servingOriginEntry(): Promise<SavedServer | null> {
 
 async function adoptCloudDirectory(options: { waitsForAccount: boolean }): Promise<void> {
   // The same bundle is served at `/` by a host and by the account origin; only the
-  // probe tells them apart. A host answers `/v1/hosts` with its SPA fallback, which
-  // the probe reads as `not-cloud`.
-  const { kind, directory } = await adoptCloudOriginIfPresent(location.origin)
+  // account origin's shell names itself (`accountOriginShell`).
+  if (!accountShell) {
+    cloudOrigin.kind = 'not-cloud'
+    return
+  }
+  const { kind, directory } = await adoptAccountOrigin(location.origin)
   cloudOrigin.kind = kind
   // Whether cloud onboarding is due is known before the workspace mounts, so the
   // draft composer never paints under it. Bounded: a slow answer falls back to the
@@ -264,27 +259,47 @@ async function adoptCloudDirectory(options: { waitsForAccount: boolean }): Promi
   markDirectoryAnswered()
 }
 
-async function bootFromCatalog(link?: BootIntent): Promise<void> {
-  // The workspace loads on any success — overlap the import with the probe.
-  void loadWorkspaceApp().catch(() => {})
-  // Two probes of the serving origin, independent of each other: one asks whether
-  // it is the account origin, the other whether it is a host.
-  const [, origin] = await Promise.all([
-    adoptCloudDirectory({ waitsForAccount: !link }).catch((error) => {
-      console.warn("[solus:boot] cloud directory unavailable", error)
-    }),
-    servingOriginEntry(),
-  ])
-  const servers = loadServers()
+/** The catalog this browser keeps: saved hosts, then the organizations' workspace services, the active one first. */
+function catalogTargets(): SolusServerTarget[] {
   // The window's record home may be a machine or, at the account origin, the
   // active organization's workspace service. The service is not a saved host,
   // so it joins the candidates from the workspace registry.
   const workspaces = loadWorkspaces()
   const active = activeWorkspace(workspaces)
-  const targets = [
-    ...servers.map(savedServerTarget),
+  return [
+    ...loadServers().map(savedServerTarget),
     ...[...(active ? [active] : []), ...workspaces.filter((workspace) => workspace !== active)].map(workspaceTarget),
   ]
+}
+
+/**
+ * Asks the account for the token of the server the page opens at before any other:
+ * the account mints tokens one at a time (`OAuthSession`), so the first asked is the
+ * first had. Nothing for a server this browser does not keep, or one dialed without
+ * the account (a paired host).
+ */
+function requestFirstToken(serverId: string): void {
+  const target = catalogTargets().find((candidate) => candidate.id === serverId)
+  if (!target?.uplink || target.sessionToken) return
+  void existingWebAccountSession()?.accessToken(connectionTokenResource(target.uplink.hostId))
+}
+
+async function bootFromCatalog(intent?: BootIntent): Promise<void> {
+  // The workspace loads on any success — overlap the import with the probe.
+  void loadWorkspaceApp().catch(() => {})
+  if (intent?.opensResource) webState.openedFromLink = true
+  if (intent?.firstServerId) requestFirstToken(serverConnections.resolveId(intent.firstServerId))
+  const directory = adoptCloudDirectory({ waitsForAccount: !intent?.opensResource }).catch((error) => {
+    console.warn("[solus:boot] cloud directory unavailable", error)
+  })
+  // The account origin is never a host; only a page a host serves asks whether it is one.
+  const origin = accountShell ? null : await servingOriginEntry()
+  // A catalog this browser already keeps is dialed now, and the directory refreshes it
+  // when it answers; an empty one has nothing to dial until the directory answers.
+  if (catalogTargets().length === 0) await directory
+  else void directory.then(() => { if (activeTransport) serverConnections.startCatalogSupervisors() })
+  const servers = loadServers()
+  const targets = catalogTargets()
   let activeId: string | null = null
   try {
     activeId = getActiveServerId()
@@ -312,7 +327,7 @@ async function bootFromCatalog(link?: BootIntent): Promise<void> {
     }
     void connectToServer(candidate, {
       onPreMountAuthFailure: () => tryCandidate(index + 1),
-      link,
+      intent,
     })
   }
   tryCandidate(0)
@@ -352,12 +367,11 @@ async function openShareLink(link: GuestLink): Promise<void> {
     return
   }
   history.replaceState(null, '', opening.address)
-  webState.openedFromLink = true
   // The account's tokens are minted one at a time: the runner's goes first, so its
   // socket is not queued behind every other host this account can reach. The app's
   // code loads while it is minted (`bootFromCatalog`).
   if (opening.runnerHostId && signedIn) void signedIn.account.accessToken({ kind: 'host', hostId: opening.runnerHostId })
-  void bootFromCatalog({ linkRunnerHostId: opening.runnerHostId })
+  void bootFromCatalog({ firstServerId: opening.runnerHostId ? savedRunnerFor(opening.runnerHostId) : null, opensResource: true })
 }
 
 async function bootGuest(link: GuestLink, opening: GuestOpening, signedIn: { name: string; userId: string } | null): Promise<void> {
@@ -488,9 +502,9 @@ function linkShare(info: ConnectionsServerInfo, link: GuestLink): GuestShare | n
  * is leaving for the website's sign-in. Any other origin is in local mode.
  */
 async function resumeAccountSignIn(): Promise<boolean> {
-  if (!(await servingOriginIsCloud(location.origin))) return true
+  if (!accountShell) return true
   const outcome = await resumeWebSignIn({
-    session: webAccountSession(location.origin),
+    session: webAccountSession(location.origin, accountShell.discovery),
     location,
     navigate: (url) => location.assign(url),
     // A guest who opened a share link has no account to sign in to.
@@ -518,7 +532,7 @@ async function startPage(): Promise<void> {
       mount(GuestLanding, { target: root, props: { onContinue: () => {} } })
     })
   } else {
-    void bootFromCatalog()
+    void bootFromCatalog(addressedBootIntent(location.pathname))
   }
 }
 

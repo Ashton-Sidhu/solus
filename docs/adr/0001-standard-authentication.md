@@ -119,7 +119,13 @@ service-key path for connection credentials; guest grant JWTs (dead code).
 
 What stays: WebSocket tickets (a browser cannot set headers on a socket), signed
 asset URLs, share links, local access (pairing and host session tokens), and the
-tunnel token.
+tunnel token. A dial with an account token presents it in the socket.io handshake
+instead, the socket's first message and never a header or a URL, and the host admits
+it as its ticket door does (`exchangeCredential`; docs/plans/instant-share-open.md,
+2026-10-21). That saves the ticket request and its CORS preflight. The host names its
+refusal (`CREDENTIAL_REFUSED`); a host that predates it refuses as `UNAUTHORIZED`, and
+the client asks that host for tickets. Paired devices and link guests still use
+tickets.
 
 ## 3. Interfaces
 
@@ -416,19 +422,25 @@ these decisions where the text above was not exact:
   endpoint over TLS, so it does not check the signature (OIDC Core §3.1.3.7, rule 6).
   It checks `iss`, `aud`, `exp`, and `nonce`. This keeps client-core free of a JWT
   library, which mobile cannot load as is.
-- **Web storage.** The refresh token is kept in page memory. When the page goes
-  (`pagehide`) it is written to `sessionStorage`, and the next page of the tab takes
-  it and deletes it. A reload keeps the sign-in; a closed tab ends it; a duplicated
-  tab, which copies `sessionStorage` while the page lives, finds nothing and signs in
-  by itself, so two tabs never refresh one grant (replay, above). A page with no
-  sign-in makes one silent sign-in (`prompt=none`) with the website's cookie, as a
-  same-origin fetch that accepts JSON: the provider answers the callback address
-  `/auth/callback` instead of redirecting to it, and the page completes the code
-  itself, so no page loads (docs/plans/instant-share-open.md). The callback is the
-  registered redirect URI only; no route serves it. With no cookie, a member goes to
-  the sign-in page and a guest of a share link stays a guest. Sign-out on the web ends the grant and then the cookie, because
-  on the account origin the page and the website are one, and the cookie would sign
-  the page in again.
+- **Web storage.** Every tab of the account origin shares one sign-in in
+  `localStorage`: the grant and the access tokens any tab minted
+  (docs/plans/instant-share-open.md, decided 2026-10-21). A new tab is signed in at
+  once and dials a host with a token another tab already has. Because the refresh
+  token rotates and a replay ends the grant (above), a refresh runs under one Web
+  Lock (`navigator.locks`) across the tabs, and starts from the grant as stored,
+  which another tab may have rotated (`GrantSharing` in `oauth-session.ts`); the
+  token another tab minted meanwhile is used without a refresh. A sign-in or a
+  sign-out in one tab reaches the others through the `storage` event. This replaces
+  the per-tab grant in page memory and `sessionStorage`, which cost each new tab a
+  silent sign-in. What a script on the page can reach is the same: page memory was
+  readable by it too. A page with no sign-in makes one silent sign-in (`prompt=none`)
+  with the website's cookie, as a same-origin fetch that accepts JSON: the provider
+  answers the callback address `/auth/callback` instead of redirecting to it, and the
+  page completes the code itself, so no page loads. The callback is the registered
+  redirect URI only; no route serves it. With no cookie, a member goes to the sign-in
+  page and a guest of a share link stays a guest. Sign-out on the web ends the grant
+  and then the cookie, because on the account origin the page and the website are
+  one, and the cookie would sign the page in again.
 - **The CLI keeps no sign-in.** `solus connect` signs in with the device grant, uses
   account-plane tokens for its two calls, and revokes the grant at the end.
 - **The account API with a token has no active organization.** A token caller has no

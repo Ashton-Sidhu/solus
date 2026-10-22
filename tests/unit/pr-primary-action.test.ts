@@ -69,6 +69,19 @@ describe('pull request primary action', () => {
     expect(actionFor(detailOf({ mergeStateStatus: 'behind' })).move).toEqual({ kind: 'update-branch', label: 'Update branch' })
   })
 
+  test('every move has a short label and a glyph for the band', () => {
+    // WHY: in the chrome band the pill shares a row with the tabs and the
+    // other verbs, so it carries the verb alone and, under the band's rung,
+    // only its glyph. A move with no short form would truncate mid-word.
+    const ready = actionFor(detailOf())
+    expect(ready.short).toBe('Merge')
+    expect(ready.glyph).toBe('merge')
+    const conflict = actionFor(detailOf({ mergeStateStatus: 'dirty', mergeable: 'conflicting' }))
+    expect(conflict.short).toBe('Resolve conflicts')
+    expect(conflict.glyph).toBe('conflict')
+    expect(conflict.short.length).toBeLessThan(conflict.label.length)
+  })
+
   test('a conflict is the one move painted as a blocker', () => {
     const action = actionFor(detailOf({ mergeable: false, mergeStateStatus: 'dirty' }))
     expect(action.move?.kind).toBe('resolve-conflicts')

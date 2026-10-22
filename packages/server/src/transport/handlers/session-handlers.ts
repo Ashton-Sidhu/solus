@@ -447,9 +447,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return sessionRuntime.scheduler.editQueuedPrompt(ctx, queueId, text, handlerCtx.actor)
   })
 
-  server.register('getPluginCommands', (args) => {
+  server.register('getPluginCommands', (args, handlerCtx) => {
     const [workingDirectory, ctx] = args
-    return sessionRuntime.history.listPluginCommands(agentIdFromContext(ctx), workingDirectory, ctx)
+    const agentId = agentIdFromContext(ctx)
+    return sessionRuntime.history.listPluginCommands(agentId, workingDirectory, ctx, sessionRuntime.commandSeatFor(handlerCtx.actor, agentId))
   })
 
   server.register('compactSession', async ([ctx], handlerCtx) => {

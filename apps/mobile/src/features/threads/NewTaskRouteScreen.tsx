@@ -6,7 +6,7 @@ import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from "@solus/contracts/rpc";
 import type { PermissionMode } from "@solus/contracts/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, View } from "react-native";
 import { KeyboardController, KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -737,10 +737,13 @@ function NewTaskDraftContent(props: {
   );
   const heroViewport = (
     <View className="flex-1" collapsable={false}>
-      <ScrollView
+      {/* The native-marked scroll view: UIKit insets the hero under the glass
+          header, whose height differs between an iPhone sheet and an iPad
+          column, and keeps the header clear at rest. */}
+      <ScreenScrollView
         className="flex-1"
-        contentInsetAdjustmentBehavior="never"
-        contentContainerClassName="grow items-center pb-[236px] pt-12 ios:pt-[72px]"
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerClassName="grow items-center pb-[236px] pt-12"
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -748,7 +751,7 @@ function NewTaskDraftContent(props: {
         testID="new-task-hero-scroll"
       >
         {hero}
-      </ScrollView>
+      </ScreenScrollView>
     </View>
   );
 
@@ -881,7 +884,8 @@ function NewTaskDraftContent(props: {
 
   return (
     <View className="flex-1 bg-sheet" collapsable={false}>
-      <NativeStackScreenOptions options={{ headerShadowVisible: false }} />
+      {/* The editor style puts the title beside the X, not centered. */}
+      <NativeStackScreenOptions options={{ headerShadowVisible: false, unstable_navigationItemStyle: "editor" }} />
       <SheetHeader
         title="New session"
         onCancel={closeNewTask}

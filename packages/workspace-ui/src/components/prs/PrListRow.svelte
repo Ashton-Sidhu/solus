@@ -3,19 +3,20 @@
   import ListAvatar from "../ui/list-page/ListAvatar.svelte";
   import ListChip from "../ui/list-page/ListChip.svelte";
   import { UserCheck as UserCheckIcon } from "@lucide/svelte";
-  import { checksChip, compactCount } from "../ui/list-page/list-page";
+  import { compactCount } from "../ui/list-page/list-page";
   import LabelChip from "../ui/labels/LabelChip.svelte";
+  import PrChecksChip from "./PrChecksChip.svelte";
   import { prStatusGlyph, type PrRowSpec } from "./lib/prs-list-view";
   import {
     PR_ADDITIONS_TONE,
-    PR_CHECKS_TONE,
     PR_DELETIONS_TONE,
     PR_VERDICT_TONE,
   } from "./lib/pr-row-styles";
   import { TouchLongPress } from "../../lib/touch-long-press";
   import type { ChangeBreakdownPart } from "@solus/client-core/change-breakdown";
+  import type { PrChecksSummary } from "@solus/contracts/checks-types";
   import * as TooltipUI from "../ui/tooltip";
-  import ChangeBreakdownParts from "./ChangeBreakdownParts.svelte";
+  import { ChangeBreakdown } from "../ui/change-breakdown";
 
   /** One pull request in the list: the lifecycle glyph, then a
    *  two-by-two grid. The title leads line one and the outcome — verdict,
@@ -47,13 +48,35 @@
     /** The pointer reached the churn: read the split. Rows nobody points at
      *  cost the host nothing. */
     onWantBreakdown?: () => void;
+    /** The check runs behind the checks glyph, for its popover. Empty until
+     *  read; `headSha` is the row's current head, so an older answer reads
+     *  as still checking. */
+    checksSummary?: PrChecksSummary;
+    checksLoadFailed?: boolean;
+    headSha?: string | null;
+    /** The checks popover opened: read the check runs. */
+    onWantChecks?: () => void;
   }
-  let { row, split = false, selected = false, onSelect, onContextMenu, leading, stack, actions, breakdown = [], onWantBreakdown }: Props = $props();
+  let {
+    row,
+    split = false,
+    selected = false,
+    onSelect,
+    onContextMenu,
+    leading,
+    stack,
+    actions,
+    breakdown = [],
+    onWantBreakdown,
+    checksSummary,
+    checksLoadFailed = false,
+    headSha = null,
+    onWantChecks,
+  }: Props = $props();
 
   const longPress = new TouchLongPress((event) => onContextMenu?.(event));
 
   const glyph = $derived(prStatusGlyph(row.status));
-  const checks = $derived(row.checks ? checksChip(row.checks) : null);
   const author = $derived(row.people[0] ?? null);
 </script>
 
@@ -111,15 +134,17 @@
         {:else if row.verdict === "changes-requested"}
           <span class="whitespace-nowrap {PR_VERDICT_TONE['changes-requested']}">Changes requested</span>
         {/if}
-        {#if checks}
-          <span
-            class="flex items-center {PR_CHECKS_TONE[row.checks?.state ?? 'none']}"
-            role="img"
-            aria-label={checks.label}
-            title={checks.label}
-          >
-            <checks.icon size={14} />
-          </span>
+        <!-- The checks as a glyph, the way a code host draws them; the check
+             runs themselves open from it, read when it is opened. -->
+        {#if row.checks && row.checks.state !== "none"}
+          <PrChecksChip
+            variant="glyph"
+            rowChecks={row.checks}
+            summary={checksSummary}
+            loadFailed={checksLoadFailed}
+            {headSha}
+            onOpen={onWantChecks}
+          />
         {/if}
         {#if row.churn}
           {@const churn = row.churn}
@@ -138,7 +163,7 @@
             </TooltipUI.Trigger>
             {#if breakdown.length > 0}
               <TooltipUI.Content side="bottom">
-                <ChangeBreakdownParts parts={breakdown} />
+                <ChangeBreakdown parts={breakdown} total={churn} />
               </TooltipUI.Content>
             {/if}
           </TooltipUI.Root>

@@ -2,6 +2,8 @@
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { page } from '$app/state';
+	import SiteNav from '$lib/SiteNav.svelte';
+	import SiteFooter from '$lib/SiteFooter.svelte';
 
 	let { children } = $props();
 
@@ -18,4 +20,8 @@
 	<meta name="twitter:url" content={canonicalUrl} />
 </svelte:head>
 
+<SiteNav />
+
 {@render children()}
+
+<SiteFooter />

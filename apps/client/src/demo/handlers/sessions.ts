@@ -1,5 +1,5 @@
 import { arg, optionalArg } from './args'
-import type { SessionMessageWindowRequest } from '@solus/contracts/session-history'
+import { startsHistoryTurn, type SessionHistoryPage, type SessionHistoryPageRequest, type SessionMessageWindowRequest } from '@solus/contracts/session-history'
 import type { PinnedSession, SessionMeta, SessionRecord, SessionRecordSearchQuery } from '@solus/contracts/types'
 import type { DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
@@ -62,6 +62,22 @@ export function registerSessionsHandlers(backend: DemoServer, store: DemoStore):
     const messages = store.loadSession(sessionId, limit)
     markSessionLoaded(sessionId)
     return messages
+  })
+  // A page is the newest `turnLimit` user turns before the cursor, each whole.
+  // The cursor is the row index the previous page started at.
+  backend.register('loadSessionPage', (args) => {
+    const request = arg<SessionHistoryPageRequest>(args, 0)
+    const all = store.loadSession(request.sessionId)
+    const end = request.before ? Number(request.before) : all.length
+    let start = end
+    let turns = 0
+    while (start > 0) {
+      start -= 1
+      if (startsHistoryTurn(all[start]!) && ++turns >= request.turnLimit) break
+    }
+    markSessionLoaded(request.sessionId)
+    const page: SessionHistoryPage = { messages: all.slice(start, end), before: start > 0 ? String(start) : null }
+    return page
   })
   backend.register('loadSessionPreview', (args) => store.loadSessionPreview(arg<string>(args, 0)))
   backend.register('loadSessionMessageWindow', (args) =>

@@ -29,8 +29,8 @@ export function parseSessionPullRequestId(pullRequestId: string): { repository: 
 /**
  * Who made a session ↔ pull request link.
  *
- * - `branch`: PR sync found the pull request on the branch of the session's
- *   own worktree.
+ * - `branch`: PR sync found the pull request on the session's branch. A
+ *   session holds one such row, and it follows the branch.
  * - `created`: Solus opened the pull request from this session.
  * - `agent`: the session's agent linked it.
  * - `manual`: a person linked it.

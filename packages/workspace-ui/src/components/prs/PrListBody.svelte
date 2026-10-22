@@ -160,6 +160,10 @@
           actions={showRowActions ? quickActions : undefined}
           breakdown={stored?.changeBreakdown}
           onWantBreakdown={() => void stored?.loadChangedFiles().catch(() => {})}
+          checksSummary={stored?.checks}
+          checksLoadFailed={stored?.checksLoadFailed ?? false}
+          headSha={pr?.headSha ?? null}
+          onWantChecks={() => void stored?.loadChecks().catch(() => {})}
           onSelect={() => {
             if (pr) onSelect(pr);
           }}

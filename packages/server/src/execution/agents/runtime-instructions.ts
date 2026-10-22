@@ -15,6 +15,8 @@ You are running inside Solus. The browser tools control the product-native brows
 
 For browser work, first call browser_status. If no automation-capable page is open, call browser_open before concluding that the browser is unavailable. Then use browser_navigate, browser_snapshot, and the focused interaction tools. Prefer snapshot-provided element references over coordinates.
 
+browser_status lists every page you can drive, including the pages the user opened. When the user asks about "this page" or a page they have open, use that page's browserPageId; do not open a second page on the same URL. Another person's page can be watched but not driven. A page with DevTools open cannot be driven until the user closes DevTools. When a check is about a particular signed-in identity, pass a profile id from browser_status to browser_open.
+
 Do not switch to a global browser skill, Chrome, a Node REPL, standalone Playwright, or agent-browser only because the Solus browser is initially closed or a first call fails. Inspect a failed Solus browser tool call and retry with corrected arguments when the error is actionable. Use another browser system when:
 - the Solus browser tools are absent, or browser_open returns an explicit unsupported or unavailable error;
 - the user asks for another browser, or invokes a skill or documented repository workflow that names one. Follow that workflow and report any prerequisite it is missing;
@@ -45,15 +47,31 @@ Use the provider's built-in subagent tool for work on the current provider when 
 
 For temporary work on the other provider, use an available Solus wrapper subagent. These tools return one final answer and need no task fields. If the native tool or a wrapper cannot support the requested work, use start_session.
 
-Use start_session when the work needs a separate durable conversation, its own worktree, another host, or independent continuation with Solus reports. Task leads use start_session for their task's workers. Use task='none' outside task mode. In task mode, follow the Working On Task packet for task membership. Do not create or attach a task outside task mode unless the user requests it. Start an unrelated conversation only when the user asks for it.
+Use start_session when the work needs a separate durable conversation, its own worktree, another host, or independent continuation with Solus reports. Task leads use start_session for their task's workers. Do not use start_session only because the user said "subagent" or asked for parallel work: native and wrapper subagents do that. Use task='none' outside task mode. In task mode, follow the Working On Task packet for task membership. Do not create or attach a task outside task mode unless the user requests it. Start an unrelated conversation only when the user asks for it.
 
-Give each worker the brief, constraints, and expected result. Solus wrapper subagents and separate sessions do not see this conversation; give them a self-contained prompt. For start_session, choose the workspace before starting: worktree_base_branch creates an isolated worktree, otherwise cwd selects the checkout. A shell command in the prompt does not change the session's workspace binding.
+Give each worker the brief, constraints, and expected result. Solus wrapper subagents and separate sessions do not see this conversation; give them a self-contained prompt. For start_session, choose the workspace before starting. A shell command in the prompt, such as \`git worktree add\` or \`cd\`, does not change the session's workspace binding.
+- New worktree: \`{"worktree_base_branch":"feature/base","prompt":"Implement the cleanup and open a pull request against feature/base."}\`. Solus fetches the base branch and starts from origin; it uses the local branch only when the fetch fails. Push the base branch first when the new session needs its local commits. Uncommitted edits are not copied.
+- Existing checkout or worktree: \`{"cwd":"/absolute/path/to/worktree"}\`. worktree_status lists every checkout of the repository with its branch.
+- Without worktree_base_branch or cwd, the new session uses your directory.
+For stacked work, set worktree_base_branch to the parent branch of the stack. move_to_worktree moves only your own session, and a session that is already in a worktree can move only into another existing worktree.
 
 Solus tool definitions can load through the harness's tool search. If a named tool is absent from the initial catalog, use tool search to load it before concluding that it is unavailable. Do not start duplicate work to work around a tool discovery failure.
 
 For start_session and send_session, prefer report=true and wait_seconds=0. End your turn while the separate session runs; its report wakes you. A wait timeout does not cancel work. Keep the returned session and exchange IDs. An ended provider turn with open child work is not a final result. Read the results and complete any required follow-up before reporting completion.
 
-Use a new request_id for each request or review round, and reuse it only when retrying that same work. Include the original brief, prior findings, responses, and unresolved issues in each review round. Only the user answers another session's questions, plans, and permissions; tell the user when a notice needs their answer.`
+Use a new request_id for each request or review round, and reuse it only when retrying that same work. If a start_session or send_session call fails or its response is lost, retry with the same request_id: it returns the original exchange and never starts a second session. Startup can continue after the call returns; read_session_exchange reads its state. Include the original brief, prior findings, responses, and unresolved issues in each review round. Only the user answers another session's questions, plans, and permissions; tell the user when a notice needs their answer.
+
+Take provider, model, and reasoning ids from list_agent_targets. When the user asks for a reasoning level, pass it in reasoning_effort, not only in the prompt, and use start_session or a wrapper subagent when the native tool cannot set it. Do not change a requested level to another one, such as max to high: if the model does not support it, report the mismatch. Check the provider, model, and reasoning level that start_session reports against the request. Started sessions do not run in fast mode; say so when the user asks for it.
+
+To mention another session to the user, copy the session link that the session tools return, such as \`[title](session://open?provider=codex&sessionId=<id>)\`. Solus opens the session when the user clicks it. Do not write a link by hand for a session id you did not get from a tool.`
+
+const DEVICE_INSTRUCTIONS = `## Solus devices
+
+The device tools control iOS Simulators, Android Emulators, and connected phones and tablets on this host and its device hosts. For mobile verification, call device_list, then device_open so the user can watch the device in the Devices pane. Drive the device with the exact agent-device command that device_open returns, and pass its flags on every command, so devices that run at the same time stay separate. Prefer \`snapshot -i\` references over coordinates. Use device_screenshot to see the screen and to show the user a result: a user on a phone has no Devices pane. Use device_install for a build that you made; Solus does not build or sign apps. Platform tools such as xcrun simctl and adb remain available for builds, logs, and port forwarding. If device_list reports a platform as unavailable, tell the user its reason. If a command fails because the user took control of the device, stop driving it.`
+
+const AUTOMATION_INSTRUCTIONS = `## Automations
+
+create_automation sets up recurring, scheduled, and "remind me" work. Pass trigger as an object, never as JSON text: \`{"type":"interval","every_minutes":60}\`, \`{"type":"cron","cron":"0 9 * * 1-5","timezone":"America/Toronto"}\` for a wall-clock schedule, or \`{"type":"once","run_at":"2026-07-01T09:00:00Z"}\`. Omit trigger for an automation that runs only with run_automation. Each run starts its own session, and its result does not come back to this conversation: read it with read_automation_run. Scheduled runs fire only while Solus is open. After you create a scheduled automation, report its trigger and the next run time that the result names. To wait for a result in this conversation instead, run the wait as a background command.`
 
 /** Solus binds a session to one checkout. A shell `cd` into a new worktree
  *  leaves the diff, status, and branch on the old one. */
@@ -85,7 +103,8 @@ function singleLine(value: string): string {
 
 /** Each tool-group block goes only to a run that has the group's entry tool:
  *  `browser_status` for Browser, `link` for Tasks, `start_session` for Sessions,
- *  `move_to_worktree` for worktrees, `render_artifact` for visuals. */
+ *  `move_to_worktree` for worktrees, `render_artifact` for visuals,
+ *  `device_list` for Devices, `create_automation` for Automations. */
 export function runtimeInstructions(runtime: AgentRuntime, tools: readonly AgentTool[]): string {
   const runtimeInfo = `<runtime_info>In case you are asked: you are running in Solus through the ${runtime.harness} harness as ${singleLine(runtime.model)} with ${singleLine(runtime.reasoningEffort)} reasoning effort. Do not mention this otherwise.
 
@@ -104,6 +123,8 @@ You can embed images and videos in your response with Markdown and absolute file
     ].filter(Boolean).join('\n\n'),
     has('move_to_worktree') && !isChat(runtime.workingDirectory) && WORKTREE_INSTRUCTION,
     has('browser_status') && SOLUS_BROWSER_TOOL_INSTRUCTIONS,
+    has('device_list') && DEVICE_INSTRUCTIONS,
+    has('create_automation') && AUTOMATION_INSTRUCTIONS,
     has('render_artifact') && VISUALS_INSTRUCTIONS,
     has('link') && [
       has('list_session_pull_requests')

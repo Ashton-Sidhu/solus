@@ -174,7 +174,7 @@ export function HomeRouteScreen() {
   // iOS: one toolbar owns the header of both tabs; Android draws each tab's header.
   const workspaceToolbar =
     Platform.OS === "ios" ? (
-      <WorkspaceToolbar onNewTask={startNewTask} onOpenSettings={openSettings} />
+      <WorkspaceToolbar onOpenSettings={openSettings} />
     ) : null;
 
   // A split layout drawn in React Native (Android, or an iPad before iOS 26)

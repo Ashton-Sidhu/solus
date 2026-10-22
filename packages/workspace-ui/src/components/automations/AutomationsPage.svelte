@@ -249,7 +249,9 @@
       .sort((a, b) => {
         if (!!a.favorite !== !!b.favorite) return a.favorite ? -1 : 1;
         if (sortMode === "name") return a.name.localeCompare(b.name);
-        return b.updatedAt.localeCompare(a.updatedAt);
+        // Newest first by creation. A pause or an edit bumps `updatedAt`; if the
+        // list followed it, the row would jump to the top under the pointer.
+        return b.createdAt.localeCompare(a.createdAt);
       });
   });
 

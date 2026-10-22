@@ -1,15 +1,16 @@
 import { afterAll, afterEach, expect, mock, spyOn, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { adoptCloudOriginIfPresent, configureUplinkAccountSource, uplinkAccountSource } from '@solus/client-core/uplink-account'
+import { adoptAccountOrigin, configureUplinkAccountSource, uplinkAccountSource } from '@solus/client-core/uplink-account'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { configureCloudAccount, startupAccountRead, type CloudAccountSession } from '@solus/client-core/cloud-account'
 import type { SavedServer } from '@solus/client-core/server-registry'
 import { DEFAULT_ORGANIZATION_POLICY } from '@solus/contracts/uplink'
 
 // The web client's start on the account origin (docs/adr/0001-standard-authentication.md
-// §2.2 rule 1). A probe that sends no credential tells the account origin from a host;
-// signed in, the page reads its directory once with an account-plane access token, and
-// the website's cookie is never the credential.
+// §2.2 rule 1). The account origin's shell names itself, so no request is spent telling
+// it from a host (docs/plans/instant-share-open.md); signed in, the page reads its
+// directory once with an account-plane access token, and the website's cookie is never
+// the credential.
 
 const host = {
   hostId: 'abcdefghijklmnop', installationId: 'installation', label: 'My host', os: 'macos',
@@ -25,7 +26,6 @@ afterEach(() => {
   configureCloudAccount(null)
 })
 
-// Each test is its own origin: the page asks once per origin whether it is the account origin.
 let originSerial = 0
 const nextOrigin = () => `https://account-${++originSerial}.example`
 
@@ -48,36 +48,35 @@ const start = source.indexOf('async function adoptCloudDirectory(')
 const end = source.indexOf('async function bootFromCatalog(', start)
 const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(start, end))
 
-async function bootDirectory(origin: string, isSignedIn: boolean) {
+async function bootDirectory(origin: string, isSignedIn: boolean, options: { accountShell?: boolean } = {}) {
   const state = { kind: 'unknown' }
   const saved: SavedServer[] = [{ id: 'paired', label: 'Paired host', url: 'https://paired.example', sessionToken: 'fixture', lastConnected: 1 }]
   const save = mock((servers: SavedServer[]) => { saved.splice(0, saved.length, ...servers) })
   const saveWorkspaces = mock((_workspaces: unknown[], _directoryUrl: string) => [])
   const answered = mock(() => {})
-  const adopt = (at: string) => adoptCloudOriginIfPresent(at, session(isSignedIn))
-  const boot = new Function('adoptCloudOriginIfPresent', 'uplinkAccountSource', 'cloudOrigin',
+  const adopt = (at: string) => adoptAccountOrigin(at, session(isSignedIn))
+  const shell = options.accountShell === false ? null : { discovery: undefined }
+  const boot = new Function('adoptAccountOrigin', 'accountShell', 'uplinkAccountSource', 'cloudOrigin',
     'location', 'loadServers', 'saveServers', 'mergeDirectoryIntoSaved', 'saveDirectoryWorkspaces', 'startupAccountRead', 'markDirectoryAnswered',
     `${compiled}\nreturn adoptCloudDirectory({ waitsForAccount: true });`)
-  await boot(adopt, uplinkAccountSource, state, { origin }, () => saved, save, mergeDirectoryIntoSaved, saveWorkspaces, startupAccountRead, answered)
+  await boot(adopt, shell, uplinkAccountSource, state, { origin }, () => saved, save, mergeDirectoryIntoSaved, saveWorkspaces, startupAccountRead, answered)
   // Only a merged directory makes the saved hosts authoritative (workspace-and-machines.md §6).
   expect(answered).toHaveBeenCalledTimes(save.mock.calls.length)
   expect(saveWorkspaces).toHaveBeenCalledTimes(save.mock.calls.length)
   return { state, saved, save, saveWorkspaces }
 }
 
-test('signed in, the start probes without a credential, then reads the directory once with an access token', async () => {
+test('signed in, the start reads the directory once, with an access token and no probe before it', async () => {
   const origin = nextOrigin()
   fetchSpy.mockImplementation(async (_url, init) => new Headers(init?.headers).get('authorization')
     ? Response.json({ hosts: [host], workspaces: [workspace] })
     : Response.json({ error: 'unauthorized' }, { status: 401 }))
   const { state, saved, save, saveWorkspaces } = await bootDirectory(origin, true)
   expect(state.kind).toBe('signed-in')
-  const [probe, directory] = requestsTo(origin, '/v1/hosts')
-  expect(probe![1]).toMatchObject({ credentials: 'omit' })
-  expect(new Headers(probe![1]?.headers).get('authorization')).toBeNull()
+  const [directory] = requestsTo(origin, '/v1/hosts')
   expect(directory![1]).toMatchObject({ credentials: 'omit' })
   expect(new Headers(directory![1]?.headers).get('authorization')).toBe('Bearer account-token')
-  expect(requestsTo(origin, '/v1/hosts')).toHaveLength(2)
+  expect(requestsTo(origin, '/v1/hosts')).toHaveLength(1)
   expect(requestsTo(origin, '/v1/account')).toHaveLength(1)
   expect(save).toHaveBeenCalledTimes(1)
   expect(saved.some((server) => server.installationId === host.installationId)).toBe(true)
@@ -87,7 +86,7 @@ test('signed in, the start probes without a credential, then reads the directory
   expect(saveWorkspaces).toHaveBeenCalledWith([workspace], origin)
   fetchSpy.mockImplementation(async () => Response.json({ hosts: [{ ...host, label: 'Renamed host' }], workspaces: [] }))
   const refreshed = await uplinkAccountSource()?.listDirectory()
-  expect(requestsTo(origin, '/v1/hosts')).toHaveLength(3)
+  expect(requestsTo(origin, '/v1/hosts')).toHaveLength(2)
   expect(refreshed?.hosts[0].label).toBe('Renamed host')
 })
 
@@ -96,29 +95,24 @@ test('the account origin with no sign-in keeps the saved hosts and reads nothing
   fetchSpy.mockImplementation(async () => Response.json({ error: 'unauthorized' }, { status: 401 }))
   const { state, saved, save } = await bootDirectory(origin, false)
   expect(state.kind).toBe('signed-out')
-  expect(requestsTo(origin, '/v1/hosts')).toHaveLength(1)
+  expect(requestsTo(origin, '/v1/hosts')).toHaveLength(0)
   expect(requestsTo(origin, '/v1/account')).toHaveLength(0)
   expect(save).not.toHaveBeenCalled()
   expect(saved.map((server) => server.id)).toEqual(['paired'])
   expect(uplinkAccountSource()).not.toBeNull()
 })
 
-for (const scenario of [
-  { name: 'host SPA fallback', response: () => new Response('<html></html>', { headers: { 'content-type': 'text/html' } }) },
-  { name: 'server failure', response: () => Response.json({}, { status: 503 }) },
-  { name: 'network failure', response: (): Response => { throw new Error('offline') } },
-]) {
-  test(`${scenario.name} is not the account origin and keeps the saved hosts`, async () => {
-    const origin = nextOrigin()
-    fetchSpy.mockImplementation(async () => scenario.response())
-    const { state, saved, save } = await bootDirectory(origin, true)
-    expect(state.kind).toBe('not-cloud')
-    expect(requestsTo(origin, '/v1/hosts')).toHaveLength(1)
-    expect(save).not.toHaveBeenCalled()
-    expect(saved.map((server) => server.id)).toEqual(['paired'])
-    expect(uplinkAccountSource()).toBeNull()
-  })
-}
+test('a page whose shell does not name the account origin is a host page: it asks nothing and keeps the saved hosts', async () => {
+  // WHY: a host serves the same bundle; spending a request to tell them apart is what the
+  // shell's marker removes, and a host page must never adopt an account source.
+  const origin = nextOrigin()
+  const { state, saved, save } = await bootDirectory(origin, true, { accountShell: false })
+  expect(state.kind).toBe('not-cloud')
+  expect(fetchSpy).not.toHaveBeenCalled()
+  expect(save).not.toHaveBeenCalled()
+  expect(saved.map((server) => server.id)).toEqual(['paired'])
+  expect(uplinkAccountSource()).toBeNull()
+})
 
 test('an invalid directory keeps the saved hosts, and a valid empty one is a signed-in account', async () => {
   const invalid = nextOrigin()

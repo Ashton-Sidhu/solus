@@ -5,6 +5,8 @@
     RefreshCw as ArrowsClockwiseIcon,
     ArrowDownToLine as GitPullIcon,
     ChevronRight as CaretRightIcon,
+    Check as CheckIcon,
+    LoaderCircle as CircleNotchIcon,
     CloudUpload as CloudArrowUpIcon,
     Glasses as EyeglassesIcon,
     GitCommitHorizontal as GitCommitIcon,
@@ -42,7 +44,9 @@
     type ActionRowIcon,
     type ActionRowItem,
   } from "./MenuRow.svelte";
-  import { checksPresentation } from "../prs/lib/checks";
+  import { checksPresentation, type ChecksPresentation } from "../prs/lib/checks";
+  import { prStatusGlyph, prStatusOf } from "../prs/lib/prs-list-view";
+  import { mergeReadiness, readinessTone } from "../pr-review/lib/merge-readiness";
   import {
     parseGitHubPullRequestUrl,
     type PullRequest,
@@ -57,6 +61,10 @@
   import { useGitSectionReads } from "./lib/git-section-reads.svelte";
   import { mergeConflictDraft } from "./lib/merge-conflict-draft";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
+  import {
+    sessionPrLink,
+    sessionPullRequestsStore,
+  } from "../../contexts/prs/session-pull-requests.store.svelte";
   import CommitComposer from "./commit-composer/CommitComposer.svelte";
   import LinkedPullRequestRows from "./LinkedPullRequestRows.svelte";
   import PublishRepositoryDialog from "./publish-repository/PublishRepositoryDialog.svelte";
@@ -442,38 +450,120 @@
       : undefined,
   );
 
+  // --- The session's pull requests -----------------------------------------
+  // The card lists every open pull request the session links, the branch's own
+  // among them (docs/plans/session-pull-requests.md): a session on two layers
+  // of a stack, or one an agent linked to a pull request on another branch,
+  // sees each. The branch's own pull request keeps its full group; the others
+  // take one row each, so the card grows a row per link, not a group. Only this
+  // repository's pull requests are here: the store files a pushed row under
+  // each project that reads its repository, and a number means nothing
+  // outside its repository.
+  const sessionId = $derived(session.sessionFor(sourceId)?.id ?? null);
+  const sessionLinks = $derived(sessionPullRequestsStore.linksFor(sessionId));
+  const cardPrs = $derived.by(() => {
+    const prs: PullRequest[] = activePr ? [activePr] : [];
+    const project = pullRequests.projects.at(prServerId, prProjectScope);
+    const repository = project?.repositoryKey?.toLowerCase();
+    if (!project || !repository) return prs;
+    for (const link of sessionLinks) {
+      if (link.repository !== repository || prs.some((pr) => pr.number === link.number)) continue;
+      const pr = project.prFor(link.number);
+      if (pr?.state === "open") prs.push(pr);
+    }
+    return prs;
+  });
+  // Which pull request the group shows. The branch's own until a person
+  // chooses another; a change of branch or project goes back to it, so the
+  // group never keeps a choice made on another checkout.
+  let chosenPrNumber = $state<number | null>(null);
+  $effect(() => {
+    void currentBranch;
+    void prProjectScope;
+    chosenPrNumber = null;
+  });
+  const shownPr = $derived(
+    cardPrs.find((pr) => pr.number === chosenPrNumber) ?? cardPrs[0] ?? null,
+  );
+  const otherPrs = $derived(cardPrs.filter((pr) => pr !== shownPr));
+  /** Show the pull request after the shown one, around to the first. */
+  function cycleShownPr() {
+    if (!shownPr || cardPrs.length < 2) return;
+    const index = cardPrs.indexOf(shownPr);
+    chosenPrNumber = cardPrs[(index + 1) % cardPrs.length]!.number;
+    requestInputFocus();
+  }
+
   // CI state colours the glyph. `checksPresentation` is the same reading the PRs
   // page shows, so the two surfaces can't disagree — including its refusal to
   // assert a result computed against a head the branch has since moved past.
-  const prChecks = $derived(
-    activePr
-      ? checksPresentation(
-          pullRequests.checks.summaryFor(
-            prServerId,
-            session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
-            activePr.number,
-          ),
-          activePr.headSha,
-          pullRequests.checks.loadFailedFor(
-            prServerId,
-            session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
-          ),
-        )
-      : null,
-  );
+  function checksFor(pr: PullRequest) {
+    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
+    return checksPresentation(
+      pullRequests.checks.summaryFor(prServerId, ctx, pr.number),
+      pr.headSha,
+      pullRequests.checks.loadFailedFor(prServerId, ctx),
+    );
+  }
+  const prChecks = $derived(activePr ? checksFor(activePr) : null);
   // Draft PRs stay untinted: nothing is being asserted about a PR that isn't
   // asking to land yet. `none`/`unavailable` are likewise not a verdict.
-  const activePrTone = $derived<ActionRowItem["iconTone"]>(
-    !prChecks || activePr?.draft
-      ? undefined
-      : prChecks.state === "failing"
-        ? "danger"
-        : prChecks.state === "pending"
-          ? "running"
-          : prChecks.state === "passing"
-            ? "success"
-            : undefined,
-  );
+  function checksTone(pr: PullRequest): ActionRowItem["iconTone"] {
+    const checks = checksFor(pr);
+    if (!checks || pr.draft) return undefined;
+    return checks.state === "failing"
+      ? "danger"
+      : checks.state === "pending"
+        ? "running"
+        : checks.state === "passing"
+          ? "success"
+          : undefined;
+  }
+  const activePrTone = $derived(activePr ? checksTone(activePr) : undefined);
+  // One row per other linked pull request, read the way the list and the
+  // review pane read one: the lifecycle as the glyph's shape (open, draft),
+  // mergeability as its tone (red cannot merge, green can, purple merged),
+  // and the checks as a tinted glyph before the number. The row brings that
+  // pull request into the group above.
+  const CHECKS_GLYPH = {
+    passing: { icon: CheckIcon, tone: "success" },
+    failing: { icon: XIcon, tone: "danger" },
+    pending: { icon: CircleNotchIcon, tone: "running" },
+    unavailable: { icon: WarningCircleIcon, tone: undefined },
+    none: { icon: undefined, tone: undefined },
+  } satisfies Record<
+    ChecksPresentation["state"],
+    { icon: ActionRowIcon | undefined; tone: ActionRowItem["badgeIconTone"] }
+  >;
+  const READINESS_ICON_TONE = {
+    positive: "success",
+    negative: "danger",
+    review: "review",
+    neutral: undefined,
+  } satisfies Record<ReturnType<typeof readinessTone>, ActionRowItem["iconTone"]>;
+  function linkedPrRow(pr: PullRequest): ActionRowItem {
+    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
+    const checksLoadFailed = pullRequests.checks.loadFailedFor(prServerId, ctx);
+    const readiness = mergeReadiness({
+      detail: pr,
+      checks: pullRequests.checks.summaryFor(prServerId, ctx, pr.number),
+      checksLoadFailed,
+    });
+    const checks = checksFor(pr);
+    const status = prStatusGlyph(prStatusOf(pr));
+    return {
+      key: `pr-linked-${pr.number}`,
+      label: pr.title,
+      icon: status.icon,
+      iconTone: READINESS_ICON_TONE[readinessTone(readiness.key)],
+      phase: "idle",
+      badgeIcon: CHECKS_GLYPH[checks.state].icon,
+      badgeIconTone: CHECKS_GLYPH[checks.state].tone,
+      badge: `#${pr.number}`,
+      tooltip: `${status.label} · ${readiness.headline} · ${checks.label}`,
+    };
+  }
+  const otherPrRows = $derived(otherPrs.map(linkedPrRow));
 
   // The same branch read as the mobile navbar, shared by host and project.
   // Only environment changes re-run it; store writes are not dependencies.
@@ -493,20 +583,38 @@
     });
   });
 
-  // The host caches checks per repo, so asking for this one PR warms — and reads
+  // The session's links are kept fresh while the card shows them, so a linked
+  // pull request the project has not read yet is pushed to it. The key names
+  // the links, not the array: the store writes a new array on every change.
+  const sessionLinkKeys = $derived(
+    sessionLinks.map((link) => `${link.repository}#${link.number}`).join("\n"),
+  );
+  $effect(() => {
+    void sessionLinkKeys;
+    const cwd = env.cwd;
+    if (!active || !sessionLinks.length || !cwd) return;
+    const api = prApi;
+    const serverId = prServerId;
+    return untrack(() => {
+      const ctx = session.ctxForEnvironment(cwd, env.checkout, sourceId);
+      return pullRequests.projects.wantLinkedPrs(api, serverId, ctx, sessionLinks.map(sessionPrLink));
+    });
+  });
+
+  // The host caches checks per repo, so asking for these PRs warms — and reads
   // from — the same snapshot the PRs page uses rather than a second poll.
   let requestedChecksFor: string | null = null;
   $effect(() => {
-    if (!active || !activePr) return;
-    const key = JSON.stringify([prServerId, prProjectScope, activePr.number]);
+    if (!active || !cardPrs.length) return;
+    const numbers = cardPrs.map((pr) => pr.number);
+    const key = JSON.stringify([prServerId, prProjectScope, numbers]);
     if (requestedChecksFor === key) return;
     requestedChecksFor = key;
     const api = prApi;
     const serverId = prServerId;
-    const number = activePr.number;
     untrack(() => {
       const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
-      void pullRequests.checks.load(api, serverId, ctx, [number]).catch(() => {});
+      void pullRequests.checks.load(api, serverId, ctx, numbers).catch(() => {});
     });
   });
 
@@ -792,19 +900,46 @@
       {/if}
     </div>
   {/each}
-  <!-- Once the branch has a pull request, the column continues past the Git
-       rows: a divider, then what to do with the pull request itself. -->
-  {#if activePr}
+  <!-- Once the session has a pull request, the column continues past the Git
+       rows: a divider, then what to do with the shown pull request. -->
+  {#if shownPr}
     <LinkedPullRequestRows
-      pr={activePr}
+      pr={shownPr}
       ctx={session.ctxForEnvironment(env.cwd, env.checkout, sourceId)}
       serverId={prServerId}
       api={prApi}
-      checks={prChecks}
+      checks={checksFor(shownPr)}
       {active}
+      position={cardPrs.length > 1 ? { index: cardPrs.indexOf(shownPr), count: cardPrs.length } : null}
+      onCycle={cycleShownPr}
       onMerged={() => void loadOpenPrs()}
       onAgentDraft={openAgentDraft}
     />
+  {/if}
+  <!-- The session's other open pull requests, one row each. A row brings its
+       pull request into the group. -->
+  {#if otherPrRows.length}
+    <div
+      class="mx-2 mt-1.5 mb-1 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"
+      aria-hidden="true"
+    ></div>
+    <div class="flex min-h-6 items-center justify-between gap-2 px-1.5 text-chrome-shelf">
+      <span class="min-w-0 truncate font-medium text-(--solus-text-tertiary) uppercase"
+        >Also linked</span
+      >
+      <span class="shrink-0 font-normal tabular-nums text-(--solus-text-tertiary)"
+        >{otherPrRows.length}</span
+      >
+    </div>
+    {#each otherPrs as pr, index (pr.number)}
+      <MenuRow
+        item={otherPrRows[index]!}
+        onActivate={() => {
+          chosenPrNumber = pr.number;
+          requestInputFocus();
+        }}
+      />
+    {/each}
   {/if}
 </div>
 <DropdownMenu.Root bind:open={rowMenuOpen}>

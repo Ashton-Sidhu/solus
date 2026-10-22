@@ -54,6 +54,7 @@ import {
   COMPOSER_COLLAPSED_CHROME,
   COMPOSER_EXPANDED_CHROME,
   COMPOSER_LAYOUT_TRANSITION,
+  THREAD_COMPOSER_BOTTOM_GUTTER,
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadFeed, type ThreadContentPresentation, type ThreadFeedHistoryControls } from "./ThreadFeed";
@@ -152,12 +153,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const listRef = useRef<LegendListRef>(null);
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
-  const [composerFocused, setComposerFocused] = useState(false);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const queuedEdit = useQueuedMessageEdit(store);
   const handleComposerFocusChange = useCallback(
     (focused: boolean) => {
-      setComposerFocused(focused);
       keyboardResumeRef.current.composerFocusChanged(focused);
       handleOwnedInputFocusChange(focused);
     },
@@ -165,16 +164,22 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   );
   const [submittedMessageId, setSubmittedMessageId] = useState<string | null>(null);
   const [endFollowEnabled, setEndFollowEnabled] = useState(true);
-  // Android keys the safe-area padding on keyboard visibility; iOS on focus,
-  // because visibility only flips after the hide animation. A focused input
-  // with a hardware keyboard has no software keyboard over the inset.
-  const composerBottomInset = (
-    Platform.OS === "android"
-      ? isKeyboardVisible
-      : (composerExpanded || composerFocused) && liveKeyboardHeight > 0
-  )
+  // The composer already adds its own gutter; the iPad aligns the pill's edge
+  // with the native bar, so the inset does not count the gutter a second time.
+  const composerBottomGutter = composerExpanded
+    ? THREAD_COMPOSER_BOTTOM_GUTTER.card
+    : THREAD_COMPOSER_BOTTOM_GUTTER.row;
+  const alignedBottomInset =
+    Platform.OS === "ios" && Platform.isPad
+      ? Math.max(0, Math.max(insets.bottom, 12) - composerBottomGutter)
+      : Math.max(insets.bottom, 12);
+  // Android keys the safe-area padding on keyboard visibility; iOS on the
+  // keyboard's height, because visibility only flips after the hide animation.
+  // A hardware keyboard can focus the editor without any screen height, and
+  // then the inset stays.
+  const composerBottomInset = (Platform.OS === "android" ? isKeyboardVisible : liveKeyboardHeight > 0)
     ? 0
-    : Math.max(insets.bottom, 12);
+    : alignedBottomInset;
   const contentPresentationKind = props.contentPresentation.kind;
   const turnActive = isSessionBusyStatus(meta.status);
   // A reader the session is shared with to view cannot prompt or stop it (docs/plans/access-model.md §2.7).
@@ -356,7 +361,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   useLayoutEffect(() => {
     // A replaced or unmounted editor may not emit a blur event.
-    setComposerFocused(false);
     keyboardResumeRef.current.composerFocusChanged(false);
   }, [props.threadKey]);
 

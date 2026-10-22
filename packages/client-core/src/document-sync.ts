@@ -189,8 +189,12 @@ export type ClearOutcome<K extends string> =
 
 /** How long after the last local edit the patch is sent. */
 export const DOCUMENT_SYNC_DEBOUNCE_MS = 1_500
-/** Refresh period while foreground, online, and on. */
-export const DOCUMENT_SYNC_POLL_MS = 60_000
+/**
+ * Refresh period while foreground, online, and on. A change from another device is
+ * rare and not urgent, and coming to the front reads it at once; the period only
+ * catches a tab that stays in front.
+ */
+export const DOCUMENT_SYNC_POLL_MS = 300_000
 /** Patches tried against a moving revision before the engine stops and waits for the next trigger. */
 export const DOCUMENT_SYNC_MAX_ATTEMPTS = 4
 /** Starts tried while another device keeps writing the first copy. */
@@ -753,9 +757,22 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
     if (this.cancelPoll) return
     this.cancelPoll = this.ports.clock.setTimer(() => {
       this.cancelPoll = null
-      void this.schedule(true)
+      if (!this.syncedByAnotherTabLately()) void this.schedule(true)
       this.updateTimers()
     }, DOCUMENT_SYNC_POLL_MS)
+  }
+
+  /**
+   * Whether a tab of this browser confirmed the account's copy within the last half
+   * period: its answer is in the shared record already, so this tab's poll reads
+   * nothing and the browser reads about once a period however many tabs are open.
+   * Half, so a lone tab's own last read, which ends just after its timer started, is
+   * never fresh enough to skip.
+   */
+  private syncedByAnotherTabLately(): boolean {
+    if (!this.accountKey) return false
+    const { lastSyncedAt } = this.load(this.accountKey)
+    return lastSyncedAt !== null && this.ports.clock.now() - lastSyncedAt < DOCUMENT_SYNC_POLL_MS / 2
   }
 
   private cancelTimers(): void {

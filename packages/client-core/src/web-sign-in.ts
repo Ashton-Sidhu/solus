@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { SOLUS_CLIENT_IDS } from '@solus/contracts/auth/clients'
-import { OAuthSession, type PendingSignIn, type StoredGrant, type TokenStore } from './oauth-session'
+import { OAuthSession, storedGrantSchema, type CachedToken, type Discovery, type GrantSharing, type PendingSignIn, type StoredGrant, type TokenCache, type TokenStore } from './oauth-session'
 
 /**
  * The web client's sign-in on the account origin (docs/adr/0001-standard-authentication.md
@@ -12,13 +12,13 @@ import { OAuthSession, type PendingSignIn, type StoredGrant, type TokenStore } f
  * that answer. The cookie stays the website's own; the page calls `/v1` with access
  * tokens.
  *
- * Token storage: the refresh token is kept in page memory. When the page goes away it
- * is written to `sessionStorage`, and the next page of the same tab takes it from
- * there and deletes it. So a reload keeps the sign-in, a closed tab ends it, and a
- * duplicated tab (which copies `sessionStorage` while the page lives) finds nothing
- * and signs in on its own, instead of sharing one refresh token, which the account
- * plane would read as a replay and end the grant (§5). A new tab signs in again
- * silently while the website's cookie session lives.
+ * Token storage: every tab of the origin shares one sign-in in `localStorage`: the
+ * grant and the access tokens any tab minted (docs/plans/instant-share-open.md). A
+ * new tab is signed in at once and dials with a token already minted. The refresh
+ * token rotates and the account plane ends the grant when a spent one comes again
+ * (§5), so a refresh runs under one Web Lock across the tabs and starts from the
+ * grant as stored (`GrantSharing`). A sign-in or sign-out in one tab reaches the
+ * others through the `storage` event.
  */
 
 /** The callback the provider names in its answer; the page never loads it. */
@@ -32,50 +32,73 @@ export interface KeyValueStorage {
   removeItem(key: string): void
 }
 
-/** The part of `window` this module uses; tests give their own. */
-export interface PageLifecycle {
-  addEventListener(type: 'pagehide' | 'pageshow', listener: () => void): void
-}
-
-const storedGrantSchema = z.object({
-  refreshToken: z.string().min(1),
-  idToken: z.string().min(1),
-  identity: z.object({ sub: z.string(), email: z.string(), emailVerified: z.boolean(), name: z.string().nullable(), picture: z.string().nullable() }),
-  signedInAt: z.number(),
-})
-
-/** The tab's token store: memory while the page lives, `sessionStorage` only between two pages. */
-export function webTokenStore(storage: KeyValueStorage, page: PageLifecycle): TokenStore {
-  let grant: StoredGrant | null = null
-  let hasLoaded = false
-  page.addEventListener('pagehide', () => {
-    if (grant) storage.setItem(GRANT_KEY, JSON.stringify(grant))
-  })
-  // A page restored from the back-forward cache keeps its memory: take the copy back.
-  page.addEventListener('pageshow', () => storage.removeItem(GRANT_KEY))
+/** The origin's one grant, as every tab reads and writes it. */
+export function webTokenStore(storage: KeyValueStorage): TokenStore {
   return {
     load() {
-      if (hasLoaded) return grant
-      hasLoaded = true
-      const raw = storage.getItem(GRANT_KEY)
-      storage.removeItem(GRANT_KEY)
       try {
+        const raw = storage.getItem(GRANT_KEY)
         const parsed = storedGrantSchema.safeParse(raw ? JSON.parse(raw) : null)
-        grant = parsed.success ? parsed.data : null
+        return parsed.success ? parsed.data : null
       } catch {
-        grant = null
+        return null
       }
-      return grant
     },
-    save(next) {
-      hasLoaded = true
-      grant = next
+    save(grant: StoredGrant) {
+      storage.setItem(GRANT_KEY, JSON.stringify(grant))
     },
     clear() {
-      hasLoaded = true
-      grant = null
       storage.removeItem(GRANT_KEY)
+      storage.removeItem(TOKENS_KEY)
     },
+  }
+}
+
+const TOKENS_KEY = 'solus.account.tokens'
+const cachedTokensSchema = z.record(z.string(), z.object({ token: z.string().min(1), expiresAt: z.number() }))
+
+/** The access tokens any tab minted, by resource. */
+export function webTokenCache(storage: KeyValueStorage): TokenCache {
+  const read = (): Map<string, CachedToken> => {
+    try {
+      const raw = storage.getItem(TOKENS_KEY)
+      const parsed = cachedTokensSchema.safeParse(raw ? JSON.parse(raw) : {})
+      return new Map(parsed.success ? Object.entries(parsed.data) : [])
+    } catch {
+      return new Map()
+    }
+  }
+  const write = (tokens: Map<string, CachedToken>) => {
+    if (tokens.size === 0) storage.removeItem(TOKENS_KEY)
+    else storage.setItem(TOKENS_KEY, JSON.stringify(Object.fromEntries(tokens)))
+  }
+  return {
+    get: (uri) => read().get(uri),
+    set(uri, token) {
+      const tokens = read()
+      tokens.set(uri, token)
+      write(tokens)
+    },
+    delete(uri) {
+      const tokens = read()
+      if (tokens.delete(uri)) write(tokens)
+    },
+    clear: () => storage.removeItem(TOKENS_KEY),
+  }
+}
+
+/** The part of `navigator.locks` a refresh needs. */
+export interface RefreshLocks {
+  request<T>(name: string, run: () => Promise<T>): Promise<T>
+}
+
+const REFRESH_LOCK = 'solus.account.refresh'
+
+/** One refresher at a time across the origin's tabs. A browser with no Web Locks runs it at once. */
+export function webGrantSharing(storage: KeyValueStorage, locks: RefreshLocks | null): GrantSharing {
+  return {
+    exclusive: (refresh) => (locks ? locks.request(REFRESH_LOCK, refresh) : refresh()),
+    tokens: webTokenCache(storage),
   }
 }
 
@@ -148,17 +171,27 @@ export async function fetchAuthorize(authorizeUrl: URL, fetchImpl: typeof fetch 
 
 let pageSession: OAuthSession | null = null
 
-/** The page's one sign-in to the account origin it is served from. */
-export function webAccountSession(origin: string): OAuthSession {
+/**
+ * The page's one sign-in to the account origin it is served from. `knownDiscovery` is
+ * the provider's metadata the shell carries; it is read from the issuer without it.
+ */
+export function webAccountSession(origin: string, knownDiscovery?: Discovery): OAuthSession {
   if (!pageSession) {
-    pageSession = new OAuthSession({
+    const session = new OAuthSession({
       cloudOrigin: origin,
       clientId: SOLUS_CLIENT_IDS.web,
-      store: webTokenStore(sessionStorage, window),
+      knownDiscovery,
+      store: webTokenStore(localStorage),
+      sharing: webGrantSharing(localStorage, globalThis.navigator?.locks ?? null),
       fetch: (input, init) => fetch(input, { ...init, credentials: 'omit' }),
       now: () => Date.now(),
       log: { info: () => {}, warn: (event, data) => console.warn(`[solus:account] ${event}`, data ?? {}) },
     })
+    // Another tab signed in, signed out, or rotated the grant.
+    window.addEventListener('storage', (event) => {
+      if (event.key === GRANT_KEY || event.key === null) session.syncWithStore()
+    })
+    pageSession = session
   }
   return pageSession
 }

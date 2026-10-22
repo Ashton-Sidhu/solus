@@ -5,7 +5,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { ClaudeAgent, type ClaudeSeat } from './claude-agent'
+import { ClaudeAgent, claudeConfigDir, type ClaudeSeat } from './claude-agent'
 import type { TurnSeat } from '../../seats/seat-manager'
 import { TurnInputChannel } from './claude-turn-input'
 import { adaptClaudeTools } from './claude-tool-adapter'
@@ -207,10 +207,10 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   /** SDK-reported built-in commands for a working directory and model, fetched via a
    *  short-lived streaming query (the only mode that exposes `supportedCommands`)
    *  and serialized across cache misses. No persistent session is kept. */
-  private builtinCommands(ctx: IpcContext): Promise<AgentSlashCommand[]> {
+  private builtinCommands(ctx: IpcContext, seat: ClaudeSeat | undefined, configDir: string): Promise<AgentSlashCommand[]> {
     const cwd = resolveHomePath(ctx.session.workingDirectory)
     const model = claudeModelId(ctx.statusBar.model, ctx.session.contextWindow)
-    return this.commandDiscovery.get({ cwd, model })
+    return this.commandDiscovery.get({ cwd, model, seat, configDir })
   }
 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
@@ -653,18 +653,21 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     return content
   }
 
-  async listPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult> {
-    const cacheKey = `claude-code:${workingDirectory}`
+  async listPluginCommands(workingDirectory: string, ctx?: IpcContext, seat?: TurnSeat): Promise<PluginCommandsResult> {
+    // The caller's own `~/.claude`: a member's skills are in their home, not the host's.
+    const claudeSeat = seat ? claudeSeatOf(seat) : undefined
+    const configDir = claudeConfigDir(claudeSeat)
+    const cacheKey = `claude-code:${configDir}:${workingDirectory}`
     let result = _pluginCmdCache.get(cacheKey)
     if (!result) {
-      result = await resolvePluginCommands(workingDirectory)
+      result = await resolvePluginCommands(workingDirectory, configDir)
       _pluginCmdCache.set(cacheKey, result)
     }
 
     // Built-in commands come live from the warm session — fetched fresh (not
     // cached) so the session is warmed and the list reflects the current tab.
     if (!ctx) return result
-    const builtin = await this.builtinCommands(ctx).catch((e) => {
+    const builtin = await this.builtinCommands(ctx, claudeSeat, configDir).catch((e) => {
       // The SDK reports a spawn ENOENT as "the binary exists but failed to
       // launch", naming the executable even when it is the working directory
       // that is missing. Record the directory so the two cannot be confused.

@@ -200,7 +200,8 @@ export const ANSWERING_ANOTHER_SESSION = 'Another Solus session sent you this wo
   + 'Put longer detail in a task comment or a work, not in the reply. '
   + 'For nested work, use report=true and wait_seconds=0, then end the turn while it runs. Its report wakes you. Read the result, do any required follow-up, and only then give your final reply. '
   + 'An ended turn with open child work is not a final result for the session that sent this request. '
-  + 'Do not use send_session to message the session that sent you this work; your reply reaches it.'
+  + 'Do not use send_session to message the session that sent you this work; your reply reaches it. '
+  + 'Do not watch or poll a pull request for that session: put its URL, its head commit SHA, and its pending checks and reviews in your reply, and the session that sent you the work watches it.'
 
 /** The last plan a session's turn wrote. */
 interface OpenPlan {

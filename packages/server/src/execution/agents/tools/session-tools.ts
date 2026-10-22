@@ -7,7 +7,7 @@ import { getSessionMessages, listProjectRoots } from '../../../db/session-indexe
 import { searchSessionIndex } from '../../../db/session-search'
 import { formatPendingInputReport } from '../../sessions/pending-input'
 import { plainSnippet } from '@solus/contracts/search-snippet'
-import { MODEL_PROFILES } from '@solus/contracts/types'
+import { MODEL_PROFILES, isLegacyModel } from '@solus/contracts/types'
 import { formatExchangeTag, formatOrchestrationItem, ORCHESTRATION_LIMITS, type OrchestrationItem } from '@solus/contracts/session-exchange'
 import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, ReasoningEffort, SessionMeta, SessionStatus } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
@@ -150,6 +150,11 @@ const REPORT_FIELD = z
   .default(true)
   .describe('Whether its outcome comes back to this conversation: a [session notice] at once when it waits on the user or is rate limited, and a [session report] when its turn ends. Defaults to true.')
 
+// A page size the agent asks for above this reads this many. Codex drops
+// `maximum` from the tool declaration, so an agent cannot see the bound; a
+// refused call only costs it a retry.
+const MAX_READ_PAGE = 50
+
 const WAIT_FIELD = z
   .number()
   .int()
@@ -224,7 +229,7 @@ const readTaskSessionsFields = {
 
 const readSessionFields = {
   session_id: z.string().describe('The session id to inspect.'),
-  tail: z.number().int().min(1).max(50).optional().describe('Number of tail messages to return. Defaults to 10.'),
+  tail: z.number().int().min(1).optional().describe(`Number of tail messages to return. Defaults to 10; at most ${MAX_READ_PAGE}, larger values read ${MAX_READ_PAGE}.`),
   match: z
     .string()
     .optional()
@@ -249,7 +254,7 @@ const searchSessionsFields = {
     .string()
     .optional()
     .describe("Only include messages at or before this instant. ISO 8601; a date like '2026-06-30' covers through the end of that day. Omit to leave the upper bound open. DEFAULT: with BOTH after and before omitted, the search covers only the last 2 weeks (after = now − 14d, before = now)."),
-  limit: z.number().int().min(1).max(50).optional().describe('Maximum results to return. Defaults to 10.'),
+  limit: z.number().int().min(1).optional().describe(`Maximum results to return. Defaults to 10; at most ${MAX_READ_PAGE}, larger values return ${MAX_READ_PAGE}.`),
 }
 
 const sendSessionFields = {
@@ -281,7 +286,7 @@ const START_SESSION_DESC = [
   "Use `host` only when the user asks for the work to run on another of their machines; list_agent_targets names them, and with `host` it names that host's projects to pass as cwd. A session on another host reports back here like any other, and stop_session stops it.",
 ].join(' ')
 const LIST_AGENT_TARGETS_DESC =
-  'List the agent providers and models currently configured on this Solus host for Solus sessions and wrapper subagents, including runtime availability and supported reasoning levels, and the other hosts you can start sessions on. This catalog does not establish native subagent model support; consult the built-in tool schema for that. With `host`, list what that host offers instead, and the projects on that host.'
+  'List the agent providers and models currently configured on this Solus host for Solus sessions and wrapper subagents, including runtime availability and supported reasoning levels, and the other hosts you can start sessions on. Superseded model generations are left out (`legacyModelsOmitted` counts them); start_session still accepts their ids. This catalog does not establish native subagent model support; consult the built-in tool schema for that. With `host`, list what that host offers instead, and the projects on that host.'
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id (pass your query as `match`) to load the conversation before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
@@ -587,9 +592,9 @@ async function listAgentTargetsTool(args: SessionToolArgs, deps: SessionToolDeps
     const targets = await remoteAgentTargets(remote)
     if ('error' in targets) return { ok: false, text: targets.error }
     const projects = await remoteProjects(remote)
-    return { ok: true, text: JSON.stringify({ host: remote.label, targets, ...(projects && { projects }) }, null, 2) }
+    return { ok: true, text: JSON.stringify({ host: remote.label, targets: currentModelsOnly(targets), ...(projects && { projects }) }, null, 2) }
   }
-  const targets = await listAgentTargets()
+  const targets = currentModelsOnly(await listAgentTargets())
   const request = deps.ctx?.sessionId ? reachRequestOf(deps.ctx.sessionId) : null
   const hosts = remoteHosts && request ? await remoteHosts.list(request) : null
   if (!hosts || 'error' in hosts) return { ok: true, text: JSON.stringify({ targets }, null, 2) }
@@ -599,6 +604,19 @@ async function listAgentTargetsTool(args: SessionToolArgs, deps: SessionToolDeps
     return listed
   })
   return { ok: true, text: JSON.stringify({ targets, otherHosts }, null, 2) }
+}
+
+/** A target as list_agent_targets prints it: the current models, and how many superseded ones it left out. */
+type ListedTarget = AgentTarget & { legacyModelsOmitted?: number }
+
+/** Keep the list short: a superseded model stays valid for start_session, but an agent reading
+ *  every generation of every provider picks an old one as often as not. */
+function currentModelsOnly(targets: readonly AgentTarget[]): ListedTarget[] {
+  return targets.map((target) => {
+    const models = target.models.filter((model) => !isLegacyModel(target.provider, model.id))
+    const omitted = target.models.length - models.length
+    return omitted > 0 ? { ...target, models, legacyModelsOmitted: omitted } : target
+  })
 }
 
 /** One of the owner's other hosts, as list_agent_targets names it. */
@@ -651,7 +669,7 @@ async function readSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   const parsed = z.object(readSessionFields).safeParse(args)
   if (!parsed.success) return { ok: false, text: 'read_session requires a valid session_id.' }
   const requestedId = parsed.data.session_id.trim()
-  const tail = parsed.data.tail ?? 10
+  const tail = Math.min(parsed.data.tail ?? 10, MAX_READ_PAGE)
   const meta = await findSession(requestedId)
   if (!meta) {
     const remote = await findOffHost(requestedId, deps.ctx?.sessionId)
@@ -769,7 +787,7 @@ async function searchSessionsTool(args: SessionToolArgs): Promise<SessionToolRes
   const window = searchWindow(parsed.data.after?.trim() ?? '', parsed.data.before?.trim() ?? '')
   if ('error' in window) return { ok: false, text: window.error }
   const { sinceTs, untilTs, rangeNote } = window
-  const limit = parsed.data.limit ?? 10
+  const limit = Math.min(parsed.data.limit ?? 10, MAX_READ_PAGE)
 
   // Resolve the optional project scope. No project → search all projects.
   let projectRoot: string | undefined

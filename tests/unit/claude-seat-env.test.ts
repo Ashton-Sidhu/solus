@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { claudeEnv } from '@solus/server/execution/agents/claude/claude-agent'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { claudeConfigDir, claudeEnv } from '@solus/server/execution/agents/claude/claude-agent'
 
 // Step 2 plan §3.3 step 4: a member's turn runs on their own login and on nothing the
 // host process carries; the host's own turns are unchanged.
@@ -38,3 +40,24 @@ describe('claudeEnv', () => {
     expect(env.CLAUDE_CONFIG_DIR).toBe('/host/.claude')
   })
 })
+
+// The `/` menu lists the skills of the folder the caller's CLI reads, not the host's.
+describe('claudeConfigDir', () => {
+  test('a member who is their own Linux user reads the `.claude` in their own home', () => {
+    process.env.CLAUDE_CONFIG_DIR = '/data/home/.claude'
+    const dir = claudeConfigDir({ home: '/run/solus-seats/claude/ada', env: { HOME: '/data/members/ada' }, user: { uid: 20000 } })
+    expect(dir).toBe('/data/members/ada/.claude')
+  })
+
+  test('a member seat without its own user reads the seat home', () => {
+    expect(claudeConfigDir({ home: '/seats/claude/bob' })).toBe('/seats/claude/bob')
+  })
+
+  test('the host login reads the host\'s CLAUDE_CONFIG_DIR, else ~/.claude', () => {
+    process.env.CLAUDE_CONFIG_DIR = '/host/.claude'
+    expect(claudeConfigDir({ home: '/ignored', isHostLogin: true })).toBe('/host/.claude')
+    delete process.env.CLAUDE_CONFIG_DIR
+    expect(claudeConfigDir()).toBe(join(process.env.HOME ?? homedir(), '.claude'))
+  })
+})
+

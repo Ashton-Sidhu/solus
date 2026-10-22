@@ -11,6 +11,7 @@ import type {
 } from '@solus/contracts/providers'
 import type { FileDiffMetadata, Hunk } from '@pierre/diffs'
 import { quoteGitPath } from '@solus/client-core/git-path-name'
+import { groupThreadsByReview, reviewIsEvent } from '@solus/client-core/review-groups'
 import { labelChangeText } from '../../../lib/label-activity'
 import { parsePatchMetadata, patchFileChunks } from '../../../lib/pierre-diff'
 import type { PrArtifact } from './pr-artifacts'
@@ -34,8 +35,11 @@ export function threadStartsFolded(thread: Pick<ReviewThread, 'isResolved' | 'is
  */
 export type ActivityEvent =
   | { kind: 'commits'; ts: number; commits: PrCommit[] }
+  /** A thread submitted outside a review, or whose review is not in the conversation. */
   | { kind: 'thread'; ts: number; thread: ReviewThread }
-  | { kind: 'comment'; ts: number; comment: PrCommentActivityItem }
+  /** A comment, or a review with the threads it was submitted with nested
+   *  under it (empty for a comment). */
+  | { kind: 'comment'; ts: number; comment: PrCommentActivityItem; threads: ReviewThread[] }
   | { kind: 'label'; ts: number; item: PrLabelActivityItem }
   /** A render linked to a task on this pull request, at the moment it was
    *  linked. Local to Solus: the host never sees it. */
@@ -75,7 +79,17 @@ export function filterActivityTimeline(
   filter: ActivityFilter,
   unresolvedOnly: boolean,
 ): ActivityEvent[] {
-  if (unresolvedOnly) return events.filter((e) => e.kind === 'thread' && !e.thread.isResolved)
+  if (unresolvedOnly) {
+    // Nested threads surface on their own here: the filter asks for the
+    // threads, not the reviews they came with.
+    return events.flatMap((e): ActivityEvent[] => {
+      if (e.kind === 'thread') return e.thread.isResolved ? [] : [e]
+      if (e.kind !== 'comment') return []
+      return e.threads
+        .filter((thread) => !thread.isResolved)
+        .map((thread) => ({ kind: 'thread', ts: threadTime(thread), thread }))
+    })
+  }
   if (filter === 'conversation') {
     return events.filter((event) => event.kind === 'thread' || event.kind === 'comment')
   }
@@ -135,7 +149,16 @@ export function commitRunAuthorLabel(commits: PrCommit[], fallback: string): str
  * commits (with no thread/comment between them) collapse into a single
  * "added N commits" run; a comment or thread ends the run so two commits
  * followed by a comment render as a two-commit group, then the comment.
+ *
+ * A review's inline threads nest under it, as the host shows them, and sit at
+ * the review's time; a thread without a review in the conversation stands
+ * alone at its own. A comment-only review with nothing to say and no thread
+ * is not an event (`reviewIsEvent`).
  */
+function threadTime(thread: ReviewThread): number {
+  return new Date(thread.comments[0]?.createdAt ?? 0).getTime()
+}
+
 export function buildActivityTimeline(
   commits: PrCommit[],
   threads: ReviewThread[],
@@ -145,24 +168,29 @@ export function buildActivityTimeline(
   type Raw =
     | { kind: 'commit'; ts: number; commit: PrCommit }
     | { kind: 'thread'; ts: number; thread: ReviewThread }
-    | { kind: 'comment'; ts: number; comment: PrCommentActivityItem }
+    | { kind: 'comment'; ts: number; comment: PrCommentActivityItem; threads: ReviewThread[] }
     | { kind: 'label'; ts: number; item: PrLabelActivityItem }
     | { kind: 'artifact'; ts: number; artifact: PrArtifact }
   const raw: Raw[] = []
+  const groups = groupThreadsByReview(comments, threads)
   for (const artifact of artifacts) {
     raw.push({ kind: 'artifact', ts: artifact.linkedAt, artifact })
   }
   for (const commit of commits) {
     raw.push({ kind: 'commit', ts: new Date(commit.committedAt).getTime(), commit })
   }
-  for (const thread of threads) {
-    const ts = new Date(thread.comments[0]?.createdAt ?? 0).getTime()
-    raw.push({ kind: 'thread', ts, thread })
+  for (const thread of groups.standalone) {
+    raw.push({ kind: 'thread', ts: threadTime(thread), thread })
   }
   for (const comment of comments) {
     const ts = new Date(comment.createdAt).getTime()
-    if (comment.kind === 'label') raw.push({ kind: 'label', ts, item: comment })
-    else raw.push({ kind: 'comment', ts, comment })
+    if (comment.kind === 'label') {
+      raw.push({ kind: 'label', ts, item: comment })
+      continue
+    }
+    const nested = (groups.byReview.get(comment.id) ?? []).sort((a, b) => threadTime(a) - threadTime(b))
+    if (!reviewIsEvent(comment, nested)) continue
+    raw.push({ kind: 'comment', ts, comment, threads: nested })
   }
   raw.sort((a, b) => a.ts - b.ts)
 
@@ -184,7 +212,7 @@ export function buildActivityTimeline(
     } else if (item.kind === 'artifact') {
       events.push({ kind: 'artifact', ts: item.ts, artifact: item.artifact })
     } else {
-      events.push({ kind: 'comment', ts: item.ts, comment: item.comment })
+      events.push({ kind: 'comment', ts: item.ts, comment: item.comment, threads: item.threads })
     }
   }
   return events
@@ -370,11 +398,15 @@ export function reviewThreadDiffHunks(
   const hunks = new Map<string, string>()
   if (!patch) return hunks
   const threadsByPath = new Map<string, ReviewThread[]>()
+  const addThread = (thread: ReviewThread) => {
+    if (thread.line === null) return
+    const threads = threadsByPath.get(thread.filePath)
+    if (threads) threads.push(thread)
+    else threadsByPath.set(thread.filePath, [thread])
+  }
   for (const event of events) {
-    if (event.kind !== 'thread' || event.thread.line === null) continue
-    const threads = threadsByPath.get(event.thread.filePath)
-    if (threads) threads.push(event.thread)
-    else threadsByPath.set(event.thread.filePath, [event.thread])
+    if (event.kind === 'thread') addThread(event.thread)
+    else if (event.kind === 'comment') event.threads.forEach(addThread)
   }
   if (threadsByPath.size === 0) return hunks
 

@@ -31,6 +31,8 @@
     /** Where the folded glyph docks, when the page has its own bar at its
      *  foot for the glyph to line up with. */
     class?: string;
+    /** The composer is opening: a page with a second orb folds that one. */
+    onOpen?: () => void;
   }
   let {
     paneId,
@@ -42,6 +44,7 @@
     class: glyphClass,
     onAttachFile,
     onScreenshot,
+    onOpen,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -58,9 +61,17 @@
   // Folded with words still in it, the glyph says so.
   const hasUnsent = $derived(!!draft && !draft.isEmpty);
 
+  let floating = $state<ReturnType<typeof FloatingComposer> | null>(null);
+
   function expand() {
+    onOpen?.();
     draft ??= session.drafts.openDockedDraft({ ...aim, via: "click" }, cwd);
     shown = draft;
+  }
+
+  /** Fold the open panel back to its glyph, without taking focus. */
+  export function foldComposer() {
+    if (expanded) void floating?.fold(false);
   }
 
   function fold() {
@@ -103,6 +114,7 @@
 </script>
 
 <FloatingComposer
+  bind:this={floating}
   bind:expanded
   {label}
   {hasUnsent}

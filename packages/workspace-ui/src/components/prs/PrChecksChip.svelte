@@ -10,7 +10,9 @@
   import type { CheckItem, PrChecksSummary } from "@solus/contracts/checks-types";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
+  import { checksChip, type ListChecksSpec } from "../ui/list-page/list-page";
   import * as Popover from "../ui/popover";
+  import { PR_CHECKS_TONE } from "./lib/pr-row-styles";
   import {
     checkResultLabel,
     checksCounts,
@@ -23,7 +25,9 @@
     headSha = null,
     loadFailed = false,
     quietWhenPassing = false,
-    pill = false,
+    variant = "chip",
+    rowChecks = { state: "none", label: "" },
+    onOpen,
   }: {
     summary?: PrChecksSummary;
     headSha?: string | null;
@@ -33,15 +37,28 @@
      *  stray speck in a list. The check details stay reachable from the PR's
      *  review surface. */
     quietWhenPassing?: boolean;
-    /** Filled pill: the same tinted capsule at a roomier size. Used where the
-     *  chip is a standalone status object (row trailing cluster, review bar)
-     *  rather than one fact in a meta line. */
-    pill?: boolean;
+    /** `chip`: the tinted capsule with the state's word, where the chip is a
+     *  standalone status object (review bar). `glyph`: the list row's bare
+     *  14px icon, no word and no fill, the way a code host draws it — the
+     *  details wait in the popover rather than spending ink on every row. */
+    variant?: "chip" | "glyph";
+    /** The glyph's state and words as the row already knows them from its
+     *  listing, so the glyph is right before any check runs are read. */
+    rowChecks?: ListChecksSpec;
+    /** The popover opened: read the check runs now, not once per row. */
+    onOpen?: () => void;
   } = $props();
 
   let open = $state(false);
   const display = $derived(checksPresentation(summary, headSha, loadFailed));
   const hidden = $derived(quietWhenPassing && display?.state === "passing");
+  const glyph = $derived(variant === "glyph" ? checksChip(rowChecks) : null);
+
+  function toggleFromGlyph(event: Event) {
+    event.stopPropagation();
+    event.preventDefault();
+    open = !open;
+  }
 
   function openDetails(item: CheckItem) {
     if (!item.detailsUrl) return;
@@ -108,7 +125,7 @@
   {/if}
 {/snippet}
 
-{#if display && !hidden}
+{#if display && !hidden && (variant === "chip" || glyph)}
   <!-- The state's colour rides on `currentColor`, so the badge's tint is one
        color-mix of it rather than a second per-state background list. -->
   {@const tone =
@@ -127,21 +144,45 @@
     role="none"
     onclick={(event) => event.stopPropagation()}
   >
-    <Popover.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus(); }}>
+    <Popover.Root
+      bind:open
+      onOpenChange={(next) => {
+        if (next) onOpen?.();
+        else requestInputFocus();
+      }}
+    >
       <Popover.Trigger>
         {#snippet child({ props })}
-          <Button
-            {...props}
-            type="button"
-            aria-label={`${display.label}: ${display.tooltip}`}
-            class={pill
-              ? `inline-flex h-auto cursor-pointer items-center gap-1.5 rounded-full border-0 bg-[color:color-mix(in_oklab,currentColor_14%,transparent)] px-2 py-1 text-xs font-medium tabular-nums transition-colors ${tone}`
-              : `inline-flex h-auto cursor-pointer items-center gap-1 rounded-full border-0 bg-[color:color-mix(in_oklab,currentColor_12%,transparent)] px-2 py-0.5 text-xs font-medium tabular-nums transition-colors ${tone}`}
-            title={display.tooltip}
-          >
-            {@render stateIcon(display.state)}
-            <span>{display.label}</span>
-          </Button>
+          {#if glyph}
+            <!-- A list row is itself a button, so the trigger is a span with the
+                 button's role: a nested button is not valid inside one. Its own
+                 click and keys open the popover without also selecting the row. -->
+            <span
+              {...props}
+              role="button"
+              tabindex="0"
+              class="flex cursor-pointer items-center rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_45%,transparent)] {PR_CHECKS_TONE[rowChecks.state]}"
+              aria-label={glyph.label}
+              title={glyph.label}
+              onclick={toggleFromGlyph}
+              onkeydown={(event) => {
+                if (event.key === "Enter" || event.key === " ") toggleFromGlyph(event);
+              }}
+            >
+              <glyph.icon size={14} aria-hidden="true" />
+            </span>
+          {:else}
+            <Button
+              {...props}
+              type="button"
+              aria-label={`${display.label}: ${display.tooltip}`}
+              class={`inline-flex h-auto cursor-pointer items-center gap-1 rounded-full border-0 bg-[color:color-mix(in_oklab,currentColor_12%,transparent)] px-2 py-0.5 text-xs font-medium tabular-nums transition-colors ${tone}`}
+              title={display.tooltip}
+            >
+              {@render stateIcon(display.state)}
+              <span>{display.label}</span>
+            </Button>
+          {/if}
         {/snippet}
       </Popover.Trigger>
       <Popover.Content

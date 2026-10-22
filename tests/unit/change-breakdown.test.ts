@@ -59,3 +59,13 @@ test('writes the split as one line', () => {
     { path: 'README.md', additions: 4, deletions: 0 },
   ]))).toBe('Code +1,200 −30 · Docs +4 −0')
 })
+
+test('draws each kind against the largest one, and a tiny kind still shows', async () => {
+  const { churnShares } = await import('../../packages/workspace-ui/src/components/ui/change-breakdown/change-breakdown')
+  const parts = changeBreakdown([
+    { path: 'src/a.ts', additions: 800, deletions: 200 },
+    { path: 'src/a.test.ts', additions: 400, deletions: 100 },
+    { path: 'bun.lock', additions: 1, deletions: 0 },
+  ])
+  expect(churnShares(parts)).toEqual([100, 50, 4])
+})

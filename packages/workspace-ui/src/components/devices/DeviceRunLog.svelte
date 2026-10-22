@@ -5,7 +5,8 @@
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import { copyText, toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
-  import { formatRunElapsed, rawLineTone, readRunLog } from "@solus/client-core/device-run-log";
+  import { formatRunElapsed, readRunLog } from "@solus/client-core/device-run-log";
+  import { TerminalOutput } from "../ui/terminal-output";
   import { runStageLabel } from "@solus/client-core/device-builds";
 
   /**
@@ -49,7 +50,6 @@
   const elapsed = $derived(run ? formatRunElapsed((run.endedAt ?? now) - run.startedAt) : "");
   const view = $derived<LogView>(steps.length === 0 ? "raw" : (chosenView ?? (run?.stage === "failed" && errors > 0 ? "issues" : "steps")));
   const shownSteps = $derived(view === "issues" ? issues : steps);
-  const rawLines = $derived(view === "raw" ? text.split("\n").map((line) => ({ line, tone: rawLineTone(line) })) : []);
   const tabs = $derived<{ key: LogView; label: string }[]>([
     { key: "steps", label: "Steps" },
     { key: "issues", label: issues.length ? `Issues (${issues.length})` : "Issues" },
@@ -152,16 +152,18 @@
           <Button size="icon-xs" variant="ghost" class="ml-auto text-(--solus-text-tertiary)" aria-label="Copy the build log" title="Copy the build log" disabled={!text} onclick={copyLog}><Copy /></Button>
         </div>
         {#if view === "raw"}
-          <!-- Raw output reads as a terminal: dark in both themes, mono, and
-               problem lines in colour. The cursor shows while the run writes. -->
-          <div bind:this={output} class="ml-[0.6875rem] max-h-72 min-h-0 overflow-auto rounded-lg bg-[var(--solus-terminal-bg)] px-[0.8125rem] py-3 font-mono text-tool-step leading-[1.6] text-[var(--solus-terminal-fg)] shadow-[shadow:0_0_0_0.03125rem_var(--solus-terminal-border)] selection:bg-[color:color-mix(in_oklch,var(--solus-terminal-fg)_25%,transparent)]" role="log" aria-label="Raw output">
-            {#if truncated}<p class="text-[var(--solus-terminal-dim)]">… earlier output is not kept</p>{/if}
-            {#if !text}
-              <p class="text-[var(--solus-terminal-dim)]">{isActive ? "Waiting for output" : "No output."}{#if isActive}<span class="ml-1 inline-block h-[1.1em] w-[0.55em] translate-y-[0.2em] bg-[var(--solus-terminal-fg)] opacity-70" aria-hidden="true"></span>{/if}</p>
-            {:else}
-              <pre class="break-words whitespace-pre-wrap">{#each rawLines as { line, tone }, index (index)}<span class={tone === "error" ? "text-[var(--solus-terminal-error)]" : tone === "warning" ? "text-[var(--solus-terminal-warning)]" : ""}>{line}</span>{"\n"}{/each}{#if isActive}<span class="inline-block h-[1.1em] w-[0.55em] translate-y-[0.2em] bg-[var(--solus-terminal-fg)] opacity-70" aria-hidden="true"></span>{/if}</pre>
-            {/if}
-          </div>
+          <!-- Raw output reads as a terminal: the theme's terminal panel, mono,
+               the tool's colours, and problem lines in colour. The cursor shows
+               while the run writes. -->
+          <TerminalOutput
+            output={text}
+            label="Raw output"
+            {truncated}
+            active={isActive}
+            copyable={false}
+            bind:scroller={output}
+            class="ml-[0.6875rem] max-h-72"
+          />
         {:else}
         <div bind:this={output} class="ml-[0.6875rem] max-h-64 min-h-0 overflow-auto border-l border-[color:color-mix(in_oklch,var(--foreground)_9%,transparent)] pl-3">
           {#if truncated}

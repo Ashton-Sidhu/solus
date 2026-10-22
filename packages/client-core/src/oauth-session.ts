@@ -91,6 +91,17 @@ export interface OAuthSessionDeps {
   fetch: FetchLike
   now: () => number
   log?: OAuthSessionLog
+  /**
+   * Set where several instances hold one grant at once (the web's tabs). Without it,
+   * this instance is the grant's only refresher and keeps its tokens to itself.
+   */
+  sharing?: GrantSharing
+  /**
+   * The provider's metadata when the platform already holds it: the web shell on the
+   * account origin carries it (docs/plans/instant-share-open.md). Its issuer is
+   * checked as a read one's is; one for another issuer is read from the issuer instead.
+   */
+  knownDiscovery?: Discovery
   /** Defaults to Web Crypto; a platform without it gives its own. */
   randomBytes?: (length: number) => Uint8Array
   sha256?: (data: Uint8Array) => Promise<Uint8Array>
@@ -101,14 +112,15 @@ export const ACCESS_TOKEN_RENEW_LEAD_MS = 60_000
 /** How long a call to the account plane may take. */
 const REQUEST_TIMEOUT_MS = 15_000
 
-const discoverySchema = z.object({
+/** The provider's metadata (OIDC Discovery) a client signs in with. */
+export const discoverySchema = z.object({
   issuer: z.string().min(1),
   authorization_endpoint: z.url(),
   token_endpoint: z.url(),
   userinfo_endpoint: z.url(),
   revocation_endpoint: z.url(),
 })
-type Discovery = z.infer<typeof discoverySchema>
+export type Discovery = z.infer<typeof discoverySchema>
 
 /** A token endpoint answer (RFC 6749 §5.1). */
 export const oauthTokenResponseSchema = z.object({
@@ -152,15 +164,36 @@ const idTokenSchema = z.object({
   nonce: z.string().optional(),
 })
 
-interface CachedToken {
+export interface CachedToken {
   token: string
   expiresAt: number
+}
+
+/** Access tokens by resource URI. */
+export interface TokenCache {
+  get(uri: string): CachedToken | undefined
+  set(uri: string, token: CachedToken): void
+  delete(uri: string): void
+  clear(): void
+}
+
+/**
+ * One grant held by several instances at once (docs/plans/instant-share-open.md):
+ * the web's tabs share the sign-in in `localStorage`. The refresh token rotates and a
+ * replay ends the grant (ADR 0001 §5), so a refresh runs only while no other instance
+ * refreshes, and starts from the grant as stored, which another may have rotated. The
+ * access tokens any instance mints are shared too, so a new tab dials at once.
+ */
+export interface GrantSharing {
+  /** Runs `refresh` while no other instance runs one. */
+  exclusive<T>(refresh: () => Promise<T>): Promise<T>
+  tokens: TokenCache
 }
 
 export class OAuthSession {
   private current: AccountState
   private grant: StoredGrant | null
-  private readonly cache = new Map<string, CachedToken>()
+  private readonly cache: TokenCache
   private readonly inFlight = new Map<string, Promise<string | null>>()
   /** The last refusal for each resource, until a token for it is issued or the grant changes. */
   private readonly refusals = new Map<string, ResourceRefusal>()
@@ -172,8 +205,16 @@ export class OAuthSession {
   private readonly listeners = new Set<(state: AccountState) => void>()
 
   constructor(private readonly deps: OAuthSessionDeps) {
+    this.cache = deps.sharing?.tokens ?? new Map<string, CachedToken>()
     this.grant = deps.store.load()
     this.current = this.grant ? this.signedIn(this.grant, false) : { kind: 'signed-out' }
+    if (deps.knownDiscovery !== undefined) {
+      try {
+        this.discoveryRead = Promise.resolve(this.fromIssuer(deps.knownDiscovery))
+      } catch (error) {
+        this.log('warn', 'oauth_known_discovery_refused', { reason: String(error) })
+      }
+    }
   }
 
   state(): AccountState {
@@ -192,6 +233,26 @@ export class OAuthSession {
     if (!grant) return
     this.grant = grant
     this.setState(this.signedIn(grant, false))
+  }
+
+  /**
+   * Takes the grant as another instance stored it (`GrantSharing`): its rotated
+   * refresh token, a sign-in made there, or no grant after a sign-out there. The web
+   * calls it when another tab writes the store, and every refresh calls it first.
+   */
+  syncWithStore(): void {
+    const stored = this.deps.store.load()
+    if (stored?.refreshToken === this.grant?.refreshToken) return
+    if (!stored) {
+      this.grant = null
+      this.refusals.clear()
+      this.setState({ kind: 'signed-out' })
+      return
+    }
+    // A sign-in as another person drops this instance's tokens; a rotation keeps the shared ones.
+    if (stored.identity.sub !== this.grant?.identity.sub) this.refusals.clear()
+    this.grant = stored
+    this.setState(this.signedIn(stored, false))
   }
 
   /** The browser step and the code exchange. */
@@ -404,7 +465,20 @@ export class OAuthSession {
     this.setState(this.signedIn(this.grant, false))
   }
 
-  private async refresh(uri: string): Promise<string | null> {
+  private refresh(uri: string): Promise<string | null> {
+    const sharing = this.deps.sharing
+    if (!sharing) return this.refreshWith(uri)
+    return sharing.exclusive(async () => {
+      // Another instance may have refreshed while this one waited: its grant is the one
+      // to present, and the token it minted may be the one asked for.
+      this.syncWithStore()
+      const minted = this.cache.get(uri)
+      if (minted && minted.expiresAt - ACCESS_TOKEN_RENEW_LEAD_MS > this.deps.now()) return minted.token
+      return this.refreshWith(uri)
+    })
+  }
+
+  private async refreshWith(uri: string): Promise<string | null> {
     const grant = this.grant
     if (!grant || this.isEnding) return null
     let response: Response
@@ -552,10 +626,7 @@ export class OAuthSession {
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         })
         if (!response.ok) throw new Error(`discovery_failed_${response.status}`)
-        const discovery = discoverySchema.parse(await response.json())
-        // OIDC Discovery §4.3: the issuer is the origin the metadata was read from.
-        if (discovery.issuer.replace(/\/$/, '') !== this.deps.cloudOrigin) throw new Error('discovery_issuer_mismatch')
-        return discovery
+        return this.fromIssuer(discoverySchema.parse(await response.json()))
       })()
       this.discoveryRead = read
       read.catch(() => {
@@ -563,6 +634,12 @@ export class OAuthSession {
       })
     }
     return this.discoveryRead
+  }
+
+  /** OIDC Discovery §4.3: the issuer is the origin the metadata was read from. */
+  private fromIssuer(discovery: Discovery): Discovery {
+    if (discovery.issuer.replace(/\/$/, '') !== this.deps.cloudOrigin) throw new Error('discovery_issuer_mismatch')
+    return discovery
   }
 
   private post(url: string, form: { [name: string]: string }): Promise<Response> {

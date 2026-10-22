@@ -17,10 +17,17 @@ import {
  */
 export type PrPrimaryTone = 'primary' | 'negative' | 'positive' | 'review' | 'neutral'
 
+/** The mark the band's pill carries, so the move reads once its label drops. */
+export type PrPrimaryGlyph = 'merge' | 'auto-merge' | 'ready' | 'update' | 'conflict' | 'checks' | 'closed' | 'blocked' | 'waiting'
+
 export interface PrPrimaryAction {
   /** What one click runs. Null when the button only reports a state. */
   move: MergeAction | null
   label: string
+  /** The label the chrome band's pill carries, where the row is shared with
+   *  the tabs and the other verbs: the verb without its object. */
+  short: string
+  glyph: PrPrimaryGlyph
   tone: PrPrimaryTone
   /** The full sentence for the tooltip and screen readers. */
   title: string
@@ -62,33 +69,62 @@ const MOVE_TITLES = {
   'fix-checks': 'Open a session composer with the fix for the failing checks drafted',
 } satisfies { [Kind in MergeAction['kind']]: string }
 
+const MOVE_SHORT = {
+  merge: 'Merge',
+  'enable-auto-merge': 'Auto-merge',
+  'mark-ready': 'Mark ready',
+  'update-branch': 'Update branch',
+  'resolve-conflicts': 'Resolve conflicts',
+  'fix-checks': 'Fix checks',
+} satisfies { [Kind in MergeAction['kind']]: string }
+
+const MOVE_GLYPH = {
+  merge: 'merge',
+  'enable-auto-merge': 'auto-merge',
+  'mark-ready': 'ready',
+  'update-branch': 'update',
+  'resolve-conflicts': 'conflict',
+  'fix-checks': 'checks',
+} satisfies { [Kind in MergeAction['kind']]: PrPrimaryGlyph }
+
 export function prPrimaryAction(
   detail: PullRequest,
   readiness: MergeReadiness,
   picked: MergeMethod | null,
 ): PrPrimaryAction {
   if (readiness.key === 'merged') {
-    return { move: null, label: 'Merged', tone: 'review', title: readiness.headline }
+    return { move: null, label: 'Merged', short: 'Merged', glyph: 'merge', tone: 'review', title: readiness.headline }
   }
   if (readiness.key === 'closed') {
-    return { move: null, label: 'Closed', tone: 'negative', title: 'Closed without merging' }
+    return { move: null, label: 'Closed', short: 'Closed', glyph: 'closed', tone: 'negative', title: 'Closed without merging' }
   }
   if (readiness.action) {
     const move = withMethod(readiness.action, pickedMethod(detail, picked))
     return {
       move,
       label: move.label,
+      short: MOVE_SHORT[move.kind],
+      glyph: MOVE_GLYPH[move.kind],
       tone: move.kind === 'resolve-conflicts' ? 'negative' : 'primary',
       title: MOVE_TITLES[move.kind],
     }
   }
   const armed = armedAutoMergeLabel(detail)
   if (armed) {
-    return { move: null, label: armed, tone: 'positive', title: `${armed}: the host merges this once its requirements pass` }
+    return {
+      move: null,
+      label: armed,
+      short: 'Auto-merge on',
+      glyph: 'auto-merge',
+      tone: 'positive',
+      title: `${armed}: the host merges this once its requirements pass`,
+    }
   }
   return {
     move: null,
     label: readiness.headline,
+    short: readiness.headline,
+    glyph: readiness.blocked ? 'blocked' : 'waiting',
     tone: readiness.blocked ? 'negative' : 'neutral',
     title: readiness.note ? `${readiness.headline}. ${readiness.note}` : readiness.headline,
   }

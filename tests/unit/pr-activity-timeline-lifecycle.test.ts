@@ -59,11 +59,11 @@ test('a timeline the size of a very large pull request mounts a bounded page and
     const timeline = component(withImports('components/pr-review/ActivityTimeline.svelte', `${helpers}
       import PrThreadCard from ${card};
       import Trigger from ${trigger};
-      import { TIMELINE_WINDOW_PAGE, windowTimeline } from ${JSON.stringify(source('components/pr-review/lib/timeline-window.ts').pathname)};
+      import { TIMELINE_WINDOW_PAGE, windowTimeline } from ${JSON.stringify(source('lib/timeline-window.ts').pathname)};
       const TooltipUI = { Root: Stub, Trigger, Content: Stub };
       const Skeleton = Stub, ArtifactActivityCard = Stub, PrReviewStateBadge = Stub;
       ${icons(['CaretDownIcon', 'CircleAlertIcon', 'CheckCircleIcon', 'CircleDashedIcon', 'EllipsisIcon',
-        'GitCommitIcon', 'GitPullRequestIcon', 'ArtifactIcon', 'LoaderIcon', 'TagIcon', 'TrashIcon'])}
+        'GitCommitIcon', 'GitPullRequestIcon', 'ArtifactIcon', 'LoaderIcon', 'ReplyIcon', 'TagIcon', 'TrashIcon'])}
     `), 'timeline')
 
     const runner = join(directory, 'test.mjs')
@@ -99,7 +99,7 @@ test('a timeline the size of a very large pull request mounts a bounded page and
         } });
       }
       for (let i = 0; i < 343; i++) {
-        events.push({ kind: 'comment', ts: i * 2 + 1, comment: {
+        events.push({ kind: 'comment', ts: i * 2 + 1, threads: [], comment: {
           kind: i < 282 ? 'review' : 'comment', id: 'c' + i, author: 'reviewer', body: 'A review body',
           createdAt: '2026-09-01T00:00:00Z', reviewState: 'COMMENTED',
         } });

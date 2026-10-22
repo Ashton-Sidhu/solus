@@ -18,6 +18,9 @@
   import { assistantMarkdownOptions, assistantMarkdownExtensions } from "../../conversation/lib/assistant-markdown";
   import { noticeText } from "../../conversation/lib/transient";
   import UserMessageBubble from "../../conversation/UserMessageBubble.svelte";
+  import PullRequestWatchRow from "../../conversation/PullRequestWatchRow.svelte";
+  import BackgroundCommandRow from "../../conversation/BackgroundCommandRow.svelte";
+  import { hostNoticeKind } from "../../conversation/lib/host-notice";
   import ToolGroupItem from "../../conversation/ToolGroupItem.svelte";
   import ThoughtRow from "../../conversation/ThoughtRow.svelte";
   import AnsweredQuestion from "../../conversation/AnsweredQuestion.svelte";
@@ -120,7 +123,14 @@
     {:else}
       {@const item = row.item}
       {#if item.kind === "user"}
-        <UserMessageBubble message={item.message} skipMotion />
+        {@const notice = hostNoticeKind(item.message)}
+        {#if notice === "pull-request-watch"}
+          <PullRequestWatchRow message={item.message} skipMotion />
+        {:else if notice === "background-command"}
+          <BackgroundCommandRow message={item.message} skipMotion />
+        {:else}
+          <UserMessageBubble message={item.message} skipMotion />
+        {/if}
       {:else if item.kind === "assistant"}
         {#if item.message.content}
           <div class="prose-cloud prose-reading prose-transcript prose-transcript-main response-markdown min-w-0 py-2" data-testid="assistant-message">

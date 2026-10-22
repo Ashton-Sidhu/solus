@@ -2,6 +2,7 @@
 import { useState, type ReactNode } from 'react'
 import { Pressable, View } from 'react-native'
 import type { PrCommentActivityItem, PrCommit, PrConversationItem, ReviewThread } from '@solus/contracts/providers'
+import { groupThreadsByReview, reviewIsEvent } from '@solus/client-core/review-groups'
 import { SymbolView, type AppSymbolName } from '../../../components/AppSymbol'
 import { AppText as Text } from '../../../components/AppText'
 import { ControlPillMenu } from '../../../components/ControlPillMenu'
@@ -49,13 +50,53 @@ function EventHeader(props: { readonly author: string; readonly avatarUrl?: stri
   )
 }
 
-/** A long comment is cut until the person opens it. */
-function TimelineComment({ item, now }: { readonly item: PrCommentActivityItem; readonly now: number }) {
+/** One inline thread: where it is, its first words, and its state. Opens the discussion. */
+function ThreadCard({ thread, onOpen }: { readonly thread: ReviewThread; readonly onOpen: (threadId: string) => void }) {
+  const first = thread.comments[0]
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${thread.isResolved ? 'resolved' : 'unresolved'} discussion in ${thread.filePath}`}
+      onPress={() => onOpen(thread.id)}
+      className="gap-2 rounded-2xl bg-grouped-card p-3 active:opacity-70"
+    >
+      <View className="flex-row items-center gap-2">
+        <SymbolView name="doc.text" size={14} tintColorClassName="accent-icon-muted" />
+        <Text className="flex-1 text-xs" style={{ fontFamily: CODE_FONT }} numberOfLines={2}>{thread.filePath}{thread.line ? `:${thread.line}` : ''}</Text>
+        <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-muted" />
+      </View>
+      {first?.body ? <Text className="text-sm" numberOfLines={3}>{first.body}</Text> : null}
+      <Text className="text-xs text-foreground-muted">
+        {thread.isResolved ? 'Resolved' : 'Unresolved'}{thread.isOutdated ? ' · Outdated' : ''} · {thread.comments.length} {thread.comments.length === 1 ? 'comment' : 'comments'}
+      </Text>
+    </Pressable>
+  )
+}
+
+/** What the author did, as the host words it. */
+function commentVerb(item: PrCommentActivityItem, threadCount: number): string {
+  if (item.reviewState === 'APPROVED') return 'approved'
+  if (item.reviewState === 'CHANGES_REQUESTED') return 'requested changes'
+  if (item.reviewState === 'DISMISSED') return 'had a review dismissed'
+  if (item.kind !== 'review') return 'commented'
+  if (threadCount === 0) return 'reviewed'
+  return `reviewed · ${threadCount} ${threadCount === 1 ? 'thread' : 'threads'}`
+}
+
+/** A long comment is cut until the person opens it. A review carries the
+ *  inline threads it was submitted with, nested under its body as the host
+ *  shows them. */
+function TimelineComment({ item, threads, now, onOpenThread }: {
+  readonly item: PrCommentActivityItem
+  readonly threads: readonly ReviewThread[]
+  readonly now: number
+  readonly onOpenThread: (threadId: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const approved = item.reviewState === 'APPROVED'
   const changes = item.reviewState === 'CHANGES_REQUESTED'
   const long = item.body.length > 450 || item.body.split('\n').length > 8
-  const verb = approved ? 'approved' : changes ? 'requested changes' : item.reviewState === 'DISMISSED' ? 'had a review dismissed' : item.kind === 'review' ? 'reviewed' : 'commented'
+  const verb = commentVerb(item, threads.length)
   return (
     <TimelineEvent icon={approved ? 'checkmark' : changes ? 'doc.text' : 'text.bubble'} {...(approved ? { tone: 'success' as const } : changes ? { tone: 'danger' as const } : {})}>
       <EventHeader author={item.author} {...(item.authorAvatarUrl ? { avatarUrl: item.authorAvatarUrl } : {})} verb={verb} at={item.createdAt} now={now} />
@@ -72,12 +113,13 @@ function TimelineComment({ item, now }: { readonly item: PrCommentActivityItem; 
           ) : null}
         </View>
       ) : null}
+      {threads.map((thread) => <ThreadCard key={thread.id} thread={thread} onOpen={onOpenThread} />)}
     </TimelineEvent>
   )
 }
 
-function conversationRow(item: PrConversationItem, now: number): ActivityRow {
-  if (item.kind !== 'label') return { key: `comment:${item.id}`, date: item.createdAt, content: <TimelineComment item={item} now={now} /> }
+function conversationRow(item: PrConversationItem, threads: readonly ReviewThread[], now: number, onOpenThread: (threadId: string) => void): ActivityRow {
+  if (item.kind !== 'label') return { key: `comment:${item.id}`, date: item.createdAt, content: <TimelineComment item={item} threads={threads} now={now} onOpenThread={onOpenThread} /> }
   const color = pullRequestLabelColor(item.label.color)
   return {
     key: `label:${item.id}`,
@@ -102,22 +144,7 @@ function threadRow(thread: ReviewThread, now: number, onOpen: (threadId: string)
     content: (
       <TimelineEvent icon="text.bubble" {...(thread.isResolved ? { tone: 'success' as const } : {})}>
         <EventHeader author={first?.author ?? 'Unknown author'} {...(first?.authorAvatarUrl ? { avatarUrl: first.authorAvatarUrl } : {})} verb="started a discussion" at={first?.createdAt ?? ''} now={now} />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Open ${thread.isResolved ? 'resolved' : 'unresolved'} discussion in ${thread.filePath}`}
-          onPress={() => onOpen(thread.id)}
-          className="gap-2 rounded-2xl bg-grouped-card p-3 active:opacity-70"
-        >
-          <View className="flex-row items-center gap-2">
-            <SymbolView name="doc.text" size={14} tintColorClassName="accent-icon-muted" />
-            <Text className="flex-1 text-xs" style={{ fontFamily: CODE_FONT }} numberOfLines={2}>{thread.filePath}{thread.line ? `:${thread.line}` : ''}</Text>
-            <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-muted" />
-          </View>
-          {first?.body ? <Text className="text-sm" numberOfLines={3}>{first.body}</Text> : null}
-          <Text className="text-xs text-foreground-muted">
-            {thread.isResolved ? 'Resolved' : 'Unresolved'}{thread.isOutdated ? ' · Outdated' : ''} · {thread.comments.length} {thread.comments.length === 1 ? 'comment' : 'comments'}
-          </Text>
-        </Pressable>
+        <ThreadCard thread={thread} onOpen={onOpen} />
       </TimelineEvent>
     ),
   }
@@ -145,16 +172,22 @@ function commitRow(commit: PrCommit, now: number, onOpen: (sha: string) => void)
   }
 }
 
-/** The timeline in date order, newest first when the filter asks. */
+/** The timeline in date order, newest first when the filter asks. A review's
+ *  threads ride in its row; a thread without a review has its own. */
 export function pullRequestActivityRows(
   activity: PullRequestActivity,
   newestFirst: boolean,
   handlers: { readonly openThread: (threadId: string) => void; readonly openCommit: (sha: string) => void },
 ): ActivityRow[] {
   const now = Date.now()
+  const groups = groupThreadsByReview(activity.comments, activity.threads)
   const rows = [
-    ...activity.comments.map((item) => conversationRow(item, now)),
-    ...activity.threads.map((thread) => threadRow(thread, now, handlers.openThread)),
+    ...activity.comments.flatMap((item) => {
+      const threads = item.kind === 'review' ? groups.byReview.get(item.id) ?? [] : []
+      if (item.kind === 'review' && !reviewIsEvent(item, threads)) return []
+      return [conversationRow(item, threads, now, handlers.openThread)]
+    }),
+    ...groups.standalone.map((thread) => threadRow(thread, now, handlers.openThread)),
     ...activity.commits.map((commit) => commitRow(commit, now, handlers.openCommit)),
   ].sort((a, b) => a.date.localeCompare(b.date))
   return newestFirst ? rows.reverse() : rows

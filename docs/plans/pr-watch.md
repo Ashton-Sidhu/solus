@@ -110,8 +110,14 @@ belongs to a session, not to a task.
     The text names the pull request and lists each item with its author, path
     and link, at most 10 items per kind, and comment excerpts of at most 200
     characters with HTML comments removed. It ends with what to do and how to
-    stop the watch. Desktop and web label the bubble "Pull request watch", as
-    they label a background command.
+    stop the watch. Every client draws the wake as a host notice row
+    (`HostNoticeRow`, shared with the background command wake), not a prompt
+    bubble: an eye, the words "Pull request watch", and the news in a few
+    words ("#42 · checks failed, new comments"); the full text opens from the
+    row. The glyph is red only when the news needs the agent. A client
+    knows a wake by its first line (`client-core/pull-request-watch-wake.ts`),
+    because a history row keeps no origin; a test runs the host's template
+    through that reader so the two cannot drift.
 13. **A watch acts for a person** (`docs/plans/019-acting-identity.md` when
     present; `vault/acting-scope.ts`). Starting a watch stores the acting
     person's user key (`acting_user_key`; null is the host). The watcher reads

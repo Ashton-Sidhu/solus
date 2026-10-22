@@ -51,7 +51,11 @@ beforeAll(async () => {
       limit ? transcript.slice(-limit) : transcript,
     listAgentTargets: async () => [{
       provider: 'codex', label: 'Codex', available: true, defaultModel: 'gpt-test',
-      models: [{ id: 'gpt-test', label: 'GPT', reasoningLevels: ['medium'], defaultReasoningEffort: 'medium', defaultContextWindow: 1000 }],
+      models: [
+        { id: 'gpt-test', label: 'GPT', reasoningLevels: ['medium'], defaultReasoningEffort: 'medium', defaultContextWindow: 1000 },
+        // A superseded generation in the bundled profiles.
+        { id: 'gpt-5.6-sol', label: 'Sol 5.6', reasoningLevels: ['medium'], defaultReasoningEffort: 'medium', defaultContextWindow: 1000 },
+      ],
     }],
   } as never)
   sessionTools.setSessionOrchestration({
@@ -255,6 +259,18 @@ describe('the acting session tools', () => {
   })
 })
 
+// WHY: an agent that reads every generation of every provider picks an old
+// one as often as not, and the list grows with each release. It sees only the
+// current models, but a superseded id it already knows still starts a session.
+describe('list_agent_targets', () => {
+  test('leaves superseded models out and counts them; start_session still accepts their ids', async () => {
+    const listed = JSON.parse((await sessionTools.executeSessionTool('list_agent_targets', {}, deps())).text)
+    expect(listed.targets).toEqual([expect.objectContaining({ provider: 'codex', models: [expect.objectContaining({ id: 'gpt-test' })], legacyModelsOmitted: 1 })])
+    const started = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', model_id: 'gpt-5.6-sol' }, deps())
+    expect(started.ok).toBe(true)
+  })
+})
+
 // WHY: a parent following a long-running child reads it again and again. Reading
 // the whole transcript each time fills the parent's context; a cursor lets it
 // read only what is new, and a page must never skip a message by ending inside
@@ -267,6 +283,16 @@ describe('read_session with a cursor', () => {
     const text = await read({ tail: 2 })
     expect(text).toContain('message 6')
     expect(cursorOf(text)).toBe(6000)
+  })
+
+  test('a tail above the page limit reads the limit instead of failing', async () => {
+    // WHY: Codex drops `maximum` from the tool declaration, so an agent cannot see the bound. A
+    // refused call only costs it a retry; reading the largest page gives it what it asked for.
+    const result = await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', tail: 60_000 }, deps())
+    expect(result.ok).toBe(true)
+    expect(result.text).toContain('message 1')
+    expect(result.text).toContain('message 6')
+    expect((await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', tail: 0 }, deps())).ok).toBe(false)
   })
 
   test('since returns only what came after, oldest first, and continues where it stopped', async () => {

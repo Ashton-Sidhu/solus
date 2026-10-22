@@ -999,6 +999,10 @@ describe('waiting for an outcome inside the call', () => {
       const answering = await backend.run((request) => request.prompt === 'do the part')
       expect(answering.systemPrompt).toContain(runtimeModule.ANSWERING_ANOTHER_SESSION)
       expect(backend.requests[0]!.systemPrompt ?? '').not.toContain(runtimeModule.ANSWERING_ANOTHER_SESSION)
+      // A worker that watched its own pull request would wake later with no one
+      // to answer; the session that sent the work watches it instead.
+      expect(answering.systemPrompt).toContain('Do not watch or poll a pull request for that session')
+      expect(backend.requests[0]!.systemPrompt ?? '').not.toContain('Do not watch or poll a pull request')
     } finally {
       plane.shutdown()
     }

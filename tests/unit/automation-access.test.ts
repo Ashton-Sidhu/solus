@@ -64,6 +64,18 @@ describe('automation owners', () => {
     expect(store.withAutomationRole(actors.actorFor(member('erin')), dan).role).toBe('none')
   })
 
+  test('a pause or edit keeps an automation in its place; only creation order sorts the list', async () => {
+    // WHY: toggling a row must not move it under the pointer, or the next click hits a different automation.
+    const fay = actors.actorFor(member('fay'))
+    const older = await store.createAutomation('Older', action, actors.attributionOf(fay))
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    const newer = await store.createAutomation('Newer', action, actors.attributionOf(fay))
+    expect((await store.listAutomations(fay)).map((automation) => automation.id)).toEqual([newer.id, older.id])
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    await store.updateAutomation(older.id, { enabled: false })
+    expect((await store.listAutomations(fay)).map((automation) => automation.id)).toEqual([newer.id, older.id])
+  })
+
   test('a turn\'s automation tools act as its person: another member\'s automation does not exist for them', async () => {
     // WHY: an agent tool is a door like an RPC; a member's agent must not reach what the member cannot.
     const bobs = (await store.listAutomations(actors.HOST_ACTOR)).find((automation) => automation.name === 'Renamed')!

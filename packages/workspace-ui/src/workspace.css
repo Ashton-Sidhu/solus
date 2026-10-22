@@ -919,17 +919,37 @@
   /* Not-started-yet. The one status that is an absence, so it borrows the
      neutral grey rather than a palette hue. */
   --idle: var(--solus-status-idle);
-  /* The terminal a build's raw output shows in. It is the dark theme in both
-     themes, so each value is the `.dark` value it names, and nothing is
-     restated under `.dark`: the edge background, the secondary and tertiary
-     text, the container border, the failed-glyph mix of --destructive, and
-     the amber of --chart-2. */
-  --solus-terminal-bg: #21201d;
-  --solus-terminal-fg: #bdbab3;
-  --solus-terminal-dim: #8d8a83;
-  --solus-terminal-border: #ffffff20;
-  --solus-terminal-error: color-mix(in oklch, #ef4444 70%, #f0ede5);
-  --solus-terminal-warning: #fbbf24;
+  /* The terminal a command's output shows in: a build's raw log, a background
+     command's tail. It is the transcript's own code block (`.prose-cloud pre`):
+     no fill of its own, a hairline ring, and the primary text — so the output
+     sits on the surface it is read on at full contrast, instead of grey text
+     on a grey panel. Below it, the eight colours a command prints with (SGR
+     30–37) and the bright set (90–97), tuned to read on the page in each
+     theme. Red and yellow are the error and warning tones, so a tool's own
+     red agrees with a line Solus reads as an error. The `.dark` block
+     restates the colours. */
+  --solus-terminal-bg: transparent;
+  --solus-terminal-fg: var(--solus-text-primary);
+  --solus-terminal-dim: var(--solus-text-tertiary);
+  --solus-terminal-border: color-mix(in oklch, var(--foreground) 14%, transparent);
+  --solus-terminal-error: #c9302d;
+  --solus-terminal-warning: #b7791f;
+  --solus-terminal-black: #57544c;
+  --solus-terminal-red: var(--solus-terminal-error);
+  --solus-terminal-green: #26894c;
+  --solus-terminal-yellow: var(--solus-terminal-warning);
+  --solus-terminal-blue: #1b4ed8;
+  --solus-terminal-magenta: #9333ea;
+  --solus-terminal-cyan: #0e7490;
+  --solus-terminal-white: #8d8a83;
+  --solus-terminal-bright-black: #7d7a6e;
+  --solus-terminal-bright-red: #e0443f;
+  --solus-terminal-bright-green: #2fa35c;
+  --solus-terminal-bright-yellow: #d29a2b;
+  --solus-terminal-bright-blue: #3b6ff0;
+  --solus-terminal-bright-magenta: #a855f7;
+  --solus-terminal-bright-cyan: #0891b2;
+  --solus-terminal-bright-white: #a6a39b;
 
   /* Elevation — rings, not borders. A ring costs no layout, never doubles
      between adjacent surfaces, and renders true sub-pixel. Both halves are
@@ -983,6 +1003,25 @@
 .dark {
   --card: #302f2b;
   --popover: var(--solus-popover-bg);
+  /* The terminal, dark twin: the colours a notch lighter so they read on the
+     dark surface. */
+  --solus-terminal-border: color-mix(in oklch, white 14%, transparent);
+  --solus-terminal-error: color-mix(in oklch, #ef4444 70%, #f0ede5);
+  --solus-terminal-warning: #fbbf24;
+  --solus-terminal-black: #8d8a83;
+  --solus-terminal-green: #6fcf8f;
+  --solus-terminal-blue: #7aa2f7;
+  --solus-terminal-magenta: #c89bf2;
+  --solus-terminal-cyan: #6fd3d8;
+  --solus-terminal-white: #f0ede5;
+  --solus-terminal-bright-black: #a6a39b;
+  --solus-terminal-bright-red: #ff8a86;
+  --solus-terminal-bright-green: #8fe3a9;
+  --solus-terminal-bright-yellow: #ffd166;
+  --solus-terminal-bright-blue: #9cbcff;
+  --solus-terminal-bright-magenta: #dbb6ff;
+  --solus-terminal-bright-cyan: #93e8ec;
+  --solus-terminal-bright-white: #ffffff;
   --solus-tx-hairline: 0 0 0 0.03125rem
     color-mix(in oklch, var(--foreground) 9%, transparent);
   --solus-tx-card-bg: color-mix(in oklch, white 4%, var(--solus-container-bg));
@@ -3385,11 +3424,13 @@ button.solus-token {
   text-transform: none;
   white-space: nowrap;
 }
-/* A long cell wraps at 24rem, so one wide column cannot push the others out. */
+/* A long cell wraps at 24rem, so one wide column cannot push the others out.
+   `break-word`, not `anywhere`: `anywhere` lets a column shrink to one
+   character, so a short cell such as "10" breaks into "1" and "0". */
 .prose-transcript tbody td {
   max-width: 24rem;
   line-height: 1.5;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   border-bottom: 0.0625rem solid color-mix(in oklch, var(--border) 60%, transparent);
 }
 /* Collapsed: one line per row. The table keeps its natural width and scrolls,

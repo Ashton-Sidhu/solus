@@ -42,6 +42,10 @@ the synced preset on that device, and "Use synced font" removes it.
   device you clear on starts the settings again from its own copy. Other devices take
   that copy when they next read. An old upload cannot restore the cleared settings.
 - Sign-out stops sync and removes that account's local view and pending uploads.
+- A client reads the account copy when it comes to the front or back online, and every
+  five minutes while it stays in front. The tabs of one browser share one record, so a
+  tab skips its timed read when another tab read the account in the last half period:
+  the browser reads about once a period, however many tabs are open.
 - Settings → Account & sync is the one place for the account: who is signed in, one sync
   status for settings and the agent profile with both documents' conflicts and the two
   clear actions, and one row per host with its account link and what it holds of the

@@ -130,6 +130,8 @@ export interface BuiltHttpServer {
   routes: readonly { method: string; path: string }[]
   /** The `/v1` routes, which also answer a client's socket (`solusApiRequest`); null without a Solus API. */
   solusApiRouter: SolusApiRouter | null
+  /** The ticket door's admission for a socket that presents its bearer credential in the handshake; null when it is refused. */
+  exchangeCredential: (bearer: string, organizationId: string | undefined) => Promise<string | null>
 }
 
 /** Slow clients cannot hold a request open: every listener of these routes uses the same limits. */
@@ -167,6 +169,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['authorization', 'content-type', 'if-match', 'if-none-match', 'idempotency-key'],
     exposeHeaders: ['etag', 'location', 'retry-after', 'x-request-id'],
+    // A browser asks again only after this long, so a dial costs no preflight each time (instant-share-open.md).
+    maxAge: 7200,
   })
   app.use('/v1/*', publicCors)
   app.use('/health', publicCors)
@@ -428,28 +432,38 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   // derived five-minute ticket instead. One door, three key types: a host-minted
   // pairing token, an account-plane access token for this host, or — with no
   // bearer at all — a share secret this host made (docs/plans/host-sharing.md §4.1).
+  /**
+   * The ticket a bearer credential opens one socket with: a paired device's session
+   * token, or a person's access token in the organization the connection names. One
+   * admission for the ticket door and for a socket that presents its token in the
+   * handshake (`exchangeCredential`; docs/plans/instant-share-open.md).
+   */
+  const ticketForBearer = async (bearer: string, organizationId: string | undefined): Promise<string | null> => {
+    const ticket = issueWsTicket(bearer)
+    if (ticket || !bearer || !opts.verifyAccessToken) return ticket
+    const verdict = await opts.verifyAccessToken(bearer)
+    if (!verdict.ok) {
+      log.info('access_token_rejected', { reason: verdict.reason })
+      return null
+    }
+    const outcome = await ticketForGrant(verdict.claims, { workspace: opts.isApiMode ?? false, organizationId })
+    if (!outcome.ok) {
+      log.info('access_token_rejected', { reason: outcome.reason })
+      return null
+    }
+    // The connection does not wait for the exchange; a turn that needs the delegation waits for it.
+    if (opts.establishDelegation) void delegateFromPresentedToken(verdict, bearer, [organizationId], opts.establishDelegation)
+    return outcome.ticket
+  }
+
   app.post('/auth/ws-ticket', async (c) => {
     const bearer = readBearer(c)
-    let ticket = issueWsTicket(bearer)
-    const request = ticket ? null : await readJson(c, wsTicketRequestSchema)
+    const request = await readJson(c, wsTicketRequestSchema)
+    let ticket = bearer ? await ticketForBearer(bearer, request?.organizationId) : null
     if (!ticket && !bearer && opts.resolveShareSecret) {
       const outcome = await ticketForShareSecret(request, opts.resolveShareSecret)
       if (outcome.ok) ticket = outcome.ticket
       else log.info('share_secret_rejected', { reason: outcome.reason })
-    }
-    if (!ticket && bearer && opts.verifyAccessToken) {
-      const verdict = await opts.verifyAccessToken(bearer)
-      if (!verdict.ok) {
-        log.info('access_token_rejected', { reason: verdict.reason })
-      } else {
-        const outcome = await ticketForGrant(verdict.claims, { workspace: opts.isApiMode ?? false, organizationId: request?.organizationId })
-        if (outcome.ok) {
-          ticket = outcome.ticket
-          // The connection does not wait for the exchange; a turn that needs the delegation waits for it.
-          if (opts.establishDelegation) void delegateFromPresentedToken(verdict, bearer, [request?.organizationId], opts.establishDelegation)
-        }
-        else log.info('access_token_rejected', { reason: outcome.reason })
-      }
     }
     if (!ticket) return c.json({ error: 'Unauthorized' }, 401)
     return c.json({ ticket })
@@ -554,7 +568,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
 
   const requestListener = getRequestListener(app.fetch, { overrideGlobalObjects: false })
   const server = createServer(HTTP_SERVER_TIMEOUTS, requestListener)
-  return { server, host, port, requestListener, routes: app.routes.map(({ method, path }) => ({ method, path })), solusApiRouter }
+  return { server, host, port, requestListener, routes: app.routes.map(({ method, path }) => ({ method, path })), solusApiRouter, exchangeCredential: ticketForBearer }
 }
 
 const wsTicketRequestSchema = z.object({

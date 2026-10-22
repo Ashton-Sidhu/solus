@@ -4,8 +4,11 @@
   import {
     ArrowUp as ArrowUpIcon,
     ChevronDown as CaretDownIcon,
+    MessageSquareText as CommentIcon,
     Pen as PencilSimpleIcon,
+    Reply as ReplyIcon,
     Tag as TagIcon,
+    X as CloseIcon,
   } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import {
@@ -15,15 +18,16 @@
   } from "../ui/list-page/filter-styles";
   import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
   import { CommentPostingBar } from "../ui/comment-posting-bar";
+  import FloatingComposer from "../ui/floating-composer/FloatingComposer.svelte";
   import PrDescriptionEditor from "./PrDescriptionEditor.svelte";
   import { projectScopeOf, type ChangedFileStat, type IpcContext } from "@solus/contracts/types";
   import type {
     ReviewThread,
     ReviewComment,
+    PrCommentActivityItem,
     PrCommit,
     PrConversationItem,
     PrLabel,
-    PrStateAction,
     PrReviewer,
     PrReviewerCandidate,
     ProviderViewer,
@@ -34,7 +38,6 @@
   import { localApi } from "@solus/client-core/local-api";
   import type { HostApi } from "@solus/client-core/host-api";
   import type { CheckItem } from "@solus/contracts/checks-types";
-  import type { PrGuideStatus } from "@solus/contracts/review";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { changeBreakdown } from "@solus/client-core/change-breakdown";
   import { changedFileTotals } from "../../lib/diff-stats";
@@ -52,16 +55,20 @@
     filterActivityTimeline,
     visibleConversationCount,
   } from "./lib/activity-data";
+  import {
+    commentReplyTarget,
+    quotedReplyBody,
+    replyPreviewText,
+    type CommentReplyTarget,
+  } from "./lib/comment-reply";
   import PrActivityRail from "./PrActivityRail.svelte";
-  import type { PrActionsLayout } from "./lib/pr-actions-layout";
-  import type { MergeAction, MergeReadiness } from "./lib/merge-readiness";
+  import { mergeReadiness, type MergeAction, type MergeReadiness } from "./lib/merge-readiness";
   import { isFailing, orderedChecks } from "../prs/lib/checks";
   import { observeContainerWidth } from "../../lib/pane-width";
   import { isRailFolded } from "./lib/rail-rows";
   import ActivityTimeline from "./ActivityTimeline.svelte";
   import { prArtifactsFrom, taskLinksToPr } from "./lib/pr-artifacts";
   import PrActions from "./PrActions.svelte";
-  import PrOverflowMenu from "./PrOverflowMenu.svelte";
   import PrStatusChip from "./PrStatusChip.svelte";
   import PrChangeFacts from "./PrChangeFacts.svelte";
   import PrIdentityLink from "./PrIdentityLink.svelte";
@@ -82,23 +89,21 @@
     threads,
     threadsFailed = false,
     diffPatch = null,
-    showRemoteLink = false,
     addressCommentsReady = true,
     onAddressComments,
     onFixChecks,
-    onGenerateGuide,
-    onOpenGuide,
-    generationStatus,
-    onAskQuestion,
-    askQuestionBusy = false,
+    onReadiness,
+    onFeedbackCount,
     onJump,
     onOpenCommit,
     onRefreshThreads,
     onRefreshTarget,
+    onCommentComposerOpen,
     getCtx,
     getApi,
     serverId,
     masthead,
+    menu,
     showIdentity = true,
     artifactsEnabled = true,
   }: {
@@ -113,22 +118,20 @@
     threadsFailed?: boolean;
     /** Full PR patch used to provide context after review anchors. */
     diffPatch?: string | null;
-    /** Render the Activity header's remote PR shortcut for embedded previews. */
-    showRemoteLink?: boolean;
     /** The host has a checked-out PR worktree ready for the fix composer. */
     addressCommentsReady?: boolean;
     onAddressComments?: () => Promise<void>;
     /** Prepare the PR checkout and put the failing checks in a new composer:
      *  one check from its row in the rail, or all of them from the status card. */
     onFixChecks?: (checks: CheckItem[]) => Promise<void>;
-    onGenerateGuide?: () => void;
-    onOpenGuide?: () => void;
-    /** Immediate parent-owned state while the PR checkout is being prepared.
-     *  The durable store takes over as soon as the request is queued. */
-    generationStatus?: PrGuideStatus;
-    onAskQuestion?: () => void;
-    /** The question composer is waiting for its PR checkout. */
-    askQuestionBusy?: boolean;
+    /** The tab's reading of whether the pull request can land, handed up as
+     *  it changes. The pane's chrome band draws the merge control from it
+     *  once the rail has folded; reviewers are read here, so the pane cannot
+     *  take the reading itself. */
+    onReadiness?: (readiness: MergeReadiness | null) => void;
+    /** The unresolved threads and conversation comments, handed up for the
+     *  pane's ⋯ menu, which offers to draft fixes for them. */
+    onFeedbackCount?: (count: number) => void;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     /** Open the diff scoped to one commit's changes. */
@@ -137,6 +140,8 @@
     onRefreshThreads?: () => void;
     /** Refresh the exact host revision owned by the route. */
     onRefreshTarget?: () => Promise<void>;
+    /** The comment orb is opening: the host folds its agent orb's panel. */
+    onCommentComposerOpen?: () => void;
     /** Context override for hosts reviewing a PR outside the active tab's
      *  project (the PRs page's project switcher, embedded review panes).
      *  Defaults to the active tab's context. */
@@ -147,6 +152,9 @@
      *  Rendered by the host above this tab's title so the same row appears
      *  whichever tab is showing. */
     masthead?: import("svelte").Snippet;
+    /** The pull request's ⋯ menu, for a host with no band to carry it (Review
+     *  Mode). It rides beside the status, or beside Edit once the rail folds. */
+    menu?: import("svelte").Snippet;
     /** Show the PR icon and number above the title when no surface header owns them. */
     showIdentity?: boolean;
     /** False while this tab is mounted but hidden behind another, so an
@@ -200,6 +208,16 @@
 
   let composer = $state("");
   let posting = $state(false);
+  let commentBar = $state<ReturnType<typeof CommentPostingBar> | null>(null);
+  let commentOrb = $state<ReturnType<typeof FloatingComposer> | null>(null);
+  let commentOrbOpen = $state(false);
+  // The top-level comment the composer answers, if any. The host's
+  // conversation is flat, so the reply posts as a new comment that quotes it
+  // (comment-reply.ts); the chip over the composer says which one.
+  let replyTarget = $state<CommentReplyTarget | null>(null);
+  // A started draft, or a reply target, keeps the orb marked and holds the
+  // composer open under an outside click.
+  const commentUnsent = $derived(composer.trim().length > 0 || replyTarget !== null);
   let scrollViewport = $state<HTMLElement | null>(null);
 
   // Below the rung the rail has no column, so it is drawn inline under the
@@ -353,16 +371,39 @@
   // parent whenever its fetch lands (no flag), matching the previous behavior.
   const timelineLoading = $derived(commitsLoading || commentsLoading);
   const checks = $derived(pullRequests.checks.summaryFor(serverId, feedCtx(), pr.number));
-  const guideStatus = $derived(
-    generationStatus ??
-      pullRequests.guides.statusFor(serverId, feedCtx(), pr.number),
-  );
   const unresolvedCount = $derived(
     threads.reduce((count, thread) => count + (thread.isResolved ? 0 : 1), 0),
   );
   const feedbackCount = $derived(
     unresolvedCount + visibleConversationCount(comments),
   );
+  const approvedReviewCount = $derived(
+    reviewers.reduce(
+      (count, reviewer) => count + (reviewer.state === "APPROVED" ? 1 : 0),
+      0,
+    ),
+  );
+  // Headline, sub-line, the blocked question, and the move all come from one
+  // table so they cannot drift apart (see lib/merge-readiness). Read once
+  // here: the rail's status card states it, and the pane's band acts on it.
+  const readiness = $derived(
+    detail
+      ? mergeReadiness({
+          detail,
+          checks,
+          checksLoadFailed: pullRequests.checks.loadFailedFor(serverId, feedCtx()),
+          unresolvedCount,
+          approvedReviewCount,
+          openedTime,
+        })
+      : null,
+  );
+  $effect(() => {
+    onReadiness?.(readiness);
+  });
+  $effect(() => {
+    onFeedbackCount?.(feedbackCount);
+  });
 
   function markLoadFailed(
     n: number,
@@ -581,29 +622,6 @@
     }
   }
 
-  // The store shows each host write at once on the pull request every surface
-  // reads, and takes it back if the host refuses.
-  async function updateLifecycle(action: PrStateAction): Promise<void> {
-    if (!detail) return;
-    await pullRequest(pr.number).updateLifecycle(action, detail.headSha);
-  }
-
-  async function revertPullRequest(): Promise<void> {
-    const revert = await pullRequest(pr.number).revert();
-    const ctx = feedCtx();
-    toasts.success("Revert pull request opened", {
-      description: `#${revert.number}`,
-      action: {
-        label: "Open",
-        onAction: () =>
-          void session.prReview.openPullRequest(
-            { number: revert.number, url: revert.url },
-            { ctx, serverId },
-          ),
-      },
-    });
-  }
-
   // One feed shows one pull request: the pane mounts a new feed for another
   // number, so this loads once, and nothing reactive can start it again.
   load();
@@ -618,15 +636,42 @@
     return pullRequest(pr.number).setThreadResolved(threadId, resolved);
   }
 
+  async function replyToComment(comment: PrCommentActivityItem) {
+    replyTarget = commentReplyTarget(comment);
+    onCommentComposerOpen?.();
+    // An open composer takes the caret now; a folded one takes it when its
+    // panel has opened (onOpened).
+    if (commentOrbOpen) {
+      await tick();
+      commentBar?.focus();
+    } else {
+      commentOrbOpen = true;
+    }
+  }
+
+  /** Fold the comment panel back to its orb, without taking focus. */
+  export function foldCommentComposer() {
+    if (commentOrbOpen) void commentOrb?.fold(false);
+  }
+
+  function cancelReply() {
+    replyTarget = null;
+    commentBar?.focus();
+  }
+
   async function postComment(body: string) {
     if (posting) return;
     posting = true;
     let commentCreated = false;
     try {
       const n = pr.number;
-      await pullRequest(n).addComment(body);
+      await pullRequest(n).addComment(
+        replyTarget ? quotedReplyBody(replyTarget, body) : body,
+      );
       commentCreated = true;
       composer = "";
+      replyTarget = null;
+      void commentOrb?.fold();
       // Refetch rather than inventing an optimistic author/id; the server copy
       // is the source of truth and survives a reload. Posting already dropped
       // the mirrored list, so this asks the host without forcing.
@@ -759,7 +804,7 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col bg-background">
+<div class="relative flex h-full min-h-0 flex-col bg-background">
 <div bind:this={scrollViewport} class="min-h-0 flex-1 overflow-y-auto bg-background">
     {#if loadError?.kind === "github-auth"}
       <!-- The one failure said once for the whole tab: nothing below can
@@ -787,12 +832,11 @@
          896 + 56 + 330 (+ 104 of gutter) is the shell's whole budget, so the reading column keeps
          a book measure at every width rather than growing until the rail is a
          long way from the text it annotates.
-         No bottom padding on the row: the composer is sticky to the foot of
-         the scrollport and carries its own foot, so row padding under it is
-         dead space at the end of the scroll. The rail pads its own column. -->
+         The row pads under the timeline for the two orbs in the corner, so
+         the last event scrolls clear of them. The rail pads its own column. -->
     <div
       bind:this={contentRowEl}
-      class="@container mx-auto flex w-full max-w-[1386px] flex-wrap items-start gap-14 px-[52px] {masthead
+      class="@container mx-auto flex w-full max-w-[1386px] flex-wrap items-start gap-14 px-[52px] pb-20 {masthead
         ? 'pt-3.5'
         : 'pt-[38px]'} {masthead
         ? ''
@@ -808,8 +852,9 @@
         <!-- Masthead, Linear-style: no chrome in the header at all — a quiet
              mono eyebrow, the title at full measure, one line of plain-text
              facts. Actions live with the merge-readiness status in the right
-             rail (prActions below), which folds into this column rather than
-             hiding, so they are reachable at every width. -->
+             rail (prActions below); once the rail folds into this column the
+             merge control moves up to the pane's chrome band, so it is
+             reachable at every width. -->
         <header>
           <!-- Identity the way the host writes it, when no masthead above
                already carries it: the repository in quiet type, the number as
@@ -863,7 +908,9 @@
 
           <!-- Who, what state, and when it last moved, under the title the
                way the host writes it. The refs and the counts sit on the line
-               below, so this row stays one line at every width. -->
+               below, so this row stays one line at every width. Once the rail
+               has folded, its ⋯ menu rides beside Edit; the merge control is
+               up in the pane's chrome band. -->
           <div
             class="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-muted-foreground"
           >
@@ -895,6 +942,9 @@
                 <PencilSimpleIcon size={12} />
                 Edit
               </Button>
+              {#if railFolded && menu}
+                {@render menu()}
+              {/if}
             {/if}
           </div>
 
@@ -914,16 +964,6 @@
             />
           </div>
 
-          <!-- The rail's inline home. With no column beside the conversation,
-               the status card sits here, under the facts and above the
-               description, so the state of the pull request and the move that
-               changes it are still in the first screen rather than past every
-               comment on it. Checks and changed files follow the description. -->
-          {#if railFolded}
-            <div class="mt-5">
-              {@render railPanel("inline", "status")}
-            </div>
-          {/if}
         </header>
 
         <!-- PR description belongs to the PR header, not the activity stream. -->
@@ -992,9 +1032,13 @@
           </section>
         {/if}
 
+        <!-- The rail's inline home. With no column beside the conversation,
+             its checks and changed files sit here, under the description. Its
+             status card is not drawn: the move is up in the pane's chrome band
+             and the ⋯ beside Edit. -->
         {#if railFolded}
           <div class="mt-8">
-            {@render railPanel("inline", "sections")}
+            {@render railPanel("inline")}
           </div>
         {/if}
 
@@ -1071,45 +1115,10 @@
           onJump={jumpToFile}
           {onOpenCommit}
           onReply={replyToThread}
+          onReplyToComment={replyToComment}
           onResolve={resolveThread}
           onDeleteComment={deleteComment}
         />
-
-        <!-- Composer: full measure of the main column, flush with the title and
-             description rather than indented to the timeline's content column —
-             it addresses the PR, not the last event. A flat muted pill rather
-             than a ringed panel; the timeline already carries the page's only
-             hairlines, so a second outline here reads as chrome. The send
-             button is a tinted accent square, not a solid fill: at this size a
-             saturated block outweighs everything above it.
-             The surface is the card fill inside a half-pixel ring rather than a
-             muted fill: the composer is the one place on this page you write
-             into, so it sits *on* the canvas instead of being cut out of it. -->
-        <!-- Sticky over the scroll region so the field follows you through a
-             long timeline instead of sitting at the far bottom, with a scrim so
-             events dissolve into the canvas rather than being clipped by a
-             hard edge. Matches the task page composer. -->
-        <CommentPostingBar
-          class="mt-8"
-          value={composer}
-          onValueChange={(markdown) => (composer = markdown)}
-          onSubmit={postComment}
-          disabled={posting}
-          placeholder="Write a comment…"
-          submitLabel="Comment"
-          submitAriaLabel="Post comment"
-        >
-          {#snippet leading()}
-            <PrAvatar
-              name={viewerLogin || "?"}
-              url={viewerAvatarUrl}
-              size="size-[25px] text-xs"
-            />
-          {/snippet}
-          {#snippet submitContent()}
-            <ArrowUpIcon size={13} weight="bold" />
-          {/snippet}
-        </CommentPostingBar>
       </main>
 
       <!-- ── Right rail: status + actions, reviewers, checks, changed files ──
@@ -1121,6 +1130,95 @@
       {/if}
     </div>
 </div>
+
+<!-- Composer: the pane's own foot, pinned outside the scroll region rather
+     than sticky inside it. `position: sticky` only holds a bar down once the
+     content behind it is taller than the scrollport; a short timeline left it
+     floating under the last event with dead space beneath. Here it is at the
+     bottom at every length, like the task page's.
+     It keeps the main column's measure — the same row, with the rail's width
+     held empty beside it while the rail has a column — so it stays flush with
+     the title and description: it addresses the PR, not the last event. The
+     surface is the card fill inside a half-pixel ring: the composer is the one
+     place on this page you write into, so it sits *on* the canvas instead of
+     being cut out of it. The send button is a tinted accent square, not a
+     solid fill: at this size a saturated block outweighs everything above it. -->
+<!-- The comment composer is an orb in the corner, beside the agent orb
+     (PrReviewPane), and opens into a panel over the timeline: two folded
+     ways to write, one to the host and one to an agent, instead of a bar the
+     page has to make room for. It opens on Reply too. -->
+<FloatingComposer
+  bind:this={commentOrb}
+  bind:expanded={commentOrbOpen}
+  label="Comment on this pull request"
+  hasUnsent={commentUnsent}
+  testId="pr-comment-composer"
+  onExpand={onCommentComposerOpen}
+  class="right-[calc(0.75rem+2.5rem+0.5rem)] pointer-coarse:right-[calc(0.75rem+3rem+0.5rem)]"
+  panelClass="right-[calc(0.75rem+2.5rem+0.5rem)] w-[min(44rem,calc(100%-1.5rem-3rem))] pointer-coarse:right-[calc(0.75rem+3rem+0.5rem)] pointer-coarse:w-[min(44rem,calc(100%-1.5rem-3.5rem))]"
+  onOpened={() => commentBar?.focus()}
+>
+  {#snippet icon()}
+    <CommentIcon size={18} strokeWidth={1.5} />
+  {/snippet}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="rounded-2xl bg-background"
+    onkeydown={(event) => {
+      if (event.key !== "Escape" || !replyTarget || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelReply();
+    }}
+  >
+  {#if replyTarget}
+    <!-- Which comment the next post answers. Escape or the cross drops the
+         target and keeps whatever was typed. -->
+    <div class="flex items-center gap-1.5 pt-2.5 text-xs text-muted-foreground">
+      <ReplyIcon size={12} class="shrink-0" aria-hidden="true" />
+      <span class="min-w-0 flex-1 truncate">
+        Replying to <span class="font-medium text-foreground">{replyTarget.author}</span>
+        {#if replyPreviewText(replyTarget)}
+          <span aria-hidden="true">·</span> {replyPreviewText(replyTarget)}
+        {/if}
+      </span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Cancel reply"
+        title="Cancel reply · Esc"
+        class="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+        onclick={cancelReply}
+      >
+        <CloseIcon size={12} aria-hidden="true" />
+      </Button>
+    </div>
+  {/if}
+  <CommentPostingBar
+    bind:this={commentBar}
+    class="static bottom-auto p-0 [background:none]"
+    value={composer}
+    onValueChange={(markdown) => (composer = markdown)}
+    onSubmit={postComment}
+    disabled={posting}
+    placeholder={replyTarget ? `Reply to ${replyTarget.author}…` : "Write a comment…"}
+    submitLabel={replyTarget ? "Reply" : "Comment"}
+    submitAriaLabel={replyTarget ? "Post reply" : "Post comment"}
+  >
+    {#snippet leading()}
+      <PrAvatar
+        name={viewerLogin || "?"}
+        url={viewerAvatarUrl}
+        size="size-[25px] text-xs"
+      />
+    {/snippet}
+    {#snippet submitContent()}
+      <ArrowUpIcon size={13} weight="bold" />
+    {/snippet}
+  </CommentPostingBar>
+  </div>
+</FloatingComposer>
 </div>
 
 <!-- The reviewers' home once the rail has folded: a row of the facts list,
@@ -1161,14 +1259,11 @@
 <!-- One definition, two homes: a column beside the conversation where there is
      room for one, and a block under the title where there is not. Rendering it
      twice would be twenty props kept in step by hand. -->
-{#snippet railPanel(
-  variant: "column" | "inline",
-  part: "all" | "status" | "sections" = "all",
-)}
+{#snippet railPanel(variant: "column" | "inline")}
   <PrActivityRail
     {variant}
-    {part}
     {detail}
+    {readiness}
     pullRequest={pullRequest(pr.number)}
     {reviewers}
     {reviewersLoading}
@@ -1183,22 +1278,18 @@
     {changedFiles}
     {filesLoading}
     filesLoadFailed={failedLoads.has("changed-files")}
-    {openedTime}
     {checks}
-    checksLoadFailed={pullRequests.checks.loadFailedFor(serverId, feedCtx())}
     {fixingCheckId}
     onFixCheck={onFixChecks ? fixCheck : undefined}
-    {unresolvedCount}
     onFileJump={(path) => jumpToFile(path)}
     onRetry={refresh}
     actions={prActions}
-    menu={prOverflowMenu}
+    {menu}
   />
 {/snippet}
 
-{#snippet prActions(layout: PrActionsLayout, readiness: MergeReadiness)}
+{#snippet prActions(readiness: MergeReadiness)}
   <PrActions
-    {layout}
     {readiness}
     onAgentAction={runAgentAction}
     {detail}
@@ -1210,26 +1301,3 @@
   />
 {/snippet}
 
-{#snippet prOverflowMenu()}
-  <PrOverflowMenu
-    pr={{ host: pr.host }}
-    {detail}
-    {showRemoteLink}
-    {prUrl}
-    {onAskQuestion}
-    {askQuestionBusy}
-    onFixComments={feedbackCount > 0 && onAddressComments ? addressComments : undefined}
-    fixCommentsBusy={addressingComments}
-    onOpenRemote={openPr}
-    onRefresh={refresh}
-    onLifecycleAction={updateLifecycle}
-    onRevert={revertPullRequest}
-    {guideStatus}
-    {onOpenGuide}
-    onGenerateGuide={onGenerateGuide &&
-    detail?.state === "open" &&
-    !detail.draft
-      ? onGenerateGuide
-      : undefined}
-  />
-{/snippet}

@@ -70,8 +70,9 @@
   }
 
   /* The one canonical rendering of what the agent wants: a quiet bar naming the
-     interpreter and holding Copy, over unwrapped mono. The fill stays near-card
-     so contrast comes from the hairline rather than a grey slab. */
+     interpreter and holding Copy, over the shared terminal panel
+     (`ui/terminal-output`). The fill stays near-card so contrast comes from
+     the hairline rather than a grey slab. */
   :global(.interrupt-payload) {
     overflow: hidden;
     border: 0.0625rem solid var(--border);
@@ -95,18 +96,6 @@
     font-weight: 500;
 
     color: var(--muted-foreground);
-  }
-  /* Approving a command you can't read verbatim is the failure mode these cards
-     exist to prevent, so the body scrolls rather than re-flowing. */
-  :global(.interrupt-payload-body) {
-    margin: 0;
-    padding: 0.6875rem 0.8125rem 0.75rem;
-    font-family: var(--solus-code-font-family);
-    font-size: var(--text-transcript-meta);
-    line-height: 1.75;
-    color: var(--foreground);
-    white-space: pre;
-    overflow-x: auto;
   }
 
   /* Debug data collapses; a preview the user is choosing between opens. */

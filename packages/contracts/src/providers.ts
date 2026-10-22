@@ -469,6 +469,13 @@ export interface ReviewComment {
    * leave it undefined.
    */
   diffHunk?: string
+  /**
+   * The review this inline comment was submitted with: the node id of the
+   * review, the same id its `PrCommentActivityItem` carries. A timeline nests
+   * a thread under the review of its first comment, as the host does. Absent
+   * when the host did not say, or for a record read before it was asked.
+   */
+  reviewId?: string
 }
 
 /** One commit on a PR, for the Activity timeline. */
@@ -534,7 +541,12 @@ interface PrActivityItemBase {
   url?: string
 }
 
-/** A top-level PR conversation entry, distinct from an inline review thread. */
+/**
+ * A top-level PR conversation entry, distinct from an inline review thread.
+ * A `review` is every submitted review, with or without a body: an approval
+ * is an event in its own right, and a review with no body may still own the
+ * inline threads whose comments name its id (`ReviewComment.reviewId`).
+ */
 export interface PrCommentActivityItem extends PrActivityItemBase {
   kind: 'comment' | 'review'
   body: string

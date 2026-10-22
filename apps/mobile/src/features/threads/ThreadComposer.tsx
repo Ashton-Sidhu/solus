@@ -78,6 +78,12 @@ export const COMPOSER_COLLAPSED_CHROME = 60;
  */
 export const COMPOSER_EXPANDED_CHROME = 156;
 
+/**
+ * The composer's own padding above and below the pill (`row`) or the card
+ * (`card`). The parent's bottom inset sits below it.
+ */
+export const THREAD_COMPOSER_BOTTOM_GUTTER = { row: 6, card: 8 } as const;
+
 const DRAFT_SAVE_DELAY_MS = 400;
 
 export interface ThreadComposerProps {
@@ -512,8 +518,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     <Animated.View
       className="px-[12px]"
       style={{
-        paddingTop: usesCard ? 8 : 6,
-        paddingBottom: (props.bottomInset ?? 0) + (usesCard ? 8 : 6),
+        paddingTop: usesCard ? THREAD_COMPOSER_BOTTOM_GUTTER.card : THREAD_COMPOSER_BOTTOM_GUTTER.row,
+        paddingBottom:
+          (props.bottomInset ?? 0) +
+          (usesCard ? THREAD_COMPOSER_BOTTOM_GUTTER.card : THREAD_COMPOSER_BOTTOM_GUTTER.row),
         backgroundColor:
           Platform.OS === "android" ? themeColorWithAlpha(composerPanel, 1) : undefined,
       }}

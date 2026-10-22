@@ -3,7 +3,7 @@ import type { PrInterest, PrSyncChange } from '@solus/contracts/providers'
 import type { IpcContext } from '@solus/contracts/types'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
-import { readFirstPage } from './__fixtures__/pr-listing'
+import { listingFrom, readFirstPage } from './__fixtures__/pr-listing'
 
 /**
  * The client half of PR sync (docs/plans/pr-sync.md). Surfaces declare
@@ -229,6 +229,44 @@ describe('pr.changed', () => {
     }))
     expect(project.prFor(33)?.checksState).toBe('failing')
     release()
+  })
+
+  test('a row reads its check runs when its popover opens, once per head', async () => {
+    // WHY: the list reads no checks of its own; the glyph is from the listing.
+    // The check runs behind it are read when someone opens them, so a page of
+    // rows at rest costs the host nothing, and a held answer for this head is
+    // not asked for again. A new head drops the held answer.
+    const reads: number[][] = []
+    const passed = { id: 'ci', name: 'ci', conclusion: 'success', inFlight: false, detailsUrl: null, appName: null, startedAt: null, completedAt: null }
+    serverConnectionsMock.registerHost('host-a', listingFrom({
+      prList: async () => ({ items: [pullRequestFixture(33)], page: 1, hasMore: false }),
+      prSetInterest: async () => emptyChange(),
+      prChecks: async (_ctx: IpcContext, numbers: number[]) => {
+        reads.push(numbers)
+        return {
+          repo: { host: 'github.com', owner: 'acme', repo: 'repo' },
+          checks: [{ number: 33, summary: { state: 'passing', required: [passed], optional: [], headSha: 'head-33', inFlight: false } }],
+          loadFailed: false,
+        }
+      },
+    }))
+    const api = serverConnectionsMock.apiFor('host-a')
+    const store = await newStore()
+    const project = store.get(api, 'host-a', ctx)
+    await readFirstPage(store, project)
+    const row = project.prFor(33)!
+    expect(row.checks).toBeUndefined()
+
+    await row.loadChecks()
+    expect(row.checks?.required.map((check) => check.name)).toEqual(['ci'])
+    expect(row.checksState).toBe('passing')
+    await row.loadChecks()
+    expect(reads).toEqual([[33]])
+
+    row.apply({ ...pullRequestFixture(33), headSha: 'head-33-next' })
+    expect(row.checks).toBeUndefined()
+    await row.loadChecks()
+    expect(reads).toHaveLength(2)
   })
 
   test('a sidebar row reads the checks of its repository only', async () => {

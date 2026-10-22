@@ -105,25 +105,6 @@ export function oauthUplinkAccountSource(
   }
 }
 
-/**
- * Whether `origin` is a Solus account origin serving this client (decision U8). The
- * directory answers JSON there: 401 to this probe, which sends no credential. A Solus
- * *host* serving this client answers 200 with its SPA fallback (`index.html`) for any
- * route, so only a JSON answer counts as the account origin.
- */
-export async function isCloudOrigin(origin: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
-  try {
-    const response = await fetchImpl(`${origin}/v1/hosts`, {
-      credentials: 'omit',
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(5_000),
-    })
-    return !!response.headers.get('content-type')?.includes('application/json') && response.status < 500
-  } catch {
-    return false
-  }
-}
-
 /** What the registry keeps of a directory row beyond its routes. */
 function uplinkOf(host: DirectoryHost, directoryUrl: string): SavedServerUplink {
   const uplink: SavedServerUplink = { hostId: host.hostId, directoryUrl, kind: host.kind, category: host.category }

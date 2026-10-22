@@ -125,7 +125,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   registerTaskOutboxApplier()
   registerSessionOutboxApplier()
   registerWorkOutboxApplier()
-  const { requestListener, routes, solusApiRouter } = buildHttpServer({
+  const { requestListener, routes, solusApiRouter, exchangeCredential } = buildHttpServer({
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
     solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
     verifyAccessToken: (token) => tokens.verify(token),
@@ -188,7 +188,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     server, requestListener, routes,
     attachLiveTransport(http) {
       if (socket || liveClosed) throw new Error('The live transport is already attached or closed.')
-      socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true, verifyAccessToken: (token) => tokens.verify(token),
+      socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true, verifyAccessToken: (token) => tokens.verify(token), exchangeCredential,
         onClientConnected: ({ clientId }) => {
           const principal = socket?.principalOf(clientId)
           if (principal) presence.connected(clientId, principal)

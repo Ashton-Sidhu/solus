@@ -58,6 +58,18 @@ are in `plans/t3-performance-review-2026-10-19/` at the repository root.
 | `package.json` (uniwind, react-native-svg, react-native) | [#22173](https://github.com/pingdotgg/t3code/pull/22173) | Uniwind 1.13.0, with react-native-svg 15.16.0 and React Native 0.88.0, the versions on T3 `main`. Uniwind 1.13.0 makes its `react-native` replacement from `Object.keys(ReactNative)`. React Native 0.88 sets `Touchable` as a property that is not enumerable, thus the replacement has no `Touchable`. react-native-svg 15.15.5 read `Touchable.Mixin` when it loaded, and the Release app stopped at a white screen (found on a device on 2026-10-21). react-native-svg 15.16.0 has its own mixin. `tests/unit/native-mobile-uniwind-react-native-exports.test.ts` fails if a react-native-svg source imports a `Touchable` that Uniwind does not give. On native, styles now apply in CSS cascade order (uni-stack/uniwind#722); do a check of the screens on a device. |
 | `package.json` (`expo.autolinking.buildFromSource`), root `patches/expo-network@58.0.3.patch`, `tests/unit/native-mobile-network-module.test.ts`, `tests/fixtures/NetworkModuleRegression.swift` | [#22043](https://github.com/pingdotgg/t3code/pull/22043) | Same patch as T3. The installed expo-network is 58.0.3 and the patch applies without change. A lock keeps only the first NWPath from the temporary monitor. iOS builds ExpoNetwork from source, thus the patch is in the app. The test compiles the patched query with a fake NWPathMonitor and the thread sanitizer (`swiftc`, macOS only). Bun drops the stdout of the child, thus the test reads the exit status. Without the patch, the test fails. A new `pod install` and iOS build are necessary. |
 
+## New-thread draft and iPad composer (2026-10-22)
+
+T3 Code mobile fixes merged after the parity sweep. #23366 replaces the
+#23206 fix in the same file: the final state is ported.
+
+| Solus path | T3 reference | Local changes |
+| --- | --- | --- |
+| `src/features/threads/ThreadDetailScreen.tsx`, `ThreadComposer.tsx` | [#23355](https://github.com/pingdotgg/t3code/pull/23355) | The `composerFocused` state is removed; the focus callback still feeds the Android resume guard. On iOS the inset leaves only while the keyboard has a height, as before in Solus; an expanded card alone keeps it, because the Solus card has no safe-area padding of its own (T3 drops it for an expanded editor). The iPad takes the composer's own gutter (`THREAD_COMPOSER_BOTTOM_GUTTER`, 6 for the pill and 8 for the card, which was inline in `ThreadComposer`) out of the inset once, so the pill's edge aligns with the native bar. No Duo: Solus has no `useDuoBottomBarInset`. |
+| `src/features/threads/NewTaskRouteScreen.tsx` | [#23206](https://github.com/pingdotgg/t3code/pull/23206), [#23366](https://github.com/pingdotgg/t3code/pull/23366) | The draft hero scrolls in `ScreenScrollView` (the native-marked view) with automatic insets and `pt-12`, so UIKit sets the top inset under the glass header on an iPhone sheet and an iPad column and the header is clear at rest. The title "New session" sits beside the X (`unstable_navigationItemStyle: "editor"`); the title text is Solus's. No `HeaderHeightContext` step (#23206): #23366 removed it. |
+| `src/navigation/RootNavigator.tsx` | [#23366](https://github.com/pingdotgg/t3code/pull/23366) | An open Settings, new-task, pairing, or Solus Cloud route keeps the presentation it opened with (sheet or column page) until it is dismissed, so a fold or a resize does not remount it and lose its draft. T3 keeps only its two sheets; the Solus connect sheets flip on the same layout answer, thus they are kept too. |
+| `src/features/workspace/WorkspaceToolbar.ios.tsx`, `WorkspaceToolbar.tsx`, `WorkspaceNativeTabs.ios.tsx`, `src/features/home/HomeRouteScreen.tsx` | [#23366](https://github.com/pingdotgg/t3code/pull/23366) | The iPad sidebar's bottom-toolbar New session is removed, with its `onNewTask` prop. The conversation header (`useThreadHeaderOptions`) and the empty detail (`WorkspaceEmptyDetail`) keep theirs; Solus never hid the empty-detail action behind a visible sidebar, so `createWorkspaceStackNavigator.ios.tsx` is unchanged, and the empty-detail label stays "New session". |
+
 ## Mobile parity sweep (2026-10-21, T3 PRs merged 2026-10-21)
 
 Maria's mobile parity PRs. Each row ports only what a Solus host and the desktop
@@ -81,7 +93,13 @@ Not adopted: #21392 (turn diffstat; no exact feed-turn-to-snapshot match and no
 single-turn review screen on mobile), #21404 (Solus new tasks have no worktree
 mode, so the bug cannot occur), #21398 (no
 mobile terminal), #21405 (the APNs throttle is in the Solus cloud relay, not
-this repository).
+this repository), #23205 (swipe on draft and unsent-task rows, and the collapse
+on pin, unpin, discard, and delete: Solus has no pins, drafts, or unsent tasks
+in the list. Every Solus row action (settle, un-settle, snooze, wake, archive,
+return to the list) already runs through `withThreadDismissal`, and the row's
+swipe `resetKey` holds the variant, snoozed, and archived fields that these
+actions change, so a moved row does not stay collapsed. The `destructive` swipe
+flag has no user here and is not added).
 
 ## Conversation cards (2026-10-16, commit `e74f477eed81012834e518ba172d0a83e33fe55e`)
 

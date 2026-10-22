@@ -459,6 +459,15 @@ export class SessionRuntime extends EventEmitter {
   }
 
   /**
+   * The seat whose agent folders an actor's `/` commands come from, without
+   * touching its last use. Undefined: the host's own folders.
+   */
+  commandSeatFor(actor: Actor, provider: AgentId): TurnSeat | undefined {
+    if (!this.seats || !isSeatProvider(provider)) return undefined
+    return this.seats.connectedSeat(seatFor(actor), provider) ?? undefined
+  }
+
+  /**
    * The provider refused a turn's login (seat plan §3.7): the author's seat
    * expires, so the next prompt asks them to reconnect. The host login keeps
    * no state here; the CLI answers for it.

@@ -51,6 +51,16 @@ The Completed shelf is the name of the place in the list.
    never writes over a row. An explicit link (`created`, `agent`, `manual`)
    claims a `branch` row and revives a `dismissed` row. An explicit link does
    not write over another explicit link.
+   **A session holds one `branch` row, and it follows the branch**
+   (2026-10-22, after T3 Code's `branchPullRequest`, one detected pull request
+   per thread beside its explicit links). A new `branch` discovery deletes the
+   session's `branch` rows whose pull request has ended (merged, closed, or
+   gone) and stops their watches, so a session whose agent opens the next pull
+   request on its branch shows that one, not a growing list of found rows. A
+   `branch` row still open stays, as do explicit rows and tombstones. T3 Code
+   keeps the detected pull request in its own field; Solus keeps it in the
+   same table with its source, so the task reads, the observation write, and
+   the chips consume one shape.
 4. **Unlink is a tombstone.** Unlinking a session link sets `dismissed`.
    Unlinking a pull request on a task deletes the task link; when the task has
    none, it dismisses the link on each session of the task that owns it.
@@ -99,17 +109,25 @@ The Completed shelf is the name of the place in the list.
 
 | Writer | Source |
 |---|---|
-| PR sync, for each live session whose own worktree is on the pull request's branch | `branch` |
-| The pull request list, when the asking session's own worktree is on a listed branch | `branch` |
+| PR sync, for each live session whose branch is the pull request's branch, in its own worktree or on the shared checkout | `branch` |
+| The pull request list, when the asking session's branch is a listed branch | `branch` |
 | Create pull request in Solus | `created` |
 | The agent tool `link` with `kind=pr` and no `task_id`, from any session | `agent` |
 | `link` with `kind=pr` and a `task_id`, when the calling session works on that task | `agent` |
 | A person: Link pull request… on a session, or an edit of the pull request from the session | `manual` |
 
 PR sync asks about the branch of a session of a task that is not finished, and
-of a session that is not settled and was active in the last 30 days
-(`BRANCH_LOOKUP_MS`). The 30 days limit only the branch lookup. A link, once
-made, is kept fresh until its session is settled.
+of a session that is not settled and was active within the list's idle window
+(`SESSION_LIST_IDLE_MS`, 30 days, after which an idle session is archived;
+`docs/plans/session-archive.md`). The window limits only the branch lookup. A
+link, once made, is kept fresh until its session is settled. The branch is the
+one the session last ran on (the session index): a session on the shared
+checkout counts as much as one in its own worktree, as a thread's branch does
+in T3 Code. A session that has not run since the shared checkout changed
+branch keeps its old branch until its next turn. Before PR sync writes a
+`branch` row it reads the live checkouts again and writes only when the
+session's branch is still the one it looked up (`linkBranchOwners`), so a
+stale lookup can only miss a link, never make a wrong one.
 
 `link` with `kind=pr` for a task the calling session does not work on, the
 task page's link picker, and a pull request review session's first prompt write
@@ -127,8 +145,22 @@ When `list_session_pull_requests` is also on, the block tells the agent to call
 it before it finishes pull request work and to link each pull request that is
 missing.
 
-The project rail has no card for a session's links. The rail's Git card shows
-the branch's own pull request. On desktop and web, the session sidebar row
+The rail's Git card shows one pull request with its review guide, checks, and
+next move (`GitSection`, `LinkedPullRequestRows`): the branch's own until a
+person chooses another, and the first linked one when the branch has none.
+Under it, as "Also linked", one row for each other open pull request the
+session links in the project's repository, read as the list and the review
+pane read one: the lifecycle as the glyph's shape (open, draft), mergeability
+as its tone (`readinessTone`: red cannot merge, green can, purple merged), the
+checks as a tinted glyph before the number, and the title. A row brings its
+pull request into the group, and the group's
+number (`#412 1/3 ›`) cycles to the next one; the card grows one row per
+link, not one group. The choice is the tab's and goes back to the branch's
+own pull request when the branch or project changes. It keeps the
+session's links in interest while it is shown, so a linked pull request the
+project has not read yet is pushed to it. A link in another repository is not
+on the card: a number means nothing outside its repository, and the card acts
+on this project's checkout. On desktop and web, the session sidebar row
 shows the links and can unlink them, and the session menu opens the link
 dialog. The phone has no rail, so the Actions tab of its plus menu shows the
 links with an unlink button and a "Link a pull request" row.
@@ -171,7 +203,7 @@ reads from a session.
 - `data/tasks/sync-engine.ts` — `completeTasksForMergedPullRequest` finds a
   task through either link.
 - `prs/pr-sync.ts` — live checkouts come from live tasks and from the session
-  index (`recentWorktreeSessions`); interest comes from both interest reads
+  index (`recentBranchSessions`); interest comes from both interest reads
   (`readPrLinkInterests`, `readSessionPullRequestInterests`).
 - RPC: `sessionPullRequestsList`, `sessionPullRequestLink`,
   `sessionPullRequestUnlink`, and `sessionPullRequestWatch`

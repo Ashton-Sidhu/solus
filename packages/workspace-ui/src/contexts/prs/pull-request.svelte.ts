@@ -130,6 +130,11 @@ export class PullRequest implements Contracts.PullRequest {
   /** Every check on the head, combined, as the list row shows it. Undefined
    *  until a read that asks has answered for this head. */
   checksState = $state<PrChecksState>()
+  /** Every check on the head, one by one, for a row's checks popover. Held
+   *  once a push or `loadChecks` answers for this head; a new head drops it. */
+  checks = $state<PrChecksSummary>()
+  /** The last `loadChecks` could not read the host. */
+  checksLoadFailed = $state(false)
   /** The whole stack, as `loadStack` last read it. */
   fullStack = $state<PrStack | null>()
   /** The reviewers and the accounts that can be asked, as last read. Undefined
@@ -243,6 +248,7 @@ export class PullRequest implements Contracts.PullRequest {
     // Likewise checks; a new head makes the last answer someone else's.
     if (source.checksState !== undefined) this.checksState = source.checksState
     else if (!sameHead) this.checksState = undefined
+    if (!sameHead) this.checks = undefined
     this.#described = true
     // A read that left the host before a write it has not yet answered would
     // otherwise put the write's outcome back the way it was.
@@ -251,7 +257,24 @@ export class PullRequest implements Contracts.PullRequest {
 
   /** Take checks PR sync reports. Checks of another head say nothing about this one. */
   absorbChecks(summary: PrChecksSummary): void {
-    if (summary.headSha === this.headSha) this.checksState = combinedChecksState(summary)
+    if (summary.headSha !== this.headSha) return
+    this.checksState = combinedChecksState(summary)
+    this.checks = summary
+  }
+
+  /**
+   * Read this pull request's checks, one by one, for a surface that shows
+   * them on demand — a list row's checks popover. Asked when the popover
+   * opens, not once per row, so a page of rows at rest costs the host
+   * nothing. A summary already held for this head is the answer.
+   */
+  async loadChecks(): Promise<PrChecksSummary | undefined> {
+    if (this.checks?.headSha === this.headSha) return this.checks
+    const snapshot = await this.api.prChecks(detached(this.ctx), [this.number])
+    this.checksLoadFailed = snapshot.loadFailed
+    const summary = snapshot.checks.find((item) => item.number === this.number)?.summary
+    if (summary) this.absorbChecks(summary)
+    return this.checks
   }
 
   /** The host and context this project reads through. */

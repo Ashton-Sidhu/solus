@@ -379,7 +379,7 @@ export async function listAutomations(actor: Actor): Promise<Automation[]> {
     SELECT *
     FROM automations
     WHERE ${visible.text}
-    ORDER BY updated_at DESC
+    ORDER BY created_at DESC
   `).all(...visible.params))
   return rows.map((row) => ({ ...automationFromRow(row), role: roleOf(actor, automationResource(row.id, { ownerKey: row.owner_key, organizationId: row.organization_id })) }))
 }

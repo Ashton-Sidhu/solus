@@ -121,6 +121,8 @@ interface WsTicketRequest {
 
 interface TicketExchange {
   ticket: string | null
+  /** The credential the handshake presents itself, with no ticket (`fetchWsTicket`). */
+  handshake?: { accessToken: string; organizationId?: string }
   unreachable: boolean
   /** The host answered 401: it does not take this credential. */
   refused: boolean
@@ -136,6 +138,13 @@ export interface GrantRefusal {
   /** For the log: the refusal's code, rule, and description. */
   reason: string
 }
+
+/**
+ * How long a dial that presents its token in the handshake waits for the host before
+ * the route counts as not answering: the ticket request it replaces had 3 s, and the
+ * handshake also opens the socket.
+ */
+const HANDSHAKE_ANSWER_MS = 5_000
 
 /** Straight lasting refusals after which the transport stops dialing and reports the host blocked. */
 export const LASTING_REFUSALS_BEFORE_BLOCK = 3
@@ -196,6 +205,18 @@ export class WsTransport {
   private authRefreshAttempted = false
   /** The last ticket exchange presented a fresh grant and the host answered 401. */
   private grantRefusedByHost = false
+  /**
+   * Whether this host takes the account token in the socket handshake, with no ticket
+   * request first (docs/plans/instant-share-open.md). A host that predates it refuses
+   * such a handshake as plain `UNAUTHORIZED`; the transport then asks it for tickets.
+   */
+  private hostTakesHandshakeCredential = true
+  /** The last dial presented the token in its handshake. */
+  private dialPresentedCredential = false
+  /** The host refused the token in a handshake: the next dial presents a new one. */
+  private presentsFreshGrant = false
+  /** Counts dials; a dial's timers act only while it is the latest and has not ended. */
+  private dialSerial = 0
   /** Dials in a row the account plane refused a grant for, lastingly. */
   private lastingRefusals = 0
   private authRefreshResetTimer: ReturnType<typeof setTimeout> | null = null
@@ -230,10 +251,10 @@ export class WsTransport {
       // exchange dials without a credential, so an authenticated host rejects
       // the socket and the normal refresh path decides whether to retry.
       auth: (cb) => {
-        void (this.dialPreparation?.exchange ?? this.fetchWsTicket()).then(({ ticket }) => {
-          cb(ticket
-            ? { ticket, clientInstanceId: this.clientInstanceId }
-            : { clientInstanceId: this.clientInstanceId })
+        void (this.dialPreparation?.exchange ?? this.fetchWsTicket()).then(({ ticket, handshake }) => {
+          if (ticket) cb({ ticket, clientInstanceId: this.clientInstanceId })
+          else if (handshake) cb({ ...handshake, clientInstanceId: this.clientInstanceId })
+          else cb({ clientInstanceId: this.clientInstanceId })
         })
       },
     })
@@ -299,6 +320,7 @@ export class WsTransport {
   /** One dial: the credential exchange and the identity check start now, beside
    *  the socket open, instead of one after the other once it is open. */
   private dialSocket(): void {
+    const serial = ++this.dialSerial
     const timing: DialTiming = { startedAt: Date.now(), serverUrl: this.opts.serverUrl }
     this.dialTiming = timing
     const preparation: DialPreparation = {
@@ -322,6 +344,18 @@ export class WsTransport {
       this.socket.disconnect()
       this.logDialAttempt('failed', 'route-unreachable')
       this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+    })
+    // With no ticket request, the handshake itself is the first answer the route gives.
+    void preparation.exchange.then(({ handshake }) => {
+      if (!handshake) return
+      setTimeout(() => {
+        if (serial !== this.dialSerial || this.destroyed || this.blocked || this.socket.connected) return
+        this.dialSerial += 1
+        this.dialPreparation = null
+        this.socket.disconnect()
+        this.logDialAttempt('failed', 'route-unreachable')
+        this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+      }, HANDSHAKE_ANSWER_MS)
     })
     this.socket.connect()
   }
@@ -413,8 +447,17 @@ export class WsTransport {
    *  host configured without auth can admit it. */
   private async fetchWsTicket(): Promise<TicketExchange> {
     this.grantRefusedByHost = false
+    this.dialPresentedCredential = false
     const { acquireGrant } = this.opts
     if (!acquireGrant) return this.exchangeForTicket(this.opts.guestIdentity ? null : this.opts.sessionToken)
+    if (this.hostTakesHandshakeCredential) {
+      const grant = await acquireGrant(this.presentsFreshGrant ? { fresh: true } : undefined).catch(() => null)
+      const accountRefusal = grant ? null : this.opts.grantRefusal?.() ?? null
+      if (!grant) return { ticket: null, unreachable: false, refused: false, accountRefusal: accountRefusal ?? undefined }
+      this.dialPresentedCredential = true
+      const organizationId = this.opts.dialOrganizationId?.() ?? undefined
+      return { ticket: null, handshake: organizationId ? { accessToken: grant, organizationId } : { accessToken: grant }, unreachable: false, refused: false, grant }
+    }
     const grant = await acquireGrant().catch(() => null)
     const accountRefusal = grant ? null : this.opts.grantRefusal?.() ?? null
     if (accountRefusal) return { ticket: null, unreachable: false, refused: false, accountRefusal }
@@ -553,12 +596,22 @@ export class WsTransport {
       this.opts.onDialOutcome?.({ kind: 'dropped' })
     })
     this.socket.on('connect_error', (error: Error & { data?: { code?: string } }) => {
+      // The dial has its answer; its unanswered-route timer has nothing left to do.
+      this.dialSerial += 1
       this.logConnection('socket connection error', { message: error.message, code: error.data?.code ?? null })
       this.logDialAttempt('failed', error.data?.code === 'UNAUTHORIZED' ? 'unauthorized' : 'socket-error')
+      if (error.data?.code === 'CREDENTIAL_REFUSED') {
+        this.handleRefusedCredential()
+        return
+      }
       if (error.data?.code !== 'UNAUTHORIZED') {
         // With auto-reconnection off nobody else will ever dial again: the
         // failed dial is the supervisor's cue to schedule the next one.
         if (!this.destroyed && !this.blocked) this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+        return
+      }
+      if (this.opts.acquireGrant && this.dialPresentedCredential) {
+        this.askForTickets()
         return
       }
       if (this.opts.acquireGrant) {
@@ -605,6 +658,7 @@ export class WsTransport {
     }
 
     this.isAcceptedConnection = true
+    this.presentsFreshGrant = false
     for (const event of this.pendingHostEvents.splice(0)) this.events.receive(event)
     const shouldReset = this.hasOpened && !this.socket.recovered
     this.hasOpened = true
@@ -783,6 +837,29 @@ export class WsTransport {
     this.opts.sessionToken = refreshed.sessionToken
     this.opts.onSessionTokenRefreshed?.(refreshed.sessionToken)
     return 'refreshed'
+  }
+
+  /**
+   * The host refused the token presented in the handshake. A kept grant can outlive
+   * the host's trust in it, as when the host was linked again since: present a new
+   * one at once. Only a new grant the host refuses means this device is done here, as
+   * at the ticket door.
+   */
+  private handleRefusedCredential(): void {
+    if (this.presentsFreshGrant) {
+      this.presentsFreshGrant = false
+      this.blockAuthFailure()
+      return
+    }
+    if (this.destroyed || this.blocked) return
+    this.presentsFreshGrant = true
+    this.dialSocket()
+  }
+
+  /** A host that predates the handshake credential refused it as plain `UNAUTHORIZED`: ask it for tickets, at once. */
+  private askForTickets(): void {
+    this.hostTakesHandshakeCredential = false
+    if (!this.destroyed && !this.blocked) this.dialSocket()
   }
 
   private blockAuthFailure(): void {

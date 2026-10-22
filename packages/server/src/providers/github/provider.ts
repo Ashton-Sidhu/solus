@@ -185,7 +185,7 @@ const REVIEW_THREADS_QUERY = `
             line
             diffSide
             comments(first: 100) {
-              nodes { id author { login avatarUrl } body createdAt lastEditedAt diffHunk }
+              nodes { id author { login avatarUrl } body createdAt lastEditedAt diffHunk pullRequestReview { id } }
             }
           }
         }
@@ -307,6 +307,8 @@ interface GqlComment {
   createdAt: string
   lastEditedAt?: string | null
   diffHunk?: string
+  /** The review the comment was submitted with; null on a lone comment. */
+  pullRequestReview?: { id: string } | null
 }
 
 interface GqlThread {
@@ -529,6 +531,7 @@ function toComment(c: GqlComment): ReviewComment {
   if (c.author?.avatarUrl) comment.authorAvatarUrl = c.author.avatarUrl
   if (c.lastEditedAt) comment.editedAt = c.lastEditedAt
   if (c.diffHunk) comment.diffHunk = c.diffHunk
+  if (c.pullRequestReview?.id) comment.reviewId = c.pullRequestReview.id
   return comment
 }
 
@@ -1306,7 +1309,9 @@ export class GitHubProvider implements ReviewProvider {
         }
         if (conversation.reviews) {
           for (const review of conversation.reviews.nodes) {
-            if (!review.body.trim() || review.state === 'PENDING') continue
+            // A bodiless review is still an event: an approval, or the owner
+            // of inline threads. The client drops one that is neither.
+            if (review.state === 'PENDING') continue
             const item: PrConversationItem = {
               id: review.id,
               kind: 'review',

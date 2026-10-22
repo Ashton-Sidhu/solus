@@ -1,5 +1,4 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { PluginCommand, PluginCommandsResult } from '@solus/contracts/types'
 import { MemoryCache } from '@solus/contracts/cache'
@@ -23,8 +22,8 @@ async function listClaudeSkillCommands(skillsPath: string): Promise<PluginComman
   }
 }
 
-async function resolveClaudeSkills(workingDirectory: string): Promise<PluginCommandsResult> {
-  const globalSkillsPath = join(homedir(), '.claude', 'skills')
+async function resolveClaudeSkills(workingDirectory: string, configDir: string): Promise<PluginCommandsResult> {
+  const globalSkillsPath = join(configDir, 'skills')
   const projectSkillsPath = join(workingDirectory, '.claude', 'skills')
   const [global, project] = await Promise.all([
     listClaudeSkillCommands(globalSkillsPath),
@@ -33,8 +32,8 @@ async function resolveClaudeSkills(workingDirectory: string): Promise<PluginComm
   return { global, project }
 }
 
-async function resolveClaudeSlashPluginCommands(workingDirectory: string): Promise<PluginCommandsResult> {
-  const registryPath = join(homedir(), '.claude', 'plugins', 'installed_plugins.json')
+async function resolveClaudeSlashPluginCommands(workingDirectory: string, configDir: string): Promise<PluginCommandsResult> {
+  const registryPath = join(configDir, 'plugins', 'installed_plugins.json')
   let registry: { plugins: Record<string, Array<{ scope: string; projectPath?: string; installPath: string }>> }
   try {
     registry = JSON.parse(await readFile(registryPath, 'utf-8'))
@@ -84,10 +83,11 @@ function mergeCommands(primary: PluginCommand[], secondary: PluginCommand[]): Pl
   return merged
 }
 
-export async function resolvePluginCommands(workingDirectory: string): Promise<PluginCommandsResult> {
+/** The skills and plugin commands of a working directory, and of `configDir`: the folder the CLI reads as `~/.claude`. */
+export async function resolvePluginCommands(workingDirectory: string, configDir: string): Promise<PluginCommandsResult> {
   const [skills, pluginCommands] = await Promise.all([
-    resolveClaudeSkills(workingDirectory),
-    resolveClaudeSlashPluginCommands(workingDirectory),
+    resolveClaudeSkills(workingDirectory, configDir),
+    resolveClaudeSlashPluginCommands(workingDirectory, configDir),
   ])
   return {
     global: mergeCommands(skills.global, pluginCommands.global),

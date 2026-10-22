@@ -59,6 +59,14 @@ const VIA_TUNNEL_HEADER = 'x-solus-via-tunnel'
 const socketAuthSchema = z.object({
   /** Short-lived single-purpose handshake ticket (dispatch-client step 4). */
   ticket: z.string().optional(),
+  /**
+   * The bearer credential itself, admitted as the ticket door admits it, so a dial
+   * needs no ticket request first (docs/plans/instant-share-open.md). The handshake
+   * is the socket's first message, never a URL or a header.
+   */
+  accessToken: z.string().min(1).max(16_384).optional(),
+  /** The organization the connection works in, as the ticket request names it. */
+  organizationId: z.string().min(1).max(256).optional(),
   clientInstanceId: z.string().regex(/^[a-zA-Z0-9_-]{16,128}$/).optional(),
 })
 
@@ -107,6 +115,8 @@ export function attachWebSocketTransport(
     responseBudget?: ResponseReceiptBudget
     /** Verifies the next access token a token-admitted socket sends (`authRenew`). Absent: a socket ends at its token's expiry. */
     verifyAccessToken?: (token: string) => Promise<TokenVerdict>
+    /** The ticket door's admission (`BuiltHttpServer.exchangeCredential`), for a credential presented in the handshake. Absent: only a ticket admits one. */
+    exchangeCredential?: (bearer: string, organizationId: string | undefined) => Promise<string | null>
     onClientConnected?: (client: { clientId: string; deviceId: string | null }) => void
     onClientDisconnected?: (client: { clientId: string; deviceId: string | null }) => void
     onClientExpired?: (client: { clientId: string; deviceId: string | null }) => void
@@ -161,9 +171,20 @@ export function attachWebSocketTransport(
   const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
   let closing = false
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const parsedAuth = socketAuthSchema.safeParse(socket.handshake.auth)
-    const auth = parsedAuth.success ? parsedAuth.data : {}
+    const auth: z.infer<typeof socketAuthSchema> = parsedAuth.success ? parsedAuth.data : {}
+    // A credential presented in the handshake goes through the ticket door's own
+    // admission. Its refusal is named, so a client tells it from a host that predates
+    // this and wants a ticket.
+    if (!auth.ticket && auth.accessToken && opts.exchangeCredential) {
+      const ticket = await opts.exchangeCredential(auth.accessToken, auth.organizationId).catch(() => null)
+      if (!ticket) {
+        next(Object.assign(new Error('unauthorized'), { data: { code: 'CREDENTIAL_REFUSED' } }))
+        return
+      }
+      auth.ticket = ticket
+    }
     // One ticket admits one socket: a replayed handshake is refused even inside the TTL.
     const verified = auth.ticket ? consumeWsTicket(auth.ticket) : null
     const viaTunnel = socket.handshake.headers[VIA_TUNNEL_HEADER] === '1'

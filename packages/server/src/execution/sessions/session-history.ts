@@ -276,8 +276,8 @@ export class SessionHistory {
     return backend.clearThreadGoal(threadId)
   }
 
-  async listPluginCommands(agentId: AgentId, workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult> {
-    const result = await this.rt.backendFor(agentId).listPluginCommands(workingDirectory, ctx)
+  async listPluginCommands(agentId: AgentId, workingDirectory: string, ctx?: IpcContext, seat?: TurnSeat): Promise<PluginCommandsResult> {
+    const result = await this.rt.backendFor(agentId).listPluginCommands(workingDirectory, ctx, seat)
     const aliases = [
       { name: 'review', description: 'Review working-tree changes', kind: 'skill' as const },
       { name: 'review:working-tree', description: 'Review staged, unstaged, and untracked changes', kind: 'skill' as const },

@@ -76,7 +76,7 @@ const findWorksFields = {
   cursor: z.string().max(2048).optional().describe('Continue an open-work listing with its next cursor.'),
   query: z.string().optional().describe('Full-text query to match against work titles and content. Omit it to list every open work.'),
   type: z.enum(['doc', 'slides', 'diagram', 'artifact', 'any']).default('any').describe("Restrict a search to one kind of work. Defaults to 'any'; ignored when listing."),
-  limit: z.number().int().min(1).max(20).default(10).describe('Maximum search results to return. Defaults to 10; ignored when listing.'),
+  limit: z.number().int().min(1).default(10).describe('Maximum search results to return. Defaults to 10, at most 20 (larger values return 20); ignored when listing.'),
 }
 
 const updateWorkFields = {

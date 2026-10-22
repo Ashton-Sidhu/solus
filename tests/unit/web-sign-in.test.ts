@@ -1,58 +1,94 @@
 import { describe, expect, test } from 'bun:test'
-import { OAuthSession, type StoredGrant } from '@solus/client-core/oauth-session'
-import { fetchAuthorize, resumeWebSignIn, webTokenStore, type KeyValueStorage, type PageLifecycle } from '@solus/client-core/web-sign-in'
+import { OAuthSession } from '@solus/client-core/oauth-session'
+import { fetchAuthorize, resumeWebSignIn, webGrantSharing, webTokenStore, type KeyValueStorage, type RefreshLocks } from '@solus/client-core/web-sign-in'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 
 // The web client signs in on the account origin with one same-origin fetch: the
 // website's cookie approves it silently and the provider answers the callback address
 // as JSON, so no page loads (ADR 0001 §2.2 rule 1; docs/plans/instant-share-open.md).
-// The refresh token lives in page memory and crosses a reload through sessionStorage
-// only, so a duplicated tab never shares it (§5 replay).
+// Every tab shares one grant in localStorage; a refresh runs under one lock across the
+// tabs and starts from the stored grant, so no tab ever presents a spent refresh
+// token, which the account plane reads as a replay and ends the grant (§5).
 
 function memoryStorage(): KeyValueStorage & { items: Map<string, string> } {
   const items = new Map<string, string>()
   return { items, getItem: (key) => items.get(key) ?? null, setItem: (key, value) => { items.set(key, value) }, removeItem: (key) => { items.delete(key) } }
 }
 
-function page(): PageLifecycle & { fire(type: 'pagehide' | 'pageshow'): void } {
-  const listeners: Array<[string, () => void]> = []
+/** One lock for every tab, as `navigator.locks` gives an origin. */
+function oneLock(): RefreshLocks {
+  let chain: Promise<unknown> = Promise.resolve()
   return {
-    addEventListener: (type, listener) => { listeners.push([type, listener]) },
-    fire: (type) => { for (const [name, listener] of listeners) if (name === type) listener() },
+    request<T>(_name: string, run: () => Promise<T>): Promise<T> {
+      const turn = chain.then(run)
+      chain = turn.then(() => undefined, () => undefined)
+      return turn
+    },
   }
 }
 
-const GRANT: StoredGrant = { refreshToken: 'rt', idToken: 'h.p.s', identity: { sub: 'u', email: 'a@b.co', emailVerified: true, name: null, picture: null }, signedInAt: 1 }
+/** Tabs of one origin: one localStorage, one lock, one account plane. The first tab signs in. */
+async function tabs() {
+  const plane = fakeAccountPlane({ clientId: 'solus-web' })
+  const storage = memoryStorage()
+  const locks = oneLock()
+  const open = () => new OAuthSession({ cloudOrigin: ISSUER, clientId: 'solus-web', store: webTokenStore(storage), sharing: webGrantSharing(storage, locks), fetch: plane.fetch, now: plane.now })
+  const first = open()
+  const { authorizeUrl, pending } = await first.beginSignIn(`${ISSUER}/auth/callback`)
+  expect(await first.completeSignIn(plane.approve(authorizeUrl), pending)).toBe('approved')
+  return { plane, open, first }
+}
 
-describe('web token store', () => {
-  test('a reload keeps the grant: it is written when the page goes and taken back by the next page', () => {
-    const storage = memoryStorage()
-    const first = page()
-    const store = webTokenStore(storage, first)
-    expect(store.load()).toBeNull()
-    store.save(GRANT)
-    // While the page lives, nothing is in sessionStorage for a duplicated tab to copy.
-    expect(storage.items.size).toBe(0)
-    first.fire('pagehide')
-    const next = webTokenStore(storage, page())
-    expect(next.load()).toEqual(GRANT)
-    expect(storage.items.size).toBe(0)
+const refreshes = (plane: ReturnType<typeof fakeAccountPlane>) => plane.calls.filter((call) => call.form.get('grant_type') === 'refresh_token').length
+
+describe('one sign-in for every tab', () => {
+  test('a new tab is signed in at once', async () => {
+    const { open } = await tabs()
+    expect(open().state().kind).toBe('signed-in')
   })
 
-  test('a page restored from the back-forward cache takes its copy back', () => {
-    const storage = memoryStorage()
-    const lifecycle = page()
-    const store = webTokenStore(storage, lifecycle)
-    store.save(GRANT)
-    lifecycle.fire('pagehide')
-    lifecycle.fire('pageshow')
-    expect(storage.items.size).toBe(0)
+  test('two tabs that refresh at the same time keep the grant alive and share one token', async () => {
+    const { plane, open, first } = await tabs()
+    const second = open()
+    const [a, b] = await Promise.all([first.accessToken({ kind: 'host', hostId: 'h1' }), second.accessToken({ kind: 'host', hostId: 'h1' })])
+    expect(a).not.toBeNull()
+    expect(a).toBe(b)
+    expect(refreshes(plane)).toBe(1)
+    expect(plane.liveTokens()).toHaveLength(1)
+    expect(second.state().kind).toBe('signed-in')
+  })
+
+  test('a tab refreshes from the grant another tab rotated, never from its own spent copy', async () => {
+    const { plane, open, first } = await tabs()
+    const second = open()
+    expect(await first.accessToken({ kind: 'host', hostId: 'h1' })).not.toBeNull()
+    expect(await second.accessToken({ kind: 'host', hostId: 'h2' })).not.toBeNull()
+    expect(await first.accessToken({ kind: 'api' })).not.toBeNull()
+    expect(plane.liveTokens()).toHaveLength(1)
+    expect([first.state().kind, second.state().kind]).toEqual(['signed-in', 'signed-in'])
+  })
+
+  test('a new tab dials with the token another tab minted, with no request', async () => {
+    const { plane, open, first } = await tabs()
+    const token = await first.accessToken({ kind: 'host', hostId: 'h1' })
+    const before = plane.calls.length
+    expect(await open().accessToken({ kind: 'host', hostId: 'h1' })).toBe(token)
+    expect(plane.calls.length).toBe(before)
+  })
+
+  test('a sign-out in one tab signs the others out', async () => {
+    const { open, first } = await tabs()
+    const second = open()
+    await first.signOut()
+    second.syncWithStore()
+    expect(second.state().kind).toBe('signed-out')
+    expect(await second.accessToken({ kind: 'host', hostId: 'h1' })).toBeNull()
   })
 })
 
 function world(path: string, answer: 'approve' | 'login_required' | 'none' = 'approve') {
   const plane = fakeAccountPlane({ clientId: 'solus-web' })
-  const session = new OAuthSession({ cloudOrigin: ISSUER, clientId: 'solus-web', store: webTokenStore(memoryStorage(), page()), fetch: plane.fetch, now: plane.now })
+  const session = new OAuthSession({ cloudOrigin: ISSUER, clientId: 'solus-web', store: webTokenStore(memoryStorage()), fetch: plane.fetch, now: plane.now })
   const navigations: string[] = []
   const authorized: URL[] = []
   const location = { origin: ISSUER, pathname: path, search: '', hash: '' }

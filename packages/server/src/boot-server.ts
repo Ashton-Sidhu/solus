@@ -1357,7 +1357,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     delivery: () => ({ backlog: deliveryBacklog(), error: runnerDelivery?.currentStatus().error ?? null }),
   })
 
-  const { server: http, requestListener, solusApiRouter } = buildHttpServer({
+  const { server: http, requestListener, solusApiRouter, exchangeCredential } = buildHttpServer({
     solusApi: { operations: refreshingSessionIndexOnList(workspaceOperations, () => opts.sessionRuntime.requestSessionIndexRefresh()), ...apiSettings },
     isVerifyingUpdate: () => server.isVerifyingUpdate,
     host,
@@ -1445,6 +1445,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     clientEvents,
     browserFrames,
     verifyAccessToken: verifyHostAccessToken,
+    exchangeCredential,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
     isTunnelRequest,
@@ -1604,6 +1605,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       clientEvents,
       browserFrames,
       verifyAccessToken: verifyHostAccessToken,
+      exchangeCredential,
       requireAuth: () => requireAuth,
       isTrustedRequester: isTrustedRequesterAddress,
       isTunnelRequest,

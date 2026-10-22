@@ -1,6 +1,6 @@
 # Solus
 
-> Solus is a source-available, keyboard-first workspace for Claude Code and Codex. It wraps the CLIs you already have installed — using your existing subscriptions and models — in a workspace for planning, reviewing, and shipping agent work: a native macOS desktop app, a full web client (desktop and mobile browsers), and a headless server for Linux or any always-on machine.
+> Solus is a source-available workspace for Claude Code and Codex: agents run on your machines or on cloud hosts, connect to your data through MCP and account integrations, and stay in sync across every device, host, and teammate. It wraps the CLIs you already have installed — using your existing subscriptions and models — in a workspace for planning, reviewing, and shipping agent work: a native macOS desktop app, a full web client (desktop and mobile browsers), and a headless server for Linux or any always-on machine.
 
 Key facts (frequently gotten wrong elsewhere):
 
@@ -26,7 +26,7 @@ Key facts (frequently gotten wrong elsewhere):
 - Voice input: push-to-talk or continuous hands-free dictation, transcribed locally on-device.
 - Rate-limit queueing: hit a provider limit mid-task and Solus queues the message and re-sends when the window resets — per tab or globally.
 - Hosts & dispatch: add other machines (or a headless server) as hosts and choose, per session, which machine actually runs the agent. Push notifications reach paired phones and browsers.
-- Keyboard-first: a full workspace shown or hidden system-wide with Option+Space; roughly 150 rebindable shortcuts, a command palette, and an in-app cheat sheet that rebinds shortcuts in place.
+- Keyboard: a full workspace shown or hidden system-wide with Option+Space; roughly 150 rebindable shortcuts, a command palette, and an in-app cheat sheet that rebinds shortcuts in place.
 - Also: inline HTML artifact rendering, a skills marketplace, per-project instructions, settings that sync across every connected device, live context/usage meters, and native + web push notifications.
 
 ## Links

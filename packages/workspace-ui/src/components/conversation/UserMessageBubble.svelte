@@ -19,8 +19,6 @@
     FileCode as FileCodeIcon,
     File as FileIcon,
     Zap as LightningIcon,
-    SquareTerminal as TerminalIcon,
-    GitPullRequest as GitPullRequestIcon,
   } from "@lucide/svelte";
   import { getSurfaceContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -75,11 +73,10 @@
   const text = $derived(content ?? message?.content ?? "");
   const reviewSegments = $derived(parseReviewCommentMessageSegments(text));
   const isPending = $derived(deliveryState !== 'sent');
-  // Sent by the host's own work, not a person: an automation, a background
-  // command that finished after the agent's turn, or a watched pull request's news.
-  const isHostSent = $derived(
-    message?.via === "automation" || message?.via === "background-command" || message?.via === "pull-request-watch",
-  );
+  // Sent by the host's own work, not a person: an automation's prompt. A
+  // background command's or a pull request watch's wake is a host notice row
+  // (`HostNoticeRow`), never a bubble.
+  const isHostSent = $derived(message?.via === "automation");
   const hasControls = $derived(isPending && (!!onEditSubmit || !!onRemove || !!actions));
   const canCollapse = $derived(!isPending && shouldCollapseUserMessage(text));
   // The wait is only worth stating on the bubble that actually served it.
@@ -350,20 +347,7 @@
             {ordinal}
           </span>
         {/if}
-        {#if message?.via === "background-command"}
-          <!-- Required origin label, as for an automation below. What woke the
-               agent is already in the transcript, so this is not a link. -->
-          <span class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase">
-            <TerminalIcon size={9} />
-            <span>Background command</span>
-          </span>
-        {:else if message?.via === "pull-request-watch"}
-          <!-- Required origin label. The pull request's link is in the text. -->
-          <span class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase">
-            <GitPullRequestIcon size={9} />
-            <span>Pull request watch</span>
-          </span>
-        {:else if isHostSent}
+        {#if isHostSent}
           <!-- Required origin label: the only thing separating an agent-sent
                message from a person's is this line plus the missing fill. -->
           <button

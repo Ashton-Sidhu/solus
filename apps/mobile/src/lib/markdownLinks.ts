@@ -7,6 +7,7 @@ import {
   parseMarkdownFileLink,
 } from "./markdownLinkTargets";
 
+import { parseSessionHref } from "@solus/contracts/session-link";
 import { fileMentionPath } from "./fileMentions";
 import type { MARKDOWN_FILE_ICON_SOURCES } from "./markdownFileIcons.generated";
 
@@ -30,6 +31,14 @@ export type MarkdownLinkPresentation =
       readonly path: string;
       readonly line?: number;
       readonly column?: number;
+    }
+  | {
+      /** A `session://` link an agent wrote: it opens that session's thread. */
+      readonly kind: "session";
+      readonly href: string;
+      readonly sessionId: string;
+      /** The session's host. Null when the link names none: it is on the transcript's own host. */
+      readonly serverId: string | null;
     }
   | {
       readonly kind: "link";
@@ -284,6 +293,10 @@ export function resolveMarkdownLinkPresentation(href: string): MarkdownLinkPrese
     }
   } catch {
     // Relative paths and non-URL link destinations are handled below.
+  }
+  const session = parseSessionHref(normalized);
+  if (session) {
+    return { kind: "session", href: normalized, sessionId: session.sessionId, serverId: session.serverId };
   }
 
   // A relative folder link (`src/`) is a file chip too: it opens the file browser at that folder.

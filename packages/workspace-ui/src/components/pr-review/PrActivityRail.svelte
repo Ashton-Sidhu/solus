@@ -38,13 +38,8 @@
     reviewerRowAction,
     reviewerStateLabel,
   } from "./lib/reviewer-state";
-  import type { PrActionsLayout } from "./lib/pr-actions-layout";
   import { fileName, dirName } from "./lib/activity-data";
-  import {
-    mergeReadiness,
-    readinessTone,
-    type MergeReadiness,
-  } from "./lib/merge-readiness";
+  import { readinessTone, type MergeReadiness } from "./lib/merge-readiness";
   import {
     CHECKS_VISIBLE_ROWS,
     FILES_VISIBLE_ROWS,
@@ -69,11 +64,13 @@
   //
   // The rail has two homes. Beside the conversation it is a pinned column.
   // Once the reading column is too narrow to keep one, the same rail is drawn
-  // inline instead: the status becomes a row under the title, and the
-  // sections start folded under the description, so the pull request's state
-  // stays in the first screen without pushing the description out of it.
+  // inline instead: the sections start folded under the description. The
+  // status is not drawn inline — the page's header carries the move and the
+  // facts list carries the state — so the pull request's state stays in the
+  // first screen without pushing the description out of it.
   let {
     detail,
+    readiness,
     pullRequest = null,
     reviewers,
     reviewersLoading,
@@ -88,20 +85,19 @@
     changedFiles,
     filesLoading,
     filesLoadFailed = false,
-    openedTime,
     checks,
-    checksLoadFailed = false,
     fixingCheckId = null,
     onFixCheck,
-    unresolvedCount,
     onFileJump,
     onRetry,
     actions,
     menu,
     variant = "column",
-    part = "all",
   }: {
     detail: PullRequest | null;
+    /** The page's one reading of whether the pull request can land, which
+     *  the status card states and the actions act on. Null until detail. */
+    readiness: MergeReadiness | null;
     /** The indexed pull request, which reads and approves fork workflow runs. */
     pullRequest?: IndexedPullRequest | null;
     reviewers: PrReviewer[];
@@ -117,35 +113,26 @@
     changedFiles: ChangedFileStat[];
     filesLoading: boolean;
     filesLoadFailed?: boolean;
-    openedTime: string | null;
     checks?: PrChecksSummary;
-    /** The checks could not be read; the card must not call the PR ready. */
-    checksLoadFailed?: boolean;
     fixingCheckId?: string | null;
     onFixCheck?: (check: CheckItem) => void;
-    unresolvedCount: number;
     onFileJump?: (path: string) => void;
     /** Re-reads everything the rail shows. Offered beside any section that
      *  failed to load. */
     onRetry?: () => void;
     /** The PR's action cluster, which lives with the readiness status it acts
      *  on. It is handed the shared readiness reading the card states. */
-    actions?: Snippet<[PrActionsLayout, MergeReadiness]>;
+    actions?: Snippet<[MergeReadiness]>;
     /** The ⋯ menu of rarely-used PR actions. It rides beside the status,
      *  where it is always present, rather than under a cluster that a draft
      *  or a closed PR leaves empty. */
     menu?: Snippet;
     /** A column beside the conversation, or a block inside it. */
     variant?: "column" | "inline";
-    /** Which part to draw. Inline, the status sits under the title and the
-     *  checks and changed files sit under the description, so the page
-     *  draws the rail twice, one part in each place. */
-    part?: "all" | "status" | "sections";
   } = $props();
 
   const inline = $derived(variant === "inline");
-  const showsStatus = $derived(part !== "sections");
-  const showsSections = $derived(part !== "status");
+  const tone = $derived(readiness ? readinessTone(readiness.key) : "neutral");
 
   let reviewerMenuOpen = $state(false);
   let reviewerTrigger = $state<HTMLButtonElement | null>(null);
@@ -177,7 +164,7 @@
   // full section gap is only needed to close off an open list of rows.
   // Drawn without the status above it, the first section needs no gap at all.
   const checksGap = $derived(
-    !showsStatus ? "" : !inline && !sectionOpen.reviewers ? "" : "mt-6",
+    inline ? "" : !sectionOpen.reviewers ? "" : "mt-6",
   );
   const filesGap = $derived(
     allChecks.length > 0 ? (sectionOpen.checks ? "mt-6" : "") : checksGap,
@@ -204,21 +191,6 @@
     return run ? { ...action, run } : null;
   }
 
-  // Headline, sub-line, the blocked question, and the move all come from one
-  // table so they cannot drift apart (see lib/merge-readiness).
-  const readiness = $derived(
-    detail
-      ? mergeReadiness({
-          detail,
-          checks,
-          checksLoadFailed,
-          unresolvedCount,
-          approvedReviewCount: approvedReviewers,
-          openedTime,
-        })
-      : null,
-  );
-  const tone = $derived(readiness ? readinessTone(readiness.key) : "neutral");
   // The file list is virtualized, so it needs a row height and a scrollport
   // height in pixels.
   const fileRowSizes = $derived(
@@ -375,7 +347,7 @@
          changes it, set straight on the canvas with no card around it — it
          reports a state, it is not a call to action. A hairline under it
          closes it off from the reference sections below. -->
-    {#if showsStatus}
+    {#if !inline}
     <section class="shrink-0 border-b border-[var(--hairline)] pb-4">
       {#if !detail || !readiness}
         <div class="flex items-center gap-2.5">
@@ -383,19 +355,6 @@
           <div class="flex min-w-0 flex-1 flex-col gap-1.5">
             <Skeleton class="h-3.5 w-32 rounded bg-muted" />
             <Skeleton class="h-3 w-20 rounded bg-muted" />
-          </div>
-        </div>
-      {:else if inline}
-        <!-- One line at every width: state on the left, the move that changes
-             it on the right. It never wraps; the text truncates first. -->
-        <div class="flex items-center gap-4">
-          <div class="flex min-w-0 flex-1 items-start gap-2.5">
-            {@render readinessGlyph()}
-            {@render readinessText()}
-          </div>
-          <div class="flex min-w-0 items-center gap-2">
-            {#if actions}{@render actions("row", readiness)}{/if}
-            {#if menu}<span class="shrink-0">{@render menu()}</span>{/if}
           </div>
         </div>
       {:else}
@@ -408,7 +367,7 @@
                  empties. -->
             {#if menu}<span class="-mr-1 shrink-0">{@render menu()}</span>{/if}
           </div>
-          {#if actions}{@render actions("card", readiness)}{/if}
+          {#if actions}{@render actions(readiness)}{/if}
         </div>
       {/if}
     </section>
@@ -573,8 +532,7 @@
     </section>
     {/if}
 
-    {#if showsSections}
-    <PrWorkflowApproval {pullRequest} class={showsStatus ? "mt-6" : ""} />
+    <PrWorkflowApproval {pullRequest} class={inline ? "" : "mt-6"} />
     {#if allChecks.length > 0}
       <section class={checksGap}>
         {#snippet checksCount()}
@@ -804,6 +762,5 @@
         {/if}
       </div>
     </section>
-    {/if}
   </div>
 </aside>

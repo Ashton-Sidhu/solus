@@ -1,8 +1,12 @@
 <script lang="ts">
   import {
     ArrowDownToLine as GitPullIcon,
+    ChevronRight as CaretRightIcon,
     CircleCheck as ChecksIcon,
     CircleAlert as WarningCircleIcon,
+    CircleDashed as ChecksPendingIcon,
+    CircleMinus as ChecksNoneIcon,
+    CircleX as ChecksFailingIcon,
     GitMerge as GitMergeIcon,
     GitPullRequest as GitPullRequestIcon,
     Glasses as EyeglassesIcon,
@@ -55,6 +59,11 @@
     checks: ChecksPresentation | null;
     /** The owning tab and project panel are visible. */
     active: boolean;
+    /** Where this pull request stands among the session's, when it has
+     *  several; null when it is the only one. */
+    position?: { index: number; count: number } | null;
+    /** Show the next of the session's pull requests here. */
+    onCycle?: () => void;
     /** The pull request left this branch's open set — the rail must re-read it. */
     onMerged: () => void;
     /** Open a new session draft for this branch with the prompt filled in —
@@ -68,6 +77,8 @@
     api,
     checks,
     active,
+    position = null,
+    onCycle,
     onMerged,
     onAgentDraft,
   }: Props = $props();
@@ -332,6 +343,17 @@
     }
     if (!readiness || readiness.key === "merged" || readiness.key === "closed")
       return null;
+    // Waiting on running checks is no move of its own: the checks row above
+    // already says they are running.
+    if (
+      readiness.key === "open" &&
+      !readiness.blocked &&
+      !primary &&
+      !armedLabel &&
+      checksSummary &&
+      checks?.state === "pending"
+    )
+      return null;
     return {
       key: "pr-primary",
       label: refreshingBeforeMerge
@@ -384,16 +406,32 @@
         label: "Checks",
         icon: ChecksIcon,
         phase: "idle",
-        badge: checks.label,
-        tooltip: checks.tooltip,
+        // The state reads as a glyph; the tooltip still names it.
+        badgeIcon:
+          checks.state === "failing"
+            ? ChecksFailingIcon
+            : checks.state === "pending"
+              ? ChecksPendingIcon
+              : checks.state === "passing"
+                ? ChecksIcon
+                : checks.state === "none"
+                  ? ChecksNoneIcon
+                  : WarningCircleIcon,
+        // Running stays grey: the dashed glyph already says "not done", and
+        // only a result earns a colour.
+        badgeIconTone:
+          checks.state === "failing"
+            ? "danger"
+            : checks.state === "passing"
+              ? "success"
+              : undefined,
+        tooltip: `${checks.label}. ${checks.tooltip}`,
         iconTone:
           checks.state === "failing"
             ? "danger"
-            : checks.state === "pending"
-              ? "running"
-              : checks.state === "passing"
-                ? "success"
-                : undefined,
+            : checks.state === "passing"
+              ? "success"
+              : undefined,
       });
     if (primaryRow) defs.push(primaryRow);
     return defs;
@@ -434,9 +472,25 @@
     class="min-w-0 truncate font-medium text-(--solus-text-tertiary) uppercase"
     >Pull request</span
   >
-  <span class="shrink-0 font-normal tabular-nums text-(--solus-text-tertiary)"
-    >#{pr.number}</span
-  >
+  {#if position && onCycle}
+    <!-- With several pull requests the number is the way to the next one:
+         the count says there are more, the caret says where a click goes. -->
+    <button
+      type="button"
+      class="flex shrink-0 cursor-pointer items-center gap-1 rounded-sm font-normal tabular-nums text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      aria-label={`Pull request #${pr.number}, ${position.index + 1} of ${position.count}. Show the next linked pull request.`}
+      title="Show the next linked pull request"
+      onclick={onCycle}
+    >
+      #{pr.number}
+      <span class="text-(--solus-text-tertiary)">{position.index + 1}/{position.count}</span>
+      <CaretRightIcon size={11} />
+    </button>
+  {:else}
+    <span class="shrink-0 font-normal tabular-nums text-(--solus-text-tertiary)"
+      >#{pr.number}</span
+    >
+  {/if}
 </div>
 {#each rows as row (row.key)}
   <MenuRow item={row} onActivate={() => activate(row.key)} />

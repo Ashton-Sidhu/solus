@@ -1,9 +1,14 @@
 import type { AgentSlashCommand } from '@solus/contracts/types'
 import { MemoryCache } from '@solus/contracts/cache'
+import type { ClaudeSeat } from './claude-agent'
 
 export interface ClaudeCommandDiscoveryTarget {
   cwd: string
   model: string | null
+  /** Whose CLI reports the commands: their skills and plugins are among them. Absent: the host's. */
+  seat?: ClaudeSeat
+  /** The seat's config folder: two people on one host never share a list. */
+  configDir: string
 }
 
 /**
@@ -23,7 +28,7 @@ export class ClaudeCommandDiscovery {
   }
 
   get(target: ClaudeCommandDiscoveryTarget): Promise<AgentSlashCommand[]> {
-    const key = JSON.stringify([target.cwd, target.model])
+    const key = JSON.stringify([target.cwd, target.model, target.configDir])
     const cached = this.cache.get(key)
     if (cached) return cached
 

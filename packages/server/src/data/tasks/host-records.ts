@@ -82,15 +82,17 @@ const indexedCheckoutRowSchema = z.object({
 })
 
 /**
- * Every indexed session that runs in its own worktree on a branch and was
- * active since `since`: the sessions whose branch can name their pull request.
- * `session_id` is the provider's thread id, as the index keys it.
+ * Every indexed session on a branch that was active since `since`: the
+ * sessions whose branch can name their pull request. A session on the shared
+ * checkout counts as much as one in its own worktree; the branch is the one
+ * the session last ran on. `session_id` is the provider's thread id, as the
+ * index keys it.
  */
-export function recentWorktreeSessions(since: number): Array<{ sessionId: string; branch: string; projectScope: string }> {
+export function recentBranchSessions(since: number): Array<{ sessionId: string; branch: string; projectScope: string }> {
   const rows = indexedCheckoutRowSchema.array().parse(getDb().prepare(`
     SELECT session_id, branch, COALESCE(project_root, cwd) AS project_scope
     FROM sessions
-    WHERE is_worktree = 1 AND branch IS NOT NULL AND branch <> ''
+    WHERE branch IS NOT NULL AND branch <> ''
       AND COALESCE(project_root, cwd) IS NOT NULL AND last_timestamp >= ?
   `).all(since))
   return rows.map((row) => ({ sessionId: row.session_id, branch: row.branch, projectScope: row.project_scope }))

@@ -5,6 +5,7 @@
   import { requestExpiryText, type PermissionRequest, type PermissionOption } from '@solus/contracts/types'
   import { abbreviateHome, truncateMiddle } from '../../lib/paths'
   import CopyButton from '../ui/CopyButton.svelte'
+  import { TerminalOutput } from '../ui/terminal-output'
   import { fileChangePreviews } from './lib/fileChangePreview'
   import {
     formatWaiting,
@@ -162,7 +163,18 @@
           <div class="flex-1"></div>
           <CopyButton text={argv.text} title="Copy command" />
         </div>
-        <pre class="interrupt-payload-body">{argv.text}</pre>
+        <!-- The command in the terminal it will run in, verbatim: approving a
+             command you can't read whole is the failure mode this card exists
+             to prevent, so it scrolls sideways rather than re-flowing, and no
+             line is read as a result. -->
+        <TerminalOutput
+          output={argv.text}
+          label={`${argv.label} command`}
+          copyable={false}
+          frameless
+          wrap={false}
+          tones={false}
+        />
       </div>
     {/if}
 

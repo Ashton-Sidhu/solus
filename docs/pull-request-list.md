@@ -149,13 +149,44 @@ When you cannot take a step, the number shows the state: *Merged*, *Closed*,
 *Auto-merge on*, *Checks in progress*, and so on. The caret beside the number
 selects the merge method, merges now instead of waiting, and turns auto-merge
 on or off. The status card on Activity has the same action as a button under
-its state, so you can merge from either place.
+its state, so you can merge from either place. When the pane is too narrow
+for the card's column, the card is not shown: the button moves up into the
+pull request's header band, beside **Review** and **Check out**, and the ⋯
+menu sits beside **Edit** under the title.
 
 Merge methods come from the repository and from the rules of the base branch.
 A branch that requires linear history, or a ruleset that names the allowed
 methods, removes the methods it does not allow. The host names the default
 method: your GitHub default when the base branch allows it, otherwise the first
 allowed method.
+
+## Activity
+
+Activity is the conversation of the pull request in time order: the opened
+event, runs of commits, comments, reviews, and inline review threads.
+
+A review is one event. Its card shows the verdict, the review body when there
+is one, and under a hairline the inline threads the reviewer submitted with
+it, each with its file, line, diff, comments, reply, and resolve. The card's
+header counts the threads, and the fold control hides the body and the threads
+together. An approval with no body is still an event. A thread left outside a
+review, as a lone inline comment, has its own row on the spine. On the phone
+the same review row carries its threads as cards that open the discussion.
+The host sends the review id with each thread's first comment in the same read
+that lists the threads, so this costs no extra request.
+
+A top-level comment or review can be answered with **Reply** in its header.
+GitHub keeps this conversation flat, so the reply posts as a new comment that
+quotes what it answers and mentions its author. While a reply is set, the
+composer says who it answers; Escape or the cross drops the target and keeps
+the text. Replies in a thread stay in the thread.
+
+On desktop and web two orbs sit in the corner of Activity: the comment orb and,
+beside it, the agent orb. Each opens into a panel over the timeline, so the
+page gives no room to a bar. Only one panel is open at a time: opening one
+orb folds the other, and a draft in the folded one is kept and marked on its
+orb. **Reply** opens the comment orb. A started draft or a reply target keeps
+the comment panel open under a click elsewhere; Escape folds it.
 
 ## Workflows from a fork
 
@@ -167,9 +198,20 @@ head moved, the host refuses and Solus reads the waiting runs again.
 
 ## Changes by kind
 
-Under the **Changes** line of an open pull request, Solus splits the added and
-deleted lines by the kind of file: Code, Tests, Mocks, Generated, and Docs. The
-kind comes from the file path alone (`changedFileKind` in
+Solus splits the added and deleted lines of a change by the kind of file: Code,
+Tests, Mocks, Generated, and Docs. It draws the split as T3 Code does: a grid
+of the kind, its added lines, and its deleted lines.
+
+- **Pull request header:** point at, or focus, the `+N −M` under **Changes**.
+  The tooltip shows the grid and a **Total** row.
+- **Pull request list:** point at a row's `+N −M`. The row reads its changed
+  files only then, so rows that nobody points at cost the host nothing. The
+  files stay cached for when you open the pull request.
+- **Diff panel:** open the changed-files menu from the branch chip. Each kind
+  is a row above the files, with its counts in the same column as the files'
+  counts.
+
+The kind comes from the file path alone (`changedFileKind` in
 `packages/client-core/src/change-breakdown.ts`), and the first match wins:
 
 1. **Generated**: lockfiles, minified files, source maps, and files named
@@ -181,15 +223,13 @@ kind comes from the file path alone (`changedFileKind` in
    text files that tools read (such as `requirements.txt`).
 5. **Code**: all other files.
 
-In the list, point at a row's `+N −M` to see the same split in a tooltip.
-The row reads its changed files only then, so rows that nobody points at cost
-the host nothing; the files stay cached for when you open the pull request.
-
 A kind with no changed lines does not show. When the whole change is one kind,
-no split shows. In the mobile app, the split is under the file count of
-**Changed files**. No split shows when the host gave only part of the files
-(GitHub stops at 3000), because then the split would not add up to the total. The mobile **Hide test
-files** filter uses the same rule: it hides Tests and Mocks.
+no split shows. No split shows when the host gave only part of the files
+(GitHub stops at 3000), because then the split would not add up to the total.
+
+In the mobile app, the split is one line under the file count of **Changed
+files**, as in T3 Code's mobile app. The mobile **Hide test files** filter uses
+the same rule: it hides Tests and Mocks.
 
 ## Viewed files
 
@@ -261,7 +301,11 @@ the page before it, so projects at the same place share one search.
 
 Each row carries the combined state of the checks on its head commit
 (`checksState`), so the list asks for no checks. Optional checks count, as on
-GitHub's own list. PR sync pushes new checks to the row. Each row carries the
+GitHub's own list. PR sync pushes new checks to the row. The checks mark is a
+button: it opens the check runs of that head, one by one, with a link to each
+run. The host reads them when the popover opens (`prChecks`, one pull request),
+not once per row, and a row keeps the answer until its head moves. Each row
+carries the
 merge methods that the repository allows. The detail read narrows them by the
 rules of the base branch, so the list reads no branch rules.
 

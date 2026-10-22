@@ -23,8 +23,12 @@
     diffStat?: { insertions: number; deletions: number };
     /** Tints the glyph alone, for a state the row *reports* (a PR's checks are
      *  failing) rather than what activating it does — recolouring the label too
-     *  would read as the action itself being destructive. */
-    iconTone?: "success" | "running" | "danger";
+     *  would read as the action itself being destructive. `review` is the
+     *  host's purple: a merged pull request. */
+    iconTone?: "success" | "running" | "danger" | "review";
+    /** Tints the badge glyph the same way, for a second fact beside the first
+     *  (a pull request's checks beside its mergeability). */
+    badgeIconTone?: "success" | "running" | "danger";
     /** Keyboard hint, set in mono after the badge ("⌥⇧D"). */
     hint?: string;
     tooltip?: string;
@@ -98,8 +102,9 @@
           {#if item.diffStat?.deletions}<span class="menu-trail stat-del"
               >−{item.diffStat.deletions}</span
             >{/if}
-          {#if item.badgeIcon}{@const BadgeIcon = item.badgeIcon}<span class="menu-trail inline-flex"
-              ><BadgeIcon size={14} /></span
+          {#if item.badgeIcon}{@const BadgeIcon = item.badgeIcon}<span
+              class="menu-trail inline-flex"
+              data-tone={item.badgeIconTone}><BadgeIcon size={14} /></span
             >{/if}
           {#if item.badge}<span class="menu-trail">{item.badge}</span>{/if}
           {#if item.hint && !item.disclosure}<Kbd variant="inline"
@@ -190,6 +195,19 @@
   }
   .menu-icon[data-tone="danger"],
   .menu-row:hover .menu-icon[data-tone="danger"] {
+    color: var(--solus-status-error);
+  }
+  .menu-icon[data-tone="review"],
+  .menu-row:hover .menu-icon[data-tone="review"] {
+    color: var(--review);
+  }
+  .menu-trail[data-tone="success"] {
+    color: var(--solus-status-complete);
+  }
+  .menu-trail[data-tone="running"] {
+    color: var(--solus-status-running);
+  }
+  .menu-trail[data-tone="danger"] {
     color: var(--solus-status-error);
   }
   .menu-label {

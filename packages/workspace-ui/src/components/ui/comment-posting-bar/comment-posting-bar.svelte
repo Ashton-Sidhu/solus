@@ -42,6 +42,11 @@
 
   const canSubmit = $derived(hasContent && !uploading && !disabled);
 
+  /** Put the caret in the field, for a host whose action ends in typing here. */
+  export function focus() {
+    editor?.focus();
+  }
+
   async function submit() {
     const markdown = editor?.getMarkdown().trim() ?? value.trim();
     if (!markdown || !canSubmit) return;

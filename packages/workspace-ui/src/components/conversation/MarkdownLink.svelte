@@ -13,7 +13,8 @@
   import { fileLinkTooltip } from "./lib/file-link-path";
   import { assetUrlCache } from "../artifact/lib/asset-url";
   import { getMarkdownImageContext, markdownAssetId } from "./lib/markdown-image";
-  import { parseSessionHref, resolveSessionLinkMeta } from "./lib/session-link";
+  import { parseSessionHref } from "@solus/contracts/session-link";
+  import { resolveSessionLinkMeta } from "./lib/session-link";
   import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
   import { checkoutPlace } from "../../contexts/workspace/run-location";

@@ -106,6 +106,48 @@ export function themeColorWithAlpha(color: string, alpha: number): string {
   return rgb ? `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})` : color;
 }
 
+/**
+ * The terminal a command's output shows in, as desktop's `--solus-terminal-*`:
+ * no fill of its own, a hairline ring, and the primary text, so the output
+ * reads at full contrast on the surface it sits on; then the eight colours a
+ * command prints with (SGR 30–37) and their bright set (90–97), tuned to read
+ * on the page in each appearance. Red and yellow are the error and warning
+ * tones, so a tool's own red agrees with a line Solus reads as an error.
+ */
+function terminalVariables(c: ThemeColors, appearance: ThemeAppearance) {
+  const dark = appearance === "dark";
+  const ansi = dark
+    ? { black: "#8d8a83", red: "#f3817b", green: "#6fcf8f", yellow: "#fbbf24", blue: "#7aa2f7", magenta: "#c89bf2", cyan: "#6fd3d8", white: "#f0ede5" }
+    : { black: "#57544c", red: "#c9302d", green: "#26894c", yellow: "#b7791f", blue: "#1b4ed8", magenta: "#9333ea", cyan: "#0e7490", white: "#8d8a83" };
+  const bright = dark
+    ? { black: "#a6a39b", red: "#ff8a86", green: "#8fe3a9", yellow: "#ffd166", blue: "#9cbcff", magenta: "#dbb6ff", cyan: "#93e8ec", white: "#ffffff" }
+    : { black: "#7d7a6e", red: "#e0443f", green: "#2fa35c", yellow: "#d29a2b", blue: "#3b6ff0", magenta: "#a855f7", cyan: "#0891b2", white: "#a6a39b" };
+  return {
+    "--color-terminal-background": "transparent",
+    "--color-terminal-foreground": c.text,
+    "--color-terminal-muted": c.textMuted,
+    "--color-terminal-border": withAlpha(dark ? "#ffffff" : "#000000", 0.14),
+    "--color-terminal-error": ansi.red,
+    "--color-terminal-warning": ansi.yellow,
+    "--color-terminal-ansi-black": ansi.black,
+    "--color-terminal-ansi-red": ansi.red,
+    "--color-terminal-ansi-green": ansi.green,
+    "--color-terminal-ansi-yellow": ansi.yellow,
+    "--color-terminal-ansi-blue": ansi.blue,
+    "--color-terminal-ansi-magenta": ansi.magenta,
+    "--color-terminal-ansi-cyan": ansi.cyan,
+    "--color-terminal-ansi-white": ansi.white,
+    "--color-terminal-ansi-bright-black": bright.black,
+    "--color-terminal-ansi-bright-red": bright.red,
+    "--color-terminal-ansi-bright-green": bright.green,
+    "--color-terminal-ansi-bright-yellow": bright.yellow,
+    "--color-terminal-ansi-bright-blue": bright.blue,
+    "--color-terminal-ansi-bright-magenta": bright.magenta,
+    "--color-terminal-ansi-bright-cyan": bright.cyan,
+    "--color-terminal-ansi-bright-white": bright.white,
+  };
+}
+
 export function createMobileThemeVariables(
   colors: ThemeColors,
   appearance: ThemeAppearance,
@@ -201,6 +243,7 @@ export function createMobileThemeVariables(
     "--color-md-blockquote-bg": c.muted,
     "--color-md-code-bg": c.codeBackground,
     "--color-md-code-text": c.codeForeground,
+    ...terminalVariables(c, appearance),
     // Desktop's code block border and table rules: the container border at 55-60%.
     "--color-md-block-border": withAlpha(c.input, 0.6),
     // Desktop's `.prose-cloud code`: the accent toned 72% toward the text color.

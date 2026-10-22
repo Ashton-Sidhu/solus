@@ -52,7 +52,9 @@
 
 <!-- The same container name the panel band declares, so the shared tab group
      reads its rungs off this row's width here too rather than falling back to
-     its narrowest step on a full-width page. -->
+     its narrowest step on a full-width page. Under 30rem the group is one
+     switcher (its masthead home), so the row stays one line beside the
+     identity. -->
 <div class="@container/band flex items-center gap-2.5">
   <PrIdentityLink {repo} {number} {onOpenPage} />
 
@@ -67,6 +69,7 @@
     {lensState}
     {tabsDisabled}
     diffHint="Open the change beside this review"
+    home="masthead"
     {onSelect}
   />
 </div>

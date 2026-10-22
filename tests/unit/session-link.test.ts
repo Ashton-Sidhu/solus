@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  parseSessionHref,
-  resolveSessionLinkMeta,
-  type SessionLinkParams,
-} from "@solus/workspace-ui/components/conversation/lib/session-link";
+import { parseSessionHref, type SessionLinkParams } from "@solus/contracts/session-link";
+import { resolveSessionLinkMeta } from "@solus/workspace-ui/components/conversation/lib/session-link";
 import type { SessionMeta } from "@solus/contracts/types";
 
 const params: SessionLinkParams = {

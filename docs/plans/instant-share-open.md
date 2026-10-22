@@ -82,6 +82,32 @@ time was.
 - Cloudflare's edge serves the client's files, cached for a year
   (solus-cloud `docs/deploy-cloudflare.md`, "Static files").
 
+### 4.2 The round trips before a session (2026-10-21)
+
+A member link took 4 s from page load to an open runner socket: about nine round
+trips in a row. Four changes take most of them out of the path.
+
+| Was | Now |
+|---|---|
+| A probe (`GET /v1/hosts` → 401) to tell the account origin from a host, then the OpenID discovery read | The account origin's shell names itself and carries the metadata (solus-cloud `withAccountOrigin`; `accountOriginShell`; `OAuthSession` `knownDiscovery`). A host page sends nothing to find out. |
+| A silent sign-in (authorize, then the code) in every new tab | One sign-in for all tabs in `localStorage`, refreshed under one Web Lock from the stored grant, with the access tokens shared (`GrantSharing`, `webGrantSharing`; ADR 0001 "Web storage"). |
+| The directory read before any host was dialed | A catalog the browser keeps is dialed at once; the directory refreshes it when it answers (`bootFromCatalog`). The server the page opens at is dialed first and its token asked for first (`BootIntent`, `addressedBootIntent`). |
+| A CORS preflight and a ticket request before each socket | The account token goes in the socket handshake, admitted as the ticket door admits it (`exchangeCredential`; ADR 0001 §2). A host that predates it is asked for tickets. The preflight is cached for two hours. |
+
+### 4.3 The account plane's own wait (2026-10-22)
+
+The account plane's calls waited on the database, not on the path to it: a host
+token ran 13 queries one after another, each one round trip (about 25 ms) to
+Postgres in AWS `us-east-1`. Now a host token waits on 6: the refresh token, the
+user, the client's resource link, the claims (solus-cloud `hostReach` and
+`membershipsOf` read side by side), the rotation's revoke, and its new token. The
+provider keeps the resource rows and the sign-in clients in memory
+(`cachedResources`, `cachedTrustedClients`). `GET /v1/hosts` reads the hosts and the
+workspaces side by side. The provider is not patched further: with the tokens shared
+by every tab (§4.2), a refresh runs about once an hour per resource and browser, and
+it is off the path of opening a link. The application asks to run beside the
+database (solus-cloud `docs/deploy-cloudflare.md`, "Placement").
+
 ## 5. Removed
 
 - `apps/client/src/lib/guest-member.ts` and its test: the client's membership
@@ -108,6 +134,8 @@ time was.
 `tests/unit/share-link-resolver.test.ts`, `share-link-door.test.ts`,
 `share-link-opening.test.ts`,
 `guest-link.test.ts`, `web-sign-in.test.ts`,
-`session-record-runner-state.test.ts`, and solus-cloud
+`session-record-runner-state.test.ts`, `account-origin-shell.test.ts`,
+`boot-intent.test.ts`, `handshake-credential.test.ts`, the shared-grant cases in
+`web-sign-in.test.ts`, and solus-cloud
 `sign-in-clients.test.ts` ("the web page signs in with one fetch") and
 `scripts/asset-rules.test.ts`.

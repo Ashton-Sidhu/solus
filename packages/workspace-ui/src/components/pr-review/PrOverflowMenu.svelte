@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import {
     ExternalLink as ArrowSquareOutIcon,
-    RefreshCw as ArrowsClockwiseIcon,
+    RotateCw as ArrowClockwiseIcon,
     MessageCircleQuestion as ChatCircleQuestionIcon,
+    Copy as CopyIcon,
     Ellipsis as DotsThreeIcon,
     BookOpen as GuideIcon,
     GitPullRequest as GitPullRequestIcon,
@@ -11,6 +13,7 @@
     Pen as PencilSimpleIcon,
     Undo2 as UndoIcon,
   } from "@lucide/svelte";
+  import { tick } from "svelte";
   import type {
     PrLifecycleAction,
     PrStateAction,
@@ -19,101 +22,120 @@
   import type { ReviewGuideStatus } from "@solus/contracts/review";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { copyText, toasts } from "../../lib/toasts";
-  import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import PrActionConfirm from "./PrActionConfirm.svelte";
   import { prMenuHostActions } from "./lib/merge-readiness";
 
-  // Pull request actions that do not need a permanent button. The menu rides
-  // in the status card beside the merge state, so the PR-aware agent handoffs
-  // and host commands stay available even when the rail moves under the title.
-  // Merging, in every form, is the number-led action's (PrPrimaryAction).
+  /**
+   * The pull request's one ⋯ menu. The review's band carries it on every tab
+   * and in both shapes (the panel beside the list and the full route); Review
+   * Mode, which has no band, hands it to the Activity status card instead. So
+   * a pull request never shows two.
+   *
+   * The band keeps the actions taken in the moment — Review, Check out, and
+   * the merge move. Everything used once a session lives here, in four groups:
+   * the pull request's references, the host page, the agent handoffs and the
+   * review guide, then the host writes that change the pull request's state.
+   */
   let {
-    pr,
     detail,
-    showRemoteLink,
+    hostName,
+    headRef,
     prUrl,
-    onOpenRemote,
-    onAskQuestion,
-    onFixComments,
-    askQuestionBusy = false,
-    fixCommentsBusy = false,
+    onOpenPage,
     onRefresh,
+    refreshing,
+    onAskQuestion,
+    askQuestionBusy = false,
+    onFixComments,
+    fixCommentsBusy = false,
+    guideStatus,
+    onOpenGuide,
+    onGenerateGuide,
     onLifecycleAction,
     onRevert,
-    guideStatus,
-    onGenerateGuide,
-    onOpenGuide,
   }: {
-    pr: { host?: string };
     detail: PullRequest | null;
-    showRemoteLink: boolean;
+    /** The code host, for the "Open on …" row. */
+    hostName?: string;
+    /** The head branch, for the copy row — the one ref you might want to type. */
+    headRef?: string;
     prUrl: string | null;
-    onOpenRemote: () => void;
+    /** Open the pull request page on its external host. */
+    onOpenPage?: () => void;
+    onRefresh: () => void;
+    refreshing: boolean;
     onAskQuestion?: () => void;
-    onFixComments?: () => void;
     askQuestionBusy?: boolean;
+    /** Absent while there is no feedback to fix. */
+    onFixComments?: () => void;
     fixCommentsBusy?: boolean;
-    onRefresh?: () => void;
-    onLifecycleAction?: (action: PrStateAction) => Promise<void>;
-    onRevert?: () => Promise<void>;
     /** The review guide's lifecycle; undefined until one is asked for. */
     guideStatus?: ReviewGuideStatus;
+    /** Absent on the guide's own tab. */
+    onOpenGuide?: () => void;
     /** Absent while the PR cannot carry a guide (draft, closed, merged). */
     onGenerateGuide?: () => void;
-    onOpenGuide?: () => void;
+    onLifecycleAction?: (action: PrStateAction) => Promise<void>;
+    onRevert?: () => Promise<void>;
   } = $props();
-
-  const generatingGuide = $derived(
-    guideStatus === "queued" || guideStatus === "generating",
-  );
-  const canOpenGuide = $derived(!!onOpenGuide && !!guideStatus && !generatingGuide);
 
   let open = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let lifecycleAction = $state<PrLifecycleAction | null>(null);
   let confirmOpen = $state(false);
 
+  const generatingGuide = $derived(
+    guideStatus === "queued" || guideStatus === "generating",
+  );
+  const canOpenGuide = $derived(!!onOpenGuide && !!guideStatus && !generatingGuide);
+  const guideOutdated = $derived(guideStatus === "outdated");
+
   const showRevert = $derived(
     !!onRevert && !!detail && prMenuHostActions(detail, null).revert,
   );
-
   const allowedActions = $derived(
     new Set(detail?.viewerPermissions.actions ?? []),
   );
-  const hasLifecycleAction = $derived(
-    !!onLifecycleAction &&
-      ((detail?.state === "open" &&
-        detail.draft &&
-        allowedActions.has("ready")) ||
-        (detail?.state === "open" &&
-          !detail.draft &&
-          allowedActions.has("draft")) ||
-        (detail?.state === "open" && allowedActions.has("close")) ||
-        (detail?.state === "closed" && allowedActions.has("reopen"))),
+  const readyAction = $derived(
+    !onLifecycleAction || detail?.state !== "open"
+      ? null
+      : detail.draft
+        ? allowedActions.has("ready") ? "ready" : null
+        : allowedActions.has("draft") ? "draft" : null,
   );
-  const hasItems = $derived(
-    !!onAskQuestion ||
-      !!onFixComments ||
-      (showRemoteLink && !!prUrl) ||
-      !!prUrl ||
-      !!onRefresh ||
-      !!onGenerateGuide ||
-      canOpenGuide ||
-      hasLifecycleAction ||
-      showRevert,
+  const stateAction = $derived(
+    !onLifecycleAction
+      ? null
+      : detail?.state === "open" && allowedActions.has("close")
+        ? "close"
+        : detail?.state === "closed" && allowedActions.has("reopen")
+          ? "reopen"
+          : null,
   );
+  const showAgentGroup = $derived(
+    !!onAskQuestion || !!onFixComments || canOpenGuide || !!onGenerateGuide,
+  );
+  const showHostGroup = $derived(showRevert || !!readyAction || !!stateAction);
 
-  function runAction(action: () => void) {
+  /**
+   * Close the menu, then act. A row here can restructure the workspace under
+   * the click that chose it: opening the review's session moves the review to
+   * the leading pane and mounts a conversation beside it, which tears down the
+   * surface this floating menu is anchored in while `onSelect` is still
+   * running. Acting one tick after the menu is gone keeps that teardown out of
+   * the handler.
+   */
+  async function runAction(action: () => void): Promise<void> {
     open = false;
+    await tick();
     action();
     requestInputFocus();
   }
 
-  async function copyPullRequestLink() {
-    if (!prUrl) return;
+  async function copy(text: string): Promise<void> {
     open = false;
-    await copyText(prUrl);
+    await copyText(text);
     requestInputFocus();
   }
 
@@ -153,160 +175,183 @@
   }
 </script>
 
-{#if hasItems}
-  <Button
-    bind:ref={triggerEl}
-    variant="ghost"
-    size="icon-sm"
-    class="relative size-6 shrink-0 cursor-pointer rounded-full bg-transparent p-0 text-muted-foreground transition-colors hover:bg-[var(--wash-3)] hover:text-foreground"
-    aria-label="More pull request actions"
-    aria-haspopup="menu"
-    aria-expanded={open}
-    title="More actions"
-    onclick={() => (open = !open)}
-  >
-    <DotsThreeIcon size={14} weight="bold" />
+<button
+  bind:this={triggerEl}
+  type="button"
+  class="{PAGE_SOFT_ICON_BTN} relative {open ? 'bg-[var(--wash-1)]! text-foreground!' : ''}"
+  aria-label={guideOutdated
+    ? "More pull request actions — guide is outdated"
+    : "More pull request actions"}
+  aria-haspopup="menu"
+  aria-expanded={open}
+  title={guideOutdated ? "Guide is outdated" : "More actions"}
+  onclick={() => (open = !open)}
+>
+  <DotsThreeIcon class="size-[15px]" strokeWidth={1.5} />
+  {#if guideOutdated}
     <span
-      class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
+      class="absolute top-[3px] right-[3px] size-[5px] rounded-full bg-primary"
       aria-hidden="true"
     ></span>
-  </Button>
+  {/if}
+  <span
+    class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
+    aria-hidden="true"
+  ></span>
+</button>
 
-  <DropdownMenu.Root bind:open>
-    <DropdownMenu.Content
-      customAnchor={triggerEl}
-      side="bottom"
-      align="end"
-      sideOffset={6}
-      class="w-[min(23rem,calc(100vw-2rem))] [&_.menu-row]:text-workspace-chrome"
-      onInteractOutside={(event) => {
-        if (triggerEl?.contains(event.target as Node)) event.preventDefault();
-      }}
+<DropdownMenu.Root bind:open>
+  <DropdownMenu.Content
+    customAnchor={triggerEl}
+    side="bottom"
+    align="end"
+    sideOffset={6}
+    class="w-[min(20rem,calc(100vw-2rem))] [&_.menu-row]:text-workspace-chrome"
+    onInteractOutside={(event) => {
+      // The trigger is a custom anchor, so Bits UI otherwise treats its
+      // pointer-down as an outside interaction and closes the menu before the
+      // button's click can toggle it. Keep the current state until that click.
+      if (triggerEl?.contains(event.target as Node)) event.preventDefault();
+    }}
+  >
+    <!-- The references that name this pull request, and the host page. True
+         on every tab, so they hold the top rows and never move. Every label
+         but the question's stays on one line — a menu row is a fixed 32px. -->
+    {#if headRef}
+      {@const branch = headRef}
+      <DropdownMenu.Item onSelect={() => void copy(branch)}>
+        <CopyIcon size={14} />
+        <span class="whitespace-nowrap">Copy branch name</span>
+      </DropdownMenu.Item>
+    {/if}
+    {#if prUrl}
+      {@const url = prUrl}
+      <DropdownMenu.Item onSelect={() => void copy(url)}>
+        <LinkIcon size={14} />
+        Copy link
+      </DropdownMenu.Item>
+    {/if}
+    {#if onOpenPage}
+      {@const openPage = onOpenPage}
+      <DropdownMenu.Item onSelect={() => void runAction(openPage)}>
+        <ArrowSquareOutIcon size={14} />
+        Open on {hostName?.includes("github") ? "GitHub" : (hostName ?? "remote")}
+      </DropdownMenu.Item>
+    {/if}
+    <DropdownMenu.Item
+      disabled={refreshing}
+      onSelect={() => void runAction(onRefresh)}
     >
-      {#if onRefresh}
-        <DropdownMenu.Item onSelect={() => runAction(onRefresh)}>
-          <ArrowsClockwiseIcon size={14} />
-          Refresh
-        </DropdownMenu.Item>
-      {/if}
-      {#if onAskQuestion}
-        <DropdownMenu.Item
-          disabled={askQuestionBusy}
-          class="h-auto min-h-11 items-start gap-2.5 py-2"
-          onSelect={() => runAction(onAskQuestion)}
-        >
-          <ChatCircleQuestionIcon size={14} class="mt-0.5 shrink-0" />
-          <span class="flex min-w-0 flex-1 flex-col gap-px">
-            <span>{askQuestionBusy ? "Preparing…" : "Ask a question"}</span>
-            <span class="text-xs leading-[1.35] text-muted-foreground">
-              Opens a PR-aware session with an editable question.
-            </span>
+      <ArrowClockwiseIcon
+        size={14}
+        class={refreshing ? "animate-spin [animation-duration:0.9s] motion-reduce:animate-none" : ""}
+      />
+      {refreshing ? "Refreshing…" : "Refresh pull request"}
+    </DropdownMenu.Item>
+
+    {#if showAgentGroup}
+      <DropdownMenu.Separator />
+    {/if}
+    {#if onAskQuestion}
+      {@const ask = onAskQuestion}
+      <DropdownMenu.Item
+        disabled={askQuestionBusy}
+        class="h-auto min-h-11 items-start gap-2.5 py-2"
+        onSelect={() => void runAction(ask)}
+      >
+        <ChatCircleQuestionIcon size={14} class="mt-0.5 shrink-0" />
+        <span class="flex min-w-0 flex-1 flex-col gap-px">
+          <span>{askQuestionBusy ? "Preparing…" : "Ask a question"}</span>
+          <span class="text-xs leading-[1.35] text-muted-foreground">
+            Opens a PR-aware session with an editable question.
           </span>
-        </DropdownMenu.Item>
-      {/if}
-      {#if onFixComments}
-        <DropdownMenu.Item
-          disabled={fixCommentsBusy}
-          onSelect={() => runAction(onFixComments)}
-        >
-          <HammerIcon size={14} />
-          {fixCommentsBusy ? "Preparing…" : "Draft fixes for comments"}
-        </DropdownMenu.Item>
-      {/if}
-      <!-- The review guide is a reading aid, not a merge move, so it lives
-           here rather than as a row in the rail. The label carries its state:
-           in flight, failed, or ready to open. -->
-      {#if canOpenGuide && onOpenGuide}
-        {@const openGuide = onOpenGuide}
-        <DropdownMenu.Item onSelect={() => runAction(openGuide)}>
-          <GuideIcon size={14} />
-          Open review guide
-        </DropdownMenu.Item>
-      {/if}
-      {#if onGenerateGuide}
-        {@const generate = onGenerateGuide}
-        <DropdownMenu.Item
-          disabled={generatingGuide}
-          onSelect={() => runAction(generate)}
-        >
-          <GuideIcon size={14} />
-          {generatingGuide
-            ? "Generating review guide…"
-            : guideStatus === "failed"
-              ? "Retry review guide"
-              : guideStatus
-                ? "Regenerate review guide"
-                : "Generate review guide"}
-        </DropdownMenu.Item>
-      {/if}
+        </span>
+      </DropdownMenu.Item>
+    {/if}
+    {#if onFixComments}
+      {@const fix = onFixComments}
+      <DropdownMenu.Item
+        disabled={fixCommentsBusy}
+        onSelect={() => void runAction(fix)}
+      >
+        <HammerIcon size={14} />
+        {fixCommentsBusy ? "Preparing…" : "Draft fixes for comments"}
+      </DropdownMenu.Item>
+    {/if}
+    <!-- The review guide is a reading aid, not a merge move. The label
+         carries its state: in flight, failed, outdated, or ready to open. -->
+    {#if canOpenGuide && onOpenGuide}
+      {@const openGuide = onOpenGuide}
+      <DropdownMenu.Item onSelect={() => void runAction(openGuide)}>
+        <GuideIcon size={14} />
+        Open review guide
+      </DropdownMenu.Item>
+    {/if}
+    {#if onGenerateGuide}
+      {@const generate = onGenerateGuide}
+      <DropdownMenu.Item
+        disabled={generatingGuide}
+        onSelect={() => void runAction(generate)}
+      >
+        <GuideIcon size={14} />
+        {generatingGuide
+          ? "Generating review guide…"
+          : guideStatus === "failed"
+            ? "Retry review guide"
+            : guideStatus
+              ? "Regenerate review guide"
+              : "Generate review guide"}
+      </DropdownMenu.Item>
+    {/if}
 
-      {#if prUrl}
-        <DropdownMenu.Separator />
-      {/if}
-      {#if showRemoteLink && prUrl}
-        <DropdownMenu.Item onSelect={() => runAction(onOpenRemote)}>
-          <ArrowSquareOutIcon size={14} weight="bold" />
-          Open on {pr.host?.includes("github")
-            ? "GitHub"
-            : (pr.host ?? "remote")}
-        </DropdownMenu.Item>
-      {/if}
-      {#if prUrl}
-        <DropdownMenu.Item onSelect={() => void copyPullRequestLink()}>
-          <LinkIcon size={14} />
-          Copy link
-        </DropdownMenu.Item>
-      {/if}
-
-      {#if hasLifecycleAction || showRevert}
-        <DropdownMenu.Separator />
-      {/if}
-      {#if showRevert}
-        <DropdownMenu.Item
-          disabled={!!lifecycleAction}
-          onSelect={confirmRevert}
-        >
-          <UndoIcon size={14} />
-          Revert changes
-        </DropdownMenu.Item>
-      {/if}
-      {#if onLifecycleAction && detail?.state === "open" && detail.draft && allowedActions.has("ready")}
-        <DropdownMenu.Item
-          disabled={!!lifecycleAction}
-          onSelect={() => updateLifecycle("ready")}
-        >
-          <GitPullRequestIcon size={14} />
-          Mark ready for review
-        </DropdownMenu.Item>
-      {:else if onLifecycleAction && detail?.state === "open" && !detail.draft && allowedActions.has("draft")}
-        <DropdownMenu.Item
-          disabled={!!lifecycleAction}
-          onSelect={() => updateLifecycle("draft")}
-        >
-          <PencilSimpleIcon size={14} />
-          Convert to draft
-        </DropdownMenu.Item>
-      {/if}
-      {#if onLifecycleAction && detail?.state === "open" && allowedActions.has("close")}
-        <DropdownMenu.Item
-          disabled={!!lifecycleAction}
-          onSelect={() => updateLifecycle("close")}
-        >
-          <GitPullRequestIcon size={14} />
-          Close pull request
-        </DropdownMenu.Item>
-      {:else if onLifecycleAction && detail?.state === "closed" && allowedActions.has("reopen")}
-        <DropdownMenu.Item
-          disabled={!!lifecycleAction}
-          onSelect={() => updateLifecycle("reopen")}
-        >
-          <GitPullRequestIcon size={14} />
-          Reopen pull request
-        </DropdownMenu.Item>
-      {/if}
-    </DropdownMenu.Content>
-  </DropdownMenu.Root>
-{/if}
+    {#if showHostGroup}
+      <DropdownMenu.Separator />
+    {/if}
+    {#if showRevert}
+      <DropdownMenu.Item
+        disabled={!!lifecycleAction}
+        onSelect={confirmRevert}
+      >
+        <UndoIcon size={14} />
+        Revert changes
+      </DropdownMenu.Item>
+    {/if}
+    {#if readyAction === "ready"}
+      <DropdownMenu.Item
+        disabled={!!lifecycleAction}
+        onSelect={() => updateLifecycle("ready")}
+      >
+        <GitPullRequestIcon size={14} />
+        Mark ready for review
+      </DropdownMenu.Item>
+    {:else if readyAction === "draft"}
+      <DropdownMenu.Item
+        disabled={!!lifecycleAction}
+        onSelect={() => updateLifecycle("draft")}
+      >
+        <PencilSimpleIcon size={14} />
+        Convert to draft
+      </DropdownMenu.Item>
+    {/if}
+    {#if stateAction === "close"}
+      <DropdownMenu.Item
+        disabled={!!lifecycleAction}
+        onSelect={() => updateLifecycle("close")}
+      >
+        <GitPullRequestIcon size={14} />
+        Close pull request
+      </DropdownMenu.Item>
+    {:else if stateAction === "reopen"}
+      <DropdownMenu.Item
+        disabled={!!lifecycleAction}
+        onSelect={() => updateLifecycle("reopen")}
+      >
+        <GitPullRequestIcon size={14} />
+        Reopen pull request
+      </DropdownMenu.Item>
+    {/if}
+  </DropdownMenu.Content>
+</DropdownMenu.Root>
 
 <PrActionConfirm
   bind:open={confirmOpen}

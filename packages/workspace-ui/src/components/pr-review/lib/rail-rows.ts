@@ -26,6 +26,20 @@ export function isRailFolded(contentWidth: number): boolean {
 }
 
 /**
+ * The gutter either side of the content row (`px-[52px]` on `ActivityFeed`'s
+ * row), so the pane can answer the same fold question from its own width.
+ * The pull request's chrome band carries the merge control once the rail has
+ * folded, and the band is drawn whether or not Activity is mounted to
+ * measure the row — so it reads the pane instead and takes the gutter off.
+ */
+export const CONTENT_GUTTER = 104
+
+/** The fold answer from the pane's width rather than the content row's. */
+export function isRailFoldedInPane(paneWidth: number): boolean {
+  return paneWidth > 0 && isRailFolded(paneWidth - CONTENT_GUTTER)
+}
+
+/**
  * Row geometry for the rail's virtualized Changed files section.
  *
  * A virtual list positions rows from a number it is told, not from what the

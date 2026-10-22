@@ -31,7 +31,16 @@ path.
 - **Codex** ends its turn and exits the run. A command still running at the end
   of the turn becomes a background task (`background_task_started`, keyed by
   the command item). When it completes, the host settles the task and queues a
-  "Background command" wake prompt. Stopping a task, or the session, calls
+  "Background command" wake prompt. Every client draws that wake as a host
+  notice row (`HostNoticeRow`): a terminal glyph, "Background command", and
+  the command with its exit ("bun test · exit 1"); the output tail opens from
+  the row as the terminal showed it (`ui/terminal-output`, shared with the
+  device build log) — the theme's terminal panel, mono, the tool's own colours
+  (`client-core/terminal-text.ts` reads the SGR codes and drops the rest), and
+  error or warning lines in their tones — and the glyph is red on a non-zero
+  exit. A client knows the wake by
+  its first line (`client-core/background-command-wake.ts`), because a history
+  row keeps no origin. Stopping a task, or the session, calls
   `thread/backgroundTerminals/terminate` for each command. A stopped command
   does not wake the agent. If the app-server exits, its commands settle as
   `killed`.

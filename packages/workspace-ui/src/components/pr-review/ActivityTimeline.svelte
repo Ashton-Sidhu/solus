@@ -9,11 +9,17 @@
     GitPullRequest as GitPullRequestIcon,
     LayoutTemplate as ArtifactIcon,
     LoaderCircle as LoaderIcon,
+    Reply as ReplyIcon,
     Tag as TagIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import CommentMarkdown from '../github-markdown/CommentMarkdown.svelte';
-  import type { PrCommit, ReviewComment, ReviewThread } from "@solus/contracts/providers";
+  import type {
+    PrCommentActivityItem,
+    PrCommit,
+    ReviewComment,
+    ReviewThread,
+  } from "@solus/contracts/providers";
   import {
     formatTimeAgoFromTimestamp,
     formatAbsoluteTimestamp,
@@ -58,6 +64,7 @@
     onJump,
     onOpenCommit,
     onReply,
+    onReplyToComment,
     onResolve,
     onDeleteComment,
   }: {
@@ -90,6 +97,9 @@
     /** Open the diff scoped to one commit's changes. */
     onOpenCommit?: (commit: PrCommit) => void;
     onReply: (threadId: string, body: string) => Promise<ReviewComment>;
+    /** Answer a top-level comment or review body from the page's composer.
+     *  Absent while the viewer cannot post, so the card offers no reply. */
+    onReplyToComment?: (comment: PrCommentActivityItem) => void;
     onResolve: (threadId: string, resolved: boolean) => Promise<void>;
     onDeleteComment: (commentId: string) => Promise<void>;
   } = $props();
@@ -160,6 +170,23 @@
       weight="bold"
       class="transition-transform duration-150 {collapsed ? '-rotate-90' : ''}"
     />
+  </Button>
+{/snippet}
+
+<!-- Reply, in the same quiet register as delete: the conversation is flat
+     on the host, so the answer is written in the page's composer, quoting
+     this comment (see ActivityFeed). -->
+{#snippet replyButton(comment: PrCommentActivityItem)}
+  <Button
+    type="button"
+    variant="ghost"
+    size="icon-xs"
+    aria-label="Reply to {comment.author}"
+    title="Reply"
+    class="shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-[opacity,color] hover:text-foreground focus-visible:opacity-100 group-hover/comment:opacity-100 pointer-coarse:opacity-100"
+    onclick={() => onReplyToComment?.(comment)}
+  >
+    <ReplyIcon size={12} aria-hidden="true" />
   </Button>
 {/snippet}
 
@@ -352,7 +379,8 @@
     {@const ts = commentTs(event.comment.createdAt)}
     {@const eventKey = activityEventKey(event)}
     {@const hasBody = hasVisibleBody(event.comment.body)}
-    {@const bodyOpen = hasBody && !collapsedComments[eventKey]}
+    {@const hasContent = hasBody || event.threads.length > 0}
+    {@const contentOpen = hasContent && !collapsedComments[eventKey]}
     <!-- A comment or review leaves the spine: the card takes the
          timeline's full width, the author's avatar moves into its tinted
          header, and a verdict is the badge beside the name. The rail
@@ -393,17 +421,50 @@
               <PrReviewStateBadge state={event.comment.reviewState} />
             </span>
           {/if}
+          <!-- How many inline threads the review was submitted with: the
+               nested list below is the detail, this is the count that stays
+               when the card folds. -->
+          {#if event.threads.length > 0}
+            <span class="text-muted-foreground tabular-nums">
+              {event.threads.length} {event.threads.length === 1 ? "thread" : "threads"}
+            </span>
+          {/if}
           </span>
-          {#if hasBody}
+          {#if onReplyToComment && hasBody}
+            {@render replyButton(event.comment)}
+          {/if}
+          {#if hasContent}
             {@render collapseToggle(eventKey, event.comment.author)}
           {/if}
           {#if event.comment.kind === "comment" && viewerLogin && event.comment.author.toLowerCase() === viewerLogin.toLowerCase()}
             {@render deleteCommentButton(event.comment.id, event.comment.author)}
           {/if}
         </div>
-        {#if bodyOpen}
+        {#if contentOpen && hasBody}
           <div class="p-3">
             <CommentMarkdown source={event.comment.body} />
+          </div>
+        {/if}
+        <!-- The review's inline threads, nested as the host nests them: each
+             the same card a lone thread gets on the spine, stacked inside the
+             review under a hairline, so one act of review reads as one event.
+             They are the same thread objects the Diff tab renders, and reply
+             and resolve mutate them in place. -->
+        {#if contentOpen && event.threads.length > 0}
+          <div class="flex flex-col gap-3 border-t border-border/60 p-3">
+            {#each event.threads as thread (thread.id)}
+              <PrThreadCard
+                {thread}
+                fullDiffHunk={threadDiffHunks.get(thread.id)}
+                bind:unfolded={
+                  () => unfoldedThreads[thread.id] ?? false,
+                  (shown) => (unfoldedThreads[thread.id] = shown)
+                }
+                {onJump}
+                {onReply}
+                {onResolve}
+              />
+            {/each}
           </div>
         {/if}
       </article>

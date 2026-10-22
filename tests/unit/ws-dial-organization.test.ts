@@ -8,8 +8,9 @@ import { organizationIdFor } from '@solus/client-core/uplink-session'
 
 // A Solus client's access token lists the organizations its person reaches a host
 // through (ADR 0001 §6.4); the host admits the connection only in the one it names.
-// So a dial with an account token names that organization at the ticket door, and
-// the record API names it at its credential exchange. A paired connection names none.
+// So a dial with an account token names that organization in its handshake
+// (handshake-credential.test.ts), and the record API names it at its credential
+// exchange. A paired connection names none.
 
 const cleanups: Array<() => void> = []
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup() })
@@ -38,15 +39,6 @@ async function until(check: () => boolean): Promise<void> {
 }
 
 describe('the organization a dial names', () => {
-  test('a dial with an account token names the organization at the ticket door', async () => {
-    const door = await ticketDoor()
-    const transport = new WsTransport({ serverUrl: door.url, sessionToken: '', acquireGrant: async () => 'access-token', dialOrganizationId: () => 'org_acme' })
-    cleanups.push(() => transport.destroy())
-    transport.start()
-    await until(() => door.requests.length > 0)
-    expect(door.requests[0]).toEqual({ authorization: 'Bearer access-token', contentType: 'application/json', body: JSON.stringify({ organizationId: 'org_acme' }) })
-  })
-
   test('a paired connection presents its session token and names no organization', async () => {
     const door = await ticketDoor()
     const transport = new WsTransport({ serverUrl: door.url, sessionToken: 'paired-token', dialOrganizationId: () => 'org_acme' })

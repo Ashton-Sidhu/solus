@@ -345,3 +345,35 @@ describe('shared sheet header (T3 #21978)', () => {
     expect(content).toContain('gestureEnabled: !props.busy')
   })
 })
+
+// Native presentation without logic to run in bun: these check the contract of
+// the port, not styling.
+describe('new-thread draft and composer alignment (T3 #23206, #23355, #23366)', () => {
+  test('the draft hero scrolls in the native-marked view and takes its top inset from UIKit, not a fixed iPhone bar height', () => {
+    const draft = read('src/features/threads/NewTaskRouteScreen.tsx')
+    expect(draft).not.toContain('ios:pt-[72px]')
+    expect(draft).toMatch(/<ScreenScrollView\s+className="flex-1"\s+contentInsetAdjustmentBehavior="automatic"\s+contentContainerClassName="grow items-center pb-\[236px\] pt-12"/)
+    // The title sits beside the X, as T3's editor-style item.
+    expect(draft).toContain('unstable_navigationItemStyle: "editor"')
+  })
+
+  test('an open sheet keeps the presentation it opened with until it is dismissed', () => {
+    const root = read('src/navigation/RootNavigator.tsx')
+    expect(root).toContain('flowPresentations.current.set(route.key, usesFlowScreen)')
+    // A dismissed route releases its entry.
+    expect(root).toMatch(/if \(!keys\.has\(key\)\) flowPresentations\.current\.delete\(key\)/)
+  })
+
+  test('iPad composes from the empty detail or the conversation header, not the sidebar toolbar', () => {
+    expect(read('src/features/workspace/WorkspaceToolbar.ios.tsx')).not.toContain('placement="bottom"')
+    expect(read('src/features/layout/createWorkspaceStackNavigator.ios.tsx')).toContain('<WorkspaceEmptyDetail onStartNewTask=')
+    expect(read('src/features/threads/useThreadHeaderOptions.tsx')).toContain('accessibilityLabel: "New session"')
+  })
+
+  test('the iOS composer inset leaves only for a keyboard with height; the iPad takes the composer gutter out of it once', () => {
+    const detail = read('src/features/threads/ThreadDetailScreen.tsx')
+    expect(detail).not.toContain('composerFocused')
+    expect(detail).toContain('Platform.OS === "android" ? isKeyboardVisible : liveKeyboardHeight > 0')
+    expect(detail).toContain('Math.max(0, Math.max(insets.bottom, 12) - composerBottomGutter)')
+  })
+})

@@ -128,7 +128,7 @@
 	</div>
 {/snippet}
 
-<div class="max-w-[1120px] mx-auto px-6 max-lg:px-5 pt-28 pb-24 flex gap-16 max-lg:gap-0 max-lg:flex-col">
+<div class="max-w-[1120px] mx-auto px-6 max-lg:px-5 pt-12 pb-24 flex gap-16 max-lg:gap-0 max-lg:flex-col">
 
 	<div class="lg:hidden mb-6">
 		<button
@@ -139,7 +139,6 @@
 			aria-expanded={mobileTocOpen}
 		>
 			<span class="flex items-center gap-2">
-				<span class="w-1.5 h-1.5 rounded-full bg-[#D4AF6A] shrink-0"></span>
 				{sections.find(s => s.id === activeSection)?.label ?? 'Overview'}
 			</span>
 			<svg
@@ -169,36 +168,16 @@
 							class:text-[#6B6158]={activeSection !== section.id}
 							onclick={() => mobileTocOpen = false}
 						>
-							<span
-								class="w-1 h-1 rounded-full shrink-0 transition-colors"
-								class:bg-[#D4AF6A]={activeSection === section.id}
-								class:bg-transparent={activeSection !== section.id}
-							></span>
 							{section.label}
 						</a>
 					{/each}
 				{/each}
-				<div class="h-px bg-black/[0.06] mx-2 my-1"></div>
-				<a href="/" class="px-3 py-2 text-[13px] text-[#A09488] no-underline hover:text-[#6B6158] transition-colors rounded-lg">← Back to home</a>
-				<a href="/privacy" class="px-3 py-2 text-[13px] text-[#A09488] no-underline hover:text-[#6B6158] transition-colors rounded-lg">Privacy</a>
-				<a href="/terms" class="px-3 py-2 text-[13px] text-[#A09488] no-underline hover:text-[#6B6158] transition-colors rounded-lg">Terms</a>
 			</nav>
 		{/if}
 	</div>
 
-	<aside class="w-[188px] shrink-0 max-lg:hidden sticky top-28 self-start">
-			<a href="/" class="flex items-center gap-2 no-underline mb-7">
-				<svg width="17" height="17" viewBox="-60 -60 120 120" fill="none" aria-hidden="true">
-					<circle cx="0" cy="0" r="31.2" fill="#B45A3C" />
-					<g stroke="#D97757" stroke-width="10.4" stroke-linecap="round">
-						<path d="M 0,-52 A 52,52 0 0 1 52,0" />
-						<path d="M 43.68,35.36 A 52,52 0 0 1 -16.64,49.92" />
-						<path d="M -43.68,35.36 A 52,52 0 0 1 -52,-16.64" />
-					</g>
-				</svg>
-				<span class="font-[family-name:var(--font-display)] text-[14px] font-bold tracking-[-0.03em] text-[#1A1714]">Solus</span>
-				<span class="text-[11px] font-medium text-[#A09488] ml-0.5">docs</span>
-			</a>
+	<aside class="w-[188px] shrink-0 max-lg:hidden sticky top-24 self-start">
+			<div class="mb-6 px-2 text-[13px] font-semibold text-[#1A1714]">Documentation</div>
 
 			<nav class="flex flex-col">
 				{#each sectionGroups as group, groupIndex}
@@ -214,22 +193,12 @@
 							class:hover:text-[#1A1714]={activeSection !== section.id}
 							class:hover:bg-[rgba(0,0,0,0.03)]={activeSection !== section.id}
 						>
-							<span
-								class="w-1 h-1 rounded-full shrink-0 transition-all duration-150"
-								class:bg-[#D4AF6A]={activeSection === section.id}
-								class:bg-transparent={activeSection !== section.id}
-							></span>
 							{section.label}
 						</a>
 					{/each}
 				{/each}
 			</nav>
 
-			<div class="mt-8 pt-6 border-t border-[rgba(0,0,0,0.06)] flex flex-col gap-1">
-				<a href="/" class="text-[12px] text-[#A09488] no-underline hover:text-[#6B6158] transition-colors px-2 py-1">← Back to home</a>
-				<a href="/privacy" class="text-[12px] text-[#A09488] no-underline hover:text-[#6B6158] transition-colors px-2 py-1">Privacy</a>
-				<a href="/terms" class="text-[12px] text-[#A09488] no-underline hover:text-[#6B6158] transition-colors px-2 py-1">Terms</a>
-			</div>
 	</aside>
 
 	<main class="flex-1 min-w-0">

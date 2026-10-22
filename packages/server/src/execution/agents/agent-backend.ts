@@ -109,8 +109,8 @@ export interface AgentBackend extends EventEmitter {
   getThreadGoal?(threadId: string): Promise<ThreadGoal | null>
   setThreadGoal?(request: ThreadGoalSetRequest): Promise<ThreadGoal>
   clearThreadGoal?(threadId: string): Promise<boolean>
-  /** Filesystem plugin/skill commands, plus SDK built-in commands when `ctx` is given. */
-  listPluginCommands(workingDirectory: string, ctx?: IpcContext): Promise<PluginCommandsResult>
+  /** Filesystem plugin/skill commands, plus SDK built-in commands when `ctx` is given. `seat`: whose agent folders; absent, the host's. */
+  listPluginCommands(workingDirectory: string, ctx?: IpcContext, seat?: TurnSeat): Promise<PluginCommandsResult>
   /** Invalidates cached plugin/skill commands after an external install. */
   refreshPluginCommands(): Promise<void>
   /** Asks for an incremental refresh of durable session metadata when the

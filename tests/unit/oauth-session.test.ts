@@ -275,3 +275,32 @@ describe('OAuthSession identity and sign-out', () => {
     expect(await device.accessToken({ kind: 'account' })).toBeTruthy()
   })
 })
+
+describe('discovery the platform already holds', () => {
+  // WHY (docs/plans/instant-share-open.md): the account origin's shell carries the
+  // provider's metadata, so the web page signs in without reading it first. It is
+  // checked like a read one: metadata naming another issuer is never used.
+  const metadata = (issuer: string) => ({
+    issuer,
+    authorization_endpoint: `${ISSUER}/api/auth/oauth2/authorize`,
+    token_endpoint: `${ISSUER}/api/auth/oauth2/token`,
+    userinfo_endpoint: `${ISSUER}/api/auth/oauth2/userinfo`,
+    revocation_endpoint: `${ISSUER}/api/auth/oauth2/revoke`,
+  })
+
+  test('valid metadata is used, and the issuer is never asked for it', async () => {
+    const plane = fakeAccountPlane({ clientId: 'solus-web' })
+    const session = new OAuthSession({ cloudOrigin: ISSUER, clientId: 'solus-web', store: memoryStore().store, fetch: plane.fetch, now: plane.now, knownDiscovery: metadata(ISSUER) })
+    const { authorizeUrl } = await session.beginSignIn(`${ISSUER}/auth/callback`)
+    expect(authorizeUrl.toString().startsWith(`${ISSUER}/api/auth/oauth2/authorize?`)).toBe(true)
+    expect(plane.calls.map((call) => call.path)).not.toContain('/.well-known/openid-configuration')
+  })
+
+  test('metadata for another issuer is never used: it is read from the issuer instead', async () => {
+    const plane = fakeAccountPlane({ clientId: 'solus-web' })
+    const session = new OAuthSession({ cloudOrigin: ISSUER, clientId: 'solus-web', store: memoryStore().store, fetch: plane.fetch, now: plane.now, knownDiscovery: metadata('https://evil.test') })
+    const { authorizeUrl } = await session.beginSignIn(`${ISSUER}/auth/callback`)
+    expect(plane.calls.map((call) => call.path)).toContain('/.well-known/openid-configuration')
+    expect(authorizeUrl.origin).toBe(ISSUER)
+  })
+})

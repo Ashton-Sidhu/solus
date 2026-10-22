@@ -9,7 +9,7 @@
       "timestamp": 1783609920000,
       "title": "Migrate billing to usage-based pricing",
       "excerpt": "Build an invoice-grade usage ledger, reconcile in shadow mode, and migrate Stripe prices through staged cohorts.",
-      "status": "pending",
+      "status": "accepted",
       "commentCount": 2,
       "bookmarked": false,
       "planFilePath": "/home/demo/.claude/plans/migrate-usage-billing.md",

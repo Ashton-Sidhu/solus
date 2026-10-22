@@ -1,8 +1,9 @@
+import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
 import { readSessionPullRequestInterests } from '../data/sessions/session-pull-requests'
 import { settledSessionIds } from '../data/sessions/session-states'
-import { recentWorktreeSessions } from '../data/tasks/host-records'
+import { recentBranchSessions } from '../data/tasks/host-records'
 import type { PrLinkInterest } from '../data/tasks/task-links'
 import { taskSessions } from '../data/tasks/task-sessions'
 import { unfinishedTaskProjects } from '../data/tasks/task-store'
@@ -10,11 +11,7 @@ import { unfinishedTaskProjects } from '../data/tasks/task-store'
 // The live work PR sync keeps fresh: what one read of interest reads from the
 // database (docs/plans/pr-sync.md §3.1).
 
-/** A branch is asked about for a session that was active this recently. A
- *  link, once made, is kept fresh until its session is settled. */
-const BRANCH_LOOKUP_MS = 30 * 24 * 60 * 60_000
-
-/** A live session that runs in its own worktree on a branch. */
+/** A live session on a branch, in its own worktree or on the shared checkout. */
 export interface LiveCheckout {
   projectScope: string
   branch: string
@@ -23,7 +20,7 @@ export interface LiveCheckout {
 }
 
 /** The sessions that work under a task that is not finished, and the
- *  isolated checkouts of those sessions. */
+ *  branches those sessions are on. */
 export interface LiveTaskSessions {
   checkouts: LiveCheckout[]
   sessionIds: Set<string>
@@ -38,7 +35,7 @@ export async function liveTaskSessions(): Promise<LiveTaskSessions> {
     for (const attempt of sessions[taskId] ?? []) {
       if (attempt.role === 'referenced') continue
       sessionIds.add(attempt.sessionId)
-      if (projectKey && attempt.isolatedCheckout && attempt.branch) {
+      if (projectKey && attempt.branch) {
         checkouts.push({ projectScope: projectKey, branch: attempt.branch, sessionId: attempt.sessionId })
       }
     }
@@ -47,14 +44,16 @@ export async function liveTaskSessions(): Promise<LiveTaskSessions> {
 }
 
 /**
- * The branch of each isolated checkout that live work runs in: the sessions of
- * tasks that are not finished, and the sessions active recently that are not
- * settled. A settled session is not live work.
+ * The branch of each checkout that live work runs in: the sessions of tasks
+ * that are not finished, and the sessions that are not settled and were
+ * active within the list's idle window, after which an idle session is
+ * archived. A settled session is not live work. A link, once made, is kept
+ * fresh until its session is settled; the window limits only the branch lookup.
  */
 export async function liveCheckouts(now: number, ofLiveTasks: LiveTaskSessions): Promise<LiveCheckout[]> {
   const checkouts = [...ofLiveTasks.checkouts]
   const seen = new Set(checkouts.map((checkout) => `${checkout.sessionId}\0${checkout.branch}`))
-  const recent = recentWorktreeSessions(now - BRANCH_LOOKUP_MS)
+  const recent = recentBranchSessions(now - SESSION_LIST_IDLE_MS)
     .map((indexed) => ({ ...indexed, sessionId: sessionIdOfThread(indexed.sessionId) }))
   const settled = await settledSessionIds(recent.map((indexed) => indexed.sessionId))
   for (const { sessionId, branch, projectScope } of recent) {

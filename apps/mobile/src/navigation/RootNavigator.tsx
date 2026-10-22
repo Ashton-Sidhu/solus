@@ -5,7 +5,7 @@ import {
   type NavigationState,
 } from '@react-navigation/native'
 import type { NativeStackNavigationOptions } from '@react-navigation/native-stack'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Linking, Platform, useWindowDimensions } from 'react-native'
 import { parseDeepLink } from './deep-links'
 import { useUniwindTheme } from '../lib/useUniwindTheme'
@@ -185,6 +185,10 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
   const { width, height } = useWindowDimensions()
   // Follow the workspace viewport as it resizes; compact iOS keeps sheets.
   const usesWorkspaceFlowScreens = Platform.OS === 'android' || deriveLayout({ width, height }).usesSplitView
+  // Moving an open sheet or flow between a sheet and a column remounts its
+  // screen. Each keeps the presentation it opened with until it is dismissed,
+  // so a fold or a resize keeps the draft (T3 #23366).
+  const flowPresentations = useRef(new Map<string, boolean>())
   useKeyboardCommand('back', () => {
     if (!navigation.isReady() || !navigation.canGoBack()) return false
     navigation.goBack()
@@ -221,17 +225,30 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           layout={({ children, state }) => (
             <AdaptiveWorkspaceLayout location={workspaceLocationFromState(state)}>{children}</AdaptiveWorkspaceLayout>
           )}
+          screenListeners={{
+            state: ({ data }) => {
+              const keys = new Set(data.state.routes.map((route) => route.key))
+              for (const key of flowPresentations.current.keys()) {
+                if (!keys.has(key)) flowPresentations.current.delete(key)
+              }
+            },
+          }}
           screenOptions={({ route }) => {
             // As T3 Code's stack: no header tint, so titles take the theme's
             // header foreground and buttons draw their own symbols.
             const base: NativeStackNavigationOptions = {
               contentStyle: { backgroundColor: themeVariables['--color-screen'] },
             }
-            if (CONNECT_SHEET_ROUTES.has(route.name)) {
-              return Platform.OS === 'ios' && usesWorkspaceFlowScreens ? { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS } : base
+            if (!CONNECT_SHEET_ROUTES.has(route.name) && !SHEET_ROUTES.has(route.name)) return base
+            let usesFlowScreen = flowPresentations.current.get(route.key)
+            if (usesFlowScreen === undefined) {
+              usesFlowScreen = usesWorkspaceFlowScreens
+              flowPresentations.current.set(route.key, usesFlowScreen)
             }
-            if (!SHEET_ROUTES.has(route.name)) return base
-            return usesWorkspaceFlowScreens
+            if (CONNECT_SHEET_ROUTES.has(route.name)) {
+              return Platform.OS === 'ios' && usesFlowScreen ? { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS } : base
+            }
+            return usesFlowScreen
               ? { ...base, presentation: 'card' }
               : { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.92], sheetGrabberVisible: true }
           }}

@@ -27,6 +27,27 @@ describe("resolveMarkdownLinkIcon", () => {
 });
 
 describe("resolveMarkdownLinkPresentation", () => {
+  it("reads a session link an agent wrote as that session, on its own host or the transcript's", () => {
+    // WHY: agents link the sessions they start. On a phone the link was dead,
+    // so the person could not open the worker the reply named.
+    expect(
+      resolveMarkdownLinkPresentation("session://open?provider=codex&sessionId=worker-1&serverId=studio&cwd=%2Frepo"),
+    ).toEqual({
+      kind: "session",
+      href: "session://open?provider=codex&sessionId=worker-1&serverId=studio&cwd=%2Frepo",
+      sessionId: "worker-1",
+      serverId: "studio",
+    });
+    expect(resolveMarkdownLinkPresentation("session://ref?provider=claude-code&sessionId=s2")).toMatchObject({
+      kind: "session",
+      sessionId: "s2",
+      serverId: null,
+    });
+    // An unknown provider or a missing id is not a session the app can open.
+    expect(resolveMarkdownLinkPresentation("session://open?provider=other&sessionId=s3")).toEqual({ kind: "link", href: null });
+    expect(resolveMarkdownLinkPresentation("session://open?provider=codex")).toEqual({ kind: "link", href: null });
+  });
+
   it("treats protocol-relative media as an external URL, not a filesystem path", () => {
     expect(resolveMarkdownLinkPresentation("//cdn.example.com/clip.mp4?sig=a%2fb#t=2")).toEqual({
       kind: "external",

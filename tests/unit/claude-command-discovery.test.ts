@@ -31,10 +31,10 @@ describe('ClaudeCommandDiscovery', () => {
       }
     }, 60_000)
 
-    const first = discovery.get({ cwd: '/repo-a', model: 'opus' })
-    const duplicate = discovery.get({ cwd: '/repo-a', model: 'opus' })
-    const otherDirectory = discovery.get({ cwd: '/repo-b', model: 'opus' })
-    const otherModel = discovery.get({ cwd: '/repo-a', model: 'sonnet' })
+    const first = discovery.get({ cwd: '/repo-a', model: 'opus', configDir: '/host/.claude' })
+    const duplicate = discovery.get({ cwd: '/repo-a', model: 'opus', configDir: '/host/.claude' })
+    const otherDirectory = discovery.get({ cwd: '/repo-b', model: 'opus', configDir: '/host/.claude' })
+    const otherModel = discovery.get({ cwd: '/repo-a', model: 'sonnet', configDir: '/host/.claude' })
 
     await Promise.resolve()
     expect(targets).toEqual(['/repo-a:opus'])
@@ -63,10 +63,10 @@ describe('ClaudeCommandDiscovery', () => {
       return request.promise
     }, 60_000)
 
-    const stale = discovery.get({ cwd: '/repo', model: 'opus' })
+    const stale = discovery.get({ cwd: '/repo', model: 'opus', configDir: '/host/.claude' })
     await Promise.resolve()
     discovery.clear()
-    const fresh = discovery.get({ cwd: '/repo', model: 'opus' })
+    const fresh = discovery.get({ cwd: '/repo', model: 'opus', configDir: '/host/.claude' })
 
     pending[0].reject(new Error('stale request failed'))
     await expect(stale).rejects.toThrow('stale request failed')
@@ -74,6 +74,24 @@ describe('ClaudeCommandDiscovery', () => {
     pending[1].resolve([{ name: 'fresh', description: '' }])
 
     expect(await fresh).toEqual([{ name: 'fresh', description: '' }])
-    expect(discovery.get({ cwd: '/repo', model: 'opus' })).toBe(fresh)
+    expect(discovery.get({ cwd: '/repo', model: 'opus', configDir: '/host/.claude' })).toBe(fresh)
+  })
+
+  test('each seat discovers its own commands: two people on one host never share a list', async () => {
+    const loads: Array<{ configDir: string; seatHome: string | undefined }> = []
+    const discovery = new ClaudeCommandDiscovery(async (target) => {
+      loads.push({ configDir: target.configDir, seatHome: target.seat?.home })
+      return [{ name: target.configDir === '/data/members/ada/.claude' ? 'grill-me' : 'host-skill', description: '' }]
+    }, 60_000)
+
+    const host = await discovery.get({ cwd: '/repo', model: 'opus', configDir: '/data/home/.claude' })
+    const member = await discovery.get({ cwd: '/repo', model: 'opus', configDir: '/data/members/ada/.claude', seat: { home: '/run/solus-seats/claude/ada' } })
+
+    expect(host.map((command) => command.name)).toEqual(['host-skill'])
+    expect(member.map((command) => command.name)).toEqual(['grill-me'])
+    expect(loads).toEqual([
+      { configDir: '/data/home/.claude', seatHome: undefined },
+      { configDir: '/data/members/ada/.claude', seatHome: '/run/solus-seats/claude/ada' },
+    ])
   })
 })

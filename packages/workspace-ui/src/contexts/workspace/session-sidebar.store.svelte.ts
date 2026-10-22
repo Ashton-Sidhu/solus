@@ -1522,11 +1522,11 @@ export class SessionSidebarStore {
     try {
       await settling
     } catch (error) {
-      toasts.error("Couldn't settle it", { description: error instanceof Error ? error.message : String(error) })
+      toasts.error("Couldn't change session status", { description: error instanceof Error ? error.message : String(error) })
       return
     }
     // Undo makes the session active again, as the mobile list's Undo does.
-    toasts.undo('Session settled', () => {
+    toasts.undo('Session marked as completed.', () => {
       void sessionListStore.setSettled(target, false).catch(() => {
         toasts.error("Couldn't make it active again")
       })

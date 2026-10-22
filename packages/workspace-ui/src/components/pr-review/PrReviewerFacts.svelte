@@ -17,8 +17,9 @@
 
   /**
    * The reviewers as one row of the facts list, for the pane too narrow to
-   * keep the rail's column. Avatars with a verdict badge, and the same two
-   * moves the rail's rows offer: the add-person glyph asks someone new, and
+   * keep the rail's column. Avatars at the meta rung — 16px, overlapped into
+   * one short stack as T3 Code draws them — with a verdict badge, and the
+   * same two moves the rail's rows offer: the add-person glyph asks someone new, and
    * each avatar opens a menu with the one thing you can do to that person —
    * take a pending request back, or ask someone who has answered to look
    * again. A menu rather than a hover control, because the narrow pane is as
@@ -77,10 +78,10 @@
      already reads as "not answered yet". -->
 {#snippet verdictAvatar(reviewer: PrReviewer)}
   {#snippet verdict()}
-    <ReviewerVerdictIcon state={reviewer.state} size={12} />
+    <ReviewerVerdictIcon state={reviewer.state} size={10} />
   {/snippet}
   <AvatarBadge badge={reviewer.state !== null ? verdict : undefined}>
-    <PrAvatar name={reviewer.login} url={reviewer.avatarUrl ?? ""} size="size-6 text-xs" />
+    <PrAvatar name={reviewer.login} url={reviewer.avatarUrl ?? ""} size="size-4 text-[9px]" />
   </AvatarBadge>
 {/snippet}
 
@@ -88,9 +89,9 @@
   <UsersIcon size={12} class="shrink-0 opacity-80" aria-hidden="true" />
   Reviewers
 </dt>
-<dd class="flex min-h-6 min-w-0 flex-wrap items-center gap-1.5">
+<dd class="flex min-h-6 min-w-0 flex-wrap items-center gap-1">
   {#if loading}
-    <Skeleton class="size-6 rounded-full bg-muted" />
+    <Skeleton class="size-4 rounded-full bg-muted" />
   {:else if loadFailed}
     <span>Couldn’t load reviewers.</span>
     {#if onRetry}
@@ -103,6 +104,7 @@
       </button>
     {/if}
   {:else}
+    <span class="flex items-center -space-x-1">
     {#each reviewers as reviewer (reviewer.login)}
       {@const action = reviewerAction(reviewer)}
       {@const busy = mutation === reviewer.login}
@@ -114,13 +116,13 @@
               <button
                 {...props}
                 type="button"
-                class="relative grid size-6 shrink-0 cursor-pointer place-items-center rounded-full transition-[outline-color] hover:outline-2 hover:-outline-offset-0 hover:outline-[var(--hairline-strong)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+                class="relative grid size-4 shrink-0 cursor-pointer place-items-center rounded-full transition-[outline-color] hover:z-10 hover:outline-2 hover:-outline-offset-0 hover:outline-[var(--hairline-strong)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
                 title={`${reviewer.login} · ${verdict}`}
                 aria-label={`${reviewer.login}, ${verdict}`}
               >
                 {#if busy}
                   <CircleNotchIcon
-                    size={12}
+                    size={10}
                     class="animate-spin text-muted-foreground [animation-duration:0.9s]"
                   />
                 {:else}
@@ -149,7 +151,7 @@
         </DropdownMenu.Root>
       {:else}
         <span
-          class="relative grid size-6 shrink-0 place-items-center rounded-full"
+          class="relative grid size-4 shrink-0 place-items-center rounded-full"
           title={`${reviewer.login} · ${verdict}`}
           role="img"
           aria-label={`${reviewer.login}, ${verdict}`}
@@ -158,11 +160,12 @@
         </span>
       {/if}
     {/each}
+    </span>
     {#if onRequest}
       <button
         bind:this={addTrigger}
         type="button"
-        class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-2)] aria-expanded:text-foreground"
+        class="grid size-5 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] aria-expanded:bg-[var(--wash-2)] aria-expanded:text-foreground"
         aria-label="Request a reviewer"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
@@ -170,9 +173,9 @@
         onclick={() => handleMenuOpenChange(!menuOpen)}
       >
         {#if candidatesLoading && menuOpen}
-          <CircleNotchIcon size={12} class="animate-spin [animation-duration:0.9s]" />
+          <CircleNotchIcon size={11} class="animate-spin [animation-duration:0.9s]" />
         {:else}
-          <UserPlusIcon size={13} />
+          <UserPlusIcon size={12} />
         {/if}
       </button>
       <ReviewerRequestMenu

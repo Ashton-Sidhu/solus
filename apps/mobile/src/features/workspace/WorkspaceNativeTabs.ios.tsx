@@ -44,7 +44,8 @@ function RetainedWorkspaceTab(props: {
  * UIKit retains both controller trees and shows the system tab bar for the
  * current size class. On a phone, compose is UIKit's own search-role tab,
  * detached like Photos' search button; it never becomes selected and opens
- * New Task instead. iPad keeps compose in its toolbar (WorkspaceToolbar).
+ * New Task instead. iPad composes from the empty detail or the conversation
+ * header (WorkspaceEmptyDetail, useThreadHeaderOptions).
  */
 export function WorkspaceNativeTabs(props: {
   readonly children: ReactNode;

@@ -102,6 +102,29 @@ describe('a session and its pull requests', () => {
     expect((await linksOf('session-1')).map((link) => link.source)).toEqual(['manual'])
   })
 
+  test('a branch discovery replaces the branch row of a pull request that ended, and keeps every other row', async () => {
+    // WHY: a session holds one branch row that follows its branch, as T3
+    // Code's detected pull request does. When the branch's pull request is
+    // merged and the agent opens the next one, the session shows the new one,
+    // not a growing list of found rows. A row a person made, a tombstone, and
+    // a branch row still open are not the branch's history and stay.
+    const URL_8 = 'https://github.com/Acme/Solus/pull/8'
+    const URL_9 = 'https://github.com/Acme/Solus/pull/9'
+    const URL_10 = 'https://github.com/Acme/Solus/pull/10'
+    await sessionPrs.linkSessionPullRequest('session-1', { url: URL_7, source: 'branch', by: SYSTEM })
+    await sessionPrs.linkSessionPullRequest('session-1', { url: URL_8, source: 'manual', by: PERSON })
+    await sessionPrs.linkSessionPullRequest('session-1', { url: URL_9, source: 'branch', by: SYSTEM })
+    // SAFETY: the store reads only these fields of a pull request.
+    const observed = (state: 'merged' | 'open') => ({ title: 'PR', state, draft: false, updatedAt: '2026-09-30T10:00:00Z' }) as never
+    await sessionPrs.recordSessionPullRequestObservation(REPOSITORY, 7, observed('merged'))
+    await sessionPrs.recordSessionPullRequestObservation(REPOSITORY, 8, observed('merged'))
+    await sessionPrs.recordSessionPullRequestObservation(REPOSITORY, 9, observed('open'))
+
+    expect(await sessionPrs.linkSessionPullRequest('session-1', { url: URL_10, source: 'branch', by: SYSTEM })).toBe(true)
+    expect((await linksOf('session-1')).map((link) => [link.number, link.source]).sort()).toEqual([[10, 'branch'], [8, 'manual'], [9, 'branch']])
+    expect(await sessionPrs.sessionKnowsPullRequest('session-1', REPOSITORY, 7)).toBe(false)
+  })
+
   test('one pull request can belong to two sessions, and an observation reaches both', async () => {
     await sessionPrs.linkSessionPullRequest('session-1', { url: URL_7, source: 'branch', by: SYSTEM })
     await sessionPrs.linkSessionPullRequest('session-2', { url: URL_7, source: 'manual', by: PERSON })

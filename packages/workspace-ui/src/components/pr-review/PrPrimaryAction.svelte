@@ -2,7 +2,16 @@
   import {
     ChevronDown as CaretDownIcon,
     Check as CheckIcon,
+    CircleAlert as CircleAlertIcon,
+    CircleCheck as CircleCheckIcon,
+    CircleX as CircleXIcon,
+    Clock as ClockIcon,
+    GitMerge as GitMergeIcon,
+    Hammer as HammerIcon,
     LoaderCircle as CircleNotchIcon,
+    RefreshCw as RefreshIcon,
+    Timer as TimerIcon,
+    TriangleAlert as TriangleAlertIcon,
   } from "@lucide/svelte";
   import type { MergeMethod } from "@solus/contracts/types";
   import { toasts } from "../../lib/toasts";
@@ -42,8 +51,12 @@
     readiness: MergeReadiness | null;
     /** The moves that open a session rather than write to the host. */
     onAgentAction: (move: MergeAction) => Promise<void>;
-    /** The status card's full width, or its folded row. */
-    layout?: "card" | "row";
+    /** The status card's full width, or the chrome band's pill once the rail
+     *  has folded. In the band it takes the quiet grammar of Review and Check
+     *  out beside it — the same pill, a glyph, a short label in the move's
+     *  colour — and drops the label at the same rung they do, so the band row
+     *  keeps the tabs and every verb on one line. */
+    layout?: "card" | "band";
   } = $props();
 
   let menuOpen = $state(false);
@@ -112,14 +125,28 @@
   }
 </script>
 
-<!-- The tone classes are the state, so they are the one choice made here: a
-     move is a filled button, a state is a quiet ringed one in its own colour. -->
+<!-- The tone classes are the state, so they are the one choice made here: in
+     the card a move is a filled button and a state a quiet ringed one in its
+     own colour; in the band every state is the band's quiet pill and only the
+     text carries the colour. -->
 <div
   bind:this={triggerEl}
   data-testid="pr-primary-action"
-  class="flex min-w-0 items-stretch overflow-hidden transition-[scale] duration-150 active:scale-[0.985] {layout === 'row'
-      ? 'h-8 shrink-0 rounded-[10px]'
-      : 'h-[34px] w-full rounded-[10px]'} {!action
+  class="flex min-w-0 items-stretch overflow-hidden transition-[scale] duration-150 active:scale-[0.985] {layout === 'band'
+      ? 'h-6.5 shrink-0 rounded-full bg-background text-workspace-chrome shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] pointer-coarse:h-10'
+      : 'h-[34px] w-full rounded-[10px]'} {layout === 'band'
+    ? !action
+      ? 'text-muted-foreground'
+      : action.tone === 'primary'
+        ? 'text-primary'
+        : action.tone === 'negative'
+          ? 'text-(--solus-art-negative)'
+          : action.tone === 'positive'
+            ? 'text-(--solus-art-positive)'
+            : action.tone === 'review'
+              ? 'text-[color-mix(in_oklch,var(--review)_70%,var(--foreground))]'
+              : 'text-muted-foreground'
+    : !action
     ? 'text-muted-foreground shadow-[shadow:var(--elev-ring)]'
     : filled && action.tone === 'negative'
       ? 'bg-(--solus-art-negative) text-white'
@@ -136,7 +163,9 @@
   <Button
     type="button"
     variant="ghost"
-    class="inline-flex h-full min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-none border-0 bg-transparent font-medium text-inherit shadow-none hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] hover:text-inherit disabled:opacity-100 aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)] px-3.5 {action?.move || hasMenu ? 'cursor-pointer' : 'cursor-default'}"
+    class="inline-flex h-full min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-none border-0 bg-transparent text-inherit shadow-none hover:text-inherit disabled:opacity-100 {layout === 'band'
+      ? 'font-normal px-2.5 hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)] pointer-coarse:px-3.5 @max-[52rem]/band:px-[5.5px] @max-[52rem]/band:pointer-coarse:px-[12.5px]'
+      : 'font-medium px-3.5 hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)]'} {action?.move || hasMenu ? 'cursor-pointer' : 'cursor-default'}"
     disabled={!!running || !action || (!action.move && !hasMenu)}
     aria-haspopup={!action?.move && hasMenu ? "menu" : undefined}
     aria-expanded={!action?.move && hasMenu ? menuOpen : undefined}
@@ -146,9 +175,35 @@
   >
     {#if running}
       <CircleNotchIcon size={13} class="shrink-0 animate-spin [animation-duration:0.9s]" aria-hidden="true" />
+    {:else if layout === "band" && action}
+      <!-- The glyph is what survives once the label drops, so it names the
+           move, not the pull request. -->
+      {#if action.glyph === "merge"}
+        <GitMergeIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      {:else if action.glyph === "auto-merge"}
+        <TimerIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      {:else if action.glyph === "ready"}
+        <CircleCheckIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      {:else if action.glyph === "update"}
+        <RefreshIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      {:else if action.glyph === "conflict"}
+        <TriangleAlertIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      {:else if action.glyph === "checks"}
+        <HammerIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      {:else if action.glyph === "closed"}
+        <CircleXIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      {:else if action.glyph === "blocked"}
+        <CircleAlertIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      {:else}
+        <ClockIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
+      {/if}
     {/if}
     {#if action}
-      <span class="min-w-0 truncate">{running ? runningLabel : action.label}</span>
+      {#if layout === "band"}
+        <span class="min-w-0 truncate @max-[52rem]/band:hidden">{running ? runningLabel : action.short}</span>
+      {:else}
+        <span class="min-w-0 truncate">{running ? runningLabel : action.label}</span>
+      {/if}
     {/if}
   </Button>
   {#if hasMenu && action?.move}
@@ -156,7 +211,9 @@
     <Button
       type="button"
       variant="ghost"
-      class="inline-flex h-full w-7 shrink-0 cursor-pointer items-center justify-center rounded-none border-0 bg-transparent px-0 text-inherit shadow-none hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] hover:text-inherit aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)] pointer-coarse:w-10"
+      class="inline-flex h-full shrink-0 cursor-pointer items-center justify-center rounded-none border-0 bg-transparent px-0 text-inherit shadow-none hover:text-inherit pointer-coarse:w-10 {layout === 'band'
+        ? 'w-6 hover:bg-[var(--wash-1)] aria-expanded:bg-[var(--wash-1)]'
+        : 'w-7 hover:bg-[color-mix(in_oklch,currentColor_10%,transparent)] aria-expanded:bg-[color-mix(in_oklch,currentColor_10%,transparent)]'}"
       disabled={!!running}
       aria-label="More ways to merge"
       aria-haspopup="menu"

@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type RefObject,
 } from "react";
 import {
@@ -27,7 +28,7 @@ import {
 import Animated, { FadeIn, FadeInUp, type SharedValue } from "react-native-reanimated";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
-import { SymbolView } from "../../components/AppSymbol";
+import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { CopyTextButton } from "../../components/CopyTextButton";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
@@ -69,6 +70,9 @@ import { ThreadTurnImages } from "./ThreadTurnImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import { ThreadMcpApp } from "./ThreadMcpApp";
+import { pullRequestWatchWake, pullRequestWatchWakeSummary } from "@solus/client-core/pull-request-watch-wake";
+import { backgroundCommandWake, backgroundCommandWakeSummary } from "@solus/client-core/background-command-wake";
+import { TerminalOutput } from "../../components/TerminalOutput";
 
 // A long prompt is cut here, as desktop cuts it (`.user-message-collapsed`: 13rem, 2.5rem fade).
 const USER_MESSAGE_COLLAPSED_HEIGHT = 208;
@@ -301,6 +305,119 @@ const AssistantMessageRow = memo(function AssistantMessageRow(props: {
   );
 });
 
+/**
+ * A host-sent caption, as desktop draws it (`HostNoticeRow`): one work-log row
+ * with a glyph, a fixed label and the news in a few words, the full text
+ * behind a press. The icon alone takes a colour, and only when the news needs
+ * the agent.
+ */
+function HostNoticeRow(props: {
+  readonly label: string;
+  readonly summary: string;
+  readonly attention: boolean;
+  readonly icon: AppSymbolName;
+  readonly text: string;
+  /** The folded body as a sentence and terminal output, in place of the text
+   *  as markdown: a command's output keeps every line and reads in mono. */
+  readonly terminal?: { readonly line: string; readonly output: string | null };
+  readonly store: ConversationStore;
+  readonly iconSubtleColor: ColorValue;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <WorkLogBlock>
+      <WorkLogPressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        accessibilityLabel={`${props.label}, ${props.summary}`}
+        onPress={() => setExpanded((value) => !value)}
+      >
+        <View className="flex-1 py-1">
+          <View className="flex-row items-center gap-1.5">
+            <WorkLogIconSlot>
+              <SymbolView
+                name={props.attention ? "exclamationmark.circle" : props.icon}
+                size={14}
+                weight="medium"
+                {...(props.attention
+                  ? { tintColorClassName: "accent-danger-foreground" }
+                  : { tintColor: props.iconSubtleColor })}
+                type="monochrome"
+              />
+            </WorkLogIconSlot>
+            <Text className="shrink-0 text-sm text-foreground-muted">{props.label}</Text>
+            {expanded || !props.summary ? null : (
+              <Text className="min-w-0 flex-1 text-sm text-foreground-muted opacity-70" numberOfLines={1}>
+                {props.summary}
+              </Text>
+            )}
+          </View>
+          {expanded ? (
+            <View className="mt-1 pl-6">
+              {props.terminal ? (
+                <>
+                  <Text className="text-sm leading-normal text-foreground">{props.terminal.line}</Text>
+                  {props.terminal.output ? (
+                    <View className="mt-2">
+                      <TerminalOutput output={props.terminal.output} label={`Output, ${props.label}`} />
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                <ThreadMarkdown markdown={props.text} tone="user" store={props.store} />
+              )}
+            </View>
+          ) : null}
+        </View>
+      </WorkLogPressable>
+    </WorkLogBlock>
+  );
+}
+
+/** A person's prompt as a bubble, or the host's own caption as a notice row. */
+const UserTurnRow = memo(function UserTurnRow(props: ComponentProps<typeof UserMessageRow>) {
+  const item = useTranscriptItem(props.store, props.id);
+  if (item?.kind !== "user") return null;
+  // Known by its text: a history row keeps no origin. A held prompt is the person's.
+  const sent = item.delivery === "sent";
+  const watch = sent ? pullRequestWatchWake(item.text) : null;
+  if (watch) {
+    const words = pullRequestWatchWakeSummary(watch);
+    return (
+      <HostNoticeRow
+        label="Pull request watch"
+        summary={`#${watch.number}${words ? ` · ${words}` : ""}`}
+        attention={watch.attention}
+        icon="eye"
+        text={item.text}
+        store={props.store}
+        iconSubtleColor={props.iconSubtleColor}
+      />
+    );
+  }
+  const command = sent ? backgroundCommandWake(item.text) : null;
+  if (command) {
+    return (
+      <HostNoticeRow
+        label="Background command"
+        summary={`${command.command} · ${backgroundCommandWakeSummary(command)}`}
+        attention={command.attention}
+        icon="terminal"
+        text={item.text}
+        terminal={{
+          line: command.exitCode === null
+            ? `${command.command} finished after the turn ended.`
+            : `${command.command} finished after the turn ended with exit ${command.exitCode}.`,
+          output: command.output,
+        }}
+        store={props.store}
+        iconSubtleColor={props.iconSubtleColor}
+      />
+    );
+  }
+  return <UserMessageRow {...props} />;
+});
+
 /** A host notice in the work log: an error reads in rose, information quietly. */
 const NoticeRow = memo(function NoticeRow(props: {
   readonly store: ConversationStore;
@@ -470,7 +587,7 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   }
 
   return row.role === "user" ? (
-    <UserMessageRow
+    <UserTurnRow
       store={context.store}
       id={row.id}
       userBubbleColor={context.userBubbleColor}

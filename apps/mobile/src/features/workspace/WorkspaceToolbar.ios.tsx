@@ -1,7 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/workspace/WorkspaceToolbar.ios.tsx (MIT, see UPSTREAM.md).
 import { useFocusEffect } from "@react-navigation/native";
 import { use, useCallback, useEffect, useRef } from "react";
-import { Platform } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
 
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -15,10 +14,9 @@ import { useWorkspaceTabs } from "./WorkspaceTabsContext";
  * right, and a search field under the title while the person searches (on
  * iOS 26+, UIKit's search button morphs into the field instead). On a
  * phone, compose is the tab bar's own button (WorkspaceNativeTabs); an iPad
- * keeps it at the right of the bottom toolbar.
+ * composes from the empty detail or the conversation header, not the sidebar.
  */
 export function WorkspaceToolbar(props: {
-  readonly onNewTask: () => void;
   readonly onOpenSettings: () => void;
 }) {
   const workspace = useWorkspaceTabs();
@@ -92,17 +90,6 @@ export function WorkspaceToolbar(props: {
           />
         )}
       </NativeHeaderToolbar>
-      {Platform.OS === "ios" && Platform.isPad ? (
-        <NativeHeaderToolbar placement="bottom">
-          <NativeHeaderToolbar.Spacer flexible />
-          <NativeHeaderToolbar.Button
-            accessibilityLabel="New session"
-            icon="square.and.pencil"
-            onPress={props.onNewTask}
-            separateBackground
-          />
-        </NativeHeaderToolbar>
-      ) : null}
     </>
   );
 }

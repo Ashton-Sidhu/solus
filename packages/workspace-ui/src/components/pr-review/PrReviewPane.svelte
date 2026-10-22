@@ -7,6 +7,7 @@
     PrCommit,
     PullRequest,
     PrReviewTarget,
+    PrStateAction,
   } from "@solus/contracts/providers";
   import type { GuideDiffCommentSave } from "./guide/lib/guide-data";
   import {
@@ -42,10 +43,15 @@
   import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
   import PrDetailMasthead from "./PrDetailMasthead.svelte";
   import PrPanelHeader from "./PrPanelHeader.svelte";
-  import PrPanelOverflowMenu from "./PrPanelOverflowMenu.svelte";
+  import PrOverflowMenu from "./PrOverflowMenu.svelte";
   import PrViewTabs from "./PrViewTabs.svelte";
   import PrCheckoutButton from "./PrCheckoutButton.svelte";
   import PrReviewButton from "./PrReviewButton.svelte";
+  import PrPrimaryAction from "./PrPrimaryAction.svelte";
+  import type { MergeAction, MergeReadiness } from "./lib/merge-readiness";
+  import { isRailFoldedInPane } from "./lib/rail-rows";
+  import { observeContainerWidth } from "../../lib/pane-width";
+  import { isFailing, orderedChecks } from "../prs/lib/checks";
   import PrStackMenu from "./PrStackMenu.svelte";
   import PageComposer from "../page-composer/PageComposer.svelte";
   import LensSurface from "../review/LensSurface.svelte";
@@ -244,13 +250,13 @@
     if (!event || guideLoader.loading) return;
     void untrack(() => guide.syncSaved(event));
   });
-  const guideHeaderActions = $derived({
-    present: !!guideLoader.guide,
-    stale: guideLoader.stale,
-    regenerating: guide.running,
-    onRegenerate: () => void guide.generate(),
-  });
   const generateGuide = () => void guide.generate();
+  // The guide's state for the ⋯ menu: this pane's own run while it has one,
+  // else the store's answer from an earlier one.
+  const guideStatus = $derived(
+    visibleGuideStatus ??
+      pullRequests.guides.statusFor(serverId, prCtx(), target.number),
+  );
   const guideEmptyHint = $derived(reviewDetail?.changedFiles != null
     ? `${reviewDetail.changedFiles} files changed`
     : undefined);
@@ -380,6 +386,7 @@
 
   let showSubmit = $state(false);
   let activityFeedRef: ActivityFeed | null = $state(null);
+  let pageComposerRef: ReturnType<typeof PageComposer> | null = $state(null);
   let refreshingPr = $state(false);
   // Owned here so a typed summary survives closing/reopening the review popover.
   let submitEvent = $state<DraftReview["event"]>("COMMENT");
@@ -450,6 +457,34 @@
   // Popped-out mode redirects the Diff tab to Activity + pane (effect below);
   // mounting the inline panel there would keep a full hidden duplicate of the
   // popped-out diff (a second CodeView and parsed patch) alive for the tab's life.
+  // The pull request's move, in the chrome band once Activity's rail has
+  // folded under the title and its status card with it. The fold is the
+  // pane's own width (the rail's rung, less the content gutter), so the band
+  // answers it whether or not Activity is mounted; the reading is Activity's,
+  // handed up as it changes, because the reviewers it needs are read there.
+  let paneEl = $state<HTMLElement | null>(null);
+  let paneWidth = $state(0);
+  $effect(() => {
+    if (!paneEl) return;
+    return observeContainerWidth(paneEl, (width) => (paneWidth = width));
+  });
+  const railFolded = $derived(isRailFoldedInPane(paneWidth));
+  let readiness = $state<MergeReadiness | null>(null);
+  const indexedPullRequest = $derived(
+    pullRequests.projects.get(getApi(), serverId, prCtx()).get(target.number),
+  );
+  async function runBandAgentAction(action: MergeAction): Promise<void> {
+    if (action.kind === "resolve-conflicts")
+      await session.prReview.startConflictResolverSession(
+        { number: target.number, title: reviewDetail?.title ?? target.title },
+        { ctx: prCtx() },
+      );
+    else if (action.kind === "fix-checks")
+      await openFixChecks(
+        orderedChecks(pullRequests.checks.summaryFor(serverId, prCtx(), target.number)).filter(isFailing),
+      );
+  }
+
   let mountedDiff = $state(untrack(() => sub === "diff" && (headless || embedded)));
   let mountedActivity = $state(untrack(() => sub === "activity"));
   let mountedMap = $state(untrack(() => sub === "map"));
@@ -647,6 +682,45 @@
     await openFixDraft(buildPrCommentsFixPrompt(target, feedback));
   }
 
+  // Activity counts the conversation comments as well as the threads; until it
+  // has mounted, the threads are what this pane knows.
+  let activityFeedbackCount = $state<number | null>(null);
+  const feedbackCount = $derived(activityFeedbackCount ?? review.unresolvedCount);
+  let draftingCommentFixes = $state(false);
+
+  async function draftCommentFixes() {
+    if (draftingCommentFixes) return;
+    draftingCommentFixes = true;
+    try {
+      await openFixComments();
+    } finally {
+      draftingCommentFixes = false;
+    }
+  }
+
+  // The store shows each host write at once on the pull request every surface
+  // reads, and takes it back if the host refuses.
+  async function updateLifecycle(action: PrStateAction): Promise<void> {
+    if (!reviewDetail) return;
+    await indexedPullRequest.updateLifecycle(action, reviewDetail.headSha);
+  }
+
+  async function revertPullRequest(): Promise<void> {
+    const revert = await indexedPullRequest.revert();
+    const ctx = prCtx();
+    toasts.success("Revert pull request opened", {
+      description: `#${revert.number}`,
+      action: {
+        label: "Open",
+        onAction: () =>
+          void session.prReview.openPullRequest(
+            { number: revert.number, url: revert.url },
+            { ctx, serverId },
+          ),
+      },
+    });
+  }
+
   async function openFixChecks(checks: PrFailingCheck[]) {
     await openFixDraft(buildPrChecksFixPrompt(target, checks));
   }
@@ -753,6 +827,20 @@
   <PrCheckoutButton {preparingComposer} disabled={!pr} onclick={() => void openPrComposer()} />
 {/snippet}
 
+<!-- The merge control, last of the band's verbs, only while the rail has no
+     column to hold its status card. -->
+{#snippet mergeButton()}
+  {#if railFolded && readiness}
+    <PrPrimaryAction
+      number={target.number}
+      pullRequest={indexedPullRequest}
+      {readiness}
+      onAgentAction={runBandAgentAction}
+      layout="band"
+    />
+  {/if}
+{/snippet}
+
 {#snippet reviewButton()}
   {#if pr && reviewDetail?.state === "open" && reviewDetail.viewerPermissions.reviewVerdicts.length > 0}
     <PrReviewButton draftCount={drafts.length} bind:open={showSubmit}>
@@ -778,30 +866,37 @@
 <!-- The overflow both header shapes hand their occasional commands to: the
      branch name leads it, the tab's own commands sit under the rule. -->
 {#snippet overflowMenu()}
-  <PrPanelOverflowMenu
-    tab={sub}
+  <PrOverflowMenu
+    detail={reviewDetail}
+    hostName={target.host}
+    headRef={pr?.headRef ?? summary?.headRef}
+    {prUrl}
+    onOpenPage={prUrl ? openPr : undefined}
     onRefresh={() => void refreshPr()}
     refreshing={refreshingPr}
-    onOpenPage={prUrl ? openPr : undefined}
-    guide={guideHeaderActions}
-    headRef={pr?.headRef ?? summary?.headRef}
+    onAskQuestion={() => void openPrComposer(buildPrQuestionDraft(target))}
+    askQuestionBusy={preparingComposer}
+    onFixComments={feedbackCount > 0 ? () => void draftCommentFixes() : undefined}
+    fixCommentsBusy={draftingCommentFixes}
+    {guideStatus}
+    onOpenGuide={sub === "guide" ? undefined : () => select("guide")}
+    onGenerateGuide={reviewDetail?.state === "open" && !reviewDetail.draft
+      ? generateGuide
+      : undefined}
+    onLifecycleAction={updateLifecycle}
+    onRevert={revertPullRequest}
   />
 {/snippet}
 
-<section class="flex h-full min-h-0 flex-col bg-background">
+<section bind:this={paneEl} class="flex h-full min-h-0 flex-col bg-background">
   {#if embedded}
     <PrPanelHeader
       number={target.number}
-      headRef={pr?.headRef ?? summary?.headRef}
-      tab={sub}
       {fullScreen}
       {onToggleFullScreen}
-      onOpenPage={prUrl ? openPr : undefined}
       onClose={exit}
-      onRefresh={() => void refreshPr()}
-      refreshing={refreshingPr}
-      guide={guideHeaderActions}
-        tabs={panelTabs}
+      tabs={panelTabs}
+      menu={overflowMenu}
     >
       <!-- The band keeps the actions you take in the moment — Review, which
            submits a verdict with the pending drafts, and Check out, which
@@ -812,6 +907,7 @@
         <PrStackMenu pullRequest={reviewDetail} {serverId} {projectCtx} onOpen={onOpenPullRequest} />
         {@render reviewButton()}
         {@render checkoutButton()}
+        {@render mergeButton()}
       {/snippet}
     </PrPanelHeader>
   {:else if !headless}
@@ -830,9 +926,10 @@
         <PrStackMenu pullRequest={reviewDetail} {serverId} {projectCtx} onOpen={onOpenPullRequest} />
         {@render reviewButton()}
         {@render checkoutButton()}
-        <!-- The same overflow the panel band carries, so refresh, external
-             host navigation, and guide rewrite (with its stale dot) are one
-             object in one place whichever shape the review takes. -->
+        {@render mergeButton()}
+        <!-- The same overflow the panel band carries, so the pull request's
+             occasional commands are one object in one place whichever shape
+             the review takes. -->
         {@render overflowMenu()}
         <FrameExpandButton variant="projectPanel" size="header" />
       {/snippet}
@@ -980,14 +1077,12 @@
           addressCommentsReady={!!pr && review.checkoutStatus !== "preparing"}
           onAddressComments={() => openFixComments()}
           onFixChecks={openFixChecks}
-          generationStatus={visibleGuideStatus}
-          onOpenGuide={() => select("guide")}
-          onGenerateGuide={generateGuide}
           onRefreshThreads={() => loadThreads(true)}
           {onRefreshTarget}
-          showRemoteLink
-          onAskQuestion={() => void openPrComposer(buildPrQuestionDraft(target))}
-          askQuestionBusy={preparingComposer}
+          onCommentComposerOpen={() => pageComposerRef?.foldComposer()}
+          onReadiness={(reading) => (readiness = reading)}
+          onFeedbackCount={(count) => (activityFeedbackCount = count)}
+          menu={headless ? overflowMenu : undefined}
           onJump={jumpToDiff}
           onOpenCommit={openCommitDiff}
           masthead={headless || embedded ? undefined : detailMasthead}
@@ -995,10 +1090,12 @@
         {/key}
       </div>
     {/if}
-    <!-- The glyph centres on Activity's comment bar: a 50px pill with 22px
-         under it (CommentPostingBar), so its middle is 47px up. -->
+    <!-- The agent orb, in the corner. Activity's comment orb sits to its
+         left at the same foot (ActivityFeed). -->
     {#if pr && !headless}
       <PageComposer
+        bind:this={pageComposerRef}
+        onOpen={() => activityFeedRef?.foldCommentComposer()}
         paneId={paneId ?? session.router.focusedPaneId}
         aim={{ withoutTask: true, serverId }}
         cwd={projectScopeOf(review.ctx.session) || undefined}
@@ -1007,7 +1104,6 @@
         {onAttachFile}
         {onScreenshot}
         label="Work with this pull request"
-        class="bottom-[max(27px,env(safe-area-inset-bottom,0px))] pointer-coarse:bottom-[max(23px,env(safe-area-inset-bottom,0px))]"
       />
     {/if}
   </div>

@@ -10,7 +10,8 @@
   import type { Snippet } from "svelte";
   import { MiddleTruncate } from "../ui/middle-truncate";
   import { Skeleton } from "../ui/skeleton";
-  import ChangeBreakdownParts from "../prs/ChangeBreakdownParts.svelte";
+  import { ChangeBreakdown } from "../ui/change-breakdown";
+  import * as TooltipUI from "../ui/tooltip";
   import { changeBlocks } from "./lib/change-blocks";
 
   /**
@@ -31,8 +32,9 @@
    * identifying suffix survive. The receipt shows in place of the copy glyph.
    *
    * `breakdown` splits the churn into code, tests, mocks, generated files, and
-   * docs, so a reviewer sees how much of the change is logic. It is empty when
-   * the change is one kind, and then no split shows.
+   * docs, so a reviewer sees how much of the change is logic. It shows in the
+   * counts' tooltip; it is empty when the change is one kind, and then the
+   * counts have no tooltip.
    */
   let {
     headBranch,
@@ -123,11 +125,29 @@
     {#if filesLoading}
       <Skeleton class="h-3 w-16 rounded bg-muted" />
     {:else if hasChurn}
-      <!-- The counts, then the same ratio as a short row of squares. -->
-      <span class="font-mono">
-        <span class="text-(--solus-art-positive)">+{additions}</span>
-        <span class="text-(--solus-art-negative)">−{deletions}</span>
-      </span>
+      <!-- The counts, then the same ratio as a short row of squares. The
+           split by kind is in the counts' tooltip, as T3 Code shows it; the
+           counts take focus only when there is a split to show. -->
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button
+              {...tooltipProps}
+              type="button"
+              class="cursor-default rounded-sm border-0 bg-transparent p-0 font-mono focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+              tabindex={breakdown.length > 0 ? 0 : -1}
+            >
+              <span class="text-(--solus-art-positive)">+{additions}</span>
+              <span class="text-(--solus-art-negative)">−{deletions}</span>
+            </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        {#if breakdown.length > 0}
+          <TooltipUI.Content side="bottom">
+            <ChangeBreakdown parts={breakdown} total={{ additions, deletions }} />
+          </TooltipUI.Content>
+        {/if}
+      </TooltipUI.Root>
       <span class="flex shrink-0 gap-0.5" aria-hidden="true">
         {#each blocks as block, index (index)}
           <span
@@ -142,10 +162,4 @@
     {/if}
   </dd>
 
-  {#if !filesLoading && breakdown.length > 0}
-    <dt class="sr-only">Changes by kind</dt>
-    <dd class="col-start-2 min-w-0">
-      <ChangeBreakdownParts parts={breakdown} />
-    </dd>
-  {/if}
 </dl>

@@ -285,7 +285,7 @@ export function installedStatus(integration: Pick<Integration, 'id' | 'auth'>, c
   const connection = connections.byIntegration.get(integration.id)
   if (connection?.status === 'connected') {
     const label = connection.label ?? connection.info?.displayName ?? connection.info?.email ?? null
-    if (connection.source === 'cloud') return { text: label ? `Connected in your Solus account as ${label}` : 'Connected in your Solus account', tone: 'muted', action: null }
+    if (connection.source === 'cloud') return { text: 'Connected to your Solus account', tone: 'muted', action: null }
     return { text: label ? `Connected as ${label}` : 'Connected', tone: 'muted', action: null }
   }
   if (isMissingOAuthClient(integration)) return { text: 'Needs an OAuth client', tone: 'danger', action: null }

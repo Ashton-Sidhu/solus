@@ -88,15 +88,24 @@ export interface SessionPullRequestInput {
   by: Attribution
 }
 
+const endedBranchRowSchema = z.object({ repository: z.string(), number: z.number() })
+
 /**
  * Link a pull request to a session. Idempotent: linking a linked pull request
  * changes nothing and returns false.
+ *
+ * A session holds one `branch` row, and it follows the branch: a new branch
+ * discovery replaces the session's branch rows whose pull request has ended
+ * (merged, closed, or gone), as a thread's detected pull request does in T3
+ * Code. A branch row that is still open stays; so does every explicit row and
+ * every tombstone.
  */
 export async function linkSessionPullRequest(sessionId: string, input: SessionPullRequestInput): Promise<boolean> {
   const identity = pullRequestIdentityOf(input.url)
   if (!identity) throw new Error('A session pull request link needs the full URL of the pull request.')
   const organizationId = await organizationOfSession(sessionId)
   const title = input.title?.trim() ?? ''
+  const replaced: Array<{ repository: string; number: number }> = []
   const changed = await getDatabase().transaction(async (db) => {
     const stored = z.object({ source: z.enum(SOURCES) }).nullish().parse(await db.get(sql`
       SELECT source FROM ${sessionPullRequests}
@@ -114,6 +123,13 @@ export async function linkSessionPullRequest(sessionId: string, input: SessionPu
       `)
       return true
     }
+    if (source === 'branch') {
+      const ended = sql`session_id = ${sessionId} AND source = 'branch' AND pr_state IN ('merged', 'closed', 'missing')`
+      replaced.push(...endedBranchRowSchema.array().parse(await db.all(sql`
+        SELECT repository, number FROM ${sessionPullRequests} WHERE ${ended}
+      `)))
+      if (replaced.length) await db.run(sql`DELETE FROM ${sessionPullRequests} WHERE ${ended}`)
+    }
     await db.run(sql`
       INSERT INTO ${sessionPullRequests}(
         session_id, repository, number, url, title, source, created_by, linked_at, organization_id
@@ -124,6 +140,7 @@ export async function linkSessionPullRequest(sessionId: string, input: SessionPu
     `)
     return true
   })
+  for (const row of replaced) await stopPullRequestWatch(sessionId, row.repository, row.number)
   if (changed) emitChanged(sessionId)
   return changed
 }

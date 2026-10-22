@@ -1,5 +1,6 @@
 import { spawn } from 'child_process'
 import { homedir } from 'os'
+import { join } from 'path'
 import { Options, query, type CanUseTool, type PermissionMode as SdkPermissionMode, type Query } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { TurnInputChannel } from './claude-turn-input'
@@ -160,6 +161,12 @@ export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
   }
   if (seat.envToken) env.CLAUDE_CODE_OAUTH_TOKEN = seat.envToken
   return env
+}
+
+/** The folder the CLI reads as `~/.claude` for a seat: where its user skills and plugins are. */
+export function claudeConfigDir(seat?: ClaudeSeat): string {
+  const env = claudeEnv(seat)
+  return env.CLAUDE_CONFIG_DIR?.trim() || join(env.HOME ?? homedir(), '.claude')
 }
 
 /**
@@ -455,7 +462,7 @@ export class ClaudeAgent {
    * in which `supportedCommands()` is available — drives it to init, reads the
    * commands, then tears it down. No turn is ever sent.
    */
-  async supportedCommands(opts: { cwd: string; model?: string | null }): Promise<AgentSlashCommand[]> {
+  async supportedCommands(opts: { cwd: string; model?: string | null; seat?: ClaudeSeat }): Promise<AgentSlashCommand[]> {
     const abortController = new AbortController()
     // Streaming input mode (an async-iterable prompt) is required for
     // `supportedCommands()`. This input yields no turn — it just stays open
@@ -475,7 +482,7 @@ export class ClaudeAgent {
         settingSources: ['user', 'project'],
         pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
         plugins: [{type: 'local', path: solusPluginsDir()}],
-        env: claudeEnv(),
+        ...claudeLaunch(opts.seat),
       },
     })
     // Drive the subprocess so the init handshake completes; messages are ignored.

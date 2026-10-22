@@ -6,7 +6,6 @@
 	/>
 </svelte:head>
 
-<div class="grain" aria-hidden="true"></div>
 
 <main class="max-w-[640px] mx-auto px-6 py-24">
 	<a
