@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { createServer } from 'node:net'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 
 const backend = process.argv[2] || 'x11'
 if (!['x11', 'wayland'].includes(backend)) throw new Error('Choose x11 or wayland.')
@@ -22,19 +22,23 @@ async function unusedPort() {
   await new Promise(done => probe.close(done))
   return port
 }
+// The host's session paths when it has them (a desktop login); a private one on a headless runner.
+const runtimeDir = process.env.XDG_RUNTIME_DIR || (existsSync(`/run/user/${process.getuid()}`) ? `/run/user/${process.getuid()}` : join(scratch, 'runtime'))
+await mkdir(runtimeDir, { recursive: true, mode: 0o700 })
+const sessionBus = process.env.DBUS_SESSION_BUS_ADDRESS || (existsSync(join(runtimeDir, 'bus')) ? `unix:path=${join(runtimeDir, 'bus')}` : undefined)
 const env = {
   PATH: process.env.PATH, HOME: process.env.HOME, USER: process.env.USER, LANG: 'en_US.UTF-8',
   DISPLAY: process.env.DISPLAY || ':0', WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || 'wayland-1',
-  XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || '/run/user/1000',
+  XDG_RUNTIME_DIR: runtimeDir,
   XDG_SESSION_TYPE: backend === 'wayland' ? 'wayland' : 'x11',
   XDG_CURRENT_DESKTOP: process.env.XDG_CURRENT_DESKTOP || 'Hyprland',
-  DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || 'unix:path=/run/user/1000/bus',
   XDG_CONFIG_HOME: join(scratch, 'config'), XDG_CACHE_HOME: join(scratch, 'cache'), XDG_DATA_HOME: join(scratch, 'data'),
   CODEX_HOME: join(scratch, 'codex'), CLAUDE_CONFIG_DIR: join(scratch, 'claude'),
   SOLUS_SKIP_ONBOARDING: '1', SOLUS_TEST_MODE: '0', SOLUS_DATA_DIR: join(scratch, 'server'), SOLUS_DEV_LOG: join(evidence, 'server.log'),
   SOLUS_PORT: String(await unusedPort()), SOLUS_TUNNEL_PORT: String(await unusedPort()), SOLUS_DB: 'sqlite', SOLUS_NO_LAN_DISCOVERY: '1',
   ELECTRON_ENABLE_LOGGING: '1',
 }
+if (sessionBus) env.DBUS_SESSION_BUS_ADDRESS = sessionBus
 if (appImage && process.env.APPIMAGE_EXTRACT_AND_RUN) env.APPIMAGE_EXTRACT_AND_RUN = process.env.APPIMAGE_EXTRACT_AND_RUN
 await mkdir(env.CODEX_HOME, { recursive: true })
 await mkdir(env.CLAUDE_CONFIG_DIR, { recursive: true })
@@ -148,12 +152,15 @@ try {
   console.log(JSON.stringify({ ok: true, backend, evidence, checks }))
 } catch (error) {
   console.error(error)
+  // The app's own output says why it did not start; CI shows only this log.
+  console.error('--- app output (last 200 lines) ---\n' + errors.join('').split('\n').slice(-200).join('\n'))
   if (page) {
     await page.screenshot({ animations: 'disabled', timeout: 5000, path: join(evidence, 'failure.png') }).catch(() => {})
     await writeFile(join(evidence, 'failure.txt'), await page.locator('body').innerText({ timeout: 2000 }).catch(() => 'No renderer'))
   }
   process.exitCode = 1
 } finally {
+  await writeFile(join(evidence, 'stderr.log'), errors.join(''))
   if (second?.exitCode === null) {
     const ended = new Promise(done => second.once('exit', done))
     const deadline = setTimeout(() => second.kill('SIGKILL'), 5000)
@@ -165,12 +172,15 @@ try {
     const ended = new Promise(done => owned.once('exit', done))
     // The group was created by this harness. AppImage may have a launcher parent.
     const deadline = setTimeout(() => { try { process.kill(-owned.pid, 'SIGKILL') } catch {} }, 5000)
-    process.kill(desktopPid, 'SIGTERM')
-    await ended
+    try {
+      process.kill(desktopPid, 'SIGTERM')
+      await ended
+    } catch {
+      // It exited before its exit event arrived.
+    }
     clearTimeout(deadline)
   }
   if (browser) await browser.close().catch(() => {})
   console.log(JSON.stringify({ phase: 'closed', pid: owned?.pid, exitCode: owned?.exitCode, signal: owned?.signalCode }))
-  await writeFile(join(evidence, 'stderr.log'), errors.join(''))
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 }
