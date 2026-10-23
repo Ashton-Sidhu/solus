@@ -159,6 +159,10 @@ export class CodexAppServerClient extends EventEmitter {
     this.proc = proc
     this.buffer = ''
 
+    proc.stdin.on('error', err => {
+      log.warn('app_server_pipe_failed', { error: err.message })
+      this.rejectAll(err)
+    })
     proc.stdout.setEncoding('utf8')
     proc.stdout.on('data', (chunk) => this.onStdout(chunk))
     proc.stderr.setEncoding('utf8')
@@ -172,7 +176,7 @@ export class CodexAppServerClient extends EventEmitter {
       // client started forever, so the next request could not try again.
       if (this.proc === proc) this.proc = null
       this.rejectAll(err)
-      this.emit('error', err)
+      if (this.listenerCount('error') > 0) this.emit('error', err)
     })
     proc.on('exit', (code, signal) => {
       log.warn('app_server_exited', { code, signal })
@@ -182,7 +186,10 @@ export class CodexAppServerClient extends EventEmitter {
       this.emit('exit', code, signal)
       if (!this.stopped && !this.didRestart) {
         this.didRestart = true
-        this.ensureStarted().catch((restartErr) => this.emit('error', restartErr))
+        this.ensureStarted().catch((restartErr) => {
+          log.warn('app_server_restart_failed', { error: restartErr instanceof Error ? restartErr.message : String(restartErr) })
+          if (this.listenerCount('error') > 0) this.emit('error', restartErr)
+        })
       }
     })
 
