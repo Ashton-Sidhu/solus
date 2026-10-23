@@ -18,8 +18,9 @@ A diagram that does not parse never shows an empty card. The block stays as
 source, with the parser's message under it, and Copy still works.
 
 The same `FencedBlock` renders replies, subagent transcripts, and subagent
-reports, and the web client mounts the same component. Desktop, web, and mobile
-draw the same diagram. Both providers emit plain markdown; nothing changes at
+reports, and the web client mounts the same component. Desktop and web
+draw the same diagram. The native mobile Markdown renderer is separate and
+does not use this rendering path. Both providers emit plain markdown; nothing changes at
 the agent boundary.
 
 ## In a document or plan
@@ -41,46 +42,27 @@ label and keeps its source text.
 For other code blocks, select **mermaid** in the language menu to render the
 diagram at once. Select **Show as code** to keep it as source; that choice
 survives save and reopen. The dropdown uses the shared workspace menu.
-Works, plans, and Markdown files support Mermaid on desktop, web, and mobile.
+Works, plans, and Markdown files use this renderer on desktop and web.
 
 ## Rendering
 
-Two renderers draw a diagram. `renderMermaid` in
-`conversation/lib/mermaid-block.ts` chooses one; replies and documents both
-call it.
+All diagrams use Mermaid through `renderMermaid` in
+`conversation/lib/mermaid-block.ts`. Replies and documents use the same renderer.
 
-**beautiful-mermaid, in a worker.** Flowcharts, state, sequence, class, ER, and
-xy-chart diagrams go to beautiful-mermaid
-(`conversation/lib/mermaid-svg.worker.ts`). It needs no DOM, so layout and SVG
-assembly run off the main thread in a few milliseconds. Its colours are Solus
-theme variables, so the SVG follows a theme flip without a new render, and the
-result is cached by source alone. Before the SVG goes inline,
-`scopeDiagramSvg` (`conversation/lib/mermaid-svg.ts`) removes the library's web
-font import, wraps each style block in `@scope` so it styles only its own SVG,
-and prefixes every marker id so that two diagrams never share one. Every
-colour is set explicitly: the library falls back to `var(--accent)` and
-`var(--border)`, which would inherit shadcn's variables of the same names.
-The worker starts while a mermaid fence is still streaming, so the layout
-engine is warm when the fence closes. This renderer does not report most syntax
-errors: a malformed diagram of a supported type can draw in part rather than
-stay as source.
+Mermaid runs in a hidden same-origin iframe
+(`conversation/lib/mermaid-frame.ts`). Its text measurements affect only that
+small document, rather than the full workspace. The iframe still uses the main
+thread; it reduces layout work but does not move rendering to a worker.
 
-**Mermaid, in a hidden frame.** Every other diagram (gantt, pie, mindmap, a
-diagram with frontmatter or a `%%{init}%%` directive), and any diagram the
-worker cannot parse, goes to Mermaid. Mermaid wraps a label by measuring it
-word by word, and each measurement forces a style recalculation of the whole
-document it is in. In the workspace that cost about 4 ms per measurement and
-half a second per diagram. Mermaid therefore runs in its own realm, in a hidden
-same-origin frame (`conversation/lib/mermaid-frame.ts`) whose document holds
-only the diagram, and returns the SVG string. It loads only when a diagram
-needs it. `initialize` runs once per theme, not per diagram. Renders run one at
-a time because Mermaid's configuration is global, and the result is cached by
-theme and source. The security level is `strict` and Mermaid's own error
-graphic is suppressed.
+The renderer loads once, on demand. A streaming Mermaid fence starts loading it
+before the closing fence arrives. Conversation diagrams render only near the
+viewport, so hidden tabs do not queue diagrams ahead of the visible tab.
+Results are cached by source and theme. Reopening a diagram or returning to a
+previous theme reuses the result. Renders run one at a time because Mermaid's
+configuration is global; `initialize` runs only when the theme changes.
 
-Either way, a block starts its render only when it comes within a screen of the
-viewport: every tab stays mounted, and diagrams in tabs the reader is not
-looking at must not queue ahead of the one they are.
+The security level is `strict`. Mermaid's own error graphic is suppressed;
+parse errors leave the source and an error message visible.
 
 A diagram that Mermaid draws is made to look like a Solus diagram work. The values come
 from the diagram canvas (`DiagramNode`, `DiagramGroupNode`, `DiagramEdge`,

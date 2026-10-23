@@ -8,6 +8,7 @@
 
 import { z } from 'zod'
 import { resourceRoleSchema } from './sharing'
+import { firstPartyClientIdSchema } from './first-party-clients'
 
 /**
  * How an integration authenticates (§3.2). `none`: tools work for everyone; `oauth`
@@ -28,6 +29,12 @@ export const integrationAuthSchema = z.discriminatedUnion('kind', [
     clientId: z.string().min(1).optional(),
     /** True when the owner also saved a client secret. The secret itself never leaves the host. */
     hasClientSecret: z.boolean().optional(),
+    /**
+     * The server's authorization server is one Solus registered an app with
+     * (§13.1): sign-in goes through that app and the person enters no client.
+     * The owner's own client, when saved, still wins.
+     */
+    firstParty: firstPartyClientIdSchema.optional(),
   }),
   z.object({
     kind: z.literal('bearer'),
@@ -36,8 +43,27 @@ export const integrationAuthSchema = z.discriminatedUnion('kind', [
 ])
 export type IntegrationAuth = z.infer<typeof integrationAuthSchema>
 
-export const integrationKindSchema = z.literal('mcp')
+/**
+ * `mcp`: a remote MCP server at an HTTPS URL. `solus`: an MCP server Solus
+ * writes and runs inside the host (§13.6), for a service with no usable one;
+ * its `url` is the address `solus:<server id>`.
+ */
+export const integrationKindSchema = z.enum(['mcp', 'solus'])
 export type IntegrationKind = z.infer<typeof integrationKindSchema>
+
+const SOLUS_ADDRESS_PREFIX = 'solus:'
+
+/** The address of a Solus MCP server (§13.6), in place of a URL. */
+export const solusServerAddressSchema = z.string().regex(/^solus:[a-z0-9]+(?:-[a-z0-9]+)*$/)
+
+export function solusServerAddress(serverId: string): string {
+  return `${SOLUS_ADDRESS_PREFIX}${serverId}`
+}
+
+/** The Solus server an address names, or null for an HTTPS URL. */
+export function solusServerIdOf(address: string): string | null {
+  return solusServerAddressSchema.safeParse(address).success ? address.slice(SOLUS_ADDRESS_PREFIX.length) : null
+}
 
 /**
  * A root record (§3.3). Every integration is one person's (docs/plans/access-model.md,
@@ -79,6 +105,10 @@ export const catalogEntrySchema = z.object({
   categories: z.array(z.string()),
   popularity: z.number().nullable(),
   url: z.string().min(1),
+  /** Set on an entry of the Solus catalog (§13.5); absent on the feed's. */
+  source: z.literal('solus').optional(),
+  /** The vendor's page for creating the OAuth client or the key the server needs (§13.5). */
+  authHelp: z.string().optional(),
 })
 export type CatalogEntry = z.infer<typeof catalogEntrySchema>
 
@@ -160,13 +190,16 @@ export const integrationUrlSchema = z.string().trim().max(4096).refine((value) =
 
 const integrationNameSchema = z.string().trim().min(1).max(200)
 
-export const integrationProbeRequestSchema = z.object({ url: integrationUrlSchema }).strict()
+/** An address a person may add: an HTTPS URL, or a Solus MCP server's address from the catalog. */
+export const integrationAddressSchema = z.union([integrationUrlSchema, solusServerAddressSchema])
+
+export const integrationProbeRequestSchema = z.object({ url: integrationAddressSchema }).strict()
 export type IntegrationProbeRequest = z.infer<typeof integrationProbeRequestSchema>
 
 /** The server derives `slug` from `name` when it is absent. */
 export const integrationCreateRequestSchema = z.object({
   name: integrationNameSchema,
-  url: integrationUrlSchema,
+  url: integrationAddressSchema,
   slug: z.string().trim().min(1).max(40).optional(),
 }).strict()
 export type IntegrationCreateRequest = z.infer<typeof integrationCreateRequestSchema>
@@ -226,7 +259,11 @@ export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
 /** True when the entry is in the Solus category. */
 export function catalogEntryInCategory(entry: Pick<CatalogEntry, 'categories'>, categoryId: CatalogCategoryId): boolean {
   const feed = CATALOG_CATEGORIES.find((category) => category.id === categoryId)?.feed ?? []
-  return entry.categories.some((name) => feed.includes(name.trim().toLowerCase()))
+  // A Solus catalog entry names the Solus category itself; a feed entry names the feed's.
+  return entry.categories.some((name) => {
+    const normalized = name.trim().toLowerCase()
+    return normalized === categoryId || feed.includes(normalized)
+  })
 }
 
 export const integrationCatalogListRequestSchema = z.object({
@@ -265,8 +302,28 @@ export type IntegrationConnectionStatus = z.infer<typeof integrationConnectionSt
  * The caller's own connection to one integration. It never carries the token:
  * the token stays in the host secret store (§4.1 rule 3).
  */
+/** The account every person's first connection to an integration is (§13.3). */
+/**
+ * The input Solus adds to a tool when the person has several accounts (§13.3).
+ * Prefixed, so a server's own `account` argument still reaches the server.
+ */
+export const ACCOUNT_INPUT = 'solus_account'
+
+export const DEFAULT_INTEGRATION_ACCOUNT = 'default'
+
+/** True for the person's first account. A host from before §13.3 sends no `accountId`: its one connection is the first. */
+export function isFirstIntegrationAccount(connection: { accountId?: string }): boolean {
+  return !connection.accountId || connection.accountId === DEFAULT_INTEGRATION_ACCOUNT
+}
+
 export const integrationConnectionSchema = z.object({
   integrationId: z.string().min(1),
+  /**
+   * Which of the person's accounts on this integration (§13.3): `default` for
+   * the first, a minted id for each one added after it. A host from before
+   * this field sends none.
+   */
+  accountId: z.string().min(1).max(64).default(DEFAULT_INTEGRATION_ACCOUNT),
   status: integrationConnectionStatusSchema,
   /**
    * Where the credential lives (plans/020-agent-profile.md §5): on this host, or
@@ -304,7 +361,8 @@ export const integrationConnectStartResultSchema = z.discriminatedUnion('kind', 
     input: z.enum(['callback', 'redirect-url']),
     expiresAt: z.string(),
   }),
-  z.object({ kind: z.literal('token'), integrationId: z.string().min(1) }),
+  /** `accountId`: the account the key is for, so the submit names it (§13.3). */
+  z.object({ kind: z.literal('token'), integrationId: z.string().min(1), accountId: z.string().min(1).optional() }),
   z.object({ kind: z.literal('connected'), connection: integrationConnectionSchema }),
 ])
 export type IntegrationConnectStartResult = z.infer<typeof integrationConnectStartResultSchema>
@@ -313,6 +371,10 @@ export type IntegrationConnectStartResult = z.infer<typeof integrationConnectSta
 export const integrationConnectStartRequestSchema = z.object({
   id: z.string().min(1),
   callbackBaseUrl: z.string().min(1).max(4096).optional(),
+  /** The account to sign in again; left out, the first. */
+  accountId: z.string().min(1).max(64).optional(),
+  /** True to connect one more account (§13.3); the host names it. */
+  newAccount: z.boolean().optional(),
 }).strict()
 export type IntegrationConnectStartRequest = z.infer<typeof integrationConnectStartRequestSchema>
 
@@ -323,6 +385,8 @@ export type IntegrationConnectStartRequest = z.infer<typeof integrationConnectSt
 export const integrationConnectSubmitRequestSchema = z.object({
   flowId: z.string().min(1).optional(),
   id: z.string().min(1).optional(),
+  /** With `id`: the account the key is for; left out, the first. */
+  accountId: z.string().min(1).max(64).optional(),
   value: z.string().trim().min(1).max(8192),
 }).strict().refine((request) => (request.flowId === undefined) !== (request.id === undefined), 'Give a flowId or an integration id, not both')
 export type IntegrationConnectSubmitRequest = z.infer<typeof integrationConnectSubmitRequestSchema>
@@ -330,9 +394,21 @@ export type IntegrationConnectSubmitRequest = z.infer<typeof integrationConnectS
 export const integrationConnectCancelRequestSchema = z.object({ flowId: z.string().min(1) }).strict()
 export type IntegrationConnectCancelRequest = z.infer<typeof integrationConnectCancelRequestSchema>
 
-/** The caller's connection changed. `connection` is null after a disconnect. Delivered to that person's clients only. */
+/** One of the caller's accounts on an integration (§13.3); left out, the first. */
+export const integrationAccountRequestSchema = z.object({
+  id: z.string().min(1),
+  accountId: z.string().min(1).max(64).optional(),
+}).strict()
+export type IntegrationAccountRequest = z.infer<typeof integrationAccountRequestSchema>
+
+/**
+ * The caller's connection changed. `connection` is null after a disconnect,
+ * and `accountId` then names the account that went. Delivered to that
+ * person's clients only.
+ */
 export interface IntegrationConnectionChangedEvent {
   integrationId: string
+  accountId?: string
   connection: IntegrationConnection | null
 }
 

@@ -1,9 +1,11 @@
 import { base64Url } from '@solus/client-core/oauth-session'
+import { ACCESS_TOKEN_TYPE, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, TOKEN_EXCHANGE_GRANT_TYPE } from '@solus/contracts/uplink'
 
 /**
  * A small authorization server for client tests: discovery, the token endpoint
- * (authorization code with PKCE, refresh with `resource` and rotation, replay
- * detection that ends the grant), revocation, and `/userinfo`. It keeps the order of
+ * (authorization code with PKCE; refresh for the servers token, `[account, api]`,
+ * with rotation and replay detection that ends the grant; token exchange of the
+ * servers token for one host's token), revocation, and `/userinfo`. It keeps the order of
  * every call, so a test can say what happened when.
  */
 
@@ -19,6 +21,8 @@ export interface FakeAccountPlaneOptions {
   identity?: { sub: string; email: string; email_verified: boolean; name?: string; picture?: string }
   /** Lets a test hold a refresh until it says so. */
   gateRefresh?: () => Promise<void>
+  /** Lets a test hold an exchange until it says so. */
+  gateExchange?: (resource: string) => Promise<void>
 }
 
 function jwt(payload: object): string {
@@ -33,6 +37,8 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
   const codes = new Map<string, { challenge: string; nonce: string; redirectUri: string }>()
   /** Refresh tokens: true while live. */
   const refreshTokens = new Map<string, boolean>()
+  /** The servers tokens issued, with the refresh token each came from: one is taken while that grant lives. */
+  const serversTokens = new Map<string, string>()
   let serial = 0
   let now = Date.now()
   let isDown = false
@@ -41,6 +47,8 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
   let userinfoName = identity.name
 
   const issueIdToken = (nonce?: string) => jwt({ iss: ISSUER, aud: clientId, exp: Math.floor(now / 1000) + 300, iat: Math.floor(now / 1000), ...identity, ...(nonce ? { nonce } : {}) })
+  /** The grant lives while any refresh token of it does: a sign-out revokes the live one, a replay ends them all. */
+  const grantLives = (): boolean => [...refreshTokens.values()].some(Boolean)
   const newRefreshToken = () => {
     const token = `rt-${++serial}`
     refreshTokens.set(token, true)
@@ -86,11 +94,26 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
             for (const token of refreshTokens.keys()) refreshTokens.set(token, false)
             return json(400, { error: 'invalid_grant' })
           }
-          const resource = form.get('resource') ?? ''
-          const refusal = refusedResources.get(resource)
+          const resources = form.getAll('resource').sort()
+          if (resources.join(' ') !== [ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE].sort().join(' ')) return json(400, { error: 'invalid_target' })
+          const refusal = resources.map((resource) => refusedResources.get(resource)).find(Boolean)
           if (refusal) return json(400, refusal)
           refreshTokens.set(presented, false)
-          return json(200, { access_token: `at-${++serial}-${resource}`, expires_in: 300, refresh_token: newRefreshToken() })
+          const next = newRefreshToken()
+          const accessToken = `at-${++serial}-${ACCOUNT_AUDIENCE}+${SOLUS_API_AUDIENCE}`
+          serversTokens.set(accessToken, next)
+          return json(200, { access_token: accessToken, expires_in: 300, refresh_token: next })
+        }
+        if (form.get('grant_type') === TOKEN_EXCHANGE_GRANT_TYPE) {
+          const resource = form.get('resource') ?? ''
+          await options.gateExchange?.(resource)
+          if (form.get('subject_token_type') !== ACCESS_TOKEN_TYPE) return json(400, { error: 'invalid_request' })
+          const family = serversTokens.get(form.get('subject_token') ?? '')
+          // A grant that ended (sign-out, replay) takes none of its tokens: the next refresh says so.
+          if (!family || !grantLives()) return json(401, { error: 'invalid_token' })
+          const refusal = refusedResources.get(resource)
+          if (refusal) return json(400, refusal)
+          return json(200, { access_token: `at-${++serial}-${resource}`, expires_in: 300 })
         }
         return json(400, { error: 'unsupported_grant_type' })
       }

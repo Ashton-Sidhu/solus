@@ -28,7 +28,7 @@ class ModelRoutingStore {
   private loads = new Map<string, symbol>()
 
   watch(serverId: string): () => void {
-    const stopStatus = serverConnections.onStatusChange((changedId, status) => {
+    const stopStatus = serverConnections.onPhaseChange((changedId, status) => {
       if (changedId === serverId && status === 'connected') void this.load(serverId)
     })
     void this.load(serverId)

@@ -56,7 +56,7 @@ describe('integration connection store', () => {
     store.upsert('int-1', OWNER, { status: 'connected' })
     store.upsert('int-1', 'account:alice', { status: 'connected' })
     store.upsert('int-2', 'account:alice', { status: 'connected' })
-    expect(store.removeAllFor('int-1').sort()).toEqual(['account:alice', OWNER].sort())
+    expect(store.removeAllFor('int-1').map((row) => row.personKey).sort()).toEqual(['account:alice', OWNER].sort())
     expect(store.get('int-1', OWNER)).toBeNull()
     expect(store.get('int-2', 'account:alice')).not.toBeNull()
     expect(store.remove('int-2', 'account:alice')).toBe(true)
@@ -66,6 +66,17 @@ describe('integration connection store', () => {
   test('the projection carries no credential', () => {
     const store = new IntegrationConnectionStore()
     const connection = store.upsert('int-1', 'account:alice', { status: 'connected', label: 'Fake' })
-    expect(Object.keys(connection).sort()).toEqual(['error', 'info', 'integrationId', 'label', 'source', 'status', 'updatedAt'])
+    expect(Object.keys(connection).sort()).toEqual(['accountId', 'error', 'info', 'integrationId', 'label', 'source', 'status', 'updatedAt'])
+  })
+
+  test('a person keeps several accounts on one integration, the first first, each removed alone (§13.3)', () => {
+    const store = new IntegrationConnectionStore()
+    store.upsert('int-1', 'account:alice', { status: 'connected', label: 'work@example.com' })
+    store.upsert('int-1', 'account:alice', { status: 'connected', label: 'me@example.com' }, 'second')
+    expect(store.accounts('int-1', 'account:alice').map((row) => [row.accountId, row.label])).toEqual([['default', 'work@example.com'], ['second', 'me@example.com']])
+    // WHY: disconnecting one account must leave the other connected.
+    expect(store.remove('int-1', 'account:alice', 'second')).toBe(true)
+    expect(store.accounts('int-1', 'account:alice').map((row) => row.accountId)).toEqual(['default'])
+    expect(store.removeAllFor('int-1')).toEqual([{ personKey: 'account:alice', accountId: 'default' }])
   })
 })

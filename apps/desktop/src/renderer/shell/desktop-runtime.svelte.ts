@@ -30,10 +30,10 @@ import { notificationHubStore } from "@solus/workspace-ui/contexts/notifications
 import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
 import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
 import { revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
+import { revealBrowserSurface } from "@solus/workspace-ui/components/browser/lib/surface-reveal";
 import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
 import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
 
-import { connectionState } from "@solus/client-core/connection-state";
 import {
   createReconnectDetector,
   initializeRuntime,
@@ -98,8 +98,8 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   track("app_opened", {});
 
   $effect(() => {
-    const installationId = connectionState.target?.installationId;
-    const appVersion = hosts.get(connectionState.target?.id)?.capabilityRecord?.version;
+    const installationId = serversStore.activeTarget?.installationId;
+    const appVersion = hosts.get(serversStore.activeServerId)?.capabilityRecord?.version;
     if (!installationId || !appVersion) return;
     identifyInstallation(installationId);
     registerSuperProps({ app_version: appVersion });
@@ -196,11 +196,10 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   onMount(() => initializeRuntime(session, sessionSidebarStore));
 
   const detectReconnect = createReconnectDetector(
-    serversStore.connectionStatus,
+    serversStore.connectionPhase,
   );
   $effect(() => {
-    const connectionStatus = serversStore.connectionStatus;
-    const reconnected = detectReconnect(connectionStatus);
+    const reconnected = detectReconnect(serversStore.connectionPhase);
     untrack(() => {
       if (reconnected) {
         refreshTheme(settings.setSystemTheme.bind(settings));
@@ -296,9 +295,8 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       );
       // A browser page an agent opened has nowhere to render until a pane shows
       // it, so the request is answered app-wide rather than by a surface that
-      // may not be mounted. The agent asked, not the user, so it never takes
-      // the place of a surface the user is reading.
-      browserStore.onSurfaceRequested = () => session.openBrowser(undefined, undefined, { automatic: true });
+      // may not be mounted. It is shown beside the asking session's conversation only.
+      browserStore.onSurfaceRequested = (key, sessionId) => revealBrowserSurface(session, key, sessionId);
       // A stopped recording goes to the composer the user is writing in, from
       // whichever entry point stopped it, and when a limit stopped it.
       browserStore.onRecordingSaved = (serverId, result) =>

@@ -2,7 +2,7 @@ import { GIT_DIFF_FILE_BREAK_REGEX, parsePatchFiles, processFile, type FileDiffM
 import type { DiffResult, DiffScope, IpcContext } from '@solus/contracts/types'
 import type { WorkspaceContext } from '../contexts'
 import { loadDiffFiles as loadScopedDiffFiles } from './diff-file-loader'
-import { compactPartialHunkOffsets, patchCacheKey, withRealPaths } from './pierre-diff'
+import { compactPartialHunkOffsets, patchCacheKey } from './pierre-diff'
 import type { HostApi } from '@solus/client-core/host-api'
 import { decodeGitPath } from '@solus/client-core/git-path-name'
 
@@ -72,7 +72,7 @@ export class DiffState {
   patch = $state('')
   // raw, not deep $state: these parsed objects are replaced wholesale (never
   // mutated in place) and are handed to @pierre/diffs, which posts them to its
-  // Shiki tokenizer worker. A deep $state proxy can't be structuredClone'd, so
+  // tokenizer worker. A deep $state proxy can't be structuredClone'd, so
   // postMessage throws DataCloneError and off-thread highlighting silently fails.
   fileDiffs = $state.raw<FileDiffMetadata[]>([])
 
@@ -272,7 +272,7 @@ export class DiffState {
     if (!patch.startsWith('diff --git')) {
       this.fileChunkCache = new Map()
       return parsePatchFiles(patch, patchCacheKey(patch)).flatMap((parsedPatch) =>
-        parsedPatch.files.map((file) => compactPartialHunkOffsets(withRealPaths(file))),
+        parsedPatch.files.map((file) => compactPartialHunkOffsets(file)),
       )
     }
     const nextCache = new Map<string, FileDiffMetadata>()
@@ -283,7 +283,7 @@ export class DiffState {
       if (!file) {
         const parsed = processFile(chunk, { isGitDiff: true, cacheKey: patchCacheKey(chunk) })
         if (!parsed) continue
-        file = compactPartialHunkOffsets(withRealPaths(parsed))
+        file = compactPartialHunkOffsets(parsed)
       }
       nextCache.set(chunk, file)
       files.push(file)

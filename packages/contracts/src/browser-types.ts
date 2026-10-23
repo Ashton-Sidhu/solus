@@ -500,6 +500,9 @@ export interface BrowserAnnotation {
   elements?: BrowserElement[]
   /** The user's words about this mark. */
   note?: string
+  /** The page's scroll offset when the mark was made, so a sent mark can bring
+   *  the page back to where `rect` was measured. */
+  scroll?: { x: number; y: number }
   createdAt: number
   /** The mark's stable ordinal, assigned in click order by the overlay and kept
    *  for the life of the mark — so mark "3" stays "3" after "2" is removed in
@@ -543,6 +546,21 @@ export type BrowserAnnotateOp =
    */
   | { kind: 'mark'; tool: 'draw'; path: { x: number; y: number }[] }
   | { kind: 'mark'; tool: 'region'; rect: { x: number; y: number; width: number; height: number } }
+  /**
+   * Show a sent mark on the page again: scroll to it and draw it until the user
+   * next touches the page. It is never added to the marks, so it cannot come
+   * back into the composer as a new draft.
+   */
+  | {
+      kind: 'reveal'
+      tool: (typeof BROWSER_MARK_TOOLS)[number]
+      pin: number
+      rect: { x: number; y: number; width: number; height: number }
+      path?: { x: number; y: number }[]
+      scroll?: { x: number; y: number }
+      ref?: string
+      identifier?: string
+    }
 
 /** Why a page is not showing what it should, in terms the pane can render. */
 export interface BrowserProblem {

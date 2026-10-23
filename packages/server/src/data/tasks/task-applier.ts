@@ -1,7 +1,6 @@
 import { Task } from './task'
-import { createTask } from './task-store'
 import { PermanentApplyError, registerOutboxApplier } from '../../sync/outbox/outbox-store'
-import type { OutboxOp, TaskLinkSessionOpPayload } from '@solus/contracts/outbox-types'
+import type { OutboxOp } from '@solus/contracts/outbox-types'
 import { z } from 'zod'
 import { attributionSchema, type Attribution } from '@solus/contracts/user'
 import { agentAttribution } from '../stored-attribution'
@@ -19,64 +18,19 @@ const taskStatusPayloadSchema = z.object({
   actor: attributionSchema.optional(),
   actorLabel: z.string().optional(),
 })
-const taskCreatePayloadSchema = z.object({
-  title: z.string(),
-  projectKey: z.string().nullable(),
-  body: z.string(),
-  priority: z.enum(['urgent', 'high', 'medium', 'low']).nullable(),
-  labels: z.array(z.string()).optional(),
-  dueDate: z.string().nullable(),
-  status: taskStatusSchema,
-  originSessionId: z.string().nullable(),
-  createdAt: z.number(),
-})
-const taskLinkPayloadSchema = z.object({
-  kind: z.enum(['work', 'plan', 'pr', 'automation']),
-  targetScope: z.string(),
-  targetKey: z.string(),
-  title: z.string().optional(),
-  url: z.string().optional(),
-  originSessionId: z.string().nullable(),
-  actor: attributionSchema.optional(),
-  actorLabel: z.string().optional(),
-})
-const taskLinkSessionPayloadSchema = z.object({
-  sessionId: z.string(),
-  role: z.enum(['working', 'referenced']),
-})
-
 /** Who an op says did it: its attribution, or for an older op the agent its label or session names. */
 function opActor(payload: { actor?: Attribution; actorLabel?: string }, op: OutboxOp): Attribution {
   return payload.actor ?? agentAttribution(payload.actorLabel ?? op.sessionId)
 }
 
 /**
- * Owner-side writes for `tasks` outbox ops (ADR-0007). Registered on every
- * host — any host can own tasks — and on the workspace service, where a runner's
- * ops land in the runner's organization (cloud-service-model.md §16). Every verb
+ * Owner-side writes for `tasks` outbox ops (ADR-0007): a dispatched session's
+ * comment and status change, applied on the host that owns the task. Every verb
  * survives redelivery: a comment inserts under the op id (`INSERT OR IGNORE`),
- * set-status re-applies to the same value, create writes the row under the op's
- * resource id and skips when it exists, and a link upserts on its target.
+ * and set-status re-applies to the same value.
  */
 export function registerTaskOutboxApplier(): void {
-  registerOutboxApplier('tasks', async (op: OutboxOp, { organizationId, ownerKey }) => {
-    if (op.name === 'create') {
-      const payload = taskCreatePayloadSchema.parse(op.payload)
-      const existing = await Task.byId(organizationId, op.resourceId).catch(() => null)
-      if (existing) return
-      await createTask(organizationId, {
-        title: payload.title,
-        projectKey: payload.projectKey,
-        body: payload.body,
-        priority: payload.priority,
-        labels: payload.labels,
-        dueDate: payload.dueDate,
-        status: payload.status,
-        source: 'agent',
-        originSessionId: payload.originSessionId,
-      }, { id: op.resourceId, now: payload.createdAt }, undefined, ownerKey)
-      return
-    }
+  registerOutboxApplier('tasks', async (op: OutboxOp, { organizationId }) => {
     const task = await taskOrPermanentError(organizationId, op.resourceId)
     if (op.name === 'comment') {
       const payload = taskCommentPayloadSchema.parse(op.payload)
@@ -91,26 +45,6 @@ export function registerTaskOutboxApplier(): void {
     if (op.name === 'set-status') {
       const payload = taskStatusPayloadSchema.parse(op.payload)
       await task.update({ status: payload.status }, opActor(payload, op))
-      return
-    }
-    if (op.name === 'link') {
-      const payload = taskLinkPayloadSchema.parse(op.payload)
-      // A pull request of a session that works on the task is the session's link.
-      if (payload.kind === 'pr' && payload.originSessionId && payload.url
-        && await task.linkWorkingSessionPullRequest(payload.originSessionId, { url: payload.url, title: payload.title }, opActor(payload, op))) return
-      await task.link({
-        kind: payload.kind,
-        targetScope: payload.targetScope,
-        targetKey: payload.targetKey,
-        title: payload.title,
-        url: payload.url,
-        originSessionId: payload.originSessionId,
-      }, opActor(payload, op))
-      return
-    }
-    if (op.name === 'link-session') {
-      const payload: TaskLinkSessionOpPayload = taskLinkSessionPayloadSchema.parse(op.payload)
-      await task.linkSession(payload.sessionId, payload.role)
       return
     }
     // An unknown verb is a version-skew problem a retry may fix once this host

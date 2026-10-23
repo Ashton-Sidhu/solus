@@ -3,9 +3,8 @@ import { createPublicKey, verify } from 'crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { CLIENT_ASSERTION_TYPE, CONTROL_AUDIENCE, HOST_CONTROL_SCOPE, SOLUS_API_CLIENT_ID, type HostPublicJwk } from '@solus/contracts/uplink'
+import { CLIENT_ASSERTION_TYPE, CONTROL_AUDIENCE, HOST_CONTROL_SCOPE, type HostPublicJwk } from '@solus/contracts/uplink'
 import { HostCredentialError, clientCredential, forgetHostKey, generateHostKey, loadHostKey, saveHostKey } from '@solus/server/host/host-credential'
-import { apiModeCredential, resetApiModeForTests } from '@solus/server/host/api-mode'
 
 // docs/adr/0001-standard-authentication.md §2.2 rule 8, §3.4: a host has one
 // credential, a key pair it made itself. It signs client assertions (RFC 7523) with
@@ -103,36 +102,5 @@ describe('the host key in the secret store', () => {
     expect(JSON.parse(readFileSync(join(dataDir, 'secrets', 'host-credential.json'), 'utf8')).privateJwk.d).toBe(key.privateJwk.d)
     forgetHostKey()
     expect(loadHostKey()).toBeNull()
-  })
-})
-
-describe('the Solus API’s service credential', () => {
-  const saved = { SOLUS_API: process.env.SOLUS_API, SOLUS_CLOUD_ISSUER: process.env.SOLUS_CLOUD_ISSUER, SOLUS_CLOUD_JWKS_URL: process.env.SOLUS_CLOUD_JWKS_URL }
-  beforeEach(() => {
-    resetApiModeForTests()
-    Object.assign(process.env, { SOLUS_API: '1', SOLUS_CLOUD_ISSUER: 'https://account.test', SOLUS_CLOUD_JWKS_URL: 'https://account.test/api/auth/jwks' })
-  })
-  afterEach(() => {
-    resetApiModeForTests()
-    for (const [name, value] of Object.entries(saved)) {
-      if (value === undefined) delete process.env[name]
-      else process.env[name] = value
-    }
-  })
-
-  test('is the solus-api client with the configured key, at the issuer’s token endpoint, and leaves the environment', async () => {
-    // WHY: processes this one starts inherit its environment; the key must not travel with them.
-    const key = await generateHostKey()
-    const env: { SOLUS_API_CLIENT_KEY?: string } = { SOLUS_API_CLIENT_KEY: JSON.stringify(key.privateJwk) }
-    const credential = apiModeCredential(env)
-    expect(env.SOLUS_API_CLIENT_KEY).toBeUndefined()
-    expect(credential).toMatchObject({ clientId: SOLUS_API_CLIENT_ID, tokenEndpoint: TOKEN_ENDPOINT })
-    expect(verified(await credential!.assertion(TOKEN_ENDPOINT), key.publicJwk)).toMatchObject({ iss: SOLUS_API_CLIENT_ID, sub: SOLUS_API_CLIENT_ID })
-  })
-
-  test('none configured reads nobody’s account; a value that is not a private P-256 key fails at start', () => {
-    expect(apiModeCredential({})).toBeNull()
-    resetApiModeForTests()
-    expect(() => apiModeCredential({ SOLUS_API_CLIENT_KEY: '{"kty":"EC","crv":"P-256","x":"a","y":"b"}' })).toThrow(/private ES256 JWK/)
   })
 })

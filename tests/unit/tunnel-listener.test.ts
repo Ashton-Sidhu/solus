@@ -16,8 +16,8 @@ const auth = await import('@solus/server/admission/auth')
 // docs/plans/personal-uplink.md H3, the proxied-listener rule: `cloudflared` forwards
 // the tunnel to loopback, and loopback is otherwise trusted. A request that arrived
 // through the tunnel listener therefore gets no relaxation of any kind — not the open
-// bind, not trusted-requester status, and no pairing door at all. And H1: the same
-// `/auth/ws-ticket` accepts a verified grant.
+// bind, not trusted-requester status, and no pairing door at all. And H1: a verified
+// access token admits a socket (docs/plans/simplify-auth-and-sync.md §4.2).
 describe('the tunnel listener', () => {
   const originalDataDir = process.env.SOLUS_DATA_DIR
   let dataDir: string
@@ -44,14 +44,15 @@ describe('the tunnel listener', () => {
     try {
       const health = await getJson(`${baseUrl}/health`)
       expect(health.body.requireAuth).toBe(true)
-      // The tunnel is a public URL: only the ticket door, the probe, and signed assets exist there.
+      // The tunnel is a public URL: only the probe, `/v1`, signed assets, and OAuth callbacks exist there.
       expect(health.body.name).toBeUndefined()
       expect(health.body.os).toBeUndefined()
       expect((await fetch(`${baseUrl}/upload`, { method: 'POST' })).status).toBe(404)
       expect((await fetch(`${baseUrl}/endpoints`)).status).toBe(404)
       expect((await fetch(`${baseUrl}/pair`, { method: 'POST', body: '{}' })).status).toBe(404)
       expect((await fetch(`${baseUrl}/pair/open`, { method: 'POST' })).status).toBe(404)
-      expect((await fetch(`${baseUrl}/auth/ws-ticket`, { method: 'POST' })).status).toBe(401)
+      // The ticket door is gone: the socket's handshake carries its credential.
+      expect((await fetch(`${baseUrl}/auth/ws-ticket`, { method: 'POST' })).status).toBe(404)
     } finally {
       await close(server)
     }
@@ -87,49 +88,27 @@ describe('the tunnel listener', () => {
     }
   })
 
-  test('/auth/ws-ticket accepts a verified access token and mints a grant ticket', async () => {
-    const { server, baseUrl } = await listen({
-      requireAuth: () => true,
-      isTunnelRequest: () => true,
+  test("the server's doors admit a verified access token as the owner by grant", async () => {
+    const { doors } = buildHttpServer({
       verifyAccessToken: async (token) => token === 'good-grant'
         ? { ok: true, claims: { iss: 'https://app.example.test', aud: 'abcdefghijklmnop', sub: 'user_1', grant_id: 'grant_1', access: 'owner', jti: 'jti_1', iat: 1, exp: Math.floor(Date.now() / 1000) + 300 } }
         : { ok: false, reason: 'bad-signature' },
     })
-    try {
-      const refused = await fetch(`${baseUrl}/auth/ws-ticket`, { method: 'POST', headers: { authorization: 'Bearer bad-grant' } })
-      expect(refused.status).toBe(401)
-      const accepted = await fetch(`${baseUrl}/auth/ws-ticket`, { method: 'POST', headers: { authorization: 'Bearer good-grant' } })
-      expect(accepted.status).toBe(200)
-      const { ticket } = (await accepted.json()) as { ticket: string }
-      const verified = auth.verifyWsTicket(ticket)
-      expect(verified?.kind).toBe('grant')
-      if (verified?.kind === 'grant') {
-        expect(verified.userId).toBe('user_1')
-        expect(verified.deviceId).toBe('grant_1')
-      }
-    } finally {
-      await close(server)
-    }
+    expect(await doors.admitCredential({ kind: 'access-token', token: 'bad-grant' })).toEqual({ ok: false, reason: 'token-refused' })
+    expect(await doors.admitCredential({ kind: 'access-token', token: 'good-grant' })).toMatchObject({ ok: true, principal: { kind: 'owner', via: 'grant', userId: 'user_1', deviceId: 'grant_1' } })
   })
 
-  test('a client grant the owner revoked on this host earns no ticket', async () => {
+  test('a client grant the owner revoked on this host is refused', async () => {
     // WHY: the Access tab's Revoke on a "Solus cloud" row is the host's own kill
     // switch; it must hold even though the control plane still signs grants.
-    const { server, baseUrl } = await listen({
-      requireAuth: () => true,
-      isTunnelRequest: () => true,
+    const { doors } = buildHttpServer({
       verifyAccessToken: async () => ({
         ok: true,
         claims: { iss: 'https://app.example.test', aud: 'abcdefghijklmnop', sub: 'user_1', grant_id: 'grant_revoked', access: 'owner', jti: 'jti_2', iat: 1, exp: Math.floor(Date.now() / 1000) + 300 },
       }),
     })
-    try {
-      auth.revokeDevice('grant_revoked')
-      const refused = await fetch(`${baseUrl}/auth/ws-ticket`, { method: 'POST', headers: { authorization: 'Bearer any' } })
-      expect(refused.status).toBe(401)
-    } finally {
-      await close(server)
-    }
+    auth.revokeDevice('grant_revoked')
+    expect(await doors.admitCredential({ kind: 'access-token', token: 'any' })).toEqual({ ok: false, reason: 'device-revoked' })
   })
 })
 

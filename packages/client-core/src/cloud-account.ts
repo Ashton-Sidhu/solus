@@ -1,5 +1,7 @@
 import {
   accountResponseSchema,
+  SOLUS_PROTOCOL,
+  SOLUS_PROTOCOL_HEADER,
   createManagedHostResponseSchema,
   uplinkErrorBodySchema,
   type AccountResponse,
@@ -8,7 +10,7 @@ import {
   type ManagedHostSpecRequest,
 } from '@solus/contracts/uplink'
 import type { SeatProvider } from '@solus/contracts/seats'
-import { ACCOUNT_VAULT_PATH, vaultConnectionListSchema } from '@solus/contracts/vault'
+import { VAULT_PATH, vaultConnectionListSchema } from '@solus/contracts/vault'
 import type { OAuthSession } from './oauth-session'
 
 /**
@@ -72,7 +74,7 @@ export function oauthCloudAccount(origin: string, session: CloudAccountSession, 
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return null
-    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
+    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}`, [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL) })
     if (init.body) headers.set('content-type', 'application/json')
     try {
       return await fetchImpl(`${origin}${path}`, {
@@ -96,7 +98,7 @@ export function oauthCloudAccount(origin: string, session: CloudAccountSession, 
       return parsed.success ? parsed.data : null
     },
     async readAgentSeats() {
-      const response = await call(ACCOUNT_VAULT_PATH, { cache: 'no-store' })
+      const response = await call(VAULT_PATH, { cache: 'no-store' })
       if (!response?.ok) return null
       const parsed = vaultConnectionListSchema.safeParse(await response.json().catch(() => null))
       if (!parsed.success) return null

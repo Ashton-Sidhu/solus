@@ -6,7 +6,7 @@ import type { PlanComment } from '@solus/contracts/types'
 import { moveCommentUser, readStoredComments, type StoredThread } from '../annotations/stored-comments'
 import type { Db } from '../db/database'
 import { createLogger } from '../logger'
-import { vault } from '../vault/vault'
+import { vault, type HostConnectionKey } from '../vault/vault'
 import { LOCAL_ORGANIZATION_ID } from './host-category'
 import { currentHostUser, hostUser, hostUserKey, useHostUser } from './host-user'
 import { setHostUserSettings, type HostUserSettings } from './settings'
@@ -107,20 +107,21 @@ async function moveUserRows(db: Db, fromKey: string, toKey: string, scope: MoveS
   const connectionsInScope = scope === 'local' ? sql` AND integration_id IN (SELECT id FROM integration WHERE organization_id = ${LOCAL_ORGANIZATION_ID})` : sql``
   moved += (await db.run(sql`
     DELETE FROM integration_connection WHERE user_id = ${fromKey}${connectionsInScope} AND EXISTS (
-      SELECT 1 FROM integration_connection AS kept WHERE kept.integration_id = integration_connection.integration_id AND kept.user_id = ${toKey}
+      SELECT 1 FROM integration_connection AS kept WHERE kept.integration_id = integration_connection.integration_id
+        AND kept.account_id = integration_connection.account_id AND kept.user_id = ${toKey}
     )
   `)).changes
   moved += (await db.run(sql`UPDATE integration_connection SET user_id = ${toKey} WHERE user_id = ${fromKey}${connectionsInScope}`)).changes
   return moved
 }
 
-const connectionRowSchema = z.object({ integration_id: z.string() })
+const connectionRowSchema = z.object({ integration_id: z.string(), account_id: z.string() })
 
-/** The integrations whose connection the person holds, in the organizations a move reaches. */
-async function connectedIntegrations(db: Db, userKey: string, scope: MoveScope): Promise<string[]> {
+/** The connections the person holds, every account of each, in the organizations a move reaches. */
+async function connectedIntegrations(db: Db, userKey: string, scope: MoveScope): Promise<HostConnectionKey[]> {
   const inScope = scope === 'local' ? sql` AND integration_id IN (SELECT id FROM integration WHERE organization_id = ${LOCAL_ORGANIZATION_ID})` : sql``
-  return connectionRowSchema.array().parse(await db.all(sql`SELECT integration_id FROM integration_connection WHERE user_id = ${userKey}${inScope}`))
-    .map((row) => row.integration_id)
+  return connectionRowSchema.array().parse(await db.all(sql`SELECT integration_id, account_id FROM integration_connection WHERE user_id = ${userKey}${inScope}`))
+    .map((row) => ({ integrationId: row.integration_id, accountId: row.account_id }))
 }
 
 const planCommentsRowSchema = z.object({ session_id: z.string(), plan_tool_use_id: z.string(), comments: z.string().nullable() })

@@ -36,11 +36,13 @@ export type DraftHostGate = 'compose' | 'connect'
  * One host online is enough to compose. The page replaces the composer only on
  * a known answer: a host still dialing within the reconnect grace, or one never
  * checked, keeps the composer, so a short drop or a slow first connect does not
- * swap the page out from under the person typing.
+ * swap the page out from under the person typing. Once the page shows, only a
+ * host that answers brings the composer back: a Retry dials again, and that
+ * dial must not show the composer until it is answered.
  */
-export function draftHostGate(hosts: readonly GatedHost[], now: number): DraftHostGate {
+export function draftHostGate(hosts: readonly GatedHost[], now: number, previous: DraftHostGate): DraftHostGate {
   if (hosts.some(isUsable)) return 'compose'
-  if (isSettingUpWorkspace(hosts)) return 'connect'
+  if (previous === 'connect' || isSettingUpWorkspace(hosts)) return 'connect'
   const isUndecided = hosts.some(
     (host) =>
       host.status === 'saved' ||

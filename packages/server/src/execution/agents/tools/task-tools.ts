@@ -12,12 +12,14 @@ import { linkSessionPullRequest, readSessionPullRequests } from '../../../data/s
 import { resolvePullRequestUrl } from '../../../providers/pull-request-url'
 import { applyOpToForeignTask, foreignTaskFor } from '../../../data/tasks/foreign-tasks'
 import { formatTaskEpic, formatTaskLink } from '../../../data/tasks/task-context'
-import { recordOutboxOp, type DeliveryDestination } from '../../../sync/outbox/outbox-store'
+import { recordOutboxOp } from '../../../sync/outbox/outbox-store'
+import { readStoredRegistration } from '../../../host/host-registration'
+import type { WorkspaceLinkTarget } from '@solus/contracts/solus-api'
 import { ulid } from '@solus/contracts/ulid'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { sessionSettings } from '../../sessions/session-settings'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
-import type { SessionPullRequestOpPayload, TaskCommentOpPayload, TaskLinkOpPayload, TaskLinkSessionOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
+import type { TaskCommentOpPayload, TaskLinkOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
 import type {
   Task as TaskRecord,
   TaskCreateInput,
@@ -313,11 +315,10 @@ async function executeTaskTool(
         applyOpToForeignTask(deps.ctx.sessionId, op)
         return { ok: true, text: `Comment added to task ${id}.` }
       }
-      const home = await organizationHome(toolContext)
-      if (home) {
-        const payload: TaskCommentOpPayload = { body, author, originSessionId: deps.ctx.sessionId }
-        recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'comment', payload, sessionId: deps.ctx.sessionId, destination: 'cloud', organizationId: home.organizationId, actorUserId: home.actorUserId })
-        return { ok: true, text: queuedForOrganization(`Comment on task ${id}`) }
+      const { operations, context, remote } = await toolContext()
+      if (remote) {
+        await operations.createTaskComment(context, id, { body, originSessionId: deps.ctx.sessionId }, ulid())
+        return { ok: true, text: `Comment added to task ${id}.` }
       }
       await (await Task.byId(scope, id)).comment(body, {
         by: author,
@@ -348,11 +349,10 @@ async function executeTaskTool(
       if (kind === 'session') {
         const sessionId = input.target_id?.trim() || deps.ctx.sessionId
         if (!sessionId) return { ok: false, text: 'link with kind=session requires target_id when no calling session id is available.' }
-        const home = await organizationHome(toolContext)
-        if (home) {
-          const payload: TaskLinkSessionOpPayload = { sessionId, role: input.role ?? 'working' }
-          recordOutboxOp({ domain: 'tasks', resourceId: taskId, name: 'link-session', payload, sessionId: deps.ctx.sessionId, destination: 'cloud', organizationId: home.organizationId, actorUserId: home.actorUserId })
-          return { ok: true, text: queuedForOrganization(`Link of task ${taskId} to session ${sessionId}`) }
+        const { operations, context, remote } = await toolContext()
+        if (remote) {
+          await operations.putLink(context, { from: { kind: 'task', id: taskId }, to: { kind: 'session', id: sessionId }, role: input.role ?? 'working' })
+          return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
         }
         await (await Task.byId(scope, taskId)).linkSession(sessionId, input.role ?? 'working')
         return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
@@ -394,10 +394,12 @@ async function executeTaskTool(
       if (kind === 'pr' && !link.url && deps.ctx.sessionId && projectKey && Number.isSafeInteger(prNumber) && prNumber > 0) {
         link.url = await resolvePullRequestUrl(projectKey, prNumber).catch(() => undefined)
       }
-      const home = await organizationHome(toolContext)
-      if (home) {
-        recordOutboxOp({ domain: 'tasks', resourceId: taskId, name: 'link', payload: link, sessionId: deps.ctx.sessionId, destination: 'cloud', organizationId: home.organizationId, actorUserId: home.actorUserId })
-        return { ok: true, text: queuedForOrganization(`Link of ${kind} ${targetKey} to task ${taskId}`) }
+      const { operations, context, remote } = await toolContext()
+      if (remote) {
+        const to = organizationLinkTarget(link)
+        if (!to) return { ok: false, text: `link could not find the URL of pull request ${targetKey}. Pass its URL as target_id.` }
+        await operations.putLink(context, { from: { kind: 'task', id: taskId }, to, title: link.title, originSessionId: deps.ctx.sessionId })
+        return { ok: true, text: `Linked ${kind} ${targetKey} to task ${taskId}.` }
       }
 
       const { actor, ...linkInput } = link
@@ -437,8 +439,7 @@ export async function namedPullRequest(projectKey: string, named: string): Promi
  * Link a pull request to the calling session. The machine that runs the
  * session always holds the link, because its PR sync watches the pull request.
  * For an organization session on an attached machine the organization's Solus
- * API holds the session too, so the same link travels there in the delivery
- * queue.
+ * API holds the session too, so the same link is written there, as the person.
  */
 export async function linkCallerPullRequest(
   ctx: TaskToolCtx,
@@ -455,11 +456,8 @@ export async function linkCallerPullRequest(
   const sessionId = callerSessionId
   const actor = await toolAgentAttribution(ctx)
   await linkSessionPullRequest(sessionId, { url: identity.url, title: input.title, source: 'agent', by: actor })
-  const home = await organizationHome(toolContext)
-  if (home) {
-    const payload: SessionPullRequestOpPayload = { url: identity.url, title: input.title, actor }
-    recordOutboxOp({ domain: 'sessions', resourceId: sessionId, name: 'link-pull-request', payload, sessionId: ctx.sessionId, destination: 'cloud', organizationId: home.organizationId, actorUserId: home.actorUserId })
-  }
+  const { operations, context, remote } = await toolContext()
+  if (remote) await operations.putLink(context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url }, title: input.title })
   return { ok: true, text: `Linked pull request #${identity.number} (${identity.repository}) to this session.` }
 }
 
@@ -483,20 +481,15 @@ function foreignWriteUnsupported(operation: string, taskId: string): string {
   return `Task ${taskId} lives on another host (this session was dispatched), and ${operation} is not supported from here. Use comment_task or update_task_status — those sync back — or note it in your final message.`
 }
 
-/**
- * The organization whose Solus API holds this session's records, or null for a
- * session whose records are this machine's. Comments and links, which the record
- * API does not carry, travel to it through the host's delivery queue.
- */
-/** Where a queued write of an organization session goes, and whose delegated token delivers it; null for any other session. */
-async function organizationHome(toolContext: () => ReturnType<typeof workspaceToolContext>): Promise<DeliveryDestination | null> {
-  const { context, remote, deliveryActor } = await toolContext()
-  return remote && context.home.kind === 'organization' ? { organizationId: context.home.organizationId, actorUserId: deliveryActor ?? '' } : null
-}
-
-/** A queued write says so: it reaches the organization with the host's next delivery, and until then it is pending (organization-vms §3). */
-function queuedForOrganization(what: string): string {
-  return `${what} is queued for the organization's Solus API and appears there with this machine's next delivery.`
+/** What a task link names on the organization's Solus API; null for a pull request whose URL is unknown. */
+function organizationLinkTarget(link: TaskLinkOpPayload): WorkspaceLinkTarget | null {
+  switch (link.kind) {
+    case 'work': return { kind: 'work', id: link.targetKey }
+    case 'plan': return { kind: 'plan', sessionId: link.targetScope, planId: link.targetKey }
+    case 'pr': return link.url ? { kind: 'pr', url: link.url } : null
+    // The API keeps no automation: it is this host's.
+    case 'automation': return { kind: 'automation', id: link.targetKey, hostId: readStoredRegistration()?.hostId }
+  }
 }
 
 /** An organization's task names the repository, not this machine's path; a folder with no remote keeps its path. */

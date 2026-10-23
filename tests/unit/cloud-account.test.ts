@@ -51,7 +51,7 @@ describe('the cloud account source', () => {
       { provider: 'claude-code', connected: true, updatedAt: 5 },
       { provider: 'codex', connected: false, updatedAt: 6 },
     ])
-    expect(good.calls).toEqual([{ url: `${ORIGIN}/v1/account/vault`, method: 'GET', body: null }])
+    expect(good.calls).toEqual([{ url: `${ORIGIN}/v1/vault`, method: 'GET', body: null }])
     for (const response of [Response.json({ connections: [{ ref: { kind: 'seat', provider: 'claude-code' }, status: 'yes' }] }), new Response(null, { status: 503 })]) {
       expect(await signedInAccount(ORIGIN, recordingFetch(() => response).fetchImpl).readAgentSeats()).toBeNull()
     }

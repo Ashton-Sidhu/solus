@@ -279,8 +279,8 @@
     requestInputFocus(focusTarget);
   }
 
-  // Which host the run's project lives on, so "New project" browses that host.
-  // A run with no project yet browses its own host.
+  // Which host the run's project lives on, so "New project" creates it there.
+  // A run with no project yet uses its own host.
   const projectHost = $derived.by(() => {
     const current = run ?? session.defaultRunConfig;
     return projectRoot(current) ? projectHome(current).serverId : runHost(current);
@@ -349,11 +349,11 @@
     );
   }
 
-  /** The Open project home screen, bound to this run's project host.
+  /** The project creation form, bound to this run's project host.
    *  A draft is re-aimed at the new folder, so a prompt already typed stays. */
   function newProject() {
     window.dispatchEvent(
-      new CustomEvent("solus:open-project", { detail: { tabId: source, serverId: projectHost } }),
+      new CustomEvent("solus:open-project", { detail: { tabId: source, serverId: projectHost, source: "new" } }),
     );
   }
 

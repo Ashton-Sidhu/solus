@@ -5,10 +5,12 @@ import { copyTextWithHaptic } from '../../../lib/copyTextWithHaptic'
 import { usePalette } from '../../../theme/theme'
 import { CODE_FONT, space, type } from '../../../theme/tokens'
 import { Button, Field } from '../../../ui/primitives'
-import { errorMessage, OAUTH_CALLBACK_PATH, oauthClientText as text } from '../integrations'
+import { errorMessage, oauthClientText as text } from '../integrations'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { firstPartyClientById } from '@solus/contracts/first-party-clients'
 
 /**
- * The administrator's OAuth client for a server with no dynamic registration
+ * The owner's optional OAuth client for any OAuth server
  * (docs/plans/mcp-integrations.md §4.3). With no client it explains what to
  * create, shows the redirect path to copy, and takes the client ID and secret.
  * With a client it shows the ID and whether a secret is saved, with Change and
@@ -16,6 +18,7 @@ import { errorMessage, OAUTH_CALLBACK_PATH, oauthClientText as text } from '../i
  */
 export function IntegrationOAuthClientPanel(props: {
   readonly integration: Integration
+  readonly redirectUrl: string
   /** True while this integration's client is being saved or removed. */
   readonly saving: boolean
   /** False while another change runs or the host is away. */
@@ -40,7 +43,9 @@ export function IntegrationOAuthClientPanel(props: {
   const save = () => {
     const id = clientId.trim()
     if (!id) return
-    props.onSave({ clientId: id, ...(clientSecret.trim() ? { clientSecret } : {}) }).then(
+    const client: IntegrationOAuthClientInput = { clientId: id }
+    if (clientSecret.trim()) client.clientSecret = clientSecret
+    props.onSave(client).then(
       () => {
         setEditing(false)
         setClientSecret('')
@@ -50,7 +55,7 @@ export function IntegrationOAuthClientPanel(props: {
   }
 
   const confirmRemove = () => {
-    Alert.alert(text.removeTitle, text.removeDetail, [
+    Alert.alert(text.removeTitle, auth?.registration === 'client-required' ? text.removeDetail : 'New sign-ins will use automatic setup again.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: text.remove,
@@ -60,6 +65,12 @@ export function IntegrationOAuthClientPanel(props: {
         },
       },
     ])
+  }
+
+  if (auth && !auth.clientId && (auth.registration !== 'client-required' || auth.firstParty) && !editing) {
+    // A Solus app signs in for a first-party server; the owner may still use their own (§13.1).
+    const firstParty = new IntegrationSignIn(integration).firstParty
+    return <Button label={firstParty ? `Signs in with ${firstPartyClientById(firstParty).label}. Use your own OAuth app` : 'Use your own OAuth app'} disabled={!enabled} onPress={startEditing} />
   }
 
   if (auth?.clientId && !editing) {
@@ -80,10 +91,10 @@ export function IntegrationOAuthClientPanel(props: {
       <Text style={{ color: palette.textSecondary, fontSize: type.chrome }}>{text.explanation}</Text>
       <View style={{ gap: space.xs }}>
         <Text style={{ color: palette.textTertiary, fontSize: type.dense, fontWeight: '600' }}>{text.redirectLabel}</Text>
-        <Text selectable style={{ color: palette.text, fontSize: type.chrome, fontFamily: CODE_FONT }}>{OAUTH_CALLBACK_PATH}</Text>
+        <Text selectable style={{ color: palette.text, fontSize: type.chrome, fontFamily: CODE_FONT }}>{props.redirectUrl}</Text>
         {note(text.redirectNote)}
       </View>
-      <Button label="Copy" onPress={() => copyTextWithHaptic(OAUTH_CALLBACK_PATH, { target: 'redirect path' })} />
+      <Button label="Copy" onPress={() => copyTextWithHaptic(props.redirectUrl, { target: 'redirect URL' })} />
       <Field
         label={text.clientIdLabel}
         value={clientId}

@@ -428,12 +428,13 @@ describe('a token to reach another host (docs/plans/host-reach.md §3)', () => {
   test('is exchanged for the delegation\'s own token, kept for its eight hours, and its refusal leaves the delegation', async () => {
     // WHY: the account plane checks the reach when it issues the token and issues it
     // only by exchange; a host asking every five minutes would ask for nothing new, and
-    // a host the person cannot reach must not end their work here.
+    // a host the person cannot reach must not end their work here. The token has that
+    // host's own audience (docs/plans/simplify-auth-and-sync.md §3 rule 2).
     let now = 0
     let refuse = false
     const revoked: Array<[string, DelegationScope, DelegationRefusal, string[]]> = []
     const { held, forms } = delegations((form) => {
-      if (form.get('resource') === 'urn:solus:host-reach:far') {
+      if (form.get('resource') === 'urn:solus:host:far') {
         return refuse
           ? Response.json({ error: 'invalid_grant', solus_refusal: 'host_not_reachable', error_description: 'You do not reach that host.' }, { status: 400 })
           : Response.json({ access_token: 'reach-far', expires_in: 8 * 3600 })
@@ -441,20 +442,20 @@ describe('a token to reach another host (docs/plans/host-reach.md §3)', () => {
       return answer('delegated')
     }, { now: () => now, revoked })
     await held.establish(presented('alice', 'g'), 'personal')
-    expect(await held.accessToken('alice', 'personal', { kind: 'host-reach', hostId: 'far' })).toBe('reach-far')
+    expect(await held.accessToken('alice', 'personal', { kind: 'host', hostId: 'far' })).toBe('reach-far')
     const exchange = forms.at(-1)!
     expect(Object.fromEntries([...exchange.entries()].filter(([name]) => !name.startsWith('client_')))).toEqual({
       grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
       subject_token: 'delegated',
       subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
-      resource: 'urn:solus:host-reach:far',
+      resource: 'urn:solus:host:far',
     })
     now = 7 * 3600_000
-    expect(await held.accessToken('alice', 'personal', { kind: 'host-reach', hostId: 'far' })).toBe('reach-far')
-    expect(forms.filter((form) => form.get('resource') === 'urn:solus:host-reach:far')).toHaveLength(1)
+    expect(await held.accessToken('alice', 'personal', { kind: 'host', hostId: 'far' })).toBe('reach-far')
+    expect(forms.filter((form) => form.get('resource') === 'urn:solus:host:far')).toHaveLength(1)
     refuse = true
     now = 9 * 3600_000
-    const refused = await outcome(held.accessToken('alice', 'personal', { kind: 'host-reach', hostId: 'far' }))
+    const refused = await outcome(held.accessToken('alice', 'personal', { kind: 'host', hostId: 'far' }))
     expect(refused).toMatchObject({ code: 'HOST_NOT_REACHABLE' })
     expect(revoked).toEqual([])
     expect(held.has('alice', 'personal')).toBe(true)

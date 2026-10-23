@@ -1,0 +1,742 @@
+# Windows: parity with T3 Code, the server first, then the desktop app
+
+Status: draft, 2026-10-23. Decisions in §10 wait for the maintainers.
+
+Reference: T3 Code (`pingdotgg/t3code`) runs natively on Windows and can also
+run its server inside a WSL distro from the desktop app. This plan reaches the
+same place for Solus. §3 is the parity table: every Windows behavior T3 Code
+has, what Solus has today, and which step closes the gap. Steps are in §7.
+
+## 1. Goal
+
+Solus runs on a Windows machine with the same capability T3 Code offers there:
+
+1. The headless server runs on native Windows from source, and a Mac desktop
+   app pairs with it over the LAN. Sessions on that host run Claude Code and
+   Codex. This is the first proof.
+2. The server is a packaged Windows release with a `solus` command, an
+   `install.ps1`, self-update, the uplink, and Tailscale detection.
+3. The desktop app runs on Windows against its own in-process server, as an
+   NSIS installer with auto-update, winget, and scoop.
+4. The desktop app on Windows can run its server inside a WSL distro instead,
+   with repositories and provider CLIs in Linux.
+
+Each step is usable on its own.
+
+## 2. Vocabulary
+
+- **Windows host**: a Solus server that runs on Windows. It is a `self-hosted`
+  host when it is the standalone server, and a `personal` host when the desktop
+  app runs it.
+- **WSL backend**: the desktop app's server when it runs inside a WSL distro.
+  The renderer, tray, and shortcuts stay on Windows. The server, its data
+  folder, the repositories, and the provider CLIs are in the distro.
+- **shim**: the `.cmd` file that npm, bun, Volta, or scoop puts on PATH in
+  place of a program. `codex.cmd` and `npm.cmd` are shims. Node refuses to
+  spawn a shim without a shell (CVE-2024-27980), and a `cmd.exe` line breaks on
+  quotes and line breaks in arguments.
+- **PATHEXT**: the Windows list of executable extensions (`.COM;.EXE;.BAT;.CMD`).
+  A bare command name on Windows means "one of these files".
+- **junction**: a directory link that needs no privilege on Windows. A symlink
+  needs Developer Mode or administrator rights.
+- **logon task**: a Task Scheduler task that starts at user logon. It is the
+  Windows counterpart of the systemd user unit and the LaunchAgent.
+- **command folder**: the folder that holds the `solus` launcher and is on the
+  user's PATH: `%USERPROFILE%\.local\bin`.
+
+Do not use "Win", "PC", "shell wrapper", "bat file", or "WSL mode" for these.
+
+## 3. Parity table
+
+"T3" is what T3 Code does, from its docs and source. "Solus today" is from the
+audits of 2026-10-23 (§4 has the file lines). "Step" is the section of §7 that
+closes the gap. "n/a" means Solus has no such feature on any platform, so there
+is nothing to bring to Windows.
+
+### 3.1 Server and CLI
+
+| T3 Code on Windows | Solus today | Step |
+| --- | --- | --- |
+| Prebuilt `win32-x64` and `win32-arm64` zips on GitHub Releases with `SHA256SUMS`; no Node or compiler needed on the machine. Solus ships x64 only (§6) | Server package is `darwin-arm64`, `linux-x64`, `linux-arm64` tarballs with a bundled Node | 7.2 |
+| `irm https://t3.codes/install.ps1 \| iex`: detects arch, picks the channel, verifies, unpacks to `~\.t3\runtime\versions\<v>`, runs `t3.exe --version`, writes `~\.local\bin\t3.cmd`, prints the PATH line | `install.sh` for Linux and macOS only | 7.2 |
+| `T3CODE_HOME` defaults to `~\.t3` | `SOLUS_DATA_DIR` defaults to `~/.solus`; works unchanged on Windows | have |
+| `t3 serve`, `t3 pair`, `t3 update`, `t3 --help` work on Windows | `solus logs` runs `tail`; `solus connect` opens the browser with `open`/`xdg-open`; self-update asks for a `.tar.gz` that is not built; `current` is a file symlink renamed over a link | 7.2 |
+| No background service on Windows; users keep a terminal open | `solus setup` throws off Linux and macOS | 7.2 (a logon task, which is more than T3) |
+| PATH: no login-shell probe; the process PATH plus known CLI folders (`%APPDATA%\npm`, Node, Volta, pnpm, `~\.local\bin`, `~\.bun\bin`, scoop shims); one PowerShell probe with the profile only if `node` is still missing; one `PATH` spelling | Splits PATH on `:`, probes `/bin/zsh` and `/bin/bash`, appends POSIX folders; writes `PATH` beside the inherited `Path` | 7.1 |
+| Command lookup with PATHEXT, quotes stripped, case-insensitive dedupe, directory listings cached by mtime | `findOnPath` joins `dir/bin` and tests `X_OK` | 7.1 |
+| `.exe` spawned directly; an npm shim for a native binary unwrapped to the `.exe`; any other `.cmd` run through one hand-built `cmd.exe` line with dangerous arguments refused | Shims spawned without a shell (Codex app-server, npm, provider `--version`, CLI login) | 7.1 |
+| Claude Code: the shim is replaced by `claude.exe` or `cli.js` so the Agent SDK can spawn it | `findOnPath('claude')` only | 7.1 |
+| Provider settings have a **Binary path** override for when the CLI is not on PATH | None | 7.1 |
+| Git for Windows: the `cmd\git.exe` launcher is replaced by the real binary in `mingw64`/`ucrt64` (each launcher start leaks a kernel token); `GIT_CONFIG_COUNT` matched case-insensitively; `index.lock` regex accepts both separators | `isGitUsable()` is false on Windows because of `findOnPath`; `git` spawned by bare name | 7.1 |
+| Atomic writes retry `rename` on `EBUSY`/`EPERM`/`EACCES` (20 × 100 ms), stop if the target changed or is read-only | 14 sites write temp + `rename` with no retry | 7.1 |
+| Codex managed install: `x86_64-pc-windows-msvc` asset, a `tar` that is not MSYS tar, `rename` retried for antivirus | Codex is installed with `npm install -g` only; no managed install on any platform | n/a (keep npm; fix the shim) |
+| Claude install on Windows uses the PowerShell installer | `curl … install.sh \| bash` | 7.1 |
+| Tailscale: `tailscale.exe`; a longer status timeout because `taskkill` is slow | Looks in three POSIX folders only | 7.2 |
+| cloudflared on Windows (for T3 Connect) | No win32 asset in `cloudflared.ts` | 7.2 |
+| SSH askpass: a `.cmd` plus `.ps1` helper, no `DISPLAY`, no `chmod` | A `#!/bin/sh` askpass script | 7.2 |
+| Terminal: node-pty on ConPTY, `TERM` default, kill without a signal | Solus has no terminal feature; providers talk over stdio | n/a |
+| Resource monitor `.exe` | No resource monitor | n/a |
+| Open a URL, reveal in Explorer (`explorer /select,` or the registry default), move to Recycle Bin through PowerShell | `opener.ts`, `file-manager.ts`, `trash.ts` already have win32 branches | have |
+| Windows CI (`windows-tests.yml`) runs the native checks on `windows-2025` and `windows-11-arm` | No Windows job. Solus adds an x64 job only | 7.2 |
+| Secrets: Electron `safeStorage` (DPAPI) in the desktop app; file store in the CLI server | Same split; the standalone file store is plaintext with `0o600`, which Windows ignores | 7.2 (DPAPI through PowerShell) |
+
+### 3.2 Pairing and reach
+
+| T3 Code on Windows | Solus today | Step |
+| --- | --- | --- |
+| Direct pairing: `t3 serve --host <ip>`, `t3 pair` for a link, QR or paste into Add environment; one-time per device | `/pair` with a token or a code, pair link printed at boot, `solus pair`, Add server dialog with Link and Manual tabs | have |
+| Network access toggle restarts the app and binds the LAN | `remoteAccess` rebinds to `0.0.0.0` without a restart | have |
+| Tailscale HTTPS (`tailscale serve`) | Tailnet detection only; no serve | not in this plan |
+| T3 Connect relay | Cloudflared uplink and Solus Cloud | have, once cloudflared has a win32 asset (7.2) |
+| Desktop-managed SSH: the remote host must be Linux or Apple Silicon macOS | `ssh-bootstrap.ts` targets `sh` hosts | same limit; keep |
+| Remote browser tabs download a headless Chrome | Standalone server uses Playwright's Chromium; the installer prints the command | have |
+| Desktop as remote-only: turn off Local environment | The desktop always boots its own server | 7.3 (see §10) |
+
+### 3.3 Desktop app
+
+| T3 Code on Windows | Solus today | Step |
+| --- | --- | --- |
+| NSIS installers for x64 and arm64, built and signed on Linux, native checks on Windows runners, updater manifests merged into one `latest.yml`. Solus ships x64 only (§6) | `mac` target only; `afterPack.js` reads the `.app` bundle; `release.yml` has one macOS job; the feed has `latest-mac.yml` only | 7.3 |
+| winget (`T3Tools.T3Code`) and scoop (`extras/t3code`) | Homebrew cask only | 7.5 |
+| `t3` command from Settings → About → Install: writes `bin\t3.cmd` under the app folder (`ELECTRON_RUN_AS_NODE=1`, `chcp 65001` for non-ASCII paths, refuses to overwrite a file without its marker) and adds the folder to the user PATH; Remove undoes it | `electron . pair-url` exists; no installed command on any platform | 7.3 |
+| PATH for the bundled server: two PowerShell probes once (no-profile, and profile for `FNM_DIR`), merged with known CLI folders, written into `process.env`; the server child skips its own probe (`shellEnvironmentPrepared`) | `importLoginShellEnv()` runs `/bin/zsh`; the in-process server probes again | 7.3 |
+| Notification badge: `setOverlayIcon` on Windows, `setBadgeCount` elsewhere; cleared when a window has focus | `app.setBadgeCount` on every platform (no-op on Windows) | 7.3 |
+| Reveal and focus: Windows blocks focus stealing, so a Win32 foreground activation (`ffi-rs`) and a focus worker bring the window up after the summon shortcut | `app.focus({ steal: true })` on macOS only; nothing on Windows | 7.3 (start with `app.focus()` + `moveTop()`; `ffi-rs` only if that is not enough) |
+| Per-version Chromium profile; `Local State` (the `safeStorage` keys) copied forward | One `userData` folder | n/a (one version per machine) |
+| Chrome cookie import refused on Windows (DPAPI, app-bound encryption) | Same refusal (ADR 0026) | have |
+| Keybindings: Ctrl for `mod`, platform labels | `mod` maps to Ctrl; labels print `⌘`/`⌥` everywhere; `Ctrl+C` is both interrupt and copy; `Alt+Space` summon is the window menu | 7.3 |
+| Global modifier-only shortcut worker (for its screenshot feature) | Solus has no such feature | n/a |
+| Open in editor: VS Code `.cmd` under `%LOCALAPPDATA%\Programs\Microsoft VS Code\bin`, Zed `.exe`, JetBrains `bin\<ide>64.exe`, Program Files roots, PATH first | `findOnPath` and `open -a` | 7.3 |
+| Open in terminal: PowerShell or Windows Terminal | `tmux`, `open`, `osascript`, `x-terminal-emulator` | 7.3 |
+| Screenshots | `/usr/sbin/screencapture` | 7.3 (`desktopCapturer`) |
+
+### 3.4 WSL backend
+
+| T3 Code on Windows | Solus today | Step |
+| --- | --- | --- |
+| Settings → Connections: pick a WSL distro; `wsl.exe --list --verbose` with an 8 s bound; `null` distro means the user's default | Nothing | 7.4 |
+| The packaged server tree is copied out of the asar to `<stateDir>\wsl-server-tree\<version>` (a marker file names the version; stale versions swept) because `wsl.exe -- node` cannot read an asar | n/a: Solus already builds a plain `libexec/server` tree for the headless package | 7.4 |
+| The server runs with the distro's `node` through `wsl.exe -d <distro> -- bash -l`; the login-shell PATH is read first so `codex` and `claude` resolve by name; Node, node-pty, and build tools are checked (`ensureNodePty`, 5 min) | n/a for node-pty; Solus needs only Node 24 in the distro, or the Linux server package with its bundled Node | 7.4 |
+| Binds `0.0.0.0` in the distro; the renderer connects to the distro IP from `hostname -I`, or `127.0.0.1` when the IP is also a Windows address (mirrored networking); localhost forwarding is avoided because `wslhost` can take 30 s | Pairing over a URL already works; the desktop needs a second local target | 7.4 |
+| Env: the parent env minus `T3CODE_HOME`, a whitelist of secrets and OTEL vars appended to `WSLENV`; the bootstrap token over stdin (`--bootstrap-fd 0`) | The desktop boots the server in-process with no child; `SOLUS_UPDATE_SUPERVISED` IPC exists for the CLI | 7.4 |
+| Data folder is the Linux home, not `/mnt/c` | Same choice | 7.4 |
+| Distro pre-warm (30 s), `wslpath -u` with backslashes normalized, per-distro user-home cache | Nothing | 7.4 |
+| Reveal and open from WSL: `explorer.exe` and `powershell.exe` from PATH, `\\wsl.localhost\<distro>` paths | `file-manager.ts` detects WSL and uses `explorer.exe` | partly have |
+
+### 3.5 Performance
+
+T3 Code's merged `perf` commits for Windows, with their measurements where
+the pull request gave them.
+
+| T3 Code on Windows | Solus today | Step |
+| --- | --- | --- |
+| Run Git for Windows' real `git.exe`, not the `cmd\git.exe` launcher (#17707): 28% fewer processes, 16% less CPU; the launcher leaks one kernel token per run, and at three million leaked tokens process creation went from 2.9 ms to 9.4 ms | `git` spawned by bare name | 7.1 (§5.1) |
+| PATH probes: both PowerShell probes run concurrently (#5878) under one shared 5 s budget (#19467), asynchronously so the window is not blocked (#21720); the desktop runs them once and the server child skips them (#19966) | `warmCliPath` is already off the main thread; no budget, and the desktop and server both probe | 7.1, 7.3 (§5.2, §5.12) |
+| Port scanning with `netstat -ano` and one `tasklist` call per new PID instead of PowerShell `Get-NetTCPConnection` (#18524): polls went from up to 22 s to about 50 ms, and an idle poll spawns nothing | `target-scanner.ts` uses `lsof`; on Windows it returns nothing | 7.3 (§5.14) |
+| Checkpoint flushes batched with `core.fsyncMethod=batch` on macOS and Windows (#21291), with `fsync` set first so Git 2.36 keeps full flushing | Session snapshots leave Git's defaults | 7.1, measure first (§5.14) |
+| Windows installer writes 1,192 files instead of 14,687 (#5877), and the server sits in a `server.asar` sidecar (#6169): cold server boot 9 s → 3.7 s, module load 6.2 s → 0.7 s | Solus bundles the main process with electron-vite and unpacks only two native packages, so the loose-file count should already be small; NSIS `differentialPackage` is not set | 7.3, confirm with the first build |
+| Tolerate the missing directory fsync on Windows (#9569); `.cmd` spawns without DEP0190 (#19385); node-pty startup and PTY helper fixes | Solus calls no `fsync`, spawns no shim through `cmd.exe`, and has no terminal | n/a |
+
+## 4. What the code does today
+
+Lines are from the checkout of 2026-10-23.
+
+### 4.1 Blockers for step 1 (server from source)
+
+1. **PATH is POSIX-only.** `packages/server/src/cli-env.ts` splits and joins
+   PATH on `:` (lines 21, 47, 178), appends a POSIX fallback list (line 46),
+   and probes `/bin/zsh` and `/bin/bash` (lines 13–16, 100–103). On Windows
+   the drive letter in `C:\…` is split too. `findOnPath` (line 177) probes
+   `join(dir, bin)` with `X_OK` and no PATHEXT, so `claude`, `codex`, `git`,
+   and `cloudflared` are never found. `hostCliEnv` (line 196) then writes this
+   PATH into every child beside the inherited `Path`.
+2. **Shims are spawned without a shell.** `codex-agent.ts:148–158` spawns
+   `codex`; `setup-commands.ts:148–151` spawns `npm`; `provider-versions.ts:11`
+   runs `claude --version`; `apps/cli/src/index.ts:168` spawns `claude` and
+   `codex` for login.
+3. **Git is reported missing.** `git-availability.ts:35` asks `findOnPath`, so
+   `isGitUsable()` is false and every git call throws.
+4. **`which` has no Windows counterpart.** `setup-commands.ts:36,171`,
+   `setup-handlers.ts:182`, `session-handlers.ts:105`,
+   `providers/github/git-credential.ts:25`.
+5. **Path markers use `/`.** `SOLUS_WORKTREE_PATH_MARKER` is
+   `/.git/solus/worktrees/` and `isSolusWorktreePath` is `includes(marker)`
+   (`contracts/src/types.ts:3214,3230`); `dispatch-checkouts.ts:53–56` does the
+   same. `resolveHomePath` (`platform/paths.ts:30`) expands `~/` but not `~\`,
+   while `files/host-path.ts` accepts both.
+6. **Claude project folders.** `encodePathAsFolder` (`types.ts:3225`) replaces
+   every non-alphanumeric with `-`. Claude Code on Windows is expected to name
+   `C:\Users\me\repo` as `C--Users-me-repo`, which this gives; confirm it on
+   the machine in step 1 by reading `~\.claude\projects`. The "already
+   encoded" test in `claude-session-helpers.ts:34–37` assumes a POSIX path
+   starts with `/`; it must accept a drive letter.
+7. **Shutdown.** `apps/standalone-server/src/index.ts:220–221` waits for
+   `SIGTERM`, which Windows never delivers. `server-supervisor.ts:83` stops the
+   server with `child.kill('SIGTERM')`, which is `TerminateProcess` on
+   Windows, so `core.shutdown()` does not run and the lock file stays. The IPC
+   `disconnect` path (lines 108, 190) is the only graceful stop.
+8. **Process groups.** `seat-connect.ts:64,221–229` and `agent-auth.ts:232`
+   kill `-pid` off Windows only; on Windows the grandchildren stay.
+9. **Atomic writes.** Fourteen sites write a temp file and `rename` it over
+   the target (`attention-service.ts:208`, `live-activity-relay.ts:155`,
+   `assets.ts:147`, `session-permission-store.ts:27`, `review-store.ts:55`,
+   `model-downloader.ts:120`, `update-journal.ts:23`, and others). On Windows
+   a target held open by a scanner or indexer fails with `EPERM`/`EBUSY`.
+10. **Install from source.** `postinstall` runs `bash scripts/patch-dev-icon.sh`
+    (root `package.json:28`). On Windows `bash` is absent, or it is the WSL
+    launcher in `System32`, which is wrong. `bun install` fails before the
+    first build.
+
+### 4.2 Blockers for step 2 (packaged server and `solus` command)
+
+1. `scripts/package-server.ts:10,77–82` accepts only three targets. It
+   downloads Node as a `.tar.gz` with `bin/node` (lines 99–115); Windows Node
+   is a `.zip` with `node.exe` at the root. The launchers are
+   `#!/usr/bin/env sh` (lines 246–279). The archive is a tarball (line 53).
+   `spawn('npm')` (line 230) is a shim.
+2. `scripts/install.sh` handles Linux and Darwin only. There is no
+   `install.ps1`.
+3. `apps/cli/src/lib/runtime.ts:32–43` puts the runtime in
+   `~/.local/share/solus` and the launcher in `~/.local/bin`. Line 62 names
+   `bin/node`, not `node.exe`.
+4. `version-store.ts:45–52` makes `current` a file symlink to a directory and
+   renames it over the old link. Both fail on Windows without privileges.
+5. `service.ts:106` throws for any platform but Linux and macOS. There is no
+   logon task.
+6. `apps/cli/src/index.ts:260` runs `tail -n -f` for `solus logs`.
+   `connect.ts:233` opens a browser with `open` or `xdg-open`.
+7. `cloudflared.ts:120–128` has no win32 release asset. `server-release.ts:53`
+   asks for `solus-server-win32-x64.tar.gz`, which is not built.
+8. `.github/workflows/release-server.yml` builds darwin and linux only.
+   `test.yml` has no Windows job.
+9. `platform/secrets.ts:43–75`: the standalone server stores secrets as JSON
+   files protected by `0o600`, which Windows ignores.
+10. `transport/endpoints.ts:10` looks for Tailscale in three POSIX folders.
+11. `transport/ssh-bootstrap.ts:22–29` writes a `#!/bin/sh` askpass script.
+12. There is no provider binary-path setting.
+
+### 4.3 Blockers for step 3 (desktop app on Windows)
+
+1. **No Windows build.** The electron-builder config (root `package.json`
+   `build`) has `mac` only. `resources/` has no `.ico`.
+   `scripts/afterPack.js:93–154` reads `<name>.app/Contents/...` and flips
+   fuses on the bundle. `release.yml` has one `macos-latest` job.
+   `build.files` strips the win32 `onnxruntime-node` binaries (lines
+   109–111), and only the darwin `fff-bin` and `ffi-rs` packages are
+   installed. `forge.config.js` is a leftover with a squirrel maker; it is
+   not on the release path.
+2. **Missing Windows Electron setup.** No `app.setAppUserModelId`, no
+   `requestSingleInstanceLock` and `second-instance` (a second launch boots a
+   second server, sees `server.lock`, and shows an error window), no
+   `Menu.setApplicationMenu(null)` (the default menu bar appears and catches
+   `Alt+F`, `Alt+E`, `Alt+V`, `Alt+W`, `Alt+H`).
+3. **The in-process server** has every blocker in §4.1, because
+   `apps/desktop/src/main/index.ts:857` calls `importLoginShellEnv()` and then
+   `bootCore` in the same process.
+4. **Shortcuts.** The global summon is `Alt+Space` (`index.ts:181–183`), the
+   window menu on Windows. `conversation.interrupt` is `Ctrl+C`
+   (`manifest.ts:102`), which becomes copy. `pr-review.copy-link` is
+   `mod+ctrl+C`, which is plain `Ctrl+C`. `global.focus-sidebar-task-search`
+   and `global.show-shortcuts` both become `Ctrl+/`. `formatCombo`
+   (`match.ts:83–91`) and about 70 components print `⌘` and `⌥` on every
+   platform. `comboToAccelerator` emits `Command` for `meta` off Mac.
+5. **Tray.** `trayTemplate.png` with `setTemplateImage(true)`
+   (`index.ts:983–988`) is near-invisible on a dark Windows taskbar.
+6. **Shell integration.** `terminal-launcher.ts` needs `tmux`, `open`, and
+   `osascript`; `terminal-apps.ts` knows no Windows Terminal or PowerShell.
+   `file-handlers.ts:72` runs `/usr/sbin/screencapture`; lines 333–342 launch
+   editors with `findOnPath` (no PATHEXT) and `open -a`. `app.setBadgeCount`
+   does nothing on Windows.
+7. **Paths in the client.** `client-core/src/project-identity.ts:50–60`
+   recognises a project key only as `<serverId>:/…` or `<serverId>:~…`, so a
+   key for `C:\repo` has no project parts. `desktop-palette.svelte.ts:603,619`
+   splits paths on `/`. `server-connection.ts:73` and
+   `OpenProjectDialog.svelte:387` call the local host "This Mac".
+8. **Auto-update.** The feed holds only `latest-mac.yml`.
+9. `index.ts:5–6` sets `NODE_EXTRA_CA_CERTS=/etc/ssl/cert.pem` on every
+   platform.
+
+### 4.4 What is already in place
+
+`platform/opener.ts`, `trash.ts`, `file-manager.ts` (with WSL detection),
+`host-operating-system.ts`, and `files/host-path.ts` have win32 branches. The
+browser pane is driven over CDP with no platform gate. The OAuth sign-in is a
+loopback server, not a custom protocol. SQLite is `node:sqlite`, so there is
+no native build. The uplink already names `cloudflared.exe`.
+`scripts/test-unit.ts` is Windows-aware. The desktop never needs a deep-link
+handler. The pairing model, LAN discovery, and the socket.io transport need no
+Windows change.
+
+## 5. Target model
+
+### 5.1 One command resolver
+
+One module, `packages/server/src/platform/command-path.ts`, answers "where is
+program X, and how do I start it". It replaces `findOnPath` and the login-shell
+PATH as the thing callers touch.
+
+```ts
+interface ResolvedCommand {
+  file: string          // what to pass to spawn
+  args: string[]        // arguments to put before the caller's
+  kind: 'executable' | 'node-script'
+}
+resolveCommand(name: string, env: NodeJS.ProcessEnv): ResolvedCommand | null
+```
+
+- POSIX: split on `path.delimiter`, probe `X_OK`. Unchanged behavior.
+- Windows: split on `;`, strip wrapping quotes, read PATHEXT (default
+  `.COM;.EXE;.BAT;.CMD`), probe `<dir>\<name><ext>`. Read `PATH` under any
+  spelling. Compare directories case-insensitively. Cache each directory
+  listing by mtime, as T3 Code does, so a miss costs no stat.
+- A `.cmd` result is never returned as `file`. The resolver opens it and
+  reads the npm template. For a native binary it returns the `.exe` the
+  template names. For a JavaScript entry it returns
+  `{ file: process.execPath, args: [cliJs], kind: 'node-script' }`. A `.cmd`
+  it cannot read is a miss, and the error names the file so the user can set
+  the binary path.
+- Git: a `git.exe` under `Git\cmd` is replaced by the one under `mingw64\bin`
+  or `ucrt64\bin` when present. This is T3 Code's fix for the launcher's
+  kernel token leak.
+- `hostCliEnv` and `launchedProcess` spawn `resolved.file` with
+  `[...resolved.args, ...callerArgs]`. No call site uses `shell: true`.
+
+Difference from T3 Code: a non-native shim runs through Node directly, never
+through `cmd.exe`, so no argument needs escaping and the child is never a
+grandchild of `cmd.exe`.
+
+### 5.2 PATH on Windows
+
+`computeCliPathSync` returns the process PATH on Windows with the known CLI
+folders appended (`%APPDATA%\npm`, `%ProgramFiles%\nodejs`,
+`%LOCALAPPDATA%\Programs`, `~\.local\bin`, `~\.bun\bin`, `~\scoop\shims`,
+`%LOCALAPPDATA%\Volta\bin`, `%LOCALAPPDATA%\pnpm`). No shell probe runs.
+`hostCliEnv` writes one `PATH` and deletes the other spellings.
+
+When `node` is still not on that PATH, one PowerShell probe runs with the
+profile loaded (`pwsh.exe`, then `powershell.exe`; `-NoLogo -NonInteractive
+-Command`) and reads `PATH`, `FNM_DIR`, and `FNM_MULTISHELL_PATH`. The two
+executables share one 5 s budget on a monotonic clock, so a hanging profile
+costs 5 s, not 10. The probe runs in `warmCliPath`, off the request path, and
+a request that arrives first uses the process PATH rather than blocking.
+This is T3 Code's rule, and it is what makes a server started from a logon
+task or the Start menu see a CLI installed after logon.
+
+### 5.3 Provider binary path
+
+A host setting per provider, `claudeBinaryPath` and `codexBinaryPath`, in
+`host/settings.ts`. When set, the agent uses it instead of the resolver. The
+Tools settings page shows the field under each provider with the resolved path
+as the placeholder, on every client. This is the parity item that turns a
+PATH miss into a one-field fix.
+
+### 5.4 Paths
+
+- A path marker test normalizes `\` to `/` before `includes`. The marker
+  constants do not change.
+- `resolveHomePath` accepts `~\` and delegates to `files/host-path.ts`.
+- `client-core` reads a project key as `<serverId>:` followed by a path that
+  starts with `/`, `~`, or a drive letter and `:`. Path labels split on both
+  separators.
+- The local host is "This computer" on every platform.
+
+### 5.5 Atomic writes
+
+One helper, `platform/atomic-write.ts`, writes the temp file and renames it.
+On win32 it retries `EBUSY`, `EPERM`, and `EACCES` twenty times at 100 ms, and
+stops early when the target is read-only or changed under it. The fourteen
+sites in §4.1 item 9 call it.
+
+### 5.6 Process lifetime
+
+- The supervisor stops the server with an IPC `solus:stop` message, then
+  waits, then kills. The server already handles `disconnect`; `solus:stop` is
+  the explicit form, and it works on every platform.
+- On Windows a process tree ends with `taskkill /T /F /PID`. The helper that
+  kills `-pid` on POSIX does this on win32.
+- `process.on('SIGINT')` stays for Ctrl+C in a console.
+
+### 5.7 Version store and links
+
+`current` is a junction on Windows (`symlinkSync(target, link, 'junction')`).
+A junction is replaced by removing the old one and making the new one.
+`currentVersionDir` resolves it with `realpathSync` as today. Seat links in
+`seat-manager.ts` use `'junction'` too.
+
+### 5.8 Folders on Windows
+
+| Purpose | Today | Windows |
+| --- | --- | --- |
+| data | `~/.solus` | `%USERPROFILE%\.solus` (same; `homedir()` gives it) |
+| runtime (versions) | `~/.local/share/solus` | `%LOCALAPPDATA%\solus\runtime` |
+| launcher | `~/.local/bin/solus` | `%USERPROFILE%\.local\bin\solus.cmd` |
+| logs | `<data>/logs` | same |
+
+The command folder matches Claude Code's and T3 Code's Windows installs, so a
+machine with Claude Code already has it on PATH. The installer adds it to the
+user PATH when it is absent (`[Environment]::SetEnvironmentVariable` with
+`User` scope) and says so. T3 Code only prints the line; Solus adds it,
+because "run `solus` in a new terminal" is the whole first-run story.
+
+### 5.9 The logon task
+
+`solus setup` on Windows registers a Task Scheduler task `Solus server` that
+runs `solus.cmd start` at logon as the current user, hidden, with restart on
+failure. `solus service status|stop|uninstall` map to `schtasks /query`,
+`schtasks /end`, and `schtasks /delete`. No administrator rights are needed
+for a per-user logon task. T3 Code has no service on Windows; Solus's
+update-then-restart contract in `server-supervisor.ts` needs a supervisor that
+restarts, and a logon task is the cheapest one.
+
+### 5.10 Packaging and install
+
+- `package-server.ts` gains `win32-x64`. It downloads
+  `node-v<ver>-win-x64.zip`, takes `node.exe`, writes `bin\solus.cmd` and
+  `bin\solus-server.cmd`, installs `fff-bin-win32-x64` and
+  `ffi-rs-win32-x64-msvc`, and writes a `.zip` with `SHA256SUMS`. The
+  release asset is `solus-server-win32-x64.zip`, and `server-release.ts`
+  asks for `.zip` on win32.
+- `scripts/install.ps1` mirrors `install.sh` and T3 Code's `install.ps1`:
+  check the machine is x64 (`PROCESSOR_ARCHITEW6432` first, so 32-bit
+  PowerShell on a 64-bit machine reports the real one; ARM64 is refused with
+  a message), pick the version, download,
+  verify with `Get-FileHash`, unpack to `runtime\versions\<version>`, run
+  `node.exe libexec\cli\solus.js --version`, point `current`, write
+  `solus.cmd`, add the command folder to the user PATH, print next steps. It
+  needs PowerShell 5.1 and nothing else. `SOLUS_INSTALL_ARCHIVE` and
+  `SOLUS_INSTALL_SHA256SUMS` work as in `install.sh`.
+- `release-server.yml` adds `windows-latest` entries. `test.yml` adds a
+  `windows-latest` job that runs the unit tests in §8.
+
+### 5.11 Secrets on the standalone server
+
+`FileSecretStore` on Windows wraps each value with DPAPI through one PowerShell
+call (`[Security.Cryptography.ProtectedData]::Protect`, `CurrentUser` scope)
+and stores the base64. Reads unwrap the same way. The file gains a
+`dpapi: true` marker so a file written elsewhere still reads.
+
+### 5.12 Desktop app
+
+- electron-builder `win` target: `nsis`, `x64` only, `resources/icon.ico` made by `generate-app-icons.ts`,
+  `publish` unchanged so `latest.yml` lands beside `latest-mac.yml`.
+  `afterPack.js` branches on `context.electronPlatformName`: the fuse flip
+  targets `Solus.exe`, and the size check reads `appOutDir`.
+- `main/index.ts`: `app.setAppUserModelId('com.solus.app')`,
+  `requestSingleInstanceLock` with a `second-instance` handler that shows the
+  window, `Menu.setApplicationMenu(null)` off macOS, the `.ico` for the
+  window, a colour tray PNG off macOS, `NODE_EXTRA_CA_CERTS` only when the
+  file exists, and `app.focus()` plus `moveTop()` after the summon shortcut.
+  If Windows still refuses the foreground, add T3 Code's Win32 activation
+  through `ffi-rs`, which is already a dependency.
+- The in-process server gets its PATH from `importLoginShellEnv()`, which on
+  win32 runs the §5.2 probe once and writes `process.env`. The server does
+  not probe again.
+- The `solus` command from Settings → General → About → Install: writes
+  `solus.cmd` into the command folder, pointing at the app's `Solus.exe` with
+  `ELECTRON_RUN_AS_NODE=1` and the CLI entry; refuses to overwrite a file
+  without the Solus marker; adds the folder to the user PATH; Remove undoes
+  it. macOS gets the same with a shell script, so the capability is one
+  feature on both.
+- The default summon shortcut is `Alt+Shift+Space` on Windows and Linux.
+  `Alt+Space` stays on macOS.
+- Keybindings: `conversation.interrupt` is `Ctrl+Shift+C` off macOS;
+  `pr-review.copy-link` and `global.focus-sidebar-task-search` get free
+  combos; `formatCombo` prints `Ctrl`, `Alt`, `Shift`, `Win` off macOS, and
+  the components that print `⌘` read the formatter instead.
+  `comboToAccelerator` emits `Super` for `meta` off macOS.
+- Badge: `setOverlayIcon` on Windows with a rendered count; cleared when a
+  window has focus.
+- Shell integration: a Windows branch in `terminal-apps.ts` for Windows
+  Terminal (`wt.exe -d <cwd>`) and PowerShell, with no `tmux`; editors found
+  on PATH first, then under `%LOCALAPPDATA%\Programs` and the Program Files
+  roots (VS Code and Cursor `bin\*.cmd`, Zed `.exe`, JetBrains
+  `bin\<ide>64.exe`); screenshots use `desktopCapturer`.
+- `build.files` keeps the `win32` `onnxruntime-node` binaries in a Windows
+  build.
+- `release.yml` adds a `build-windows` job that runs the two vite builds and
+  `electron-builder --win --publish never`, uploads the `.exe`, `latest.yml`,
+  and blockmap to R2, and attaches the `.exe` to the release. T3 Code builds
+  its NSIS installers on Linux and runs only native checks on Windows
+  runners; Solus can start on `windows-latest` and move later.
+
+### 5.13 WSL backend
+
+The desktop app on Windows can run its server inside a WSL distro. The model
+follows T3 Code's and reuses Solus's own pieces:
+
+- **Choice.** Settings → Connections → "Run the server in" lists `Windows`
+  and each distro from `wsl.exe --list --verbose` (8 s bound; a failure is
+  "could not list", not "none"). `null` means the user's default distro. The
+  choice is a desktop setting; changing it restarts the server.
+- **Runtime in the distro.** The desktop ships the headless `libexec/server`
+  tree (it already exists for the server package) outside the asar under
+  `userData\wsl-server-tree\<version>`, with a marker file and a sweep of old
+  versions. The distro reads it through `/mnt/c`. Node comes from the distro's
+  login shell; when `node` is missing the setup page says so and offers the
+  Linux server package install (`install.sh`), which brings its own Node.
+- **Launch.** `wsl.exe -d <distro> -- bash -lc '<node> <standalone.js>
+  --data-dir ~/.solus'` as a child with an IPC-free stdio pipe. The login
+  shell's PATH is read first (`bash -l -s` with a probe script, as T3 Code
+  does) and forwarded so `codex` and `claude` resolve by name. The data folder
+  is the Linux home, never `/mnt/c`. A whitelist of env vars crosses through
+  `WSLENV`. The local session token is handed over on stdin.
+- **Reach.** The server binds `0.0.0.0` inside the distro. The renderer's
+  local target is `http://<distro-ip>:<port>` from `hostname -I`, or
+  `127.0.0.1` when that address is also one of Windows' own (mirrored
+  networking). Localhost forwarding is not used, because `wslhost` can take
+  30 s to start it.
+- **Lifetime.** A stopped distro is pre-warmed (30 s). The server child is
+  stopped with `solus:stop` over its stdin, then `wsl.exe --terminate` is
+  never called; the distro keeps running for the user's other shells.
+- **Paths.** `wslpath -u` after normalizing backslashes, cached user home per
+  distro. Reveal and open use `explorer.exe` with `\\wsl.localhost\<distro>`
+  paths, which `file-manager.ts` already knows.
+- **Not in the WSL backend.** The browser pane's native webview stays on
+  Windows; the server's browser verbs go through the desktop's own Chromium
+  as they do today. The transcription worker stays on Windows.
+
+The in-process server stays the default. The WSL backend is the second local
+target, and the desktop app runs one of them at a time. This is the only
+either/or. A standalone server inside a distro, or a second one on Windows,
+is its own host with its own data folder, port, and pair code; the user adds
+it in Add server and picks it in Run on, as with any machine. Two servers on
+one machine with mirrored networking share the Windows address, so the second
+one walks up to the next free port and prints that in its pair link.
+
+### 5.14 Performance on Windows
+
+The items from §3.5 that are not already part of §5.1 and §5.2.
+
+- **Port scanning.** `browser/target-scanner.ts` gains a win32 branch. It
+  returns an empty list at once when no session is running and no URL is
+  configured, so an idle poll spawns nothing. Otherwise it runs
+  `netstat.exe -ano -p tcp` and `netstat.exe -ano -p tcpv6` concurrently and
+  reads listening sockets by the foreign address `:0`, which is the same on
+  every Windows locale (the state column is translated). `netstat` gives only
+  PIDs, so each new PID gets one `tasklist.exe /FI "PID eq <pid>"` call, cached
+  per PID. Windows has no cheap way to read another process's working
+  directory, so a Windows offer names the port and the process, not the
+  project; the client already handles an offer without a project.
+- **Snapshot flushing.** The `git` commands in `git/session-snapshots.ts` that
+  write objects (`hash-object -w`, `write-tree`, `commit-tree`, `update-ref`)
+  run with `-c core.fsync=committed -c core.fsyncMethod=fsync
+  -c core.fsyncMethod=batch` on macOS and Windows. Git 2.37+ batches the
+  object flushes; Git 2.36 ignores the unknown second value and keeps full
+  flushing. Linux keeps the defaults, because Git documents batch equivalence
+  only for APFS and NTFS/ReFS. Measure a long turn on both platforms before
+  and after; keep it only if the capture time drops.
+- **Installer.** The first Windows build records the installer's file count
+  and cold boot time (`solus_boot_phase` in `dev.log`). The target is under
+  2,000 files and a server listening within 4 s on a cold cache. NSIS
+  `differentialPackage: true` is on so updates download blocks, not the whole
+  installer.
+- **Event-loop stalls.** `spawn()` creates the process on the main thread, so
+  a slow process creation is a stall. The host already logs
+  `event_loop_stalled`; the Windows runs in §8 read it and count git launches
+  per hour, so a leak like the launcher's is visible before users report it.
+
+## 6. What is not in this plan
+
+- Tailscale HTTPS (`tailscale serve`). Solus has no serve on any platform.
+- A terminal feature. Solus has none; node-pty parity does not apply.
+- T3 Code's screenshot feature and its modifier-only shortcut worker.
+- Member seats (Linux user switching) on Windows.
+- Desktop-managed SSH to a Windows host. T3 Code has the same limit.
+- Windows on ARM, for the server and the desktop app. Solus builds and
+  tests `win32-x64` only. `install.ps1` and `parseTarget` refuse an ARM64
+  machine with a message that names the limit. The x64 build runs under
+  emulation on Windows on ARM, but it is not tested or supported there.
+
+## 7. Order of work
+
+Each step is one pull request or a small set. A step ends with its proof (§8).
+
+### 7.1 Step 1: the server runs on native Windows from source
+
+1. **Install from source on Windows.** Replace `bash scripts/patch-dev-icon.sh`
+   in `postinstall` with `bun scripts/patch-dev-icon.ts`, which returns at once
+   off darwin. Check that `bun install` and `bun scripts/build-headless.ts`
+   finish on Windows; the headless build is esbuild only. Confirm
+   `fff-bin-win32-x64` and `ffi-rs-win32-x64-msvc` install as optional
+   dependencies, or make the file finder optional on a miss.
+2. **The command resolver** (§5.1) and **PATH on Windows** (§5.2) in
+   `cli-env.ts` and the new `command-path.ts`. Move `findOnPath`'s callers to
+   it: `claude-agent.ts`, `codex-agent.ts`, `git-availability.ts`,
+   `provider-versions.ts`, `uplink/connector.ts`, `code-intel`, and the four
+   `which` call sites. Keep `probeGit`'s darwin stub check.
+3. **Shims.** `codex-agent.ts`, `setup-commands.ts` (`npm`), and
+   `apps/cli/src/index.ts` (login) spawn the resolved command. The Claude
+   agent passes the resolved `.exe` or `cli.js` to the SDK as
+   `pathToClaudeCodeExecutable`. The Claude installer command on Windows is
+   `irm https://claude.ai/install.ps1 | iex`; `setup-commands.ts` returns it
+   on win32 and skips the `sudo` and ownership checks.
+4. **Provider binary path** (§5.3): the setting, the agents, the Tools page
+   on desktop, web, and mobile.
+5. **Paths** (§5.4): the marker tests, `resolveHomePath`, and the
+   "already encoded" check.
+6. **Atomic writes** (§5.5).
+7. **Lifetime** (§5.6): `solus:stop` in the supervisor and the standalone
+   entry; `taskkill` in the tree-kill helper.
+8. **Snapshot flushing** (§5.14): measure, then keep or drop.
+9. **Run it.** On the Windows machine: `bun install`,
+   `bun scripts/build-headless.ts`, then
+   `node dist\headless\libexec\server\standalone.js --data-dir %USERPROFILE%\.solus-dev`.
+   Allow the Windows Firewall prompt for Node on private networks, or set
+   `remoteAccess` in the host settings.
+10. **Pair the Mac.** On the Mac desktop app open Add server, paste the pair
+   link the server printed, or type `http://<windows-ip>:3000` and the code.
+   Pick the Windows host in Run on. Start a Claude Code session and a Codex
+   session in a repository on the Windows host. Make a worktree. Open the
+   diff. Run `git` actions. Read `~\.claude\projects` to confirm the folder
+   encoding.
+
+The known gaps after this step: no `solus` command, no logon task, plaintext
+secrets, no uplink, no Tailscale detection.
+
+### 7.2 Step 2: the Windows server package and the `solus` command
+
+1. `runtime.ts` folders (§5.8) and `node.exe`.
+2. `version-store.ts` junctions (§5.7).
+3. `package-server.ts` win32 targets, `.cmd` launchers, and the `.zip`
+   (§5.10). `server-release.ts` asks for `.zip` on win32.
+4. `scripts/install.ps1` (§5.10). Add it to the site beside `install.sh`.
+5. `cloudflared.ts` win32 asset (`cloudflared-windows-amd64.exe`).
+   `endpoints.ts` adds
+   `%ProgramFiles%\Tailscale\tailscale.exe` and a longer status bound.
+6. `solus logs` reads the file with Node instead of `tail`. `connect.ts` opens
+   a browser through `platform/opener.ts`.
+7. The SSH askpass helper as `.cmd` plus `.ps1` on win32, with no `chmod`
+   and no `DISPLAY`.
+8. The logon task (§5.9) in `service.ts`, `setup.ts`, and `status.ts`.
+9. DPAPI secrets (§5.11).
+10. `release-server.yml` and `test.yml` Windows jobs.
+
+### 7.3 Step 3: the desktop app on native Windows
+
+1. Electron setup and build (§5.12): `app.setAppUserModelId`, single
+   instance, no menu bar, icons, tray, `NODE_EXTRA_CA_CERTS`, `afterPack.js`,
+   the `win` target, `.ico` generation, and the CI job. Build locally first
+   with `electron-builder --win --dir`; the developer runs the build.
+2. PATH for the in-process server: `importLoginShellEnv()` runs the §5.2
+   probe once on win32.
+3. Shortcuts and labels: the summon default, the four conflicting combos,
+   `formatCombo`, `comboToAccelerator`, "This computer".
+4. Client paths: `project-identity.ts`, `desktop-palette.svelte.ts`.
+5. Badge, focus after summon, and shell integration: `setOverlayIcon`,
+   `app.focus()` and `moveTop()`, Windows Terminal, editors through the
+   resolver and the install roots, `desktopCapturer`.
+6. Port scanning with `netstat` and the installer measurements (§5.14).
+7. The `solus` command from Settings (§5.12), on Windows and macOS.
+8. Auto-update: confirm `latest.yml` on the feed and `quitAndInstall` with
+   the NSIS installer.
+9. Run the Windows desktop app against its own server, then pair it with the
+   Mac host as a second host.
+
+### 7.4 Step 4: the WSL backend
+
+1. `apps/desktop/src/main/wsl/wsl-environment.ts`: availability
+   (`%windir%\System32\wsl.exe` exists), `listDistros` and `probeDistros`,
+   `preWarm`, `windowsToWslPath`, `userHome`, `distroIp`, `loginShellPath`,
+   each with its bound (§5.13).
+2. `wsl-server-tree.ts`: ship the headless tree beside the asar and keep it
+   per version.
+3. `wsl-backend.ts`: build the launch (`wsl.exe -d … -- bash -lc`), the env
+   whitelist and `WSLENV`, the token on stdin, `solus:stop`, and the renderer
+   target URL.
+4. Settings → Connections → "Run the server in", with the restart, the Node
+   check, and the install hint. Desktop only; web and mobile show the host
+   as a Linux host like any other.
+5. `renderer/main.ts` registers the WSL target as the local one when chosen.
+6. Run it: pick a distro, start a Claude Code session in `~/code/<repo>`
+   inside the distro, open the diff, reveal a file in Explorer.
+
+### 7.5 Step 5: distribution
+
+Winget and scoop manifests and code signing.
+
+## 8. Proofs
+
+Unit tests run on macOS and on the Windows CI job. A test that needs a real
+Windows file system says so and skips elsewhere.
+
+- `tests/unit/command-path.test.ts`: on a fake win32 PATH with PATHEXT, a bare
+  name finds `.exe` before `.cmd`; an npm `.cmd` for a JavaScript entry
+  resolves to Node plus the script; an npm `.cmd` for a native binary resolves
+  to the `.exe`; a hand-written `.cmd` is a miss with a message that names it;
+  PATH under `Path` is read; a drive letter is not split; `Git\cmd\git.exe`
+  becomes `mingw64\bin\git.exe` when present; the POSIX path is unchanged.
+- `tests/unit/cli-env.test.ts`: on win32 no shell probe runs when `node` is
+  on PATH; the PowerShell probe runs once when it is not; the known folders
+  are appended once; `hostCliEnv` writes one `PATH` spelling.
+- `tests/unit/provider-binary-path.test.ts`: a set path wins over the
+  resolver, and a missing file at that path is the error the user sees.
+- `tests/unit/worktree-path.test.ts`: `isSolusWorktreePath` accepts a
+  backslash path; `encodePathAsFolder` gives `C--Users-me-repo`; the
+  "already encoded" check accepts a drive letter.
+- `tests/unit/atomic-write.test.ts`: on win32 an `EBUSY` that clears is
+  retried; a read-only target is not; a changed target stops the retry.
+- `tests/unit/server-supervisor.test.ts`: `solus:stop` runs `shutdown` and the
+  lock file is removed before the child exits.
+- `tests/unit/version-store.test.ts`: on win32 `current` is a junction and
+  `setCurrent` replaces it; on POSIX the symlink behavior is unchanged.
+- `tests/unit/runtime-paths.test.ts`: the Windows folders in §5.8.
+- `tests/unit/service.test.ts`: the `schtasks` arguments for install, status,
+  and uninstall.
+- `tests/unit/project-identity.test.ts`: a project key with `C:\` has parts and
+  a label.
+- `tests/unit/keybindings-match.test.ts`: `formatCombo` off macOS prints
+  `Ctrl` and `Alt`; `comboToAccelerator` emits `Super` for `meta`.
+- `tests/unit/package-server.test.ts`: `parseTarget` accepts `win32-x64` and
+  refuses `win32-arm64`; the
+  launcher content for win32 is a `.cmd` that calls `node.exe`.
+- `tests/unit/cli-shim.test.ts`: the `solus.cmd` content, the marker check,
+  and the PATH edit are what §5.12 says.
+- `tests/unit/target-scanner.test.ts`: on win32 an idle poll spawns nothing;
+  a German-locale `netstat` output yields the listening ports; `tasklist`
+  runs once per PID across polls.
+- `tests/unit/session-snapshots.test.ts`: the object-writing git commands
+  carry the fsync settings on darwin and win32 and not on linux.
+- `tests/unit/wsl-environment.test.ts`: the distro list parser, the
+  mirrored-networking rule for the target URL, the `WSLENV` list, and the
+  backslash normalization before `wslpath`.
+- A manual run on the Windows machine for each step, as in §7.1 items 9–10,
+  §7.3 item 9, and §7.4 item 6, with the result written into this file.
+
+## 9. Known limits
+
+- Step 1 stores standalone-server secrets as plaintext files on Windows. Keep
+  the data folder on a BitLocker drive until §5.11 ships.
+- Step 1 has no uplink and no Tailscale detection on Windows. Pair over the
+  LAN.
+- `remoteAccess` binds `0.0.0.0` and the LAN discovery socket binds UDP 34117.
+  Each triggers one Windows Firewall prompt the first time.
+- Chrome cookie import stays refused on Windows (ADR 0026), as in T3 Code.
+- `core.longpaths` is off by default in Git for Windows. A deep repository
+  under `.git\solus\worktrees\<slug>` can pass `MAX_PATH`. The setup page tells
+  the user to run `git config --global core.longpaths true` on Windows.
+- The browser pane on a standalone Windows server needs Playwright's Chromium;
+  the installer prints the command as it does on Linux.
+- The WSL backend needs Node 24 in the distro or the Linux server package.
+  The first start after an update is slower because the tree is copied.
+- Member seats (Linux user switching) stay unsupported on Windows and in the
+  WSL backend.
+
+## 10. Decisions for the maintainers
+
+1. **Command folder.** `%USERPROFILE%\.local\bin` (matches Claude Code and
+   T3 Code; the installer adds it to the user PATH), or
+   `%LOCALAPPDATA%\Programs\solus\bin`. The plan assumes the first.
+2. **Archive format.** `.zip` for the Windows server package (the plan
+   assumes it, as T3 Code), or keep `.tar.gz`.
+3. **Logon task.** Ship `solus setup` as a Task Scheduler task in step 2, or
+   do what T3 Code does and tell Windows users to keep a terminal open. The
+   plan assumes the task.
+4. **Remote-only desktop.** T3 Code can turn off the local server. Solus
+   always boots one. Add the switch in step 3, or leave it. The plan leaves
+   it; the WSL backend covers the common reason for it.
+5. **Code signing for the desktop app.** An unsigned NSIS installer shows the
+   SmartScreen warning. The plan ships unsigned in step 3 and signs in step 5.
+6. **Summon shortcut.** `Alt+Shift+Space` on Windows, or another.
+7. **WSL step order.** Step 4 after step 3 (the plan), or before it, since a
+   Windows machine with WSL could run Solus with fewer native fixes. Step 1
+   is needed either way for the desktop's own server.

@@ -9,7 +9,7 @@ import {
   type OrganizationSettingsPatchRequest,
 } from '@solus/contracts/settings'
 import type { AccountSettingsResult, NativeSolusAPI, OrganizationSettingsResult, SettingsRequestFailure } from '@solus/contracts/host-api'
-import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
+import { SOLUS_PROTOCOL, SOLUS_PROTOCOL_HEADER, uplinkErrorBodySchema } from '@solus/contracts/uplink'
 import type { z } from 'zod'
 import type { OAuthSession } from './oauth-session'
 
@@ -115,7 +115,7 @@ export function webSettingsRequests(origin: string, session: Pick<OAuthSession, 
   return settingsCloudRequests(async (request) => {
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return 'signed-out'
-    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
+    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}`, [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL) })
     if (request.body) headers.set('content-type', 'application/json')
     try {
       return await fetchImpl(`${origin}${request.path}`, {

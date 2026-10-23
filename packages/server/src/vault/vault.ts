@@ -1,11 +1,10 @@
 import { join } from 'node:path'
 import type { z } from 'zod'
-import type { Integration } from '@solus/contracts/integration-types'
+import { DEFAULT_INTEGRATION_ACCOUNT, type Integration } from '@solus/contracts/integration-types'
 import { oauthTokenSchema, type OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
 import { parseUserKey } from '@solus/contracts/user'
 import {
-  VAULT_CREDENTIAL_PATH,
-  VAULT_READ_PATH,
+  VAULT_PATH,
   mcpDeliverySchema,
   typesafeDeliverySchema,
   vaultCredentialHeldBodySchema,
@@ -39,7 +38,7 @@ import { accountReads, type AccountReads } from './account-reads'
  *
  * - The host's user before this host is linked to their account: this host's store.
  * - The host's user once linked, and every member: their account, read with their
- *   delegated token through `POST /v1/vault/read`.
+ *   delegated token through `POST /v1/vault`.
  * - A guest: nothing (D1).
  *
  * An MCP connection also has a host copy while the reconcile has not moved it into
@@ -57,11 +56,19 @@ const log = createLogger('main', 'vault')
 
 export type { CredentialRef }
 
-/** The host keeps an MCP credential by integration; the account by the server's address. */
-export type McpCredentialRef = McpRef & { integrationId: string }
+/**
+ * The host keeps an MCP credential by integration and account; the account
+ * vault by the server's address. `accountId` is set for an account the person
+ * added after the first (docs/plans/mcp-integrations.md §13.3): the account
+ * vault keeps one credential per server, so an added account lives on the
+ * host only.
+ */
+export type McpCredentialRef = McpRef & { integrationId: string; accountId?: string }
 
-export function mcpCredentialRef(integration: Pick<Integration, 'id' | 'url'>): McpCredentialRef {
-  return { kind: 'mcp', integrationId: integration.id, serverUrl: integration.url }
+export function mcpCredentialRef(integration: Pick<Integration, 'id' | 'url'>, accountId?: string): McpCredentialRef {
+  const ref: McpCredentialRef = { kind: 'mcp', integrationId: integration.id, serverUrl: integration.url }
+  if (accountId && accountId !== DEFAULT_INTEGRATION_ACCOUNT) ref.accountId = accountId
+  return ref
 }
 
 export const TYPESAFE_REF: TypesafeRef = { kind: 'typesafe' }
@@ -110,7 +117,7 @@ export function usesAccountIntegration(): boolean {
 /**
  * A person's credential read where the account plane runs in this process: the
  * Solus API inside solus-cloud reads its vault there, with no request and no
- * delegation. It answers what `POST /v1/vault/read` would, or null when the person
+ * delegation. It answers what `POST /v1/vault` would, or null when the person
  * has no usable connection.
  */
 export type AccountCredentialSource = (userId: string, ref: CredentialRef) => Promise<VaultDelivery | null>
@@ -169,9 +176,19 @@ function hostKeyOf(ref: ProviderRef | TypesafeRef): string {
   return ref.kind === 'typesafe' ? TYPESAFE_HOST_KEY : PROVIDER_HOST_KEYS[ref.provider]
 }
 
-/** `integration-token-<integrationId>-<person>`; the person's key is encoded so it is a safe file name. */
-function mcpHostKey(integrationId: string, personKey: string): string {
-  return `integration-token-${integrationId}-${Buffer.from(personKey).toString('base64url')}`
+/**
+ * `integration-token-<integrationId>-<person>`, and `-<account>` for an added
+ * account (§13.3); the person's key is encoded so it is a safe file name.
+ */
+function mcpHostKey(integrationId: string, personKey: string, accountId?: string): string {
+  const base = `integration-token-${integrationId}-${Buffer.from(personKey).toString('base64url')}`
+  return accountId && accountId !== DEFAULT_INTEGRATION_ACCOUNT ? `${base}-${Buffer.from(accountId).toString('base64url')}` : base
+}
+
+/** One of a person's connections, by integration and account, as link and unlink move its token. */
+export interface HostConnectionKey {
+  integrationId: string
+  accountId: string
 }
 
 /** The ref as the cloud reads it: an MCP ref names the server's address alone. */
@@ -224,7 +241,7 @@ export class Vault {
       return
     }
     if (!hasMcpCredentials(personKey)) throw new Error('Only a person who is not a guest connects an MCP server.')
-    this.saveHost(mcpHostKey(ref.integrationId, personKey), value)
+    this.saveHost(mcpHostKey(ref.integrationId, personKey, ref.accountId), value)
   }
 
   /**
@@ -242,7 +259,7 @@ export class Vault {
     }
     if (!hasMcpCredentials(personKey)) return null
     this.forget(personKey, ref)
-    const key = mcpHostKey(ref.integrationId, personKey)
+    const key = mcpHostKey(ref.integrationId, personKey, ref.accountId)
     const token = this.loadHost(key, oauthTokenSchema)
     this.removeHost(key)
     return token
@@ -253,12 +270,12 @@ export class Vault {
    * move to the new key; a token the new key already holds wins, and the old one
    * goes either way. Never throws.
    */
-  move(fromKey: string, toKey: string, integrationIds: string[]): void {
-    for (const integrationId of integrationIds) {
+  move(fromKey: string, toKey: string, connections: HostConnectionKey[]): void {
+    for (const { integrationId, accountId } of connections) {
       try {
-        const token = this.loadHost(mcpHostKey(integrationId, fromKey), oauthTokenSchema)
-        if (token && !this.loadHost(mcpHostKey(integrationId, toKey), oauthTokenSchema)) this.saveHost(mcpHostKey(integrationId, toKey), token)
-        this.removeHost(mcpHostKey(integrationId, fromKey))
+        const token = this.loadHost(mcpHostKey(integrationId, fromKey, accountId), oauthTokenSchema)
+        if (token && !this.loadHost(mcpHostKey(integrationId, toKey, accountId), oauthTokenSchema)) this.saveHost(mcpHostKey(integrationId, toKey, accountId), token)
+        this.removeHost(mcpHostKey(integrationId, fromKey, accountId))
       } catch (error) {
         // The row moved: without its token it reads as not connected, and the person signs in again.
         log.warn('integration_token_move_failed', { integrationId, error: error instanceof Error ? error.message : String(error) })
@@ -290,11 +307,11 @@ export class Vault {
   /**
    * Unlink (cloud-vault.md §2.5): this host keeps nothing for the person who was
    * its user. Their logins, a key that never reached the account, their MCP tokens
-   * in `integrationIds`, and every token the account delivered go.
+   * of every account in `connections`, and every token the account delivered go.
    */
-  forgetPerson(personKey: string, integrationIds: string[]): void {
+  forgetPerson(personKey: string, connections: HostConnectionKey[]): void {
     for (const key of [...Object.values(PROVIDER_HOST_KEYS), TYPESAFE_HOST_KEY]) this.removeHost(key)
-    for (const integrationId of integrationIds) this.removeHost(mcpHostKey(integrationId, personKey))
+    for (const { integrationId, accountId } of connections) this.removeHost(mcpHostKey(integrationId, personKey, accountId))
     this.forgetAll()
   }
 
@@ -304,7 +321,7 @@ export class Vault {
    */
   async upload(personKey: string, ref: McpCredentialRef | TypesafeRef, material: UploadMaterial, label: string | null): Promise<CloudCredentialUpload> {
     const body: VaultUploadRequest = { ref: cloudRefOf(ref), material, expectedVersion: null, label }
-    const call = await this.callAccount(personKey, 'PUT', VAULT_CREDENTIAL_PATH, body)
+    const call = await this.callAccount(personKey, 'PUT', VAULT_PATH, body)
     if (call.kind !== 'response') return call
     const response = call.response
     const answer: unknown = await response.json().catch(() => null)
@@ -346,7 +363,7 @@ export class Vault {
     }
     // The person's connection, read with their delegated token (ADR 0001 §2.2 rule 7).
     const body: VaultReadRequest = { ref }
-    const response = await this.reads().fetch(location.accountId, null, VAULT_READ_PATH, {
+    const response = await this.reads().fetch(location.accountId, null, VAULT_PATH, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify(body),
@@ -365,9 +382,10 @@ export class Vault {
     const location = credentialLocationOf(personKey)
     if (location.kind === 'none') return null
     // The host's user before the link; or, for a person with an account, a sign-in made here that the reconcile has not moved yet.
-    const token = this.loadHost(mcpHostKey(ref.integrationId, personKey), oauthTokenSchema)
+    const token = this.loadHost(mcpHostKey(ref.integrationId, personKey, ref.accountId), oauthTokenSchema)
     if (token) return { location: 'host', token }
-    if (location.kind === 'host') return null
+    // An added account is the host's alone; the account vault keeps the first one.
+    if (location.kind === 'host' || ref.accountId) return null
     const read = await this.readAccountMcp(personKey, ref.serverUrl)
     if (read.kind === 'unreachable') {
       const cached = this.cache.get(cacheKey(personKey, ref.serverUrl))
@@ -391,7 +409,7 @@ export class Vault {
   }
 
   private async fetchDelivery(personKey: string, serverUrl: string): Promise<CloudCredentialRead> {
-    const call = await this.callAccount(personKey, 'POST', VAULT_READ_PATH, { ref: { kind: 'mcp', serverUrl } })
+    const call = await this.callAccount(personKey, 'POST', VAULT_PATH, { ref: { kind: 'mcp', serverUrl } })
     if (call.kind !== 'response') return call
     const response = call.response
     const body: unknown = await response.json().catch(() => null)

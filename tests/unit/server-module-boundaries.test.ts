@@ -37,7 +37,6 @@ const forbidden: Record<string, readonly string[]> = {
 const exceptions: ReadonlySet<string> = new Set([
   'data/tasks/task-applier.ts -> sync/outbox/outbox-store.ts',
   'data/works/work-applier.ts -> sync/outbox/outbox-store.ts',
-  'data/sessions/session-applier.ts -> sync/outbox/outbox-store.ts',
   'data/tasks/foreign-tasks.ts -> sync/outbox/outbox-store.ts',
   'data/tasks/linked-content.ts -> execution/agents/tools/session-tools.ts',
 ])
@@ -99,6 +98,6 @@ describe('server module boundaries', () => {
     const transcripts = names.indexOf('session_transcripts')
     // WHY: generated migrations and the runner cursors depend on the table order staying put.
     expect(names.slice(transcripts, transcripts + 3)).toEqual(['session_transcripts', 'insight_spans', 'insight_log_events'])
-    expect(names[transcripts - 1]).toBe('runner_cursors')
+    expect(names[transcripts - 1]).toBe('runner_delivery_cursors')
   })
 })

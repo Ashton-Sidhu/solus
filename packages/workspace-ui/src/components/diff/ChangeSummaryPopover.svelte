@@ -1,22 +1,13 @@
 <script lang="ts">
-  import { GitBranch as GitBranchIcon } from "@lucide/svelte";
+  import { Check, GitBranch as GitBranchIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import * as TooltipUI from "../ui/tooltip";
   import { MiddleTruncate } from "../ui/middle-truncate";
   import { menuRowVariants } from "../ui/menu/menu-row";
-  import { changeBreakdown } from "@solus/client-core/change-breakdown";
+  import { changeBreakdown, changeFilterOptions, filterChangedFiles, toggleChangeKind, isChangeKindSelected, type ChangeKind } from "@solus/client-core/change-breakdown";
   import type { ChangedFileSummary } from "./lib/review-header";
 
-  /**
-   * What changed, and where the counts came from.
-   *
-   * The band shows a branch and two numbers; this is the list behind them. It
-   * is a jump list, not a filter: a row scrolls the Diff view to that file. The
-   * base ref lives in this footer rather than on the band, because "compared
-   * against what" is asked once and then remembered. Under the heading, the
-   * same counts split by kind of file — code, tests, docs — when the change
-   * touches more than one.
-   */
+  /** Class checkboxes filter the diff; file rows navigate to a file. */
   let {
     branchLabel,
     branchTitle,
@@ -26,6 +17,8 @@
     baseLabel,
     scopeLabel,
     onOpenFile,
+    selectedKinds = null,
+    onSelectKinds,
   }: {
     branchLabel: string;
     branchTitle?: string;
@@ -37,12 +30,15 @@
     /** Which slice of the session the counts describe — "turn 3", "all turns". */
     scopeLabel: string;
     onOpenFile: (path: string) => void;
+    selectedKinds?: ChangeKind[] | null;
+    onSelectKinds?: (kinds: ChangeKind[] | null) => void;
   } = $props();
 
   let open = $state(false);
   // Sorted only while the menu is open, so a streaming diff does not re-sort
   // every file on each update.
-  const breakdown = $derived(open ? changeBreakdown(files, { additions, deletions }) : []);
+  const breakdown = $derived(open ? (onSelectKinds ? changeFilterOptions(files) : changeBreakdown(files, { additions, deletions })) : []);
+  const visibleFiles = $derived(onSelectKinds ? filterChangedFiles(files, selectedKinds, (file) => file.path) : files);
   let triggerEl = $state<HTMLButtonElement | null>(null);
 </script>
 
@@ -91,14 +87,34 @@
     <DropdownMenu.Label>Changed files · {scopeLabel}</DropdownMenu.Label>
 
     {#if breakdown.length > 0}
-      <!-- The counts by kind, as rows shaped like the file rows below, so
-           both sets of counts share one right edge. -->
+      <!-- The menu item owns selection and keyboard behavior; the box is decorative. -->
       {#each breakdown as part (part.kind)}
-        <div class={menuRowVariants()}>
-          <span class="min-w-0 flex-1 truncate text-(--solus-text-primary)">{part.label}</span>
-          <span class="shrink-0 tabular-nums text-(--solus-art-3)">+{part.additions}</span>
-          <span class="shrink-0 tabular-nums text-(--solus-stop-bg)">−{part.deletions}</span>
-        </div>
+        {#if onSelectKinds}
+          <DropdownMenu.CheckboxItem
+            checked={isChangeKindSelected(selectedKinds, part.kind)}
+            onCheckedChange={() => onSelectKinds?.(toggleChangeKind(selectedKinds, part.kind))}
+            closeOnSelect={false}
+            class="pr-2.5 [&_[data-slot=dropdown-menu-checkbox-item-indicator]]:hidden"
+          >
+            <span
+              aria-hidden="true"
+              class="flex size-4 shrink-0 items-center justify-center rounded-sm border border-(--solus-text-tertiary)"
+            >
+              {#if isChangeKindSelected(selectedKinds, part.kind)}
+                <Check class="size-3 text-(--solus-accent)" />
+              {/if}
+            </span>
+            <span class="min-w-0 flex-1 truncate text-(--solus-text-primary)">{part.label}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-art-3)">+{part.additions}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-stop-bg)">−{part.deletions}</span>
+          </DropdownMenu.CheckboxItem>
+        {:else}
+          <div class={menuRowVariants()}>
+            <span class="min-w-0 flex-1 truncate text-(--solus-text-primary)">{part.label}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-art-3)">+{part.additions}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-stop-bg)">−{part.deletions}</span>
+          </div>
+        {/if}
       {/each}
       <DropdownMenu.Separator />
     {/if}
@@ -107,9 +123,11 @@
       <div class="px-2.5 py-1.5 text-(--solus-text-tertiary)">
         No changes in this {scopeLabel}
       </div>
+    {:else if visibleFiles.length === 0}
+      <div class="px-2.5 py-1.5 text-(--solus-text-tertiary)">No files match the selected classes</div>
     {:else}
       <div class="max-h-72 overflow-y-auto">
-        {#each files as file (file.path)}
+        {#each visibleFiles as file (file.path)}
           <DropdownMenu.Item onSelect={() => onOpenFile(file.path)}>
             <!-- The filename leads and the directory trails it, so a path too
                  long for the menu gives up its directory first. The filename

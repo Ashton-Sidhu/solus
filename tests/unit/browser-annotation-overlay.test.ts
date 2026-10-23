@@ -115,6 +115,8 @@ function overlay() {
     up: (x: number, y: number) => pointer('pointerup', x, y),
     cancel: (x: number, y: number) => pointer('pointercancel', x, y),
     blur: () => window.dispatchEvent(new window.Event('blur')),
+    scroll: () => window.dispatchEvent(new window.Event('scroll')),
+    window,
     addElement,
   }
 }
@@ -354,15 +356,15 @@ describe('the rest of the annotation tools', () => {
  * separate failures, and only one of them was covered. These assert the picture.
  */
 describe('what the overlay paints', () => {
-  test('installs a layer with a marks group and a live group', () => {
-    // WHY: the two groups are redrawn on different schedules. If the install
+  test('installs a layer with a marks group, a live group, and a reveal group', () => {
+    // WHY: the groups are redrawn on different schedules. If the install
     // throws — a syntax error in the injected string, an API the guest lacks —
     // nothing renders and no tool works, which is indistinguishable from the
     // feature being switched off.
     const page = overlay()
     page.arm('pick')
     expect(page.painted()).toContain('<svg')
-    expect(page.painted().match(/<g>/g) ?? []).toHaveLength(2)
+    expect(page.painted().match(/<g>/g) ?? []).toHaveLength(3)
   })
 
   test('installs cleanly for every tool the contract declares', () => {
@@ -448,6 +450,85 @@ describe('what the overlay paints', () => {
     const [mark] = page.arm('region').annotations
     expect(page.painted()).toContain('<rect')
     page.apply({ kind: 'remove', annotationId: mark?.id ?? '' })
+    expect(page.painted()).not.toContain('<rect')
+  })
+
+  test('keeps the pick outline on the element under the pointer when the page scrolls', () => {
+    // WHY: a wheel scroll moves the page under a still pointer and sends no
+    // pointer event. The outline used to stay at the old viewport position,
+    // over whatever had scrolled into that place.
+    const page = overlay()
+    const card = page.addElement({ tag: 'div', rect: { x: 0, y: 0, width: 300, height: 100 } })
+    const heading = page.addElement({ tag: 'div', rect: { x: 0, y: 200, width: 300, height: 50 } })
+    let scrolled = false
+    Object.defineProperty(page.window.document, 'elementFromPoint', {
+      value: () => (scrolled ? heading : card),
+    })
+    page.arm('pick')
+    page.move(50, 50)
+    expect(page.painted()).toContain('height="100"')
+
+    scrolled = true
+    page.scroll()
+
+    expect(page.painted()).toContain('height="50"')
+    expect(page.painted()).not.toContain('height="100"')
+  })
+})
+
+describe('a sent mark shown on the page again', () => {
+  test('scrolls a picked element into view and outlines it with its pin', () => {
+    // WHY: clicking a sent chip must take the reader to the element the mark
+    // named, after a reload too, where the guest's ref is gone and only the
+    // element's id still finds it.
+    const page = overlay()
+    const section = page.addElement({ tag: 'div', id: 'cloud', rect: { x: 10, y: 40, width: 200, height: 80 } })
+    let scrolledTo: Element | null = null
+    Object.defineProperty(section, 'scrollIntoView', { value: () => { scrolledTo = section } })
+
+    const state = page.apply({
+      kind: 'reveal',
+      tool: 'pick',
+      pin: 3,
+      rect: { x: 0, y: 900, width: 200, height: 80 },
+      ref: '[data-solus-browser-ref="a9"]',
+      identifier: 'cloud',
+    })
+
+    expect(scrolledTo === section).toBe(true)
+    expect(page.painted()).toContain('height="80"')
+    expect(page.painted()).toContain('y="40"')
+    expect(page.painted()).toContain('>3</div>')
+    // A view of a sent mark is never a new draft mark.
+    expect(state.annotations).toHaveLength(0)
+  })
+
+  test('draws a stroke where it was made when no element names it', () => {
+    const page = overlay()
+    page.apply({
+      kind: 'reveal',
+      tool: 'draw',
+      pin: 1,
+      rect: { x: 10, y: 10, width: 70, height: 30 },
+      path: [{ x: 10, y: 10 }, { x: 80, y: 40 }],
+      scroll: { x: 0, y: 0 },
+    })
+    expect(page.painted()).toContain('<polyline')
+  })
+
+  test('goes away when the reader next touches the page', () => {
+    // WHY: the reverse state. A revealed mark that stays painted over the page
+    // reads as a live mark the user has to clear.
+    const page = overlay()
+    page.apply({
+      kind: 'reveal',
+      tool: 'region',
+      pin: 2,
+      rect: { x: 10, y: 10, width: 70, height: 30 },
+      scroll: { x: 0, y: 0 },
+    })
+    expect(page.painted()).toContain('<rect')
+    page.down(5, 5)
     expect(page.painted()).not.toContain('<rect')
   })
 })

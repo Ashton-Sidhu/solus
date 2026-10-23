@@ -71,7 +71,6 @@ describe('session token lifetime, refresh, and revocation persistence', () => {
     const { token } = auth.issueSessionToken('Test browser')
 
     setSystemTime(new Date('2026-02-01T00:00:01Z'))
-    expect(Date.now() - Number(token.split('.')[1])).toBeGreaterThan(auth.SESSION_TOKEN_TTL_MS)
     expect(auth.verifySessionToken(token)).toBeNull()
   })
 

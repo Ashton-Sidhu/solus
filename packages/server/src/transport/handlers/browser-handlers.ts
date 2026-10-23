@@ -55,7 +55,8 @@ export function registerBrowserHandlers(
   const registry = initBrowserRegistry({
     pageChanged: (page) => deps.events.broadcast('browser.pageChanged', { page }),
     pageClosed: (browserPageId) => deps.events.broadcast('browser.pageClosed', { browserPageId }),
-    surfaceRequested: (browserPageId) => deps.events.broadcast('browser.surfaceRequested', { browserPageId }),
+    surfaceRequested: (browserPageId, sessionId) =>
+      deps.events.broadcast('browser.surfaceRequested', sessionId ? { browserPageId, sessionId } : { browserPageId }),
   }, deps.frames, deps.checkouts)
   const recorder = initBrowserRecorder(registry)
   // Unfiled recordings are deleted a day after they were made: once at host

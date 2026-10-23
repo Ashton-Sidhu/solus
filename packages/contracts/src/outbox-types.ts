@@ -61,26 +61,6 @@ export interface TaskSetStatusOpPayload {
   actor?: Attribution
 }
 
-// ─── Task-domain op payloads a runner delivers to the workspace service ───
-//
-// On a runner linked to an organization the agent's task writes are cloud-owned
-// (docs/plans/cloud-service-model.md §16): `create_task` and `link` become
-// ops too. The op's resourceId is the task id, minted on the runner before the
-// tool answers, so the id the agent holds is the id the service writes.
-
-export interface TaskCreateOpPayload {
-  title: string
-  projectKey: string | null
-  body: string
-  priority: string | null
-  labels?: string[]
-  dueDate: string | null
-  status: string
-  originSessionId: string | null
-  /** The runner's clock at record time: the task's `createdAt`. */
-  createdAt: number
-}
-
 export interface TaskLinkOpPayload {
   kind: 'work' | 'plan' | 'pr' | 'automation'
   targetScope: string
@@ -90,29 +70,6 @@ export interface TaskLinkOpPayload {
   originSessionId: string | null
   /** Who linked it, recorded with the link event. */
   actor?: Attribution
-}
-
-export interface TaskLinkSessionOpPayload {
-  sessionId: string
-  role: 'working' | 'referenced'
-}
-
-// ─── Sessions-domain op payloads ───
-//
-// A session owns its pull request links (docs/plans/session-pull-requests.md).
-// An agent of an organization session on an attached machine links on that
-// machine, whose PR sync watches the pull request, and records the same change
-// for the workspace service. The op's resourceId is the stable Solus session id.
-
-/** `link-pull-request`. */
-export interface SessionPullRequestOpPayload {
-  /** The pull request's page; its repository and number are read from it. */
-  url: string
-  title?: string
-  /** The agent that made the change. */
-  actor: Attribution
-  /** `created` when Solus opened the pull request from the session; else the agent linked it. */
-  source?: 'agent' | 'created'
 }
 
 // ─── Works-domain op payloads ───

@@ -10,7 +10,7 @@
   import { Dialog } from "bits-ui";
   import { blur, fade, fly, scale } from "svelte/transition";
   import { backOut } from "svelte/easing";
-  import { Check, ExternalLink, LoaderCircle, X } from "@lucide/svelte";
+  import { Bot, Check, ExternalLink, LoaderCircle, X } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { RowCard } from "../ui/row-card";
@@ -20,6 +20,9 @@
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
   import { toolAccess } from "@solus/contracts/integration-types";
+  import type { SetupHandoff } from "@solus/contracts/integrations/setup-handoff";
+  import { getWorkspaceContext } from "../../contexts";
+  import { openChatDraft } from "../../contexts/workspace/new-chat";
   import { connectionStatusText, readyToolsText, urlHost } from "./lib/integration-labels";
   import { McpConnect, type ConnectRequest } from "./lib/mcp-connect.svelte";
   import type { McpCatalog } from "./lib/mcp-catalog.svelte";
@@ -34,6 +37,8 @@
   }
 
   let { serverId, hostLabel, request, catalog, onClose }: Props = $props();
+
+  const workspace = getWorkspaceContext();
 
   // The page mounts one dialog per request, so one run serves it for its whole life.
   const connect = new McpConnect(untrack(() => serverId), untrack(() => request), untrack(() => catalog));
@@ -80,6 +85,15 @@
     isClosing = true;
     connectedOnClose = connect.isDone ? connect.integrationId : null;
     void connect.dismiss();
+  }
+
+  /** "Set up with an agent" (§13.4): a new chat on this host, its prompt ready to send; the server this dialog added stays. */
+  function handOff(handoff: SetupHandoff) {
+    const prompt = handoff.prompt;
+    connect.keepForHandoff();
+    close();
+    workspace.router.close("settings");
+    openChatDraft(workspace, "click", { serverId, prompt });
   }
 
   async function submitPasted(event: SubmitEvent) {
@@ -134,7 +148,6 @@
       {@render pending(`Adding ${request.name} to ${hostLabel}…`)}
     {/if}
   {:else if step === "oauth-client"}
-    <p class="text-workspace-chrome text-(--solus-text-secondary)">{name} has no automatic sign-in setup. Enter the OAuth client you created at the service first.</p>
     <IntegrationOAuthClientForm {serverId} {integration} />
   {:else if flow?.kind === "starting"}
     {@render pending("Starting the sign-in…")}
@@ -147,7 +160,7 @@
     </RowCard>
     <p class="text-workspace-chrome text-(--solus-text-secondary)">
       Window not showing up?
-      <button type="button" class="rounded text-(--solus-accent) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring" onclick={() => integrationsStore.openSignIn(flow.url)}>Reopen it</button>
+      <button type="button" class="rounded text-(--solus-accent) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring" onclick={() => integrationsStore.openInBrowser(flow.url)}>Reopen it</button>
     </p>
     {#if flow.input === "redirect-url"}
       {@render pasteForm("Paste the address of the page you landed on", `mcp-connect-redirect-${integration.id}`, "text", flow.error)}
@@ -160,12 +173,7 @@
     {#if integration.auth.kind === "bearer"}
       <p class="text-workspace-chrome text-(--solus-text-secondary)">{name} signs in with an API key. Create one at {urlHost(integration.url)}, then paste it here.</p>
     {:else}
-      <p class="text-workspace-chrome text-(--solus-text-secondary)">Authorization happens on {name}’s side. It takes about a minute.</p>
-      <RowCard>
-        <p class="px-4 py-2.5 text-workspace-chrome text-foreground">A new tab opens at {name}’s sign-in page.</p>
-        <p class="px-4 py-2.5 text-workspace-chrome text-foreground">You approve there. {name} asks whether Solus can use your account.</p>
-        <p class="px-4 py-2.5 text-workspace-chrome text-foreground">You come back here. Then you choose which tools agents can use.</p>
-      </RowCard>
+      <p class="text-pretty text-workspace-chrome text-(--solus-text-secondary)">Approve Solus on {name}’s sign-in page, then come back here to choose the tools.</p>
     {/if}
     {#if flow?.kind === "failed"}
       <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{flow.message}</p>
@@ -177,6 +185,24 @@
         {integration.auth.kind === "bearer" ? `Enter an API key` : `Sign in to ${name}`}{#if integration.auth.kind !== "bearer"}<ExternalLink size={14} />{/if}
       </Button>
     </div>
+  {/if}
+  {#if integration?.auth.kind === "oauth" && step !== "oauth-client"}
+    <IntegrationOAuthClientForm {serverId} {integration} />
+  {/if}
+  {#if request.authHelp && connect.setupHandoff}
+    <!-- The vendor's own page for the client or the key (§13.5). -->
+    <p class="text-chrome-dense text-(--solus-text-secondary)">
+      <button type="button" class="inline-flex items-center gap-1 rounded text-(--solus-accent) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+        onclick={() => request.authHelp && integrationsStore.openInBrowser(request.authHelp)}>{name} setup guide<ExternalLink size={12} /></button>
+    </p>
+  {/if}
+  {#if connect.setupHandoff}
+    {@const handoff = connect.setupHandoff}
+    <p class="border-t border-border pt-3 text-pretty text-chrome-dense text-(--solus-text-secondary)">
+      {handoff.hint}
+      <button type="button" class="inline-flex items-center gap-1 rounded text-(--solus-accent) outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 disabled:no-underline pointer-coarse:min-h-11"
+        disabled={isOffline} onclick={() => handOff(handoff)}><Bot size={12} />Set up with an agent</button>
+    </p>
   {/if}
 {/snippet}
 

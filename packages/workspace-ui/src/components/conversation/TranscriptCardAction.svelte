@@ -20,7 +20,9 @@
     destructive?: boolean;
     class?: string;
     "data-testid"?: string;
-    onclick: () => void;
+    /** `submit` for a form's own action, so Enter in a field presses it. */
+    type?: "button" | "submit";
+    onclick?: () => void;
     children: Snippet;
   }
 
@@ -31,13 +33,14 @@
     destructive = false,
     class: extraClass = "",
     "data-testid": dataTestId,
+    type = "button",
     onclick,
     children,
   }: Props = $props();
 </script>
 
 <button
-  type="button"
+  {type}
   class="{kind === 'item'
     ? menuRowVariants({ class: 'w-full cursor-pointer text-left' })
     : 'tx-card-action'} {extraClass}"
@@ -51,7 +54,7 @@
   data-testid={dataTestId}
   onclick={(e) => {
     e.stopPropagation();
-    onclick();
+    onclick?.();
   }}
 >
   {@render children()}

@@ -265,7 +265,7 @@ describe("a person's session list", () => {
     const { hostUserKey } = await import('@solus/server/host/host-user')
     const operations = new SessionApiOperations(new ShareManager({ db: getDatabase() }))
     const context = {
-      principal: { kind: 'local-owner' as const, deviceId: null, deviceLabel: 'Mac' },
+      principal: { kind: 'owner' as const, via: 'local' as const, expiresAt: null, deviceId: null, deviceLabel: 'Mac' },
       home: { kind: 'local' as const, hostId: 'this-mac' },
       scopes: ['sessions:read' as const, 'sessions:write' as const],
     }

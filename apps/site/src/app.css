@@ -1,18 +1,18 @@
 @import "tailwindcss";
 
 /* The site uses the app's own theme (packages/workspace-ui/src/workspace.css):
-   white, the neutral surface grey, the hairline, the three text inks, and the
-   terracotta accent, plus the dark theme's blue lifted to one light tint for
-   the section bands and icon tiles. */
+   a light warm off-white for the page, white for cards so they lift, a warm
+   grey for the bands, the hairline, the three text inks, and one accent, the
+   terracotta, for labels, icons, and the mark. */
 @theme {
   --font-display: 'Satoshi', system-ui, sans-serif;
   --font-sans: 'Inter', system-ui, sans-serif;
 
-  --color-bg: #ffffff;
-  --color-surface: #f5f5f4;
+  --color-bg: #fcfbf9;
+  --color-surface: #f4f3ef;
   --color-raised: #ffffff;
-  --color-line: #e7e7e4;
-  --color-line-strong: #d6d6d2;
+  --color-line: #e6e4de;
+  --color-line-strong: #d4d1c8;
 
   --color-ink: #2a2618;
   --color-ink-2: #484538;
@@ -20,15 +20,8 @@
 
   --color-brand: #d97757;
   --color-brand-deep: #c15f2c;
-  --color-brand-soft: rgba(217, 119, 87, 0.12);
-  --color-brand-light: rgba(217, 119, 87, 0.07);
-
-  /* One secondary hue for the whole page: the dark theme's unread blue
-     (#7cc0ea), lifted to a tint for bands and tiles, and darkened to an ink
-     for labels and icons. Terracotta stays the colour of every action. */
-  --color-sky-soft: #eaf4fb;
-  --color-sky-line: #d4e7f4;
-  --color-sky-ink: #2b7fb2;
+  --color-brand-soft: #f9e9e1;
+  --color-brand-light: #fcf3ee;
 }
 
 @layer base {
@@ -92,8 +85,8 @@
     justify-content: center;
     gap: 8px;
     height: 44px;
-    padding-inline: 20px;
-    border-radius: 10px;
+    padding-inline: 22px;
+    border-radius: 999px;
     border: 1px solid transparent;
     font-size: 15px;
     font-weight: 500;
@@ -103,7 +96,13 @@
     transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
   }
   .btn:active { transform: scale(0.985); }
-  .btn-sm { height: 36px; padding-inline: 14px; font-size: 14px; border-radius: 8px; }
+  .btn-sm { height: 36px; padding-inline: 16px; font-size: 14px; }
+
+  .btn-dark {
+    background: var(--color-ink);
+    color: #fff;
+  }
+  .btn-dark:hover { background: #3a3528; }
 
   .btn-primary {
     background: var(--color-brand);
@@ -113,29 +112,16 @@
   .btn-primary:hover { background: var(--color-brand-deep); }
 
   .btn-secondary {
-    background: var(--color-raised);
+    background: var(--color-surface);
     color: var(--color-ink);
-    border-color: var(--color-line-strong);
   }
-  .btn-secondary:hover { background: var(--color-surface); border-color: #c4c4bf; }
+  .btn-secondary:hover { background: #e6e4dd; }
 
   .btn-ghost {
     background: transparent;
     color: var(--color-ink-2);
   }
   .btn-ghost:hover { color: var(--color-ink); background: rgba(42, 38, 24, 0.06); }
-
-  /* A hairline grid in the page's one secondary hue, faded out before it
-     reaches the content below. Structure, not glow. */
-  .grid-backdrop {
-    background-image:
-      linear-gradient(to right, var(--color-sky-line) 1px, transparent 1px),
-      linear-gradient(to bottom, var(--color-sky-line) 1px, transparent 1px);
-    background-size: 48px 48px;
-    background-position: center top;
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
-  }
 
   .shot {
     display: block;

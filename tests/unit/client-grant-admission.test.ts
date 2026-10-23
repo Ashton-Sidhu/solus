@@ -9,15 +9,16 @@ import type { Principal } from '@solus/server/admission/principal'
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-const { principalFor, renewalExpiry } = await import('@solus/server/admission/principal')
-const { consumeWsTicket, resetAuthStateForTests, revokeDevice } = await import('@solus/server/admission/auth')
-const { ticketForDelegatedMember, ticketForGrant } = await import('@solus/server/transport/http')
+const { renewalExpiry } = await import('@solus/server/admission/principal')
+const { resetAuthStateForTests, revokeDevice } = await import('@solus/server/admission/auth')
+const { principalForClaims } = await import('@solus/server/admission/doors')
 const { delegationScopesFor } = await import('@solus/server/sync/delegations')
 
 // docs/adr/0001-standard-authentication.md §6.4 and §7 stage 2: a Solus client's token
 // names its client grant and lists the organizations it may work in. A connection
 // names one; the host admits only an organization the token lists. A host's delegated
 // token names one organization itself, and the Solus API admits its person there.
+// docs/plans/simplify-auth-and-sync.md §4.2: the claims become the principal directly.
 
 const now = () => Math.floor(Date.now() / 1000)
 const clientToken = (over: Partial<PersonAccessTokenClaims>): PersonAccessTokenClaims => ({
@@ -35,13 +36,13 @@ const member = (over: Partial<PersonAccessTokenClaims> = {}) => clientToken({
   ...over,
 })
 
-async function admitted(claims: PersonAccessTokenClaims, options: { workspace?: boolean; organizationId?: string } = {}): Promise<Principal> {
-  const outcome = await ticketForGrant(claims, options)
+function admitted(claims: PersonAccessTokenClaims | DelegatedAccessTokenClaims, organizationId?: string, place: 'host' | 'api' = 'host'): Principal {
+  const outcome = principalForClaims(claims, organizationId, place)
   if (!outcome.ok) throw new Error(`refused: ${outcome.reason}`)
-  return principalFor({ kind: 'ticket', ticket: consumeWsTicket(outcome.ticket)! })
+  return outcome.principal
 }
 
-describe('a Solus client token at the ticket door', () => {
+describe('a Solus client token at admission', () => {
   const originalDataDir = process.env.SOLUS_DATA_DIR
   let dataDir: string
 
@@ -58,59 +59,55 @@ describe('a Solus client token at the ticket door', () => {
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
 
-  test("the owner's token needs no organization, and the client grant keys the device", async () => {
-    expect(await admitted(clientToken({ access: 'owner' }))).toMatchObject({ kind: 'remote-owner', userId: 'alice', deviceId: 'grant_1' })
+  test("the owner's token needs no organization, and the client grant keys the device", () => {
+    expect(admitted(clientToken({ access: 'owner' }))).toMatchObject({ kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'grant_1' })
   })
 
-  test('a member is admitted in the organization the connection names, with that standing', async () => {
-    expect(await admitted(member(), { organizationId: 'org_b' })).toMatchObject({ kind: 'org-member', organizationId: 'org_b', organizationRole: 'owner', teamIds: [] })
-    expect(await admitted(member(), { organizationId: 'org_a' })).toMatchObject({ kind: 'org-member', organizationId: 'org_a', organizationRole: 'member', teamIds: ['t1'] })
+  test('a member is admitted in the organization the connection names, with that standing', () => {
+    expect(admitted(member(), 'org_b')).toMatchObject({ kind: 'org-member', organizationId: 'org_b', organizationRole: 'owner', teamIds: [] })
+    expect(admitted(member(), 'org_a')).toMatchObject({ kind: 'org-member', organizationId: 'org_a', organizationRole: 'member', teamIds: ['t1'] })
   })
 
-  test('an organization the token does not list is refused, and so is a member connection that names none', async () => {
+  test('an organization the token does not list is refused, and so is a member connection that names none', () => {
     // WHY: the account plane decided where the person may work; a client cannot pick an organization outside that list.
-    expect(await ticketForGrant(member(), { organizationId: 'org_c' })).toEqual({ ok: false, reason: 'organization-not-listed' })
-    expect(await ticketForGrant(member())).toEqual({ ok: false, reason: 'organization-not-listed' })
-    expect(await ticketForGrant(member({ aud: 'urn:solus:api', hostKind: 'cloud' }), { workspace: true, organizationId: 'org_c' })).toEqual({ ok: false, reason: 'organization-not-listed' })
+    expect(principalForClaims(member(), 'org_c', 'host')).toEqual({ ok: false, reason: 'organization-not-listed' })
+    expect(principalForClaims(member(), undefined, 'host')).toEqual({ ok: false, reason: 'organization-not-listed' })
+    expect(principalForClaims(member({ aud: 'urn:solus:api', hostKind: 'cloud' }), 'org_c', 'api')).toEqual({ ok: false, reason: 'organization-not-listed' })
   })
 
-  test('the Solus API admits a member in a listed organization and never an owner token', async () => {
-    expect(await admitted(member({ aud: 'urn:solus:api', hostKind: 'cloud' }), { workspace: true, organizationId: 'org_a' })).toMatchObject({ kind: 'org-member', organizationId: 'org_a', hostKind: 'cloud' })
-    expect(await ticketForGrant(clientToken({ access: 'owner' }), { workspace: true })).toEqual({ ok: false, reason: 'member-required' })
+  test('the Solus API admits a member in a listed organization and never an owner token', () => {
+    expect(admitted(member({ aud: 'urn:solus:api', hostKind: 'cloud' }), 'org_a', 'api')).toMatchObject({ kind: 'org-member', organizationId: 'org_a', hostKind: 'cloud' })
+    expect(principalForClaims(clientToken({ access: 'owner' }), undefined, 'api')).toEqual({ ok: false, reason: 'member-required' })
   })
 
   test('a delegated token admits its person in the one organization it names, until the owner revokes the acting host', () => {
     // WHY: an organization delegation names one organization and the person's standing there (ADR 0001 §3.4).
-    const outcome = ticketForDelegatedMember(delegated())
-    if (!outcome.ok) throw new Error(outcome.reason)
-    expect(principalFor({ kind: 'ticket', ticket: consumeWsTicket(outcome.ticket)! })).toMatchObject({ kind: 'org-member', organizationId: 'org_a', teamIds: ['t1'], deviceId: 'h1' })
+    expect(principalForClaims(delegated(), undefined, 'api')).toMatchObject({ ok: true, actingHostId: 'h1', principal: { kind: 'org-member', organizationId: 'org_a', teamIds: ['t1'], deviceId: 'h1' } })
+    expect(principalForClaims(delegated(), 'org_b', 'api')).toEqual({ ok: false, reason: 'organization-not-listed' })
     revokeDevice('h1')
-    expect(ticketForDelegatedMember(delegated())).toEqual({ ok: false, reason: 'device-revoked' })
+    expect(principalForClaims(delegated(), undefined, 'api')).toEqual({ ok: false, reason: 'device-revoked' })
   })
 
-  test('a delegated token opens no socket of a person at a host, unless it is a host-reach token for it', async () => {
-    // WHY: docs/plans/host-reach.md §3 — only another host that reaches this one for a
-    // person gets that person's socket here, and only while the acting host is not revoked.
-    expect(await ticketForGrant(delegated())).toEqual({ ok: false, reason: 'delegated-token' })
+  test("another host's token for this host, with this host's own audience, admits the person with the acting host as the device", () => {
+    // WHY: docs/plans/simplify-auth-and-sync.md §3 rule 2 — one host audience; `act`
+    // tells a host acting for a person from the person's own client.
     const reach: DelegatedAccessTokenClaims = {
-      iss: 'https://app.example.test', aud: 'urn:solus:host-reach:h2', sub: 'alice', client_id: 'host_h9',
-      jti: crypto.randomUUID(), iat: now(), exp: now() + 8 * 3600, act: { sub: 'host_h9', host_id: 'h9' }, grant_id: 'grant_1', access: 'owner',
+      iss: 'https://app.example.test', aud: hostAudience('abcdefghijklmnop'), sub: 'alice', client_id: 'host_h9',
+      jti: crypto.randomUUID(), iat: now(), exp: now() + 3600, act: { sub: 'host_h9', host_id: 'h9' }, grant_id: 'grant_1', access: 'owner',
     }
-    const outcome = await ticketForGrant(reach)
-    if (!outcome.ok) throw new Error(outcome.reason)
-    expect(principalFor({ kind: 'ticket', ticket: consumeWsTicket(outcome.ticket)! })).toMatchObject({ userId: 'alice', deviceId: 'h9' })
+    expect(principalForClaims(reach, undefined, 'host')).toMatchObject({ ok: true, actingHostId: 'h9', principal: { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'h9' } })
+    expect(principalForClaims(delegated(), 'org_a', 'host')).toMatchObject({ ok: true, actingHostId: 'h1', principal: { kind: 'org-member', organizationId: 'org_a', deviceId: 'h1' } })
     revokeDevice('h9')
-    expect(await ticketForGrant(reach)).toEqual({ ok: false, reason: 'device-revoked' })
+    expect(principalForClaims(reach, undefined, 'host')).toEqual({ ok: false, reason: 'device-revoked' })
   })
 
-  test('a personal delegation names no organization, so the Solus API admits nothing with it', async () => {
+  test('a personal delegation names no organization, so the Solus API admits nothing with it', () => {
     // WHY: the owner's personal delegation is for their account reads; organization records need an organization delegation.
     const personal: DelegatedAccessTokenClaims = {
       iss: 'https://app.example.test', aud: ['urn:solus:api', 'urn:solus:account'], sub: 'alice', client_id: 'host_h1',
       jti: crypto.randomUUID(), iat: now(), exp: now() + 300, act: { sub: 'host_h1', host_id: 'h1' }, grant_id: 'grant_1', access: 'owner',
     }
-    expect(ticketForDelegatedMember(personal)).toEqual({ ok: false, reason: 'member-required' })
-    expect(await ticketForGrant(personal, { workspace: true })).toEqual({ ok: false, reason: 'member-required' })
+    expect(principalForClaims(personal, undefined, 'api')).toEqual({ ok: false, reason: 'member-required' })
   })
 })
 
@@ -131,7 +128,7 @@ describe('the delegations a connection makes', () => {
 })
 
 describe('renewal of an open socket', () => {
-  const owner: Principal = { kind: 'remote-owner', userId: 'alice', deviceId: 'grant_1', expiresAt: 1, deviceLabel: 'Solus cloud' }
+  const owner: Principal = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'grant_1', expiresAt: 1, deviceLabel: 'Solus cloud' }
   const memberPrincipal: Principal = {
     kind: 'org-member', userId: 'alice', organizationId: 'org_a', organizationRole: 'member', teamIds: ['t1'], hostKind: 'personal',
     displayName: 'Alice', deviceId: 'grant_1', expiresAt: 1, deviceLabel: 'Solus cloud',

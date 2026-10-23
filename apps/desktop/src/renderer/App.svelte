@@ -162,18 +162,8 @@
       ui.paletteInitialPage = { id: "review-pr", title: "Review PR" };
       ui.commandPaletteOpen = true;
     };
-    // The nearby-host discovery toast fires from a store, which has no way to
-    // reach the settings pane on its own.
-    const showConnectionsHandler = () => session.showSettings("api-access");
     window.addEventListener("solus:review-pr", reviewPrHandler);
-    window.addEventListener("solus:show-connections", showConnectionsHandler);
-    return () => {
-      window.removeEventListener("solus:review-pr", reviewPrHandler);
-      window.removeEventListener(
-        "solus:show-connections",
-        showConnectionsHandler,
-      );
-    };
+    return () => window.removeEventListener("solus:review-pr", reviewPrHandler);
   });
 
   let isDraggingFile = $state(false);

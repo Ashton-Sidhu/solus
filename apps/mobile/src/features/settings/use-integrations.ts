@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { DEFAULT_INTEGRATION_ACCOUNT } from '@solus/contracts/integration-types'
 import { useFocusEffect } from '@react-navigation/native'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { CatalogCategoryId, Integration, IntegrationCatalogListRequest, IntegrationConnection, IntegrationOAuthClientInput } from '@solus/contracts/integration-types'
@@ -17,11 +19,17 @@ import {
   connectSubmitting,
   errorMessage,
   isUnsupportedMethodError,
-  mayLoadTools,
+  InstalledIntegration,
   probeRefusal,
   sortIntegrations,
   upsertIntegration,
   withConnection,
+  withExtraAccount,
+  extraAccountMap,
+  withoutKey,
+  withAddFinished,
+  stoppedAdd,
+  type AddingAccount,
   withoutIntegration,
   type AddState,
   type CatalogState,
@@ -55,6 +63,10 @@ export function useIntegrations(hostId: string) {
   const connected = phase === 'connected'
   const [list, setList] = useState<IntegrationListState>({ kind: 'loading' })
   const [connections, setConnections] = useState<ConnectionListState>({ kind: 'loading' })
+  /** The person's accounts after the first, by integration (§13.3). */
+  const [extraAccounts, setExtraAccounts] = useState<ReadonlyMap<string, readonly IntegrationConnection[]>>(new Map())
+  /** By integration: an "Add another account" that runs (its sign-in page) or stopped (why). */
+  const [addingAccount, setAddingAccount] = useState<ReadonlyMap<string, AddingAccount>>(new Map())
   const flows = useIntegrationConnect(hostId)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [tools, setTools] = useState<ReadonlyMap<string, IntegrationToolsState>>(new Map())
@@ -109,6 +121,7 @@ export function useIntegrations(hostId: string) {
       (own) => {
         if (connectionsAt !== connectionsRequest.current || connection() !== current) return
         setConnections({ kind: 'loaded', byIntegration: connectionMap(own) })
+        setExtraAccounts(extraAccountMap(own))
       },
       (cause: unknown) => {
         if (connectionsAt !== connectionsRequest.current || connection() !== current) return
@@ -133,7 +146,7 @@ export function useIntegrations(hostId: string) {
     const current = connection()
     const state = listRef.current
     const integration = state.kind === 'loaded' ? state.integrations.find((entry) => entry.id === integrationId) : undefined
-    if (!current || !openIds.current.has(integrationId) || !integration || !mayLoadTools(integration, connectionsRef.current)) return
+    if (!current || !openIds.current.has(integrationId) || !integration || !new InstalledIntegration(integration).mayLoadTools(connectionsRef.current)) return
     const request = (toolsRequests.current.get(integrationId) ?? 0) + 1
     toolsRequests.current.set(integrationId, request)
     const put = (next: IntegrationToolsState) => {
@@ -170,7 +183,7 @@ export function useIntegrations(hostId: string) {
     if (!connected || list.kind !== 'loaded') return
     for (const integration of list.integrations) {
       if (!expanded.has(integration.id)) continue
-      const allowed = mayLoadTools(integration, connections)
+      const allowed = new InstalledIntegration(integration).mayLoadTools(connections)
       if (allowed && !tools.has(integration.id)) loadTools(integration.id)
       if (!allowed && tools.has(integration.id)) dropTools(integration.id)
     }
@@ -201,7 +214,13 @@ export function useIntegrations(hostId: string) {
   useEffect(() => {
     const current = connected ? connection() : null
     if (!current) return
-    return current.events.subscribe('integration.connectionChanged', ({ integrationId, connection: changed }) => {
+    return current.events.subscribe('integration.connectionChanged', ({ integrationId, accountId, connection: changed }) => {
+      const account = changed?.accountId ?? accountId ?? DEFAULT_INTEGRATION_ACCOUNT
+      if (account !== DEFAULT_INTEGRATION_ACCOUNT) {
+        setExtraAccounts((latest) => withExtraAccount(latest, integrationId, account, changed))
+        if (changed?.status === 'connected') setAddingAccount((latest) => withoutKey(latest, integrationId))
+        return
+      }
       // A read in flight may be older than this change; the event wins.
       connectionsRequest.current++
       setConnections((state) => ({
@@ -209,6 +228,13 @@ export function useIntegrations(hostId: string) {
         byIntegration: withConnection(state.kind === 'loaded' ? state.byIntegration : new Map<string, IntegrationConnection>(), integrationId, changed),
       }))
     })
+  }, [connected, connection])
+
+  // An add whose sign-in failed or was cancelled on the host stops; a connected one ends with its account.
+  useEffect(() => {
+    const current = connected ? connection() : null
+    if (!current) return
+    return current.events.subscribe('host.integrationAuthFinished', (event) => setAddingAccount((latest) => withAddFinished(latest, event)))
   }, [connected, connection])
 
   useEffect(() => () => {
@@ -315,9 +341,11 @@ export function useIntegrations(hostId: string) {
     return await (async (): Promise<Integration | null> => {
       const current = connection()
       if (!current || !connected) throw new Error('This host cannot be reached now.')
-      const refusal = probeRefusal(await current.api.integrationProbe({ url }))
+      const probe = await current.api.integrationProbe({ url })
+      const refusal = probeRefusal(probe)
       if (refusal) {
-        setAdding({ url, step: 'failed', message: refusal })
+        const setupNeed = IntegrationSignIn.setupNeedOfProbe(probe, url)
+        setAdding(setupNeed ? { url, step: 'failed', message: refusal, setupNeed } : { url, step: 'failed', message: refusal })
         return null
       }
       const integration = await change('create', (api) => api.integrationCreate(candidate))
@@ -359,12 +387,50 @@ export function useIntegrations(hostId: string) {
     setConnections((latest) => (latest.kind === 'loaded' ? { kind: 'loaded', byIntegration: withConnection(latest.byIntegration, integrationId, null) } : latest))
   }
 
+  /** Signs in one more account in the browser (§13.3); the new account arrives as `integration.connectionChanged`. */
+  const addAccount = (integrationId: string): void => {
+    const current = connection()
+    if (!current || !connected) return
+    setAddingAccount((latest) => new Map(latest).set(integrationId, { flowId: null, url: null, error: '' }))
+    const callbackBaseUrl = new URL(current.transport.serverUrl.replace(/^ws/, 'http')).origin
+    current.api.integrationConnectStart({ id: integrationId, newAccount: true, callbackBaseUrl }).then((result) => {
+      if (result.kind !== 'waiting') {
+        setAddingAccount((latest) => new Map(latest).set(integrationId, stoppedAdd('This server takes one API key per person.')))
+        return
+      }
+      setAddingAccount((latest) => new Map(latest).set(integrationId, { flowId: result.flowId, url: result.url, error: '' }))
+      return app.platform.openBrowser(result.url)
+    }).catch((cause: unknown) => {
+      setAddingAccount((latest) => new Map(latest).set(integrationId, stoppedAdd(errorMessage(cause))))
+    })
+  }
+
+  /** Stops the add here and its sign-in on the host. */
+  const cancelAddAccount = (integrationId: string): void => {
+    const flowId = addingAccount.get(integrationId)?.flowId
+    setAddingAccount((latest) => withoutKey(latest, integrationId))
+    if (flowId) void connection()?.api.integrationConnectCancel({ flowId }).catch(() => undefined)
+  }
+
+  /** Opens the waiting add's sign-in page again. */
+  const reopenAddAccount = (integrationId: string): void => {
+    const url = addingAccount.get(integrationId)?.url
+    if (url) app.platform.openBrowser(url).catch(() => undefined)
+  }
+
+  /** Disconnects one account after the first; the first is `disconnect`'s. */
+  const disconnectAccount = async (integrationId: string, accountId: string): Promise<void> => {
+    await change(`disconnect:${integrationId}`, (api) => api.integrationDisconnect({ id: integrationId, accountId }))
+    setExtraAccounts((latest) => withExtraAccount(latest, integrationId, accountId, null))
+  }
+
   /**
    * Saves the administrator's OAuth client, or removes it with null. The
    * secret goes to the host once; only the host's record, which says whether
    * a secret is saved, lands in the list.
    */
   const setOAuthClient = async (integrationId: string, oauthClient: IntegrationOAuthClientInput | null): Promise<void> => {
+    await flows.cancel(integrationId)
     const integration = await change(`oauth-client:${integrationId}`, (api) => api.integrationUpdate({ id: integrationId, oauthClient }))
     applyToList((integrations) => upsertIntegration(integrations, integration))
   }
@@ -378,7 +444,18 @@ export function useIntegrations(hostId: string) {
     applyToList((integrations) => upsertIntegration(integrations, updated))
   }
 
+  const hostUrl = connection()?.transport.serverUrl
+  const oauthRedirectUrl = hostUrl ? `${new URL(hostUrl.replace(/^ws/, 'http')).origin}/oauth/integration/callback` : ''
+
   return {
+    hostId,
+    extraAccounts,
+    addingAccount,
+    addAccount,
+    cancelAddAccount,
+    reopenAddAccount,
+    disconnectAccount,
+    oauthRedirectUrl,
     connected,
     list,
     connections,
@@ -503,7 +580,7 @@ export function useIntegrationConnect(hostId: string) {
     if (!current) return put(integrationId, connectRefused('This host cannot be reached now.'))
     put(integrationId, { step: 'starting' })
     try {
-      const result = await current.api.integrationConnectStart({ id: integrationId })
+      const result = await current.api.integrationConnectStart({ id: integrationId, callbackBaseUrl: new URL(current.transport.serverUrl.replace(/^ws/, 'http')).origin })
       if (attempt !== attempts.current.get(integrationId)) {
         // Closed while it started: the host stops waiting too.
         if (result.kind === 'waiting') void current.api.integrationConnectCancel({ flowId: result.flowId }).catch(() => undefined)

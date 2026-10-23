@@ -2,7 +2,6 @@
   import {
     CalendarClock as CalendarClockIcon,
     Clock as ClockIcon,
-    Hourglass as HourglassIcon,
     Moon as MoonIcon,
     NotebookPen as NotePencilIcon,
   } from "@lucide/svelte";
@@ -99,7 +98,7 @@
           class={cn(menuRowVariants(), "w-full")}
           onclick={() => onConfirm(limitResetUntil, note.trim())}
         >
-          <HourglassIcon size={13} class="shrink-0 text-(--warning)" />
+          <ClockIcon size={13} class="shrink-0 text-(--warning)" />
           <span class="min-w-0 flex-1 truncate text-left">Until limit resets</span>
           <span class="shrink-0 text-(--solus-text-tertiary)">{formatResetClock(limitResetUntil)}</span>
         </button>

@@ -19,7 +19,7 @@ export function canonicalRequest(value: z.core.util.JSONType): string {
 }
 
 export async function createWithReceipt<T extends { id: string }>(
-  authority: string, kind: 'task' | 'work', key: string, request: string,
+  authority: string, kind: 'task' | 'work' | 'comment', key: string, request: string,
   create: () => Promise<T>, read: (id: string) => Promise<T>,
 ): Promise<T> {
   const receiptKey = createHash('sha256').update(JSON.stringify([authority, kind, key])).digest('hex')

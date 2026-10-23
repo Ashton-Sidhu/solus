@@ -1,3 +1,4 @@
+import { visibleInWindow } from '@solus/client-core/organization-filter'
 import { keepEqual, sameItems } from '@solus/client-core/keep-equal'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { ProjectEntry, SessionRecord } from '@solus/contracts/types'
@@ -75,6 +76,7 @@ export class ThreadDirectory {
   private readonly requests = new Map<string, number>()
   private readonly retries = new Map<string, ReturnType<typeof setTimeout>>()
   private nextRequest = 0
+  private organizationId: string | null = null
   /** A stable snapshot, replaced only when a host's state changes. */
   private merged: MergedThreads = { threads: [], unlisted: [], projects: [] }
   /** Sessions another session started, read for their parent's agent cards
@@ -85,6 +87,13 @@ export class ThreadDirectory {
     private readonly registry: HostRegistry,
     private readonly connectionFor: (hostId: string) => HostConnection | null,
   ) {}
+
+  /** Change the list filter without changing a record or closing an open thread. */
+  selectOrganization(organizationId: string | null): void {
+    if (this.organizationId === organizationId) return
+    this.organizationId = organizationId
+    this.remerge()
+  }
 
   stateOf = (hostId: string): HostThreadsState => this.hosts.get(hostId) ?? IDLE
 
@@ -98,11 +107,16 @@ export class ThreadDirectory {
   projects = (): readonly SolusProjectShell[] => this.merged.projects
 
   /** A session in or out of the list, or a child session its parent's agent card opens. */
-  thread = (hostId: string, sessionId: string): SolusThreadShell | null =>
-    this.merged.threads.find((thread) => thread.key === threadKey(hostId, sessionId))
-      ?? this.merged.unlisted.find((thread) => thread.key === threadKey(hostId, sessionId))
-      ?? this.children.get(threadKey(hostId, sessionId))
+  thread = (hostId: string, sessionId: string): SolusThreadShell | null => {
+    // An open thread stays readable when its organization leaves the list.
+    const state = this.stateOf(hostId)
+    const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
+    const key = threadKey(hostId, sessionId)
+    return value?.threads.find((thread) => thread.key === key)
+      ?? value?.unlisted?.find((thread) => thread.key === key)
+      ?? this.children.get(key)
       ?? null
+  }
 
   /** True while any known host has not answered its first read. */
   isLoading = (): boolean =>
@@ -214,8 +228,8 @@ export class ThreadDirectory {
     for (const state of this.hosts.values()) {
       const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
       if (!value) continue
-      threads.push(...value.threads)
-      unlisted.push(...(value.unlisted ?? []))
+      threads.push(...value.threads.filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId)))
+      unlisted.push(...(value.unlisted ?? []).filter((thread) => visibleInWindow(thread.record.organizationId, this.organizationId)))
       projects.push(...value.projects)
     }
     threads.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)

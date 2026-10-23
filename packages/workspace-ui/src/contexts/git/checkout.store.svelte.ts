@@ -72,7 +72,7 @@ export class CheckoutStore {
       void this.refresh(serverId).catch(() => {})
     }
     const stopEvents = subscribeAllHosts('git.checkoutChanged', (serverId, change) => this.apply(serverId, change))
-    const stopConnections = serverConnections.onStatusChange((serverId, status) => {
+    const stopConnections = serverConnections.onPhaseChange((serverId, status) => {
       // Invalidate requests from the previous transport even on a failed reconnect.
       this.requests.set(serverId, (this.requests.get(serverId) ?? 0) + 1)
       this.recoveries.delete(serverId)

@@ -43,12 +43,12 @@ async function mirror(hostId: string, traceId: string, userId: string, startedAt
     userId, userEmail: `${userId}@example.test`, startedAt, endedAt: startedAt + 100, status: 'ok',
     attrs: { costUsd: 0.5, toolCallCount: 2, prompt: longPrompt, response: longResponse, systemPrompt: 'system' },
   }
-  await sinks.applyMirrorItem({ organizationId: 'A', hostId }, { domain: 'insights', payload: { span: root, events: [] } })
+  await sinks.applyMirrorItem({ organizationId: 'A', hostId }, { kind: 'insights', payload: { spans: [{ span: root, events: [] }] } })
   for (let index = 0; index < (extra.children ?? 0); index++) {
     const child = { ...root, spanId: `${traceId}-child-${index}`, parentSpanId: traceId, kind: 'tool_call', name: 'Bash', startedAt: startedAt + 10, endedAt: startedAt + 20, attrs: { input: '{"command":"ls"}' } }
     await sinks.applyMirrorItem({ organizationId: 'A', hostId }, {
-      domain: 'insights',
-      payload: { span: child, events: [{ eventId: startedAt + index, traceId, spanId: child.spanId, occurredAt: startedAt + 15, level: 'info', name: 'ran', tag: 'tool', file: 'tool.ts', attrs: {} }] },
+      kind: 'insights',
+      payload: { spans: [{ span: child, events: [{ eventId: startedAt + index, traceId, spanId: child.spanId, occurredAt: startedAt + 15, level: 'info', name: 'ran', tag: 'tool', file: 'tool.ts', attrs: {} }] }] },
     })
   }
 }

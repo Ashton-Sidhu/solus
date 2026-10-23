@@ -1,6 +1,6 @@
 <script lang="ts">
 	import DemoSection from "$lib/DemoSection.svelte";
-	import { downloadApp } from "$lib/download";
+	import DownloadButton from "$lib/DownloadButton.svelte";
 </script>
 
 <svelte:head>
@@ -23,7 +23,7 @@
 <div class="mx-auto w-full max-w-[1360px] px-4 pb-24 sm:px-6 lg:px-10 lg:pb-32">
 	<DemoSection />
 	<div class="mt-12 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-		<button type="button" onclick={downloadApp} class="btn btn-primary">Download for macOS</button>
+		<DownloadButton />
 		<a href="/" class="btn btn-ghost">Back to the overview</a>
 	</div>
 </div>

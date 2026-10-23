@@ -7,8 +7,8 @@ import {
   insightsMirrorPayloadSchema,
   sharesMirrorPayloadSchema,
   transcriptMirrorPayloadSchema,
+  type DeliveryKind,
   type InsightsMirrorPayload,
-  type RunnerMirrorItem,
   type TranscriptMirrorPayload,
 } from '../runner-protocol'
 import { insightLogEvents, insightSpans } from '../../data/insights/insight-schema'
@@ -16,13 +16,13 @@ import { sessionTranscripts } from '../../data/sessions/transcript-schema'
 import { storeMirroredActivity } from '../../data/activity/activity'
 
 /**
- * Where a runner's mirrored items land on the workspace service
+ * Where a host's mirrored items land on the Solus API
  * (docs/plans/cloud-service-model.md §6). Each sink is idempotent by the item's
  * own key — a transcript row by its position, a span by its id, a log event by
- * the runner's event id, an activity by its id — so a redelivery writes the
- * same row again. A payload
- * the schema does not accept is a `PermanentApplyError`: the stream moves past
- * it, because the runner would only send the same bytes again.
+ * the host's event id, an activity by its id — so a redelivery writes the
+ * same row again. A payload the schema does not accept is a
+ * `PermanentApplyError`: the batch moves past it, because the host would only
+ * send the same bytes again.
  */
 
 export interface MirrorOrigin {
@@ -48,19 +48,29 @@ async function applyTranscript(origin: MirrorOrigin, payload: TranscriptMirrorPa
   `)
 }
 
+/** Rows per statement: well under the bound-parameter limit of either engine at 20 values a row. */
+const ROWS_PER_STATEMENT = 500
+
+function chunks<T>(rows: T[]): T[][] {
+  const result: T[][] = []
+  for (let start = 0; start < rows.length; start += ROWS_PER_STATEMENT) result.push(rows.slice(start, start + ROWS_PER_STATEMENT))
+  return result
+}
+
+/** Every span of one turn and the log events they own, in multi-row statements. */
 async function applyInsights(origin: MirrorOrigin, payload: InsightsMirrorPayload): Promise<void> {
   const db = getDatabase()
-  const { span, events } = payload
-  await db.run(sql`
+  const spanRows = payload.spans.map(({ span }) => sql`(
+    ${origin.organizationId}, ${origin.hostId}, ${span.spanId}, ${span.parentSpanId ?? null}, ${span.traceId}, ${span.kind}, ${span.name}, ${span.service},
+    ${span.sessionId ?? null}, ${span.provider ?? null}, ${span.model ?? null}, ${span.projectRoot ?? null}, ${span.origin ?? null},
+    ${span.userId ?? null}, ${span.userEmail ?? null},
+    ${span.startedAt}, ${span.endedAt}, ${span.endedAt - span.startedAt}, ${span.status}, ${JSON.stringify(span.attrs ?? {})}
+  )`)
+  for (const rows of chunks(spanRows)) await db.run(sql`
     INSERT INTO ${insightSpans} (
       organization_id, host_id, span_id, parent_span_id, trace_id, kind, name, service,
       session_id, provider, model, project_root, origin, user_id, user_email, started_at, ended_at, duration_ms, status, attrs
-    ) VALUES (
-      ${origin.organizationId}, ${origin.hostId}, ${span.spanId}, ${span.parentSpanId ?? null}, ${span.traceId}, ${span.kind}, ${span.name}, ${span.service},
-      ${span.sessionId ?? null}, ${span.provider ?? null}, ${span.model ?? null}, ${span.projectRoot ?? null}, ${span.origin ?? null},
-      ${span.userId ?? null}, ${span.userEmail ?? null},
-      ${span.startedAt}, ${span.endedAt}, ${span.endedAt - span.startedAt}, ${span.status}, ${JSON.stringify(span.attrs ?? {})}
-    )
+    ) VALUES ${sql.join(rows, sql`, `)}
     ON CONFLICT (organization_id, host_id, span_id) DO UPDATE SET
       parent_span_id = excluded.parent_span_id, trace_id = excluded.trace_id, kind = excluded.kind, name = excluded.name,
       service = excluded.service, session_id = excluded.session_id, provider = excluded.provider, model = excluded.model,
@@ -68,31 +78,30 @@ async function applyInsights(origin: MirrorOrigin, payload: InsightsMirrorPayloa
       started_at = excluded.started_at, ended_at = excluded.ended_at,
       duration_ms = excluded.duration_ms, status = excluded.status, attrs = excluded.attrs
   `)
-  for (const event of events) {
-    await db.run(sql`
-      INSERT INTO ${insightLogEvents} (organization_id, host_id, event_id, trace_id, span_id, occurred_at, level, name, tag, file, attrs)
-      VALUES (
-        ${origin.organizationId}, ${origin.hostId}, ${event.eventId}, ${event.traceId}, ${event.spanId}, ${event.occurredAt},
-        ${event.level}, ${event.name}, ${event.tag}, ${event.file}, ${JSON.stringify(event.attrs ?? {})}
-      )
-      ON CONFLICT (organization_id, host_id, event_id) DO UPDATE SET
-        trace_id = excluded.trace_id, span_id = excluded.span_id, occurred_at = excluded.occurred_at, level = excluded.level,
-        name = excluded.name, tag = excluded.tag, file = excluded.file, attrs = excluded.attrs
-    `)
-  }
+  const eventRows = payload.spans.flatMap(({ events }) => events.map((event) => sql`(
+    ${origin.organizationId}, ${origin.hostId}, ${event.eventId}, ${event.traceId}, ${event.spanId}, ${event.occurredAt},
+    ${event.level}, ${event.name}, ${event.tag}, ${event.file}, ${JSON.stringify(event.attrs ?? {})}
+  )`))
+  for (const rows of chunks(eventRows)) await db.run(sql`
+    INSERT INTO ${insightLogEvents} (organization_id, host_id, event_id, trace_id, span_id, occurred_at, level, name, tag, file, attrs)
+    VALUES ${sql.join(rows, sql`, `)}
+    ON CONFLICT (organization_id, host_id, event_id) DO UPDATE SET
+      trace_id = excluded.trace_id, span_id = excluded.span_id, occurred_at = excluded.occurred_at, level = excluded.level,
+      name = excluded.name, tag = excluded.tag, file = excluded.file, attrs = excluded.attrs
+  `)
 }
 
 /** Lands one mirrored item in its organization. Throws `PermanentApplyError` for a payload the domain's schema refuses. */
-export async function applyMirrorItem(origin: MirrorOrigin, item: Pick<RunnerMirrorItem, 'domain' | 'payload'>, shares?: ShareManager): Promise<void> {
-  const { domain, payload } = item
-  switch (domain) {
+export async function applyMirrorItem(origin: MirrorOrigin, item: { kind: Exclude<DeliveryKind, 'session'>; payload: unknown }, shares?: ShareManager): Promise<void> {
+  const { kind, payload } = item
+  switch (kind) {
     case 'shares': {
       const parsed = sharesMirrorPayloadSchema.safeParse(payload)
       if (!parsed.success) throw new PermanentApplyError(`Malformed shares mirror payload: ${parsed.error.message}`)
       if (!shares) throw new PermanentApplyError('This service keeps no share rows.')
       return shares.applyMirroredRows(origin.organizationId, parsed.data)
     }
-    case 'transcripts': {
+    case 'transcript': {
       const parsed = transcriptMirrorPayloadSchema.safeParse(payload)
       if (!parsed.success) throw new PermanentApplyError(`Malformed transcript mirror payload: ${parsed.error.message}`)
       return applyTranscript(origin, parsed.data)

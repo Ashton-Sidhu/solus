@@ -172,6 +172,22 @@ describe('annotation prompt', () => {
     expect(attachment?.designData?.browserMarks?.[0]?.id).toBe('an1')
   })
 
+  test('a sent mark keeps where it was drawn, so its chip can show it again', () => {
+    // WHY: a sent chip opens its page at the mark. Without the rect, the scroll
+    // it was measured at, and a way to find the element, it can only open the
+    // page wherever it happens to be.
+    const commented = { ...PICKED, note: 'Bigger', scroll: { x: 0, y: 640 } }
+    const attachment = createAnnotationAttachment({
+      page: page(),
+      state: { browserPageId: 'browser_1', annotations: [commented] },
+      serverId: 'host-1',
+    })
+    const [mark] = attachment?.designData?.browserMarks ?? []
+    expect(mark?.rect).toEqual(PICKED.rect)
+    expect(mark?.scroll).toEqual({ x: 0, y: 640 })
+    expect(mark?.ref).toBe('[data-solus-browser-ref="a1"]')
+  })
+
   test('capture failure keeps the structured attachment sendable', () => {
     const commented = { ...PICKED, note: 'Make the button easier to see' }
     const attachment = createAnnotationAttachment({

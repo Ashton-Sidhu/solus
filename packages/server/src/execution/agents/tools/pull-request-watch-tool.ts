@@ -14,7 +14,7 @@ import { linkCallerPullRequest, namedPullRequest, type TaskToolCtx, type TaskToo
  */
 
 const DESCRIPTION =
-  "Watch a pull request linked to this session: Solus reads it in the background and wakes you with a message when a check fails, every required check passes, someone comments or reviews, the branch starts to conflict, or the pull request is closed. After you call it, end your turn; do not poll with gh, sleep, or a watch loop. Pass watching=false to stop, and stop the watch before you hand the work back. A watch ends by itself when the pull request merges or closes, or when the session is stopped or settled."
+  "Watch a pull request linked to this session: Solus reads it in the background and wakes you with a message when a check fails, every required check passes (and once more when the other checks still running then pass), no check reports for 15 minutes, someone comments or reviews, the branch starts to conflict, or the pull request is closed. After you call it, end your turn; do not poll with gh, sleep, or a watch loop. Pass watching=false to stop, and stop the watch before you hand the work back. A watch ends by itself when the pull request merges or closes, or when the session is stopped or settled."
 
 const fields = {
   pull_request: z.string().describe('The pull request number, or its GitHub URL.'),

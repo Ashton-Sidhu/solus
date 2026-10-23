@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { OutboxOp } from '@solus/contracts/outbox-types'
+import { sql } from 'drizzle-orm'
+import { z } from 'zod'
 type Principal = import('@solus/server/admission/principal').Principal
 import { resetTestDatabase } from './helpers/test-db'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
@@ -11,9 +12,10 @@ import { installTestIdentities } from './helpers/acting-identities'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// docs/plans/cloud-service-model.md §16: the workspace service applies a runner's
-// ops in sequence order, in the runner's organization, through the same appliers
-// a host uses; its per-stream cursor is what makes a redelivery harmless.
+// docs/plans/simplify-auth-and-sync.md §4.5: the Solus API applies a host's batch in
+// sequence order, in the host's organization, in one transaction with one cursor
+// for the (host, person). A permanent failure skips and names its item; a transient
+// one stops the batch, and the host sends it and the rest again.
 
 let intake: typeof import('@solus/server/sync/runner-intake')
 let principalModule: typeof import('@solus/server/admission/principal')
@@ -42,7 +44,6 @@ beforeAll(async () => {
   shareManager = await import('@solus/server/sharing/share-manager')
   database = await import('@solus/server/db/database')
   shares = new shareManager.ShareManager({ db: database.getDatabase() })
-  ;(await import('@solus/server/data/tasks/task-applier')).registerTaskOutboxApplier()
   ;(await import('@solus/server/data/works/work-applier')).registerWorkOutboxApplier()
 })
 
@@ -56,12 +57,6 @@ afterAll(async () => {
 
 const runner = () => principalModule.runnerPrincipalFor({ hostId: 'runner-1', organizationId: 'org1', ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
 
-let opCounter = 0
-function op(domain: OutboxOp['domain'], resourceId: string, name: string, payload: unknown): OutboxOp {
-  opCounter += 1
-  return { id: `op-${String(opCounter).padStart(4, '0')}`, domain, resourceId, name, payload, sessionId: 'thread-1', recordedAt: opCounter, state: 'pending' }
-}
-
 // The helpers under test start processes; with no caller, they act as the host (plans/019).
 actAsHostForTests()
 
@@ -69,81 +64,70 @@ actAsHostForTests()
 installTestIdentities()
 
 describe('runner intake', () => {
-  test('ops land in the runner\'s organization in order; a redelivery applies nothing twice', async () => {
-    const create = op('tasks', 'task-a', 'create', {
-      title: 'From the runner', projectKey: '/repo', body: 'body', priority: 'high', labels: ['x'], dueDate: null, status: 'todo', originSessionId: 'thread-1', createdAt: 1_700_000_000_000,
-    })
-    const comment = op('tasks', 'task-a', 'comment', { body: 'first', author: 'agent' })
-    const work = op('works', 'work-a', 'create', { title: 'Doc', docType: 'doc', content: '# Doc', originSessionId: 'thread-1', linkToSessionTask: true })
-    const batch = { hostId: 'runner-1', ops: [{ seq: 3, op: work }, { seq: 1, op: create }, { seq: 2, op: comment }] }
+  const deliver = (items: Array<{ seq: number; kind: 'session' | 'transcript' | 'shares'; payload: unknown }>, from = runner(), with_ = shares) =>
+    intake.applyRunnerDelivery(from, { hostId: from.hostId, items }, { shares: with_ })
+  const line = (position: number) => ({ sessionId: 's0', position, message: { role: 'user', content: `line ${position}` } })
+  const transcriptRows = async () => z.array(z.object({ position: z.number() })).parse(
+    await database.getDatabase().all(sql`SELECT position FROM session_transcripts WHERE organization_id = 'org1' AND session_id = 's0' ORDER BY position`),
+  ).map((row) => row.position)
 
-    expect(await intake.applyRunnerOutbox(runner(), batch, shares)).toEqual({ lastSeq: 3, failed: [] })
-    const task = await TaskModule.Task.byId('org1', 'task-a')
-    expect(task).toMatchObject({ id: 'task-a', title: 'From the runner', priority: 'high', status: 'todo', createdAt: 1_700_000_000_000 })
-    expect((await task.details()).comments.map((row) => row.body)).toEqual(['first'])
-    expect((await works.loadWork('org1', 'work-a'))?.title).toBe('Doc')
+  test('one batch of every kind lands in the host\'s organization in order; a redelivery applies nothing twice', async () => {
+    const items = [
+      { seq: 3, kind: 'transcript' as const, payload: line(1) },
+      { seq: 1, kind: 'session' as const, payload: { sessionId: 's0', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 5 } },
+      { seq: 2, kind: 'transcript' as const, payload: line(0) },
+    ]
+    expect(await deliver(items)).toEqual({ lastSeq: 3, failed: [] })
+    expect(await transcriptRows()).toEqual([0, 1])
+    expect(await records.getSessionRecord('org1', 's0')).toMatchObject({ runnerHostId: 'runner-1', publication: 'published', ownerKey: 'alice' })
     // Nothing of it is in the host's own organization.
-    await expect(TaskModule.Task.byId('local', 'task-a')).rejects.toThrow()
-    expect(await works.loadWork('local', 'work-a')).toBeNull()
+    expect(await records.getSessionRecord('local', 's0')).toBeNull()
 
-    // What landed is the organization's: a member of it opens both, a member of another does not.
-    const colleague: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' }
-    expect(await shares.roleFor(colleague, { kind: 'task', id: 'task-a' })).toBe('editor')
-    expect(await shares.roleFor(colleague, { kind: 'work', id: 'work-a' })).toBe('editor')
-    expect(await shares.roleFor({ ...colleague, organizationId: 'org2' }, { kind: 'task', id: 'task-a' })).toBe('none')
-    // Owned by the person whose delegated token delivered it: a runner always acts for one.
-    expect((await shares.homeOf({ kind: 'task', id: 'task-a' }))?.ownerKey).toBe('alice')
-
-    // The runner lost the ack and sends the same batch again.
-    expect(await intake.applyRunnerOutbox(runner(), batch, shares)).toEqual({ lastSeq: 3, failed: [] })
-    expect((await TaskModule.Task.byId('org1', 'task-a').then((t) => t.details())).comments).toHaveLength(1)
+    // The host lost the answer and sends the same batch again.
+    expect(await deliver(items)).toEqual({ lastSeq: 3, failed: [] })
+    expect(await transcriptRows()).toEqual([0, 1])
   })
 
-  test('a lost permanent-failure response is repeated; a received failure lets later ops proceed', async () => {
-    // WHY: advancing past a rejected item would turn a lost response into a
-    // success on retry, letting publication delete a task with missing comments.
-    const gone = op('tasks', 'task-missing', 'comment', { body: 'lost', author: 'agent' })
-    const fine = op('tasks', 'task-a', 'comment', { body: 'second', author: 'agent' })
-    const skew = op('works', 'work-a', 'from-the-future', {})
-    const after = op('tasks', 'task-a', 'comment', { body: 'third', author: 'agent' })
-    const answer = await intake.applyRunnerOutbox(runner(), { hostId: 'runner-1', ops: [{ seq: 4, op: gone }, { seq: 5, op: fine }, { seq: 6, op: skew }, { seq: 7, op: after }] })
-    expect(answer.lastSeq).toBe(3)
-    expect(answer.failed.map((failure) => [failure.seq, failure.permanent])).toEqual([[4, true]])
-    // The response was lost: the same failure must still be visible on retry.
-    expect(await intake.applyRunnerOutbox(runner(), { hostId: 'runner-1', ops: [{ seq: 4, op: gone }, { seq: 5, op: fine }] })).toEqual(answer)
-    // The runner has now recorded the permanent failure and skips that item.
-    const continued = await intake.applyRunnerOutbox(runner(), { hostId: 'runner-1', ops: [{ seq: 5, op: fine }, { seq: 6, op: skew }, { seq: 7, op: after }] })
-    expect(continued.lastSeq).toBe(5)
-    expect(continued.failed.map((failure) => [failure.seq, failure.permanent])).toEqual([[6, false]])
-    const comments = (await TaskModule.Task.byId('org1', 'task-a').then((t) => t.details())).comments.map((row) => row.body)
-    expect(comments).toEqual(['first', 'second'])
-    // A link op after the skew is applied once the runner sends from seq 6 again with a verb this build knows.
-    const link = op('tasks', 'task-a', 'link', { kind: 'work', targetScope: '', targetKey: 'work-a', title: 'Doc', originSessionId: 'thread-1' })
-    const retry = await intake.applyRunnerOutbox(runner(), { hostId: 'runner-1', ops: [{ seq: 6, op: link }, { seq: 7, op: after }] })
-    expect(retry).toEqual({ lastSeq: 7, failed: [] })
-    const details = await TaskModule.Task.byId('org1', 'task-a').then((t) => t.details())
-    expect(details.comments.map((row) => row.body)).toEqual(['first', 'second', 'third'])
-    expect(details.links.map((row) => row.targetKey)).toEqual(['work-a'])
+  test('a permanent failure is skipped and named while the rest land; a transient one stops the batch until it is sent again', async () => {
+    // WHY: one bad item must not hold back a host's queue, and an item that may
+    // apply later must not be skipped.
+    class BusyOnce extends shareManager.ShareManager {
+      busy = true
+      override async applyMirroredRows(...args: Parameters<import('@solus/server/sharing/share-manager').ShareManager['applyMirroredRows']>): Promise<void> {
+        if (this.busy) { this.busy = false; throw new Error('database busy') }
+        return super.applyMirroredRows(...args)
+      }
+    }
+    const flaky = new BusyOnce({ db: database.getDatabase() })
+    const sharesItem = { seq: 6, kind: 'shares' as const, payload: { resource: { kind: 'session', id: 's0' }, rows: [] } }
+    const answer = await deliver([
+      { seq: 4, kind: 'transcript', payload: { sessionId: 's0' } },
+      { seq: 5, kind: 'transcript', payload: line(2) },
+      sharesItem,
+      { seq: 7, kind: 'transcript', payload: line(3) },
+    ], runner(), flaky)
+    expect(answer.lastSeq).toBe(5)
+    expect(answer.failed.map((failure) => failure.seq)).toEqual([4])
+    expect(await transcriptRows()).toEqual([0, 1, 2])
+    // The host sends from seq 6 again, and it lands.
+    expect(await deliver([sharesItem, { seq: 7, kind: 'transcript', payload: line(3) }], runner(), flaky)).toEqual({ lastSeq: 7, failed: [] })
+    expect(await transcriptRows()).toEqual([0, 1, 2, 3])
   })
 
-  test('session records are stamped with the runner and skipped at or below the cursor', async () => {
-    const answer = await intake.applyRunnerSessionRecords(runner(), {
-      hostId: 'runner-1',
-      reports: [
-        { seq: 1, record: { sessionId: 's1', provider: 'claude-code', projectPath: '-repo', title: 'First', runnerHostId: 'liar', lastActivityAt: 10 } },
-        { seq: 2, record: { sessionId: 's1', provider: 'claude-code', projectPath: '-repo', status: 'running', lastActivityAt: 20 } },
-      ],
-    })
-    expect(answer).toEqual({ lastSeq: 2 })
+  test('session facts are stamped with the host and skipped at or below the cursor; each host has its own cursor', async () => {
+    const answer = await deliver([
+      { seq: 8, kind: 'session', payload: { sessionId: 's1', provider: 'claude-code', projectPath: '-repo', title: 'First', runnerHostId: 'liar', lastActivityAt: 10 } },
+      { seq: 9, kind: 'session', payload: { sessionId: 's1', provider: 'claude-code', projectPath: '-repo', status: 'running', lastActivityAt: 20 } },
+    ])
+    expect(answer).toEqual({ lastSeq: 9, failed: [] })
     expect(await records.getSessionRecord('org1', 's1')).toMatchObject({ title: 'First', status: 'running', runnerHostId: 'runner-1', lastActivityAt: 20 })
-    expect(await records.getSessionRecord('local', 's1')).toBeNull()
-    // An older report that arrives again changes nothing.
-    await intake.applyRunnerSessionRecords(runner(), { hostId: 'runner-1', reports: [{ seq: 1, record: { sessionId: 's1', provider: 'claude-code', projectPath: '-repo', title: 'Stale', lastActivityAt: 10 } }] })
+    // Older facts that arrive again change nothing.
+    await deliver([{ seq: 8, kind: 'session', payload: { sessionId: 's1', provider: 'claude-code', projectPath: '-repo', title: 'Stale', lastActivityAt: 10 } }])
     expect((await records.getSessionRecord('org1', 's1'))?.title).toBe('First')
-    // A different runner of the same organization has its own cursor.
+    // Another host of the same organization has its own cursor.
     const other = principalModule.runnerPrincipalFor({ hostId: 'runner-2', organizationId: 'org1', ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
-    expect(await intake.applyRunnerSessionRecords(other, { hostId: 'runner-2', reports: [{ seq: 1, record: { sessionId: 's2', provider: 'codex', projectPath: '-repo', lastActivityAt: 1 } }] })).toEqual({ lastSeq: 1 })
-    expect((await records.listSessionRecords('org1')).map((record) => record.sessionId).sort()).toEqual(['s1', 's2'])
+    expect(await deliver([{ seq: 1, kind: 'session', payload: { sessionId: 's2', provider: 'codex', projectPath: '-repo', lastActivityAt: 1 } }], other)).toEqual({ lastSeq: 1, failed: [] })
+    expect((await records.listSessionRecords('org1')).map((record) => record.sessionId).sort()).toEqual(['s0', 's1', 's2'])
     expect(await taskStore.listTasks('local')).toMatchObject({ tasks: [] })
   })
 
@@ -152,6 +136,7 @@ describe('runner intake', () => {
     const { SolusServer } = await import('@solus/server/transport/server')
     const { registerCloudUploadHandlers } = await import('@solus/server/transport/solus-api/cloud-uploads')
     const apiMode = await import('@solus/server/host/api-mode')
+    await taskStore.createTask('org1', { title: 'From the API', projectKey: '/repo', body: '', priority: null, dueDate: null, status: 'todo', source: 'agent', originSessionId: null }, { id: 'task-a', now: 1 }, undefined, 'alice')
     const task = await TaskModule.Task.byId('org1', 'task-a')
     await task.linkSession('thread-1')
     const work = await works.createWork('local', 'Published', 'doc', '# Published', '', 'thread-1', 'claude-code', '/repo')

@@ -491,6 +491,15 @@ export class Work implements WorkRecord {
     })
   }
 
+  /** The reverse of `linkSession`. The session that made the work stays its origin. */
+  async unlinkSession(sessionId: string): Promise<this> {
+    return this.mutate(async (db, row) => {
+      const meta = metaFromRow(row)
+      meta.sessionIds = (meta.sessionIds ?? (meta.sessionId ? [meta.sessionId] : [])).filter(id => id !== sessionId)
+      await writeMeta(db, row.id, meta)
+    })
+  }
+
   /**
    * Point the work at where it went (cloud-sharing.md §3a). The organization's
    * copy is the authority now, so a read or edit here answers `WORK_MOVED`. The

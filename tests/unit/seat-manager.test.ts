@@ -20,8 +20,8 @@ const LEGACY_HOST_OWNER_KEY = 'host-owner'
 // host's owner runs on the host login, which is a kind of seat and not a user; no
 // seat, no turn; removal deletes the files; the sweep forgets idle members.
 
-const OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
-const REMOTE_OWNER: Principal = { kind: 'remote-owner', userId: 'alice', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
+const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
+const REMOTE_OWNER: Principal = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
 const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Bob', deviceId: 'd2', expiresAt: 0, deviceLabel: 'Solus cloud' }
 const guestOf = (sharedByUserId: string): Principal => ({ kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 's1' }, role: 'editor', sharedByUserId, linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' })
 const GUEST_OF_BOB = guestOf('bob')

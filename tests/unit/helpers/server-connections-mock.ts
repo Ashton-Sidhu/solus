@@ -2,7 +2,6 @@ import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import type { HostCapabilities } from '@solus/contracts/types'
-import type { ConnectionStatus } from '@solus/client-core/ws-transport'
 import type { HostPhase } from '@solus/client-core/host-supervisor'
 import { BrowserFrameSubscriber } from '@solus/client-core/browser-frame-subscriber'
 import { HostFacts } from '@solus/client-core/host-facts'
@@ -36,11 +35,6 @@ export function singleHostServerConnections() {
   const factsByServerId = new Map<string, HostFacts>()
   const phaseListeners = new Set<(serverId: string, phase: HostPhase, attempt: number) => void>()
   const phases = new Map<string, HostPhase>()
-  const statusListeners = new Set<(
-    serverId: string,
-    status: ConnectionStatus,
-    attempt: number,
-  ) => void>()
   const api = (serverId = primaryServerId) => apis.get(serverId) ?? currentApi()
   const events = (serverId = primaryServerId) => {
     let subscriber = eventsByServerId.get(serverId)
@@ -66,8 +60,7 @@ export function singleHostServerConnections() {
     transport: { destroy: () => {}, events: events(serverId) },
     api: api(serverId),
     events: events(serverId),
-    status: 'connected' as const,
-    attempt: 0,
+    link: { phase: phases.get(serverId) ?? 'connected', attempt: 0 },
     facts: facts(serverId),
   })
   const frames = (serverId = primaryServerId) => {
@@ -100,7 +93,6 @@ export function singleHostServerConnections() {
       framesByServerId.clear()
       for (const hostFacts of factsByServerId.values()) hostFacts.dispose()
       factsByServerId.clear()
-      statusListeners.clear()
       phaseListeners.clear()
       phases.clear()
     },
@@ -123,18 +115,6 @@ export function singleHostServerConnections() {
     connectedServerIds: () => apis.size > 0 ? [...apis.keys()] : [primaryServerId],
     connectionFor: (serverId?: string) => connection(serverId),
     httpOriginFor: (serverId: string) => new URL(connection(serverId).target.url).origin,
-    updateStatus: () => {},
-    onStatusChange: (listener: (
-      serverId: string,
-      status: ConnectionStatus,
-      attempt: number,
-    ) => void) => {
-      statusListeners.add(listener)
-      return () => statusListeners.delete(listener)
-    },
-    emitStatus: (serverId: string, status: ConnectionStatus, attempt = 0) => {
-      for (const listener of statusListeners) listener(serverId, status, attempt)
-    },
     onConnectionCreated: () => () => {},
     onPrimaryChange: () => () => {},
     onPhaseChange: (listener: (serverId: string, phase: HostPhase, attempt: number) => void) => {
@@ -142,6 +122,7 @@ export function singleHostServerConnections() {
       return () => phaseListeners.delete(listener)
     },
     phaseFor: (serverId: string): HostPhase => phases.get(serverId) ?? 'connected',
+    blockedReasonFor: () => null,
     /** Move one host's supervisor phase, as a drop or a reconnect does. */
     emitPhase: (serverId: string, phase: HostPhase) => {
       phases.set(serverId, phase)
@@ -152,7 +133,6 @@ export function singleHostServerConnections() {
     retain: () => {},
     unretain: () => {},
     release: () => {},
-    statusFor: () => 'connected' as const,
     probeHealth: async () => null,
     capabilitiesFor: async () => capabilities,
     cachedCapabilitiesFor: () => capabilities,

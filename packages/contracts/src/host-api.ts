@@ -1,4 +1,3 @@
-import type { TaskOpenTiming } from './task-types'
 import type { SessionQueueMutation, SessionQueueSnapshot } from './session-queue'
 import type { CheckoutSnapshot } from './checkout'
 import type { WorktreeOfferResolution } from './activity'
@@ -45,7 +44,7 @@ import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkReques
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
-import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationIdRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
+import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationAccountRequest, IntegrationIdRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileStatus } from './agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
@@ -231,8 +230,8 @@ export interface SolusAPI {
   sessionUpdate(sessionId: string, change: SessionChange): Promise<SessionChanged>
   /** The pull requests a session works on (`/v1/sessions/:sessionId/pull-requests`). */
   sessionPullRequests(sessionId: string): Promise<SessionPullRequestLink[]>
-  /** Link a pull request to a session by its URL. The same link again changes nothing. */
-  sessionPullRequestPut(sessionId: string, url: string): Promise<SessionPullRequestLink>
+  /** Link a pull request to a session by its URL (`PUT /v1/links`). The same link again changes nothing. */
+  sessionPullRequestPut(sessionId: string, url: string): Promise<void>
   /** Remove a pull request from a session. PR sync does not link it again. */
   sessionPullRequestDelete(sessionId: string, pullRequest: { repository: string; number: number }): Promise<void>
   /** Collaboration plane: a runner's report of one session. The host itself and, later, a runner of the organization. */
@@ -419,7 +418,7 @@ export interface SolusAPI {
   integrationConnectSubmit(request: IntegrationConnectSubmitRequest): Promise<{ submitted: true }>
   integrationConnectCancel(request: IntegrationConnectCancelRequest): Promise<{ cancelled: boolean }>
   /** Removes the caller's token and connection. */
-  integrationDisconnect(request: IntegrationIdRequest): Promise<{ disconnected: boolean }>
+  integrationDisconnect(request: IntegrationAccountRequest): Promise<{ disconnected: boolean }>
   /** Host administrator: this host's own agent profile, to copy to a seat on another host (docs/agent-profile.md). */
   agentProfileRead(): Promise<AgentProfileCopy>
   /** Replaces the caller's profile on this host with this copy, as a push from their computer; an empty profile removes it. */
@@ -783,7 +782,6 @@ export interface SolusAPI {
   tasksImport(cwd: string, externalIds: string[]): Promise<TaskDetails[]>
   tasksPublish(id: string, cwd: string): Promise<TaskDetails>
   tasksSyncNow(id?: string): Promise<TaskExternalLink[]>
-  tasksLogOpenTiming(timing: TaskOpenTiming): Promise<void>
   tasksSidebarSnapshot(filter?: TaskSidebarFilter): Promise<TaskSidebarSnapshot>
   /** The tasks whose comments hold every word of a query (docs/plans/unified-search.md §7). */
   tasksSearchComments(query: TaskCommentSearchQuery): Promise<TaskCommentHit[]>
@@ -1166,9 +1164,9 @@ export interface NativeSolusAPI {
   /** Personal Uplink, on behalf of the signed-in account. Null when signed out or
    *  the website did not answer; the account token itself never crosses. */
   uplinkListDirectory(): Promise<UplinkDirectory | null>
-  /** A five-minute access token for one host or the Solus API, never for the account
-   *  plane. `fresh` asks for a new one after the host refused the kept one. */
-  accountAccessToken(resource: ConnectionTokenResource, options?: { fresh?: boolean }): Promise<string | null>
+  /** An access token for one host or the Solus API, never for the account plane.
+   *  `refused` names a kept token the host refused: it is not given out again. */
+  accountAccessToken(resource: ConnectionTokenResource, options?: { refused?: string }): Promise<string | null>
   uplinkIssueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
   /** People and teams of one organization, for the share dialog. */
   uplinkOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>

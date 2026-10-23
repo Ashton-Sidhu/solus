@@ -144,6 +144,29 @@ export async function resumeWebSignIn(deps: WebSignInDeps): Promise<WebSignInOut
   return 'signed-out'
 }
 
+/**
+ * Keeps a long-open page signed in. The grant can end while the page is open (its
+ * refresh token expired, or was revoked or replayed), and the page then has no token
+ * for any host. The page asks the website again, as at boot: its cookie session
+ * approves a new sign-in silently, or, with none, the page leaves for the website's
+ * sign-in and comes back to this address. `onSignedInAgain` runs after a silent
+ * sign-in, so hosts refused meanwhile dial again at once. A sign-out is not an
+ * ended grant: it stays signed out.
+ */
+export function keepWebSignIn(deps: WebSignInDeps, onSignedInAgain: () => void): () => void {
+  let isSignedIn = deps.session.state().kind === 'signed-in'
+  let isResuming = false
+  return deps.session.onChange((state) => {
+    const hasGrantEnded = isSignedIn && state.kind === 'invalid'
+    isSignedIn = state.kind === 'signed-in'
+    if (!hasGrantEnded || isResuming) return
+    isResuming = true
+    void resumeWebSignIn(deps)
+      .then((outcome) => { if (outcome === 'signed-in') onSignedInAgain() })
+      .finally(() => { isResuming = false })
+  })
+}
+
 const authorizeAnswerSchema = z.object({ redirect: z.literal(true), url: z.string().url() })
 
 /**

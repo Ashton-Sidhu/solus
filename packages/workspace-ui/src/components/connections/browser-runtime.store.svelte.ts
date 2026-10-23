@@ -24,7 +24,7 @@ export class BrowserRuntimeStore {
     if (!watch) {
       watch = {
         count: 0,
-        stop: serverConnections.onStatusChange((hostId, status) => {
+        stop: serverConnections.onPhaseChange((hostId, status) => {
           if (hostId !== serverId) return
           if (status === 'connected') void this.refresh(serverId)
           else {

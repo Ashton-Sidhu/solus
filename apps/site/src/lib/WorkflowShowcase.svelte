@@ -5,62 +5,59 @@
 		{
 			slug: "delegate",
 			label: "Delegate",
-			title: "Hand work to an agent the way you would to a teammate.",
-			body: "Open a session from a task, describe the change, and let the agent plan, code, and validate end to end. It asks before it runs anything you have not already allowed, and every step is visible in the transcript.",
-			points: ["Plan mode drafts before it edits", "Permission cards for anything new", "Steer mid-turn or queue the next prompt"],
+			title: "Staff a task across agents.",
+			body: "A lead session splits the plan between Claude and Codex workers. Their questions and reports come back to the lead, and you can open any worker beside it.",
+			width: 2880,
 			height: 1800,
-			alt: "The Solus workspace running a task: the agent explains its plan while a permission card asks to run the test command, with branch, git state, and task panels alongside.",
+			alt: "The billing lead's question is answered with 'Free tier' and the worker reports are in; the Dashboard usage graph worker's transcript, open beside it, lists the six files it wrote in web-dashboard and its pull request #148.",
 		},
 		{
 			slug: "review",
 			label: "Review",
-			title: "Review the intent, then the output.",
-			body: "A second agent reads the branch and writes a guided report: what to check, in what order, and why it matters. Each concern sits next to the exact code it refers to, so a review takes minutes instead of a context switch.",
-			points: ["Guided review with numbered concerns", "Line comments sent back as one message", "Map, Guide, and Diff views of the same branch"],
+			title: "A second agent writes the review guide.",
+			body: "The guide walks the change in order, each part beside its code, and flags the tradeoffs to decide. Your line comments wait and go out as one review.",
+			width: 2880,
 			height: 1800,
-			alt: "The Solus review guide for a rate-limiting change, listing numbered concerns beside the token bucket and middleware code they refer to.",
+			alt: "The Solus review guide for a rate-limiting pull request: the token-bucket section with a flagged tradeoff, its code beside it, and a pending line comment on the refill line.",
 		},
 		{
 			slug: "ship",
 			label: "Ship",
-			title: "Land approved work without leaving the workspace.",
-			body: "Reviewers, checks, and every changed file in one place. Merge, squash, or rebase when it is ready, or hand a conflicted branch back to an agent in its own worktree.",
-			points: ["Commit, push, and open the PR in one action", "Checks and reviewers in view", "Conflicts resolved in an isolated worktree"],
-			height: 1330,
-			alt: "A pull request in Solus, ready to merge, showing reviewers, approval state, and every changed file with its line counts.",
+			title: "Merge with checks and reviewers in view.",
+			body: "Or hand a conflicted branch back to an agent in its own worktree.",
+			width: 2880,
+			height: 1800,
+			alt: "A pull request in Solus with its merge status, reviewers, passing checks, and every changed file with its line counts.",
+		},
+		{
+			slug: "automations",
+			label: "Monitor",
+			title: "Keep watch after it ships.",
+			body: "Automations triage new errors, check for drift, and keep dependencies current on a schedule. Each run is a session you can open and reply to, and a failure asks for your attention.",
+			width: 2216,
+			height: 1136,
+			alt: "Solus Automations page listing eight automations across api-gateway, billing-service, web-dashboard, ios-app, infra and marketing-site, with recent run history, one needing attention and one paused.",
 		},
 	];
 </script>
 
-<div class="flex flex-col gap-24 lg:gap-32">
+<div class="flex flex-col gap-20 lg:gap-28">
 	{#each steps as step, index (step.slug)}
-		<article class="reveal flex flex-col gap-10">
-			<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-16">
-				<div class="flex flex-col gap-4">
-					<div class="flex items-center gap-3 text-[14px] font-medium text-sky-ink">
-						<span class="flex size-7 items-center justify-center rounded-full bg-sky-soft text-[13px] font-semibold">{index + 1}</span>
+		<article class="reveal flex flex-col gap-8">
+			<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-16">
+				<div class="flex flex-col gap-3">
+					<div class="flex items-center gap-3 text-[14px] font-medium text-brand-deep">
+						<span class="flex size-7 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold">{index + 1}</span>
 						{step.label}
 					</div>
 					<h3 class="display text-[clamp(26px,3vw,38px)]">{step.title}</h3>
 				</div>
-				<div class="flex flex-col gap-5 lg:pt-10">
-					<p class="max-w-[56ch] text-[16px] leading-[1.65] text-ink-2 text-pretty">{step.body}</p>
-					<ul class="flex list-none flex-col gap-2 p-0">
-						{#each step.points as point (point)}
-							<li class="flex items-start gap-2.5 text-[15px] text-ink">
-								<svg class="mt-[5px] shrink-0 text-brand" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-									<path d="M20 6 9 17l-5-5" />
-								</svg>
-								{point}
-							</li>
-						{/each}
-					</ul>
-				</div>
+				<p class="max-w-[52ch] text-[16px] leading-[1.65] text-ink-2 text-pretty lg:pt-10">{step.body}</p>
 			</div>
 
-			<figure class="m-0 rounded-[22px] bg-sky-soft p-2 sm:p-4 lg:p-6">
+			<figure class="m-0 rounded-[22px] bg-surface p-2 sm:p-4 lg:p-6">
 				<div class="shot-frame">
-					<Shot slug={step.slug} alt={step.alt} width={2880} height={step.height} />
+					<Shot slug={step.slug} alt={step.alt} width={step.width} height={step.height} />
 				</div>
 			</figure>
 		</article>

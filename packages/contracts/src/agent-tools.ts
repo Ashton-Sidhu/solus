@@ -52,6 +52,7 @@ export const SOLUS_TOOL_GROUPS = [
   ] },
   { id: 'connections', label: 'Connections', tools: [
     'connection_status',
+    'connect_integration',
   ] },
   { id: 'insights', label: 'Insights', tools: [
     'query_insights',

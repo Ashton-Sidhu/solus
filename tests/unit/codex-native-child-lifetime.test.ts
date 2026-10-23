@@ -69,9 +69,11 @@ function setup() {
   const events: Array<{ sessionId: string; event: NormalizedEvent }> = []
   const exits: Array<number | null> = []
   const waitsEnded: string[] = []
+  const wakes: Array<{ sessionId: string; prompt: string; via: string | undefined }> = []
   backend.on('normalized', (sessionId: string, event: NormalizedEvent) => events.push({ sessionId, event }))
   backend.on('exit', (_sessionId: string, code: number | null) => exits.push(code))
   backend.on('background-work-ended', (sessionId: string) => waitsEnded.push(sessionId))
+  backend.on('background-task-completed', (sessionId: string, prompt: string, via: string | undefined) => wakes.push({ sessionId, prompt, via }))
   backend.on('error', () => {})
   const startRoot = (turnId: string, persistence: 'session' | 'ephemeral' = 'session'): RootRun => {
     const run: RootRun = {
@@ -93,16 +95,20 @@ function setup() {
     })
     await exited
   }
-  const spawnChild = (spawnId: string) => {
-    send('item/completed', { threadId: ROOT, item: { type: 'subAgentActivity', id: spawnId, kind: 'started', agentThreadId: CHILD, agentPath: '/root/audit' } })
-    send('turn/started', { threadId: CHILD, turn: { id: `${spawnId}-turn`, status: 'inProgress' } })
+  /** A child the root spawns, or with `parent`, one another child spawns. */
+  const spawnChild = (spawnId: string, child = CHILD, parent = ROOT) => {
+    send('item/completed', { threadId: parent, item: { type: 'subAgentActivity', id: spawnId, kind: 'started', agentThreadId: child, agentPath: '/root/audit' } })
+    send('turn/started', { threadId: child, turn: { id: `${spawnId}-turn`, status: 'inProgress' } })
   }
-  const childEnds = (spawnId: string, status: 'completed' | 'failed' | 'interrupted', text?: string) =>
-    send('turn/completed', { threadId: CHILD, turn: { id: `${spawnId}-turn`, status, items: text ? [{ type: 'agentMessage', text }] : [] } })
+  const childEnds = (spawnId: string, status: 'completed' | 'failed' | 'interrupted', text?: string, child = CHILD) =>
+    send('turn/completed', {
+      threadId: child,
+      turn: { id: `${spawnId}-turn`, status, items: text ? [{ type: 'agentMessage', text }] : [], ...(status === 'failed' && { error: { message: 'Child failed' } }) },
+    })
   const types = (from = 0) => events.slice(from).map(({ event }) => event.type)
   const reports = () => events.flatMap(({ event }) => event.type === 'tool_result' && event.isSubagentReport ? [event] : [])
   const settles = () => events.flatMap(({ event }) => event.type === 'background_task_settled' ? [event] : [])
-  return { backend, internals, appServer, events, exits, waitsEnded, startRoot, send, completeRoot, spawnChild, childEnds, types, reports, settles }
+  return { backend, internals, appServer, events, exits, waitsEnded, wakes, startRoot, send, completeRoot, spawnChild, childEnds, types, reports, settles }
 }
 
 describe('a Codex native child that outlives its root turn', () => {
@@ -110,7 +116,7 @@ describe('a Codex native child that outlives its root turn', () => {
   // end first. The root settles at once and frees its queue; the child is the
   // session's background task, visible and stoppable, until it settles once.
   test.each(['completed', 'failed'] as const)('a %s root settles at once and leaves the child as background work', async (status: 'completed' | 'failed') => {
-    const { backend, internals, events, exits, waitsEnded, startRoot, send, completeRoot, spawnChild, childEnds, types, settles } = setup()
+    const { backend, internals, events, exits, waitsEnded, wakes, startRoot, send, completeRoot, spawnChild, childEnds, types, settles } = setup()
     startRoot('root-turn')
     spawnChild('spawn-1')
 
@@ -133,25 +139,27 @@ describe('a Codex native child that outlives its root turn', () => {
       { type: 'tool_result', toolUseId: 'spawn-1', content: 'Audit complete.', isError: false, parentToolUseId: 'spawn-1', isSubagentReport: true },
       { type: 'background_task_settled', taskId: CHILD, toolUseId: 'spawn-1', status: 'completed' },
     ])
-    // Nothing wakes the agent for it, so the session's wait ends, once.
-    expect(waitsEnded).toEqual([ROOT])
+    // Codex does not wake the root for it, so Solus does, once, with the report.
+    expect(wakes).toEqual([{ sessionId: ROOT, prompt: `A sub-agent you started finished after your turn ended: ${CHILD}\n\nReport:\nAudit complete.`, via: undefined }])
+    expect(waitsEnded).toEqual([])
     expect(backend.hasBackgroundTasks(ROOT)).toBe(false)
     expect(exits).toHaveLength(1)
     expect(settles()).toHaveLength(1)
   })
 
-  test('a child that fails after its root settles its task as failed', async () => {
-    const { startRoot, completeRoot, spawnChild, childEnds, settles, waitsEnded } = setup()
+  test('a child that fails after its root settles its task as failed and wakes the root with the error', async () => {
+    const { startRoot, completeRoot, spawnChild, childEnds, settles, waitsEnded, wakes } = setup()
     startRoot('root-turn')
     spawnChild('spawn-1')
     await completeRoot('root-turn', 'completed')
     childEnds('spawn-1', 'failed')
     expect(settles().map((settle) => settle.status)).toEqual(['failed'])
-    expect(waitsEnded).toEqual([ROOT])
+    expect(wakes.map(({ prompt }) => prompt)).toEqual([`A sub-agent you started failed after your turn ended: ${CHILD}\n\nError:\nChild failed`])
+    expect(waitsEnded).toEqual([])
   })
 
   test('a repeated child end reports and settles once', async () => {
-    const { backend, events, startRoot, send, completeRoot, spawnChild, childEnds, reports, settles, waitsEnded } = setup()
+    const { backend, events, startRoot, send, completeRoot, spawnChild, childEnds, reports, settles, wakes } = setup()
     startRoot('root-turn')
     spawnChild('spawn-1')
     await completeRoot('root-turn', 'completed')
@@ -164,7 +172,7 @@ describe('a Codex native child that outlives its root turn', () => {
     expect(events).toHaveLength(settled)
     expect(reports()).toHaveLength(1)
     expect(settles()).toHaveLength(1)
-    expect(waitsEnded).toHaveLength(1)
+    expect(wakes).toHaveLength(1)
     expect(backend.cancelSession(ROOT)).toBe(false)
   })
 
@@ -230,11 +238,95 @@ describe('a Codex native child that outlives its root turn', () => {
   })
 })
 
+describe('waking the root when a Codex native child ends after its turn', () => {
+  const GRANDCHILD = 'grandchild-thread'
+  const OTHER_CHILD = 'other-child-thread'
+
+  // WHY: a grandchild reports to the child that spawned it, not to the root.
+  // Waking the root for it would start a turn about a result that is not its.
+  test('a nested child wakes nobody; its direct parent child wakes the root once', async () => {
+    const { startRoot, completeRoot, spawnChild, childEnds, settles, wakes, waitsEnded } = setup()
+    startRoot('root-turn')
+    spawnChild('spawn-1')
+    spawnChild('spawn-nested', GRANDCHILD, CHILD)
+    await completeRoot('root-turn', 'completed')
+
+    childEnds('spawn-nested', 'completed', 'Nested result.', GRANDCHILD)
+    expect(settles().map((settle) => settle.taskId)).toEqual([GRANDCHILD])
+    expect(wakes).toEqual([])
+    // The direct child still works, so the wait goes on.
+    expect(waitsEnded).toEqual([])
+
+    childEnds('spawn-1', 'completed', 'Direct result.')
+    expect(wakes.map(({ prompt }) => prompt)).toEqual([`A sub-agent you started finished after your turn ended: ${CHILD}\n\nReport:\nDirect result.`])
+  })
+
+  test('a nested child that is the last task ends the wait instead', async () => {
+    const { startRoot, completeRoot, spawnChild, childEnds, wakes, waitsEnded } = setup()
+    startRoot('root-turn')
+    spawnChild('spawn-1')
+    spawnChild('spawn-nested', GRANDCHILD, CHILD)
+    childEnds('spawn-1', 'completed')
+    await completeRoot('root-turn', 'completed')
+
+    childEnds('spawn-nested', 'completed', 'Nested result.', GRANDCHILD)
+    expect(wakes).toEqual([])
+    expect(waitsEnded).toEqual([ROOT])
+  })
+
+  // WHY: one wake per child delivers each result as soon as it exists; waiting
+  // for every child would hold a finished report back for the slowest one.
+  test('each direct child wakes the root with its own report', async () => {
+    const { startRoot, completeRoot, spawnChild, childEnds, wakes } = setup()
+    startRoot('root-turn')
+    spawnChild('spawn-1')
+    spawnChild('spawn-2', OTHER_CHILD)
+    await completeRoot('root-turn', 'completed')
+
+    childEnds('spawn-2', 'completed', 'Second result.', OTHER_CHILD)
+    childEnds('spawn-1', 'completed', 'First result.')
+    expect(wakes.map(({ prompt }) => prompt.split('\n').at(-1))).toEqual(['Second result.', 'First result.'])
+  })
+
+  // WHY: Codex can end a turn without its items; the answer the child already
+  // streamed is its report.
+  test('a turn end without items reports the child’s last answer', async () => {
+    const { startRoot, send, completeRoot, spawnChild, childEnds, wakes } = setup()
+    startRoot('root-turn')
+    spawnChild('spawn-1')
+    await completeRoot('root-turn', 'completed')
+
+    send('item/completed', { threadId: CHILD, turnId: 'spawn-1-turn', item: { type: 'agentMessage', id: 'child-msg', text: 'Streamed answer.' } })
+    childEnds('spawn-1', 'completed')
+    expect(wakes.map(({ prompt }) => prompt.split('\n').at(-1))).toEqual(['Streamed answer.'])
+  })
+
+  test('a long report is cut to a bounded wake', async () => {
+    const { startRoot, completeRoot, spawnChild, childEnds, wakes } = setup()
+    startRoot('root-turn')
+    spawnChild('spawn-1')
+    await completeRoot('root-turn', 'completed')
+
+    childEnds('spawn-1', 'completed', 'x'.repeat(50_000))
+    expect(wakes[0]!.prompt.length).toBeLessThan(4_200)
+    expect(wakes[0]!.prompt.endsWith('…')).toBe(true)
+  })
+
+  test('an app-server exit wakes nobody', async () => {
+    const { appServer, startRoot, completeRoot, spawnChild, wakes } = setup()
+    startRoot('root-turn')
+    spawnChild('spawn-1')
+    await completeRoot('root-turn', 'completed')
+    appServer.emit('exit')
+    expect(wakes).toEqual([])
+  })
+})
+
 describe('a Codex native child and the next root turn', () => {
   // WHY: the next root run has its own normalizer, which does not know the old
   // card. Routed there, a child's end reads as the root's own turn end.
   test('a late child goes to its old card, never to the next root run', async () => {
-    const { backend, events, exits, waitsEnded, startRoot, completeRoot, spawnChild, childEnds, reports, settles } = setup()
+    const { backend, events, exits, waitsEnded, wakes, startRoot, completeRoot, spawnChild, childEnds, reports, settles } = setup()
     startRoot('root-turn-1')
     spawnChild('spawn-1')
     await completeRoot('root-turn-1', 'failed')
@@ -248,8 +340,10 @@ describe('a Codex native child and the next root turn', () => {
     expect(reports().map((report) => report.toolUseId)).toEqual(['spawn-1'])
     expect(settles().map((settle) => settle.status)).toEqual(['completed'])
     expect(events.some(({ event }) => event.type === 'task_complete')).toBe(false)
-    // A turn is running, so it, not this child, settles the session.
+    // A turn is running, so it, not this child, settles the session, and Codex
+    // gives that turn the result itself.
     expect(waitsEnded).toEqual([])
+    expect(wakes).toEqual([])
 
     await completeRoot('root-turn-2', 'completed')
     expect(exits).toEqual([1, 0])
@@ -284,7 +378,7 @@ describe('a Codex native child and the next root turn', () => {
 
 describe('stopping and releasing a Codex native child', () => {
   test('the background row stops the child: its turn is interrupted and its task settles as stopped', async () => {
-    const { backend, appServer, startRoot, completeRoot, spawnChild, childEnds, reports, settles, waitsEnded } = setup()
+    const { backend, appServer, startRoot, completeRoot, spawnChild, childEnds, reports, settles, waitsEnded, wakes } = setup()
     startRoot('root-turn')
     spawnChild('spawn-1')
     await completeRoot('root-turn', 'completed')
@@ -295,8 +389,9 @@ describe('stopping and releasing a Codex native child', () => {
 
     expect(reports().map((report) => [report.content, report.isError])).toEqual([['Interrupted', true]])
     expect(settles().map((settle) => settle.status)).toEqual(['stopped'])
-    // A stopped task ends the wait through its own settle.
+    // A stopped task ends the wait through its own settle, and wakes nobody.
     expect(waitsEnded).toEqual([])
+    expect(wakes).toEqual([])
     expect(backend.hasBackgroundTasks(ROOT)).toBe(false)
   })
 
@@ -314,7 +409,7 @@ describe('stopping and releasing a Codex native child', () => {
   // what Codex reports for the thread may settle the task; otherwise the task
   // stays visible, and Stop answers false so the person can try again.
   test('an unrelated error answer leaves a still-running child visible and stoppable', async () => {
-    const { backend, appServer, startRoot, completeRoot, spawnChild, childEnds, settles } = setup()
+    const { backend, appServer, startRoot, completeRoot, spawnChild, childEnds, settles, wakes } = setup()
     startRoot('root-turn')
     spawnChild('spawn-1')
     await completeRoot('root-turn', 'completed')
@@ -328,10 +423,12 @@ describe('stopping and releasing a Codex native child', () => {
     // The failed Stop is forgotten: the child's own end settles as it ended.
     childEnds('spawn-1', 'completed', 'Finished anyway.')
     expect(settles().map((settle) => settle.status)).toEqual(['completed'])
+    // The person asked to stop it, so its end wakes nobody.
+    expect(wakes).toEqual([])
   })
 
   test('an error answer for a turn that already ended settles the task as Codex reports it', async () => {
-    const { backend, appServer, startRoot, completeRoot, spawnChild, reports, settles } = setup()
+    const { backend, appServer, startRoot, completeRoot, spawnChild, reports, settles, wakes } = setup()
     startRoot('root-turn')
     spawnChild('spawn-1')
     await completeRoot('root-turn', 'completed')
@@ -341,6 +438,8 @@ describe('stopping and releasing a Codex native child', () => {
     expect(await backend.stopBackgroundTask(ROOT, CHILD)).toBe(true)
     expect(reports().map((report) => report.content)).toEqual(['Already done.'])
     expect(settles().map((settle) => settle.status)).toEqual(['completed'])
+    // The person asked to stop it: its report is not news to wake the agent for.
+    expect(wakes).toEqual([])
     expect(backend.hasBackgroundTasks(ROOT)).toBe(false)
   })
 
@@ -395,7 +494,7 @@ describe('stopping and releasing a Codex native child', () => {
   })
 
   test('Stop on the session in background interrupts the child', async () => {
-    const { backend, appServer, startRoot, completeRoot, spawnChild, childEnds, settles } = setup()
+    const { backend, appServer, startRoot, completeRoot, spawnChild, childEnds, settles, wakes } = setup()
     startRoot('root-turn')
     spawnChild('spawn-1')
     await completeRoot('root-turn', 'completed')
@@ -404,6 +503,21 @@ describe('stopping and releasing a Codex native child', () => {
     expect(appServer.requests).toContainEqual({ method: 'turn/interrupt', params: { threadId: CHILD, turnId: 'spawn-1-turn' } })
     childEnds('spawn-1', 'interrupted')
     expect(settles().map((settle) => settle.status)).toEqual(['stopped'])
+    expect(wakes).toEqual([])
+  })
+
+  // WHY: a Stop the child ignores still means the person wants it gone. If it
+  // completes anyway, its report must not start a turn nobody asked for.
+  test('a child that completes after Stop on the session wakes nobody', async () => {
+    const { backend, startRoot, completeRoot, spawnChild, childEnds, settles, wakes } = setup()
+    startRoot('root-turn')
+    spawnChild('spawn-1')
+    await completeRoot('root-turn', 'completed')
+
+    expect(backend.cancelSession(ROOT)).toBe(true)
+    childEnds('spawn-1', 'completed', 'Finished before the interrupt.')
+    expect(settles().map((settle) => settle.status)).toEqual(['stopped'])
+    expect(wakes).toEqual([])
   })
 
   test('Stop during the root turn interrupts its children too, and the interrupted root keeps none', async () => {

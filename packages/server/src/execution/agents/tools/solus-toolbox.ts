@@ -53,6 +53,7 @@ import {
   updateExternalDocAgentTool,
 } from '../../../docs/doc-tools'
 import { connectionStatusAgentTool } from '../../../connections/connection-tools'
+import { connectIntegrationAgentTool } from '../../../integrations/connect-integration-tool'
 import { queryInsightsAgentTool } from './insights-tools'
 import {
   browserAppearanceAgentTool,
@@ -123,6 +124,7 @@ export const solusToolbox = {
   },
   connections: {
     status: connectionStatusAgentTool,
+    connectIntegration: connectIntegrationAgentTool,
   },
   insights: {
     query: queryInsightsAgentTool,

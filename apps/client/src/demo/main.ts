@@ -1,8 +1,6 @@
 import { mount } from 'svelte'
 import App from '../App.svelte'
 import '@solus/workspace-ui/index.css'
-import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
-import { webState } from '../lib/web-state.svelte'
 import { createDemoSolusApi } from './api'
 import { demoFixtures } from './fixtures'
 import { DEMO_INSTALLATION_ID } from './fixtures/types'
@@ -16,6 +14,7 @@ import { registerAutomationsHandlers } from './handlers/automations'
 import { registerDiffHandlers } from './handlers/diff'
 import { registerFilesHandlers } from './handlers/files'
 import { registerInsightsHandlers } from './handlers/insights'
+import { registerIntegrationsHandlers } from './handlers/integrations'
 import { registerAgentIntercept } from './handlers/agent-intercept'
 import { seedDemoStorage } from './seed'
 import { DemoBackend } from './server'
@@ -61,6 +60,7 @@ registerAutomationsHandlers(backend, store)
 registerDiffHandlers(backend, store)
 registerFilesHandlers(backend, store)
 registerInsightsHandlers(backend)
+registerIntegrationsHandlers(backend)
 registerAgentIntercept(backend, store)
 const demoApi = createDemoSolusApi(backend)
 installWindowSolusApi(demoApi)
@@ -101,8 +101,6 @@ serverConnections.registerPrimary(LOCAL_SERVER_ID, demoApi, demoTransport as WsT
 
 seedDemoStorage(fixtures)
 
-subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
-setConnectionState({ status: 'connected', attempt: 0 })
 
 mount(App, { target: document.getElementById('root')! })
 

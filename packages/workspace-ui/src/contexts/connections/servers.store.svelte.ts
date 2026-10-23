@@ -1,5 +1,4 @@
-import type { ConnectionStatus } from '@solus/client-core/ws-transport'
-import type { HostPhase } from '@solus/client-core/host-supervisor'
+import type { BlockedReason, HostPhase } from '@solus/client-core/host-supervisor'
 import {
   dismissSkew,
   forgetSkewDismissals,
@@ -10,7 +9,6 @@ import {
 } from '@solus/client-core/version-skew'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { sameNameHostAddresses } from '@solus/client-core/host-address'
-import { connectionState, subscribe } from '@solus/client-core/connection-state'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { preferredRouteUrl, type LocalConnectionInfoLike, type SolusServerTarget } from '@solus/client-core/server-connection'
@@ -20,7 +18,7 @@ import { mergeDirectoryIntoSaved, withNearbyRoutes } from '@solus/client-core/up
 import { loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget, type SavedWorkspace } from '@solus/client-core/workspace-registry'
 import { windowOrganizationSelection } from '@solus/client-core/organization-selection'
 import { organizationSelection } from './organization-selection.store.svelte'
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { SvelteMap } from 'svelte/reactivity'
 import {
   getActiveServerId,
   loadServers,
@@ -37,17 +35,15 @@ import {
   type SavedServer,
   type SavedServerUplink,
 } from '@solus/client-core/server-registry'
-import type { DiscoveredServer, HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
+import type { HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
 import { isSolusApiId, solusApiId, type HostRoute, type OrganizationPolicy } from '@solus/contracts/uplink'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
-import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { accountStore } from '../account/account.store.svelte'
 import {
   compareNearbyHosts,
   filterUnsavedDiscoveredServers,
   mergeNearbyHosts,
-  unannouncedDiscoveredServers,
   type NearbyHost,
 } from './discovery'
 import { hosts } from '../hosts/hosts.svelte'
@@ -61,9 +57,10 @@ export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved' | '
 const DISCOVERY_INTERVAL_MS = 30_000
 const HOST_PROBE_STALE_MS = 30_000
 interface ServerConnectionState {
-  transportStatus: ConnectionStatus
-  /** The supervisor's word on this host, when one supervises it. */
+  /** The supervisor's word on this host, when one supervises it: the one status source. */
   phase?: HostPhase
+  /** Why a blocked host is blocked. */
+  blockedReason: BlockedReason | null
   probeStatus?: Extract<ServerItemStatus, 'online' | 'offline'>
   /** What `/health` reported, for a host with no saved entry to carry it. */
   os?: HostOperatingSystem
@@ -119,7 +116,7 @@ class ServersStore {
   /** The organizations' workspace services, as the account directory last listed them. */
   workspaces = $state<SavedWorkspace[]>(loadWorkspaces())
   private readonly organizationListeners = new Set<OrganizationListener>()
-  activeServerId = $state(serverConnections.defaultServerId() ?? connectionState.target?.id ?? getActiveServerId())
+  activeServerId = $state(serverConnections.defaultServerId() ?? getActiveServerId())
   addServerOpen = $state(false)
   addServerUrl = $state('')
   /** Which Run-on picker opened the add-server dialog, so a host paired from
@@ -138,7 +135,6 @@ class ServersStore {
   projectIdentitiesByServer = $state<Record<string, ProjectIdentity[]>>({})
   probingHosts = $state(false)
   readonly nearby = new SvelteMap<string, NearbyHost>()
-  readonly toastSnoozedInstallationIds = new SvelteSet<string>()
 
   private initialized = false
   private connectionsTracked = false
@@ -146,7 +142,6 @@ class ServersStore {
   private scanInFlight = false
   private lastDiscoveryScanAt = 0
   private lastHostProbeAt = 0
-  private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
   /** The workspace service connections this account holds, one per organization. */
   get cloudConnections(): ServerItem[] {
@@ -315,20 +310,25 @@ class ServersStore {
   }
 
   get activeTarget(): SolusServerTarget | null {
-    return connectionState.target ?? null
+    return serverConnections.connectionFor(this.activeServerId)?.target ?? null
   }
 
-  get connectionStatus(): ConnectionStatus {
-    return this.connectionStatesByServer[this.activeServerId]?.transportStatus ?? connectionState.status
+  /** Where the active host's connection stands. */
+  get connectionPhase(): HostPhase {
+    return this.connectionStatesByServer[this.activeServerId]?.phase ?? 'connecting'
+  }
+
+  /** Why the active host is blocked; null while it is not. */
+  get blockedReason(): BlockedReason | null {
+    return this.connectionStatesByServer[this.activeServerId]?.blockedReason ?? null
   }
 
   get reconnectAttempt(): number {
-    return this.connectionStatesByServer[this.activeServerId]?.attempt ?? connectionState.attempt
+    return this.connectionStatesByServer[this.activeServerId]?.attempt ?? 0
   }
 
   get hasConnected(): boolean {
-    return this.connectionStatesByServer[this.activeServerId]?.hasConnected
-      ?? connectionState.status === 'connected'
+    return this.connectionStatesByServer[this.activeServerId]?.hasConnected ?? false
   }
 
   /** Null while the active host is connected. */
@@ -351,7 +351,7 @@ class ServersStore {
   }
 
   /**
-   * Mirror every host's transport status and supervisor phase into this store,
+   * Mirror every host's supervisor phase into this store,
    * which is what `statusFor` and the transcript's reachability row read. Part of
    * `init()`; the guest shell (docs/plans/multiplayer-sharing.md §4.2) calls it
    * alone, because it has one host and no catalog, discovery, or directory.
@@ -360,33 +360,26 @@ class ServersStore {
     if (this.connectionsTracked) return
     this.connectionsTracked = true
 
-    subscribe(({ status, attempt, target }) => {
-      if (target) {
-        this.activeServerId = target.id
-        this.setConnectionStatus(target.id, status, attempt)
-      }
+    // The window's active host is the new-work default: boot names it, and a Run on switch moves it.
+    const followPrimary = () => {
+      const primaryId = serverConnections.defaultServerId()
+      if (primaryId) this.activeServerId = primaryId
       onActiveChange?.()
-    })
+    }
+    serverConnections.onPrimaryChange(followPrimary)
+    followPrimary()
 
-    serverConnections.onStatusChange((serverId, status, attempt) => {
-      this.setConnectionStatus(serverId, status, attempt)
-    })
-
-    // The supervisor's phase outranks the transport status: it is the one
-    // owner of the retry ladder, and `offline` is a phase it can actually
-    // reach — the transport only ever said "reconnecting" forever.
-    serverConnections.onPhaseChange((serverId, phase) => {
-      this.connectionStateFor(serverId).phase = phase
+    serverConnections.onPhaseChange((serverId, phase, attempt) => {
+      this.setConnectionPhase(serverId, phase, attempt)
+      if (serverId === this.activeServerId) onActiveChange?.()
     })
 
     // Boot dials every saved host before the app mounts, so a fast host can
     // connect before these listeners exist and never announce it again. Read
-    // where each dialed connection stands now; an undialed one has said nothing.
+    // where each connection stands now.
     for (const serverId of serverConnections.connectedServerIds()) {
       const connection = serverConnections.connectionFor(serverId)
-      if (!connection || connection.status === 'disconnected') continue
-      this.setConnectionStatus(serverId, connection.status, connection.attempt)
-      this.connectionStateFor(serverId).phase = connection.supervisor.phase
+      if (connection) this.setConnectionPhase(serverId, connection.link.phase, connection.link.attempt)
     }
   }
 
@@ -431,7 +424,11 @@ class ServersStore {
     accountStore.start()
     void this.refreshDirectory()
     onWakeSignal(() => void this.refreshDirectory())
-    localApi.onAccountStateChange?.(() => void this.refreshDirectory())
+    localApi.onAccountStateChange?.((state) => {
+      // A host refused while the account held no sign-in waits for the next one.
+      if (state.kind === 'signed-in') serverConnections.dialHostsBlockedOnSignIn()
+      void this.refreshDirectory()
+    })
     // A host added on the account site in a browser is found when the person
     // comes back to this window, which on desktop is a focus and not a wake.
     window.addEventListener('focus', () => {
@@ -643,7 +640,6 @@ class ServersStore {
       for (const installationId of this.nearby.keys()) {
         if (!mergedInstallationIds.has(installationId)) this.nearby.delete(installationId)
       }
-      this.showDiscoveryToast(filtered)
       this.lastDiscoveryScanAt = Date.now()
       return { newServers: merged.length }
     } catch (err) {
@@ -704,9 +700,7 @@ class ServersStore {
     this.refreshServers()
     requestInputFocus()
     // A forgotten host becomes discoverable again — rescan so it drops straight
-    // back into Nearby instead of vanishing until the next sweep. Suppress its
-    // toast: the user just dismissed this host, they don't need it announced.
-    if (server?.installationId) this.announcedDiscoveredInstallationIds.add(server.installationId)
+    // back into Nearby instead of vanishing until the next sweep.
     void this.scanForServers()
   }
 
@@ -827,20 +821,15 @@ class ServersStore {
     switch (state?.phase) {
       case 'connected': return 'online'
       case 'offline': return 'offline'
+      // A host the last probe found off reads offline while its ladder keeps dialing:
+      // the picker must not promise a powered-off machine is about to connect.
       case 'connecting':
-      case 'reconnecting': return 'connecting'
+      case 'reconnecting': return state.probeStatus === 'offline' ? 'offline' : 'connecting'
       case 'blocked':
-        return state.transportStatus === 'identity-mismatch' ? 'different-server' : 'offline'
-    }
-    if (state?.transportStatus === 'connected') return 'online'
-    if (state?.transportStatus === 'identity-mismatch') return 'different-server'
-    if (state?.probeStatus === 'offline') return 'offline'
-    if (state?.transportStatus && state.transportStatus !== 'disconnected') {
-      return this.itemStatus(state.transportStatus)
+        return state.blockedReason === 'identity-mismatch' ? 'different-server' : 'offline'
     }
     if (state?.probeStatus) return state.probeStatus
-    if (serverId !== this.activeServerId) return 'saved'
-    return this.itemStatus(this.connectionStatus)
+    return serverId === this.activeServerId ? 'connecting' : 'saved'
   }
 
   /** When this host last stopped being connected; null while it is up or before it was dialed. */
@@ -848,11 +837,12 @@ class ServersStore {
     return this.connectionStatesByServer[serverId]?.offlineSince ?? null
   }
 
-  setConnectionStatus(serverId: string, status: ConnectionStatus, attempt = 0): void {
+  setConnectionPhase(serverId: string, phase: HostPhase, attempt = 0, blockedReason = serverConnections.blockedReasonFor(serverId)): void {
     const state = this.connectionStateFor(serverId)
-    state.transportStatus = status
+    state.phase = phase
     state.attempt = attempt
-    if (status === 'connected') {
+    state.blockedReason = phase === 'blocked' ? blockedReason : null
+    if (phase === 'connected') {
       // Only a host that had already been up can have *re*connected. A first
       // connect must not announce a recovery that never happened.
       if (state.hasConnected) state.lastReconnectAt = Date.now()
@@ -870,7 +860,7 @@ class ServersStore {
     let state = this.connectionStatesByServer[serverId]
     if (!state) {
       state = {
-        transportStatus: 'disconnected',
+        blockedReason: null,
         attempt: 0,
         hasConnected: false,
         offlineSince: null,
@@ -879,13 +869,6 @@ class ServersStore {
       this.connectionStatesByServer[serverId] = state
     }
     return state
-  }
-
-  private itemStatus(status: ConnectionStatus): ServerItemStatus {
-    if (status === 'connected') return 'online'
-    if (status === 'connecting' || status === 'reconnecting') return 'connecting'
-    if (status === 'identity-mismatch') return 'different-server'
-    return 'offline'
   }
 
   private updateAutoDiscovery(): void {
@@ -910,50 +893,12 @@ class ServersStore {
   private shouldAutoDiscover(): boolean {
     return !document.hidden && document.hasFocus()
   }
-
-  private showDiscoveryToast(servers: DiscoveredServer[]): void {
-    // Not marked announced: a host found while the switch is off is announced
-    // once the switch is on, the same as one found after it.
-    if (!notificationsStore.wants('host_discovered')) return
-    const unsnoozed = servers.filter(
-      (server) => !this.toastSnoozedInstallationIds.has(server.installationId),
-    )
-    const unannounced = unannouncedDiscoveredServers(
-      unsnoozed,
-      this.announcedDiscoveredInstallationIds,
-    )
-    if (unannounced.length === 0) return
-    for (const server of unannounced) {
-      this.announcedDiscoveredInstallationIds.add(server.installationId)
-    }
-    const installationIds = unannounced.map((server) => server.installationId)
-    const title = unannounced.length === 1
-      ? 'Solus host found'
-      : `${unannounced.length} Solus hosts found nearby`
-    toasts.info(title, {
-      description: unannounced.length === 1 ? unannounced[0].name : undefined,
-      duration: 5_000,
-      action: {
-        label: 'Show',
-        // Settings → Hosts → Nearby is the surface that can actually act
-        // on this, and unlike the switcher chip it exists in every view mode.
-        onAction: () => {
-          window.dispatchEvent(new CustomEvent('solus:show-connections'))
-        },
-      },
-      onDismiss: () => {
-        for (const installationId of installationIds) {
-          this.toastSnoozedInstallationIds.add(installationId)
-        }
-      },
-    })
-  }
 }
 
 /**
  * One store per page, even across hot updates. A re-evaluated module would
  * build a second `ServersStore` while the first keeps its discovery timer and
- * focus listeners, so both scan on focus and announce the same host twice.
+ * focus listeners, so both scan on focus.
  * `hot.data` survives re-evaluation; production takes the plain construction.
  */
 export const serversStore: ServersStore = import.meta.hot

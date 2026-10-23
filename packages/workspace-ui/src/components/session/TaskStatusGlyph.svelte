@@ -3,7 +3,7 @@
   import {
     Activity as ActivityIcon,
     MessageSquare as ChatTeardropIcon,
-    Hourglass as HourglassIcon,
+    Clock as ClockIcon,
     FileText as FileTextIcon,
     CircleX as XCircleIcon,
   } from "@lucide/svelte";
@@ -49,7 +49,7 @@
           ? XCircleIcon
           : status === "background"
             ? ActivityIcon
-            : HourglassIcon,
+            : ClockIcon,
   );
 </script>
 

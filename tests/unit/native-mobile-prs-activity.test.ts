@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrConversationItem, ReviewThread } from '@solus/contracts/providers'
 import { DEFAULT_ACTIVITY_FILTER, filterPullRequestActivity } from '../../apps/mobile/src/features/prs/lib/pull-request-activity'
-import { isPullRequestTestFile } from '../../apps/mobile/src/features/prs/lib/pull-request-file-filters'
+import { changedFileKind } from '@solus/client-core/change-breakdown'
 
 // The Activity filter hides noise, never a person's discussion; the Files
 // filter hides tests by path, never a source file that only sounds like one.
@@ -36,6 +36,6 @@ describe('pull request activity filter (ported from T3)', () => {
 
 test('recognizes test files across common languages, and not source names', () => {
   const tests = ['src/app.test.ts', 'src/__tests__/app.ts', 'tests/helpers/fixtures.json', 'e2e/login.ts', 'src/app.test.ts.snap', 'test_app.py', 'internal/app_test.go', 'spec/app_spec.rb', 'AppTests.swift', 'AppSpec.java', 'src\\__tests__\\app.ts']
-  expect(tests.filter(isPullRequestTestFile)).toEqual(tests)
-  expect(['src/testing.ts', 'src/contest.ts', 'latest/app.ts', 'tests.ts', 'specification.md', 'AppTest.ts'].filter(isPullRequestTestFile)).toEqual([])
+  expect(tests.filter((path) => ['tests', 'mocks'].includes(changedFileKind(path)))).toEqual(tests)
+  expect(['src/testing.ts', 'src/contest.ts', 'latest/app.ts', 'tests.ts', 'specification.md', 'AppTest.ts'].filter((path) => ['tests', 'mocks'].includes(changedFileKind(path)))).toEqual([])
 })

@@ -27,7 +27,6 @@
     refreshRuntime,
   } from "@solus/workspace-ui/contexts/app/runtime-boot";
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
-  import { subscribe } from "@solus/client-core/connection-state";
   import {
     hosts,
     parseRoute,
@@ -37,6 +36,7 @@
   import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
   import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
   import { deviceCommands, revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
+  import { revealBrowserSurface } from "@solus/workspace-ui/components/browser/lib/surface-reveal";
   import { settingsOwnerCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
   import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
   import {
@@ -125,12 +125,10 @@
     if (appVersion) registerSuperProps({ app_version: appVersion });
   });
 
-  onMount(() =>
-    subscribe((state) => {
-      const installationId = state.target?.installationId;
-      if (installationId) identifyInstallation(installationId);
-    }),
-  );
+  $effect(() => {
+    const installationId = serversStore.activeTarget?.installationId;
+    if (installationId) identifyInstallation(installationId);
+  });
 
   session.lifecycle.hydrateAgentsFromCache();
   materializeTabs(session);
@@ -271,7 +269,7 @@
       const unsubUplink = uplinkStore.listen();
       // Browser pages are host state; the pane, a recording's running time,
       // and a recording a limit stopped all follow the host's page events.
-      browserStore.onSurfaceRequested = () => session.openBrowser(undefined, undefined, { automatic: true });
+      browserStore.onSurfaceRequested = (key, sessionId) => revealBrowserSurface(session, key, sessionId);
       browserStore.onRecordingSaved = (serverId, result) =>
         deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
@@ -342,14 +340,6 @@
     return () => window.removeEventListener("solus:open-route", handler);
   });
 
-  // The nearby-host discovery toast fires from a store, which has no way to
-  // reach the settings pane on its own.
-  onMount(() => {
-    const showConnections = () => session.showSettings("api-access");
-    window.addEventListener("solus:show-connections", showConnections);
-    return () => window.removeEventListener("solus:show-connections", showConnections);
-  });
-
   onMount(() => initializeRuntime(session, sessionSidebarStore));
 
   // At a Solus Cloud origin, onboarding belongs to the account: it is shown
@@ -361,12 +351,12 @@
     !skipOnboarding && (cloudOnboardingStore.isCloud ? cloudOnboardingStore.isOpen : !settings.onboardingCompleted),
   );
 
-  const detectReconnect = createReconnectDetector(webState.connectionStatus);
+  const detectReconnect = createReconnectDetector(serversStore.connectionPhase);
   $effect(() => {
-    const connectionStatus = webState.connectionStatus;
-    const reconnected = detectReconnect(connectionStatus);
+    const connectionPhase = serversStore.connectionPhase;
+    const reconnected = detectReconnect(connectionPhase);
     untrack(() => {
-      if (connectionStatus === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: webState.connectionAttempt } : {});
+      if (connectionPhase === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: serversStore.reconnectAttempt } : {});
       if (reconnected) {
         settings.setSystemTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
         refreshRuntime(session, sessionSidebarStore);

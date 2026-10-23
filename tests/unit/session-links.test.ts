@@ -9,7 +9,6 @@ import { resetTestDatabase } from './helpers/test-db'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
-import type { OutboxOp } from '@solus/contracts/outbox-types'
 import { sessionLinkInputSchema } from '@solus/contracts/session-links'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -106,18 +105,19 @@ test('a caller cannot link items to a session it cannot edit', async () => {
   expect(result.ok).toBe(false)
 })
 
-test('the existing session outbox delivers file references once and rejects another organization', async () => {
+test("the link route stores a session's file reference once, on its execution host, and removes it", async () => {
   const { getDatabase } = await import('@solus/server/db/database')
   await getDatabase().run(sql`INSERT INTO session_records(session_id, organization_id, owner_key, provider, project_path, runner_host_id, status, created_at, last_activity_at) VALUES ('remote-session', 'organization-A', 'alice', 'codex', '/runner/project', 'runner-A', 'idle', 1, 2)`)
-  const { registerSessionOutboxApplier } = await import('@solus/server/data/sessions/session-applier')
-  const { applyOutboxOp } = await import('@solus/server/sync/outbox/outbox-store')
-  registerSessionOutboxApplier()
-  const op: OutboxOp = { id: 'session-file-link-1', domain: 'sessions', resourceId: 'remote-session', name: 'link-item', sessionId: 'remote-session', recordedAt: 1,
-    payload: { target: { kind: 'file', path: 'C:\\runner\\plan.md', hostId: 'runner-A' }, title: 'Runner plan', actor } }
-  await applyOutboxOp(op, { organizationId: 'organization-A', ownerKey: 'alice' })
-  await applyOutboxOp({ ...op, id: 'session-file-link-repeat' }, { organizationId: 'organization-A', ownerKey: 'alice' })
+  const inA: WorkspaceRequestContext = { ...context, home: { kind: 'organization', organizationId: 'organization-A', serviceId: 'api' } }
+  const link = { from: { kind: 'session' as const, id: 'remote-session' }, to: { kind: 'file' as const, path: 'C:\\runner\\plan.md', hostId: 'runner-A' }, title: 'Runner plan' }
+  await operations.putLink(inA, link)
+  await operations.putLink(inA, link)
   expect(await storedLinks('remote-session')).toEqual([expect.objectContaining({ organization_id: 'organization-A', title: 'Runner plan', target: { kind: 'file', path: 'C:\\runner\\plan.md', hostId: 'runner-A' } })])
-  await expect(applyOutboxOp({ ...op, id: 'session-file-wrong-organization' }, { organizationId: 'organization-B', ownerKey: 'bob' })).rejects.toThrow('does not belong')
+  // A file is its session's execution host's; another organization does not hold the session.
+  await expect(operations.putLink(inA, { ...link, to: { ...link.to, hostId: 'runner-B' } })).rejects.toThrow('execution host')
+  await expect(operations.putLink({ ...context, home: { kind: 'organization', organizationId: 'organization-B', serviceId: 'api' } }, link)).rejects.toThrow('not found')
+  await operations.deleteLink(inA, { from: link.from, to: link.to })
+  expect(await storedLinks('remote-session')).toEqual([])
 })
 
 test('work membership cannot cross organization boundaries', async () => {

@@ -18,13 +18,6 @@ export function discoveredServerUrl(server: Pick<DiscoveredServer, 'host' | 'por
   return `http://${server.host}:${server.port}`
 }
 
-export function unannouncedDiscoveredServers(
-  discovered: DiscoveredServer[],
-  announcedInstallationIds: ReadonlySet<string>,
-): DiscoveredServer[] {
-  return discovered.filter((server) => !announcedInstallationIds.has(server.installationId))
-}
-
 export function filterUnsavedDiscoveredServers(input: DiscoveryFilterInput): DiscoveredServer[] {
   const registered = new Set<string>()
   for (const server of input.savedServers) {

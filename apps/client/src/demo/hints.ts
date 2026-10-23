@@ -26,7 +26,7 @@ const HINT_TARGETS = {
   },
   'open-architecture': {
     selector: '[aria-label="Folio gallery"] .folio-card, [aria-label="Folio gallery"] .pill-work-row',
-    targetText: 'acme architecture',
+    targetText: 'Platform architecture',
     textFallback: 'Folio',
   },
   'edit-rollout-doc': {

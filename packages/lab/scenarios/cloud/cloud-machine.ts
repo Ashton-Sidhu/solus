@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { decodeJwtClaims } from '@solus/client-core/oauth-session'
-import { HOST_LINK_ENV, hostAudience, hostLinkEnvSchema, uplinkStatusSchema } from '@solus/contracts/uplink'
+import { ACCESS_TOKEN_TYPE, HOST_LINK_ENV, hostAudience, TOKEN_EXCHANGE_GRANT_TYPE, hostLinkEnvSchema, uplinkStatusSchema } from '@solus/contracts/uplink'
 import { cloudModeScenario } from '../../src/cloud-mode'
 import { accountApi, directory, hostKeyOf } from '../../src/cloud-fixtures'
 import { hostClient, type SignedIn } from '../../src/cloud-sign-in'
@@ -89,7 +89,7 @@ export default cloudModeScenario('cloud machine: a managed host of an organizati
     const client = hostClient(machine, member, hostId, { asOwner: false, organizationId, organizationRole: role })
     ctx.defer(`${member.persona.name} closes the machine socket`, async () => client.close())
     const dialed = await client.connect()
-    ctx.check(`${member.persona.name} passes the machine's ticket door`, dialed.ok, JSON.stringify(dialed))
+    ctx.check(`${member.persona.name} is admitted by the machine`, dialed.ok, JSON.stringify(dialed))
     if (!dialed.ok) return
     const info = serverInfoSchema.parse(await client.rpc('connectionsGetServerInfo'))
     ctx.check(`the machine sees ${member.persona.name} as an organization member`, info.principal === 'org-member', info.principal)
@@ -103,14 +103,14 @@ export default cloudModeScenario('cloud machine: a managed host of an organizati
   await memberDial(bob, 'member')
 
   ctx.step('carol, of another organization, asks for a token for the machine')
-  const refreshToken = carol.store.load()?.refreshToken ?? ''
+  const serversToken = (await carol.oauth.accessToken({ kind: 'api' })) ?? ''
   const refused = await fetch(`${ctx.stack.origin}/api/auth/oauth2/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', connection: 'close' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: carol.clientId, resource: hostAudience(hostId) }),
+    body: new URLSearchParams({ grant_type: TOKEN_EXCHANGE_GRANT_TYPE, client_id: carol.clientId, subject_token: serversToken, subject_token_type: ACCESS_TOKEN_TYPE, resource: hostAudience(hostId) }),
   })
   const refusal = tokenErrorSchema.safeParse(await refused.json().catch(() => null))
   ctx.check('the cloud refuses carol a token (invalid_target, host_not_found)', refused.status === 400 && refusal.data?.error === 'invalid_target' && refusal.data.solus_refusal === 'host_not_found', `${refused.status} ${JSON.stringify(refusal.data)}`)
   ctx.check('her client gets no token for it', (await carol.oauth.accessToken({ kind: 'host', hostId })) === null)
-  ctx.check('a refused refresh leaves her sign-in working', (await carol.oauth.accessToken({ kind: 'account' })) !== null)
+  ctx.check('a refused exchange leaves her sign-in working', (await carol.oauth.accessToken({ kind: 'account' })) !== null)
 })

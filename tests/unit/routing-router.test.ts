@@ -388,6 +388,59 @@ describe('opens the user did not ask for', () => {
   })
 })
 
+describe('opening beside a conversation that may not be on screen', () => {
+  const BROWSER: RouteRef = { name: 'browser', params: { browserPageId: 'browser_1', serverId: 'local' } }
+  const REVIEW: RouteRef = { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff' } }
+
+  function inPool(activeSession: { id: string }) {
+    const router = new RouterStore()
+    router.poolDestinationKey = () => `session:${activeSession.id}`
+    router.syncDestination()
+    return router
+  }
+
+  test("an agent's page waits in its own conversation's strip, not the one on screen", () => {
+    // WHY: the user is working in another conversation. A background agent's
+    // browser must not open there, but it must be beside the agent's
+    // conversation when the user goes to it.
+    const active = { id: 's_user' }
+    const router = inPool(active)
+
+    router.openSurfaceBesideSession('s_agent', BROWSER, { automatic: true })
+    expect(router.companionPane).toBeNull()
+
+    active.id = 's_agent'
+    router.syncDestination()
+    expect(router.companionSurface).toEqual(BROWSER)
+  })
+
+  test('on screen, it opens now', () => {
+    const router = inPool({ id: 's_agent' })
+
+    router.openSurfaceBesideSession('s_agent', BROWSER, { automatic: true })
+
+    expect(router.companionSurface).toEqual(BROWSER)
+  })
+
+  test("it does not take the place of the surface the agent's strip shows", () => {
+    // WHY: an automatic open is never in front of what the user left open
+    // beside that conversation; it waits, marked unread.
+    const active = { id: 's_agent' }
+    const router = inPool(active)
+    router.navigate(REVIEW)
+    active.id = 's_user'
+    router.syncDestination()
+
+    router.openSurfaceBesideSession('s_agent', BROWSER, { automatic: true })
+    active.id = 's_agent'
+    router.syncDestination()
+
+    expect(router.companionSurface?.name).toBe('review')
+    expect(router.companionPane?.surfaces.map((ref) => ref.name)).toEqual(['review', 'browser'])
+    expect(router.isSurfaceUnread(BROWSER)).toBe(true)
+  })
+})
+
 describe('closing the leading pane', () => {
   const DRAFT: RouteRef = { name: 'draft', params: { draftId: 'd_1' } }
 

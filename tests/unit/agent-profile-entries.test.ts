@@ -110,7 +110,7 @@ describe('new entries', () => {
 
   test('a probed server becomes a record with a slug from its name and never a credential', () => {
     expect(integrationEntryOf('Deep Wiki!', 'https://mcp.deepwiki.com/mcp', { kind: 'bearer', scheme: 'bearer' }))
-      .toEqual({ kind: 'integration', slug: 'deep-wiki', name: 'Deep Wiki!', url: 'https://mcp.deepwiki.com/mcp', auth: { kind: 'bearer', scheme: 'bearer' } })
+      .toEqual({ kind: 'integration', slug: 'deep-wiki', name: 'Deep Wiki!', url: 'https://mcp.deepwiki.com/mcp', auth: { kind: 'bearer', scheme: 'bearer' }, disabledTools: [] })
   })
 })
 

@@ -110,11 +110,11 @@ describe('an organization\'s turns on the Solus API', () => {
     // WHY: one Postgres serves every organization; the organization is bound
     // into every statement, and a child span is not a turn.
     const origin = { organizationId: 'A', hostId: 'H' }
-    await sinks.applyMirrorItem(origin, { domain: 'insights', payload: { span: turn('t-1', 'alice', 0.5, 1_000), events: [] } })
-    await sinks.applyMirrorItem(origin, { domain: 'insights', payload: { span: turn('t-2', 'bob', 0.25, 2_000), events: [] } })
-    await sinks.applyMirrorItem(origin, { domain: 'insights', payload: { span: turn('t-3', 'alice', undefined, 3_000), events: [] } })
-    await sinks.applyMirrorItem(origin, { domain: 'insights', payload: { span: { ...turn('t-1', 'alice', 9, 1_010), spanId: 'child-1', parentSpanId: 't-1', kind: 'tool_call', name: 'Bash' }, events: [] } })
-    await sinks.applyMirrorItem({ organizationId: 'B', hostId: 'H' }, { domain: 'insights', payload: { span: turn('t-b', 'eve', 4, 1_500), events: [] } })
+    await sinks.applyMirrorItem(origin, { kind: 'insights', payload: { spans: [{ span: turn('t-1', 'alice', 0.5, 1_000), events: [] }] } })
+    await sinks.applyMirrorItem(origin, { kind: 'insights', payload: { spans: [{ span: turn('t-2', 'bob', 0.25, 2_000), events: [] }] } })
+    await sinks.applyMirrorItem(origin, { kind: 'insights', payload: { spans: [{ span: turn('t-3', 'alice', undefined, 3_000), events: [] }] } })
+    await sinks.applyMirrorItem(origin, { kind: 'insights', payload: { spans: [{ span: { ...turn('t-1', 'alice', 9, 1_010), spanId: 'child-1', parentSpanId: 't-1', kind: 'tool_call', name: 'Bash' }, events: [] }] } })
+    await sinks.applyMirrorItem({ organizationId: 'B', hostId: 'H' }, { kind: 'insights', payload: { spans: [{ span: turn('t-b', 'eve', 4, 1_500), events: [] }] } })
 
     const a = await organizationTurns.listApiInsights('A', { limit: 50 }, 0, 4_000)
     expect(a.map(row => [row.traceId, row.userId, row.userEmail, row.costUsd, row.inputTokens])).toEqual([
@@ -141,7 +141,7 @@ test('individual costs preserve zero and ignore invalid numeric attributes', asy
     { spanId: 'invalid-token', traceId: 'invalid-token', attrs: { costUsd: 4, inputTokens: 'bad' } },
     { spanId: 'absent', traceId: 'absent', attrs: {} },
   ]
-  for (const span of entries) await sinks.applyMirrorItem(origin, { domain: 'insights', payload: { span: { ...base, ...span }, events: [] } })
+  for (const span of entries) await sinks.applyMirrorItem(origin, { kind: 'insights', payload: { spans: [{ span: { ...base, ...span }, events: [] }] } })
   const result = await organizationTurns.listApiInsights(origin.organizationId, { limit: 50 }, 0, 30)
   expect(result).toHaveLength(4)
   expect(result.find(row => row.traceId === 'zero')?.costUsd).toBe(0)

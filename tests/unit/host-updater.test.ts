@@ -129,11 +129,11 @@ test('one failure does not stop the others, and the batch ends only when reporte
 })
 
 test('several pending updates read as one notice that names each of them', () => {
-  expect(updateNoticeText([{ target: 'claude', version: '1.2.0', host: 'Mac' }])).toEqual({ message: 'Claude Code 1.2.0 on Mac is available' })
+  expect(updateNoticeText([{ target: 'solus', version: '2.0.0', host: 'Mac' }])).toEqual({ message: 'Solus 2.0.0 on Mac is available' })
   expect(updateNoticeText([
     { target: 'solus', version: '2.0.0', host: 'Box' },
-    { target: 'codex', version: '0.9.0', host: 'Mac' },
-  ])).toEqual({ message: '2 updates available', description: 'Solus 2.0.0 on Box · Codex 0.9.0 on Mac' })
+    { target: 'solus', version: '2.0.0', host: 'Mac' },
+  ])).toEqual({ message: '2 updates available', description: 'Solus 2.0.0 on Box · Solus 2.0.0 on Mac' })
 })
 
 test('the result counts successes and names every failure', () => {

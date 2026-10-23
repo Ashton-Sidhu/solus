@@ -276,7 +276,7 @@ export class PrWatcher {
       ? remarksOf(await entity.comments({ force: true }), await entity.threads({ force: true }))
       : null
     const viewer = await provider.review.getViewer(repo)
-    return { read: { pullRequest, checks: checks.summary, remarks, viewer }, pullRequest }
+    return { read: { pullRequest, checks: checks.summary, remarks, viewer, readAt: this.now() }, pullRequest }
   }
 
   private async evaluate(watch: PullRequestWatch, read: WatchRead, pullRequest: PullRequest): Promise<void> {

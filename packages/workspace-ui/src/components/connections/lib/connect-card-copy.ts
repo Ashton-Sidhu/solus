@@ -15,8 +15,8 @@ export interface ConnectCardCopy {
   providerLabel: string
   /** The card's lowercase type word: what the account is for. */
   reason: string
-  /** One line on why this is being asked for now. */
-  purpose: string
+  /** One line on why this is being asked for now, when the type word does not already say it. */
+  purpose?: string
   /** Present when one account serves more than the product the user named. */
   note?: string
 }
@@ -70,6 +70,5 @@ export function integrationConnectCardCopy(integrationName: string): ConnectCard
     title: `Connect ${integrationName}`,
     providerLabel: integrationName,
     reason: 'to use its tools',
-    purpose: `Needed to use ${integrationName} tools on your behalf.`,
   }
 }

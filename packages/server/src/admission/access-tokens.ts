@@ -1,6 +1,6 @@
 import { createPublicKey, verify as verifySignature, type KeyObject } from 'crypto'
 import { z } from 'zod'
-import { ACCESS_TOKEN_TTL_SECONDS, HOST_REACH_TOKEN_TTL_SECONDS, accessTokenClaimsSchema, tokenAudiences, type AccessTokenClaims } from '@solus/contracts/uplink'
+import { ACCESS_TOKEN_TTL_SECONDS, accessTokenClaimsSchema, tokenAudiences, type AccessTokenClaims } from '@solus/contracts/uplink'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'access-tokens')
@@ -10,15 +10,15 @@ const log = createLogger('main', 'access-tokens')
  * access tokens (RFC 9068). A host trusts exactly one issuer and
  * one key set, both named in its link config, and accepts a token for one resource:
  * its own (`hostAudience(hostId)`), or `SOLUS_API_AUDIENCE` on the Solus API.
+ * A person's client token and another host's token acting for that person have the
+ * same audience (docs/plans/simplify-auth-and-sync.md §3 rule 2): a person's token
+ * names its client grant (`grant_id`); a delegated token names the host that acts
+ * (`act`) (docs/adr/0001-standard-authentication.md §3.1). Admission tells them apart
+ * (`admission/doors.ts`).
  *
  * A token is a bearer credential for its life, as OAuth access tokens are: it is not
- * spent. Every token lives eight hours (`ACCESS_TOKEN_TTL_SECONDS`); a token that
- * says it lives longer is refused. A host-reach token another host holds to start
- * sessions here (`reachAudience`, docs/plans/host-reach.md §3) names the acting host
- * and has its own limit, also eight hours. Removal reaches a host when the token runs out and
- * the next one is refused. A person's token names its client grant (`grant_id`); a
- * delegated token names the host that acts (`act`)
- * (docs/adr/0001-standard-authentication.md §3.1).
+ * spent. A token that says it lives longer than `ACCESS_TOKEN_TTL_SECONDS` is refused.
+ * Removal reaches a host when the token runs out and the next one is refused.
  *
  * JWKS is cached and survives an account-plane outage: keys already seen keep
  * verifying. An unknown `kid` triggers one refresh, rate-limited, so a key rotation is
@@ -50,8 +50,6 @@ export interface AccessTokenVerifierOptions {
   jwksUrl: string
   /** The resource every accepted token must name: this host's, or the Solus API's. */
   audience: string
-  /** This host as another host reaches it (`hostReachAudience`); absent on the Solus API. */
-  reachAudience?: string
   fetchImpl?: FetchLike
   now?: () => number
 }
@@ -63,10 +61,8 @@ export const JWKS_REFRESH_MIN_INTERVAL_MS = 60_000
  * this far ahead. `exp` gets no leeway: expiry is how removal reaches a host.
  */
 const IAT_SKEW_MS = 120_000
-/** The longest life a token may state: eight hours, and a little for a provider's rounding. */
+/** The longest life a token may state, and a little for a provider's rounding. */
 const MAX_TOKEN_LIFE_SECONDS = ACCESS_TOKEN_TTL_SECONDS + 60
-/** The longest life of a host-reach token: eight hours, and the same margin. */
-const MAX_REACH_TOKEN_LIFE_SECONDS = HOST_REACH_TOKEN_TTL_SECONDS + 60
 
 const headerSchema = z.object({ alg: z.literal('ES256'), kid: z.string().min(1) })
 const jwkSchema = z.object({
@@ -126,23 +122,11 @@ export class AccessTokenVerifier {
     if (!valid) return { ok: false, reason: 'bad-signature' }
 
     if (claims.iss !== this.options.issuer) return { ok: false, reason: 'wrong-issuer' }
-    const maxLife = this.maxLifeFor(claims)
-    if (maxLife === null) return { ok: false, reason: 'wrong-audience' }
+    if (!tokenAudiences(claims).includes(this.options.audience)) return { ok: false, reason: 'wrong-audience' }
     if (claims.exp * 1000 <= now) return { ok: false, reason: 'expired' }
     if (claims.iat * 1000 > now + IAT_SKEW_MS) return { ok: false, reason: 'not-yet-valid' }
-    if (claims.exp - claims.iat > maxLife) return { ok: false, reason: 'too-long-lived' }
+    if (claims.exp - claims.iat > MAX_TOKEN_LIFE_SECONDS) return { ok: false, reason: 'too-long-lived' }
     return { ok: true, claims }
-  }
-
-  /**
-   * The longest life a token for this verifier may state, or null when it is not for
-   * this verifier. Only another host holds a host-reach token: it must name the host that acts.
-   */
-  private maxLifeFor(claims: AccessTokenClaims): number | null {
-    const audiences = tokenAudiences(claims)
-    if (audiences.includes(this.options.audience)) return MAX_TOKEN_LIFE_SECONDS
-    const { reachAudience } = this.options
-    return reachAudience && audiences.includes(reachAudience) && claims.act?.host_id ? MAX_REACH_TOKEN_LIFE_SECONDS : null
   }
 
   private async keyFor(kid: string, now: number): Promise<KeyObject | null> {

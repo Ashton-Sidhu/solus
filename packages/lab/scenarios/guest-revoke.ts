@@ -34,7 +34,7 @@ export default cloudScenario('guest revoke: regenerate and remove the link; remo
   }
   const oldSecret = ctx.client('maya', { shareSecret: link.secret })
   const stale = await oldSecret.connect()
-  ctx.check('the old secret is refused', !stale.ok && stale.stage === 'ticket')
+  ctx.check('the old secret is refused', !stale.ok && stale.stage === 'socket', JSON.stringify(stale))
   const maya2 = ctx.client('maya', { shareSecret: rotated.secret })
   ctx.check('the new secret admits', (await maya2.connect()).ok)
 

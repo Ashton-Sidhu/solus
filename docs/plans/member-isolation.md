@@ -228,10 +228,16 @@ not create a member folder on a shared host (today `SeatManager.userHome`,
 | `/data/shared/files` | `solus:solus-proj 2710` | files handed to an agent by path (attachments, large screenshots): each in a folder made `2710` (setgid, so its files keep `solus-proj`; a plain `0710` gave them the server's group), files `0640` |
 | `/data/projects/.solus-review` | `solus:solus-proj 2775` | managed pull request review checkouts, one per member and pull request; members' git works there, and the server clears them |
 | `<projects>/<username>` (their projects root) | `<username>:solus-proj 2775` | they clone here; others in the project group can work in it |
-| `<projects>/<username>/solus-chats` | `<username>:solus 2750` | their chats (docs/plans/projectless-chat.md): each chat folder is made as the member, `0750`, so it is theirs, the server reads it, and no other member reaches it |
+| `<projects>/<username>/solus-chats` | `<username>:solus-proj 2775` | each chat folder is also `2775`, so members can start sessions in each other's working directories; personal homes and logins stay private (maintainers, 2026-10-23) |
 | injected `.credentials.json`, `auth.json` | `<username> 0600` | seat sync writes the file, then gives it to the member user |
 | project folders and worktrees | creator `:solus-proj`, group-writable | members share repositories on a host, and the server writes in them too (turn snapshots in `.git/solus`, an index refresh): a guest's or another member's turn runs git there as a different user. So the server runs as members do, with `solus-proj` as its main group and umask `002` (the supervisor); `solus` stays its second group, to read members' homes. What it writes outside `0700` folders is readable by members |
 | browser profiles (§6) | in `/data/state/browser-profiles`, the server's alone | cookies are credentials; the browser runs as the server, so a profile stays where no member's process reaches it, and §6.1 keeps each person's partition apart |
+
+At each container start, the user reconcile updates existing project directories
+and files to the shared project group with group write access. Directories also
+get group traversal and setgid inheritance. This migration does not follow
+symlinks into private homes or login folders. A stamp in `/run/solus-managed`
+prevents repeated scans during the same container lifetime.
 
 ### 5.1 Transcripts are the organization's
 

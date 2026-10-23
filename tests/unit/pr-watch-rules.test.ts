@@ -3,6 +3,7 @@ import type { CheckItem, PrChecksSummary } from '@solus/contracts/checks-types'
 import {
   evaluateWatch,
   initialWatchState,
+  NO_CHECKS_GRACE_MS,
   REMARK_ONLY_WAKE_LIMIT,
   wakeText,
   type WatchRead,
@@ -40,8 +41,11 @@ function read(overrides: Partial<WatchRead> & { headSha?: string; mergeable?: bo
     checks: overrides.checks ?? checks([]),
     remarks: overrides.remarks === undefined ? [] : overrides.remarks,
     viewer: 'agent-account',
+    readAt: overrides.readAt ?? STARTED_AT,
   }
 }
+
+const minutes = (count: number) => STARTED_AT + count * 60_000
 
 /** Run reads in order, as the watcher does, and collect the news kinds of each. */
 function run(reads: WatchRead[], state: PullRequestWatchState = initialWatchState(STARTED_AT)): { state: PullRequestWatchState; kinds: string[][] } {
@@ -103,6 +107,80 @@ describe('PR watch rules', () => {
     expect(run([read({ checks: checks([], [check('a', 'success'), check('b', null)]) })]).kinds).toEqual([[]])
     expect(run([read({ checks: checks([], [check('a', 'success'), check('b', 'skipped')]) })]).kinds).toEqual([['checks-passed']])
     expect(run([read({ checks: checks([]) })]).kinds).toEqual([[]])
+  })
+
+  // A workflow that skips every job (paths-ignore: docs/**) reports no check, so the pass never comes.
+  test('a head with no check at all is news once after the grace period, and never claims a pass', () => {
+    const graceMinutes = NO_CHECKS_GRACE_MS / 60_000
+    const reads = [0, graceMinutes - 1, graceMinutes + 1, graceMinutes + 30].map((at) => read({ readAt: minutes(at) }))
+    expect(run(reads).kinds).toEqual([[], [], ['no-checks'], []])
+    const told = evaluateWatch(evaluateWatch(initialWatchState(STARTED_AT), reads[0]).next, reads[2])
+    const text = wakeText({ number: 42, url: 'u', headSha: 'head-1' }, told.news, null)
+    expect(text).toContain(`No checks have reported on this head after ${graceMinutes + 1} minutes`)
+    expect(text).not.toContain('Every check that gates the merge passed')
+  })
+
+  test('a head that had checks is not waited on; a push waits again', () => {
+    expect(run([
+      read({ readAt: minutes(0) }),
+      read({ readAt: minutes(5), checks: checks([check('build', null)]) }),
+      read({ readAt: minutes(30), checks: checks([check('build', 'success')]) }),
+      read({ readAt: minutes(60) }),
+    ]).kinds).toEqual([[], [], ['checks-passed'], []])
+    expect(run([
+      read({ readAt: minutes(0), checks: checks([check('build', 'success')]) }),
+      read({ readAt: minutes(5), headSha: 'head-2' }),
+      read({ readAt: minutes(25), headSha: 'head-2' }),
+    ]).kinds).toEqual([['checks-passed'], [], ['no-checks']])
+  })
+
+  test('the wait for checks survives a restart', () => {
+    // Each read starts from the stored JSON, as after a restart.
+    let state = initialWatchState(STARTED_AT)
+    const kinds: string[][] = []
+    for (const at of [0, 10, 20]) {
+      const evaluation = evaluateWatch(JSON.parse(JSON.stringify(state)) as PullRequestWatchState, read({ readAt: minutes(at) }))
+      state = evaluation.next
+      kinds.push(evaluation.news.map((item) => item.kind))
+    }
+    expect(kinds).toEqual([[], [], ['no-checks']])
+  })
+
+  // Required checks passed while others still ran: the agent was woken early and never again.
+  test('the optional checks still running at the required pass wake the agent once when they all pass', () => {
+    const { kinds } = run([
+      read({ checks: checks([check('build', 'success')], [check('e2e', null)]) }),
+      read({ checks: checks([check('build', 'success')], [check('e2e', 'success')]) }),
+      read({ checks: checks([check('build', 'success')], [check('e2e', 'success')]) }),
+      read({ checks: checks([check('build', 'success')], [check('e2e', 'success'), check('bot', null)]) }),
+      read({ checks: checks([check('build', 'success')], [check('e2e', 'success'), check('bot', 'success')]) }),
+    ])
+    expect(kinds).toEqual([['checks-passed'], ['all-checks-passed'], [], [], []])
+  })
+
+  test('an owed optional check that fails is told as a failure, and its passing rerun settles the debt', () => {
+    const { kinds, state } = run([
+      read({ checks: checks([check('build', 'success')], [check('e2e', null)]) }),
+      read({ checks: checks([check('build', 'success')], [check('e2e', 'failure')]) }),
+      read({ checks: checks([check('build', 'success')], [check('e2e', 'failure')]) }),
+      read({ checks: checks([check('build', 'success')], [check('e2e', 'success')]) }),
+      read({ checks: checks([check('build', 'success')], [check('e2e', 'success')]) }),
+    ])
+    expect(kinds).toEqual([['checks-passed'], ['checks-failed'], [], ['all-checks-passed'], []])
+    expect(state.owedChecks).toEqual([])
+  })
+
+  test('an owed check that becomes required is gate news, and a push forgets what was owed', () => {
+    expect(run([
+      read({ checks: checks([check('build', 'success')], [check('e2e', null)]) }),
+      read({ checks: checks([check('build', 'success'), check('e2e', 'success')]) }),
+      read({ checks: checks([check('build', 'success'), check('e2e', 'success')]) }),
+    ]).kinds).toEqual([['checks-passed'], ['checks-passed'], []])
+    expect(run([
+      read({ checks: checks([check('build', 'success')], [check('e2e', null)]) }),
+      read({ headSha: 'head-2', checks: checks([check('build', 'success')]) }),
+      read({ headSha: 'head-2', checks: checks([check('build', 'success')], [check('e2e', 'success')]) }),
+    ]).kinds).toEqual([['checks-passed'], ['checks-passed'], []])
   })
 
   test('a conflict is news when it starts; unknown mergeability keeps the last answer', () => {

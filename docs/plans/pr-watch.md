@@ -27,7 +27,8 @@ fingerprint.
 - **watch read** — the full read of one pull request: the pull request, its
   checks, its conversation and its review threads.
 - **news** — one thing a watch read found that the agent has not been told:
-  `checks-failed`, `checks-passed`, `remarks`, `conflicting`, `closed`.
+  `checks-failed`, `checks-passed`, `all-checks-passed`, `no-checks`,
+  `remarks`, `conflicting`, `closed`.
 - **wake** — the prompt the watcher queues on the session with the news.
 
 Do not say "monitor", "babysit", "subscription" or "PR watch job". A watch
@@ -58,6 +59,16 @@ belongs to a session, not to a task.
    - `checks-passed`: every required check passed (every check when none is
      required), reported once per head. If a required check appears later that
      the agent was not told about, it is reported again.
+   - `all-checks-passed`: the optional checks that were still running when
+     the required ones passed have finished, and every check passed. Reported
+     once per head, and only for those owed checks: an advisory check that
+     starts later never wakes the agent. An owed check that fails is a
+     `checks-failed`; its passing rerun then settles the debt.
+   - `no-checks`: the head has had no check at all for 15 minutes, for
+     example because a workflow's `paths-ignore` skips every job. Reported
+     once per head, and never when a check was seen on the head. It does not
+     say that CI passed. The wait is timed from the first read of the head,
+     so with the remark reread it is told within about 30 minutes.
    - `remarks`: a comment, a review with a body, or a review thread comment
      created or edited after the watch's watermark, by anyone but the viewer
      whose credential reads the pull request (the agent's own account). An
@@ -139,7 +150,8 @@ Migrations generated with `bun run db:generate`.
 
 `state` is `PullRequestWatchState`: the head it last saw, the failed checks
 reported on that head, whether the pass was reported and the required checks it
-named, the remark watermark (time and the ids at that time), whether it
+named, the optional checks owed a wake (`owedChecks`), when the head was first
+read with no check (`checksAwaitedSince`), the remark watermark (time and the ids at that time), whether it
 conflicts, and the number of remark-only wakes in a row.
 
 `SessionPullRequestLink.watch?: { startedAt: number }` tells clients that the

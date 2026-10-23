@@ -126,7 +126,7 @@ test('a machine answers GET /v1/sessions/search from its own index, with the rec
   for (let attempt = 0; attempt < 50 && !(await getSessionRecord(ANY_ORGANIZATION, 's-http')); attempt++) await new Promise((resolve) => setTimeout(resolve, 10))
   const operations = new SessionApiOperations(new ShareManager({ db: getDatabase() }))
   const found = await operations.search({
-    principal: { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' },
+    principal: { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' },
     home: { kind: 'local', hostId: 'this-mac' },
     scopes: ['sessions:read'],
   }, { q: 'osprey' })
@@ -153,7 +153,7 @@ test('a session named by a long opening message is still listed and found, withi
   for (let attempt = 0; attempt < 50 && !(await getSessionRecord(ANY_ORGANIZATION, 's-long')); attempt++) await new Promise((resolve) => setTimeout(resolve, 10))
   const operations = new SessionApiOperations(new ShareManager({ db: getDatabase() }))
   const context = {
-    principal: { kind: 'local-owner' as const, deviceId: null, deviceLabel: 'Mac' },
+    principal: { kind: 'owner' as const, via: 'local' as const, expiresAt: null, deviceId: null, deviceLabel: 'Mac' },
     home: { kind: 'local' as const, hostId: 'this-mac' },
     scopes: ['sessions:read' as const],
   }

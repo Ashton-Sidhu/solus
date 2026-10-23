@@ -16,7 +16,9 @@ export function HostStatusBanner({ hostId }: { hostId: string }) {
     : state?.phase === "blocked"
       ? state.blockedReason === "identity-mismatch"
         ? "A different machine answered at this host's address. Solus did not connect to it."
-        : host.paired
+        : state.blockedReason === "update-required"
+          ? "This host speaks another version of Solus. Update Solus on this phone and on the host."
+          : host.paired
           ? "This host no longer accepts this device. Pair it again."
           : "Your account cannot reach this host now."
       : state?.phase === "offline"

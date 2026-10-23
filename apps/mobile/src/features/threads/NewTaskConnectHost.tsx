@@ -1,6 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -40,8 +40,13 @@ export function useNewTaskHostGate(): NewTaskHostGate {
   useEffect(() => {
     for (const host of hosts) app.connections.connection(host.id);
   }, [app, hosts]);
+  // The last answer, so a Retry from the connect screen keeps the screen while it dials.
+  const lastGate = useRef<NewTaskHostGate>("compose");
   return useListened(app.connections.changes, () =>
-    newTaskHostGate(hosts.map((host) => app.connections.state(host.id)?.phase ?? null)),
+    (lastGate.current = newTaskHostGate(
+      hosts.map((host) => app.connections.state(host.id)?.phase ?? null),
+      lastGate.current,
+    )),
   );
 }
 

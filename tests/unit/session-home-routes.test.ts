@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
-import { sessionPullRequestId } from '@solus/contracts/session-pull-requests'
 import { installTestIdentities } from './helpers/acting-identities'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -27,18 +26,16 @@ beforeAll(async () => {
   const shares = new ShareManager({ db: database.getDatabase() })
   const operations = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(shares)
   const { Hono } = await import('hono')
-  const { WorkspaceCredentials } = await import('@solus/server/admission/workspace-credentials')
   const { createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
   const { solusApiOpenApi } = await import('@solus/contracts/solus-api/openapi')
-  const credentials = new WorkspaceCredentials({ audience: 'api', authenticateSource: async source => source === 'alice' ? { principal: alice.principal, expiresAt: Date.now() + 300000 } : null,
-    isRevoked: async () => false, homeFor: () => alice.home })
-  const router = createSolusApiRouter({ credentials, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['session-records'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
+  // The bearer is admitted directly (docs/plans/simplify-auth-and-sync.md §4.2): `alice` stands for her API token.
+  const admission = { socket: async () => null, bearer: async (bearer: string) => bearer === 'alice' ? { principal: alice.principal, home: alice.home, scopes: ['sessions:read' as const, 'sessions:write' as const] } : null }
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['session-records'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
   app = new Hono().route('/v1', router)
   const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
   // As runner intake does for the session a runner reports: born owned by its person.
   await upsertSessionRecord('A', { sessionId: 's1', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now() }, { organizationId: 'A', published: true, ownerKey: 'alice' })
-  const exchange = await app.request('/v1/auth/session', { method: 'POST', headers: { Authorization: 'Bearer alice', 'Content-Type': 'application/json' }, body: JSON.stringify({ scopes: ['sessions:read', 'sessions:write'] }) })
-  token = (await exchange.json()).accessToken
+  token = 'alice'
 })
 afterAll(async () => { await resetTestDatabase(); rmSync(dataDir, { recursive: true, force: true }); if (previous === undefined) delete process.env.SOLUS_DATA_DIR; else process.env.SOLUS_DATA_DIR = previous })
 
@@ -48,20 +45,16 @@ const call = (method: string, path: string, body?: object) => app.request('/v1' 
   method, headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
 })
 
-test("a session's pull requests are one resource: put links, the same put changes nothing, delete removes", async () => {
-  const id = encodeURIComponent(sessionPullRequestId({ repository: 'github.com/acme/web', number: 12 }))
-  const url = 'https://github.com/acme/web/pull/12'
-  const put = await call('PUT', `/sessions/s1/pull-requests/${id}`, { url })
-  expect(put.status).toBe(200)
-  expect(await put.json()).toMatchObject({ sessionId: 's1', repository: 'github.com/acme/web', number: 12, source: 'manual' })
-  expect((await call('PUT', `/sessions/s1/pull-requests/${id}`, { url })).status).toBe(200)
-  expect((await (await call('GET', '/sessions/s1/pull-requests')).json()).items).toHaveLength(1)
-  // The URL must name the pull request the path names.
-  expect((await call('PUT', `/sessions/s1/pull-requests/${id}`, { url: 'https://github.com/acme/web/pull/13' })).status).toBe(400)
+test("a session's pull requests are linked on the link route: put links, the same put changes nothing, delete removes", async () => {
+  const link = { from: { kind: 'session', id: 's1' }, to: { kind: 'pr', url: 'https://github.com/acme/web/pull/12' } }
+  expect((await call('PUT', '/links', link)).status).toBe(204)
+  expect((await call('PUT', '/links', link)).status).toBe(204)
+  const items = (await (await call('GET', '/sessions/s1/pull-requests')).json()).items
+  expect(items).toEqual([expect.objectContaining({ sessionId: 's1', repository: 'github.com/acme/web', number: 12, source: 'manual' })])
   // The session record carries its links.
   expect((await (await call('GET', '/sessions/s1')).json()).pullRequests).toHaveLength(1)
 
-  expect((await call('DELETE', `/sessions/s1/pull-requests/${id}`)).status).toBe(204)
+  expect((await call('DELETE', '/links', link)).status).toBe(204)
   expect((await (await call('GET', '/sessions/s1/pull-requests')).json()).items).toEqual([])
 })
 

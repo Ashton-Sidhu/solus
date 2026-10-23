@@ -69,7 +69,7 @@ describe('a login: GitHub, Google, Atlassian, TypeSafe', () => {
 
     useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
     expect(await vault.read('alice', GITHUB, githubSchema)).toEqual({ accessToken: 'from-account', scope: 'repo' })
-    expect(requests[0].url).toBe('https://cloud.test/v1/vault/read')
+    expect(requests[0].url).toBe('https://cloud.test/v1/vault')
     expect(requests[0].headers.get('authorization')).toBe('Bearer alice-delegated')
     expect(await requests[0].json()).toEqual({ ref: GITHUB })
     // WHY: a provider token belongs to the client that issued it, so a signed-in person changes it only on the website.
@@ -95,7 +95,7 @@ describe('link and unlink', () => {
     await vault.settleLinked('alice')
     expect(requests).toHaveLength(1)
     expect(requests[0].method).toBe('PUT')
-    expect(requests[0].url).toBe('https://cloud.test/v1/vault/credential')
+    expect(requests[0].url).toBe('https://cloud.test/v1/vault')
     expect(await requests[0].json()).toEqual({ ref: { kind: 'typesafe' }, material: { kind: 'key', key: 'ts-key' }, expectedVersion: null, label: null })
     expect(secrets.values.size).toBe(0)
   })
@@ -120,7 +120,9 @@ describe('link and unlink', () => {
     vault.save('local:mac', GITHUB, { accessToken: 'gh', scope: 'repo' })
     vault.save('local:mac', TYPESAFE_REF, { key: 'ts' })
     vault.save('alice', LINEAR, TOKEN)
-    vault.forgetPerson('alice', [LINEAR.integrationId])
+    // WHY (§13.3): an added account's token is the person's too, and must not outlive the unlink.
+    vault.save('alice', { ...LINEAR, accountId: 'second' }, TOKEN)
+    vault.forgetPerson('alice', [{ integrationId: LINEAR.integrationId, accountId: 'default' }, { integrationId: LINEAR.integrationId, accountId: 'second' }])
     expect(secrets.values.size).toBe(0)
   })
 
@@ -132,8 +134,15 @@ describe('link and unlink', () => {
     vault.save('local:owner', LINEAR, { accessToken: 'moves', tokenType: 'Bearer' })
     vault.save('local:owner', other, { accessToken: 'old', tokenType: 'Bearer' })
     vault.save('acct-owner', other, { accessToken: 'kept', tokenType: 'Bearer' })
-    vault.move('local:owner', 'acct-owner', [LINEAR.integrationId, other.integrationId])
+    vault.save('local:owner', { ...LINEAR, accountId: 'second' }, { accessToken: 'added', tokenType: 'Bearer' })
+    vault.move('local:owner', 'acct-owner', [
+      { integrationId: LINEAR.integrationId, accountId: 'default' },
+      { integrationId: LINEAR.integrationId, accountId: 'second' },
+      { integrationId: other.integrationId, accountId: 'default' },
+    ])
     expect(await vault.read('acct-owner', LINEAR)).toMatchObject({ token: { accessToken: 'moves' } })
+    // An added account's token moves with its row, so the row does not read as connected without one.
+    expect(await vault.read('acct-owner', { ...LINEAR, accountId: 'second' })).toMatchObject({ token: { accessToken: 'added' } })
     expect(await vault.read('acct-owner', other)).toMatchObject({ token: { accessToken: 'kept' } })
     expect(await vault.read('local:owner', LINEAR)).toBeNull()
   })

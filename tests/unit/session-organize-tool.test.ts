@@ -23,7 +23,7 @@ let closeDb: typeof import('@solus/server/db')['closeDb']
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
 const NOW = Date.parse('2026-10-11T12:00:00Z')
-const OWNER = { kind: 'local-owner' as const, deviceId: null, deviceLabel: 'Mac' }
+const OWNER = { kind: 'owner' as const, via: 'local' as const, expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-organize-tool-'))

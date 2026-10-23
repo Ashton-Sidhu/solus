@@ -5,347 +5,6 @@
     "version": "1.0.0"
   },
   "paths": {
-    "/v1/auth/session": {
-      "post": {
-        "operationId": "exchangeCredential",
-        "parameters": [],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "accessToken": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 4096,
-                      "x-solus-sensitive": true
-                    },
-                    "tokenType": {
-                      "type": "string",
-                      "const": "Bearer"
-                    },
-                    "expiresAt": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                    },
-                    "scopes": {
-                      "maxItems": 11,
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "enum": [
-                          "tasks:read",
-                          "tasks:write",
-                          "works:read",
-                          "works:write",
-                          "sessions:read",
-                          "sessions:write",
-                          "sessions:admit",
-                          "insights:read",
-                          "profile:read",
-                          "integrations:read",
-                          "integrations:write"
-                        ]
-                      },
-                      "uniqueItems": true
-                    },
-                    "home": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "local"
-                            },
-                            "hostId": {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 256,
-                              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "hostId"
-                          ],
-                          "additionalProperties": false
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "organization"
-                            },
-                            "serviceId": {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 256,
-                              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-                            },
-                            "organizationId": {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 256,
-                              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "serviceId",
-                            "organizationId"
-                          ],
-                          "additionalProperties": false
-                        }
-                      ],
-                      "description": "The authority for this record. Local home is distinct from organization attribution. A Local record can have a saved organization without being published."
-                    },
-                    "subject": {
-                      "type": "object",
-                      "properties": {
-                        "kind": {
-                          "type": "string",
-                          "enum": [
-                            "user",
-                            "agent",
-                            "automation",
-                            "system"
-                          ]
-                        },
-                        "userId": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 256,
-                              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "displayName": {
-                          "type": "string",
-                          "maxLength": 256
-                        },
-                        "sessionId": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 256,
-                              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "userId",
-                        "displayName",
-                        "sessionId"
-                      ],
-                      "additionalProperties": false
-                    }
-                  },
-                  "required": [
-                    "accessToken",
-                    "tokenType",
-                    "expiresAt",
-                    "scopes",
-                    "home",
-                    "subject"
-                  ],
-                  "additionalProperties": false,
-                  "description": "Verified source authority fixes the actor and home in this credential. At most eight hours and never beyond source expiry. Renewal requires source authority; this bearer cannot renew itself. Keep credentials out of URLs, logs and artifacts."
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "412": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "scopes": {
-                    "minItems": 1,
-                    "maxItems": 11,
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "tasks:read",
-                        "tasks:write",
-                        "works:read",
-                        "works:write",
-                        "sessions:read",
-                        "sessions:write",
-                        "sessions:admit",
-                        "insights:read",
-                        "profile:read",
-                        "integrations:read",
-                        "integrations:write"
-                      ]
-                    },
-                    "uniqueItems": true
-                  },
-                  "shareSecret": {
-                    "type": "string",
-                    "minLength": 32,
-                    "maxLength": 256,
-                    "writeOnly": true
-                  },
-                  "organizationId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 256,
-                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-                  },
-                  "guestId": {
-                    "type": "string",
-                    "pattern": "^[a-zA-Z0-9_-]{16,64}$"
-                  },
-                  "displayName": {
-                    "type": "string",
-                    "maxLength": 80
-                  }
-                },
-                "required": [
-                  "scopes"
-                ],
-                "additionalProperties": false,
-                "description": "Source authority determines the actor, service and Local or organization context. A source token that lists several organizations admits only the organizationId named here, and only when it lists it; a source that names one organization ignores it. The guest of a share link holds no token: with no bearer, shareSecret and guestId are the whole credential, and the session reaches only the one shared resource, with the link's current role, until the link is removed or regenerated. Requested scopes only narrow authority.",
-                "examples": [
-                  {
-                    "scopes": [
-                      "tasks:read",
-                      "tasks:write"
-                    ]
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/capabilities": {
       "get": {
         "operationId": "capabilities",
@@ -3299,6 +2958,579 @@
           }
         },
         "x-required-scope": "tasks:read"
+      }
+    },
+    "/v1/tasks/{taskId}/comments": {
+      "post": {
+        "operationId": "createTaskComment",
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "taskId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "body": {
+                      "type": "string",
+                      "maxLength": 100000
+                    },
+                    "author": {
+                      "anyOf": [
+                        {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "user"
+                                },
+                                "user": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "oneOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "account"
+                                            },
+                                            "accountId": {
+                                              "type": "string",
+                                              "maxLength": 256
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "accountId"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "local"
+                                            },
+                                            "localId": {
+                                              "type": "string",
+                                              "maxLength": 256
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "localId"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "guest"
+                                            },
+                                            "guestId": {
+                                              "type": "string",
+                                              "maxLength": 256
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "guestId"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      ]
+                                    },
+                                    "displayName": {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    "email": {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    "avatarUrl": {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "displayName"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "user"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "agent"
+                                },
+                                "sessionId": {
+                                  "type": "string",
+                                  "maxLength": 256
+                                },
+                                "provider": {
+                                  "type": "string",
+                                  "enum": [
+                                    "claude-code",
+                                    "codex",
+                                    "opencode"
+                                  ]
+                                },
+                                "title": {
+                                  "type": "string",
+                                  "maxLength": 500
+                                },
+                                "for": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "oneOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "account"
+                                            },
+                                            "accountId": {
+                                              "type": "string",
+                                              "maxLength": 256
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "accountId"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "local"
+                                            },
+                                            "localId": {
+                                              "type": "string",
+                                              "maxLength": 256
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "localId"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "guest"
+                                            },
+                                            "guestId": {
+                                              "type": "string",
+                                              "maxLength": 256
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "guestId"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      ]
+                                    },
+                                    "displayName": {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    "email": {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    "avatarUrl": {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "displayName"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sessionId"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "automation"
+                                },
+                                "automationId": {
+                                  "type": "string",
+                                  "maxLength": 256
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "maxLength": 500
+                                },
+                                "for": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "oneOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "account"
+                                            },
+                                            "accountId": {
+                                              "type": "string",
+                                              "maxLength": 256
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "accountId"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "local"
+                                            },
+                                            "localId": {
+                                              "type": "string",
+                                              "maxLength": 256
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "localId"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "guest"
+                                            },
+                                            "guestId": {
+                                              "type": "string",
+                                              "maxLength": 256
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "guestId"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      ]
+                                    },
+                                    "displayName": {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    "email": {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    "avatarUrl": {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "displayName"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "automationId"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "upstream"
+                                },
+                                "provider": {
+                                  "type": "string",
+                                  "enum": [
+                                    "gdrive",
+                                    "confluence",
+                                    "github",
+                                    "jira"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "provider"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "system"
+                                }
+                              },
+                              "required": [
+                                "kind"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ],
+                          "description": "Who did something: a person, an agent's session and the person it worked for, an automation, an upstream system, or Solus itself."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "originSessionId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "taskId",
+                    "body",
+                    "author",
+                    "originSessionId",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-required-scope": "tasks:write",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100000
+                  },
+                  "originSessionId": {
+                    "description": "The session whose agent wrote the comment.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                  }
+                },
+                "required": [
+                  "body"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
       }
     },
     "/v1/works": {
@@ -9646,7 +9878,7 @@
                                 "linkedAt"
                               ],
                               "additionalProperties": false,
-                              "description": "A pull request the session works on. Its id in a path is `repository#number`, URL-encoded."
+                              "description": "A pull request the session works on."
                             }
                           }
                         },
@@ -10927,7 +11159,7 @@
                                     "linkedAt"
                                   ],
                                   "additionalProperties": false,
-                                  "description": "A pull request the session works on. Its id in a path is `repository#number`, URL-encoded."
+                                  "description": "A pull request the session works on."
                                 }
                               }
                             },
@@ -12132,7 +12364,7 @@
                           "linkedAt"
                         ],
                         "additionalProperties": false,
-                        "description": "A pull request the session works on. Its id in a path is `repository#number`, URL-encoded."
+                        "description": "A pull request the session works on."
                       }
                     }
                   },
@@ -12764,6 +12996,45 @@
                     "minLength": 1,
                     "maxLength": 256,
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                  },
+                  "record": {
+                    "description": "The first facts of the session. The API writes the session record with the admission; the host sends later facts in its delivery.",
+                    "type": "object",
+                    "properties": {
+                      "provider": {
+                        "type": "string",
+                        "enum": [
+                          "claude-code",
+                          "codex",
+                          "opencode"
+                        ]
+                      },
+                      "projectPath": {
+                        "type": "string",
+                        "maxLength": 4096
+                      },
+                      "cwd": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 4096
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "privateToOwner": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "projectPath",
+                      "cwd",
+                      "privateToOwner"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -13438,7 +13709,7 @@
                           "linkedAt"
                         ],
                         "additionalProperties": false,
-                        "description": "A pull request the session works on. Its id in a path is `repository#number`, URL-encoded."
+                        "description": "A pull request the session works on."
                       }
                     }
                   },
@@ -13554,682 +13825,10 @@
         "x-required-scope": "sessions:read"
       }
     },
-    "/v1/sessions/{sessionId}/pull-requests/{pullRequestId}": {
+    "/v1/links": {
       "put": {
-        "operationId": "putSessionPullRequest",
-        "parameters": [
-          {
-            "name": "sessionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-            }
-          },
-          {
-            "name": "pullRequestId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-            }
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "sessionId": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 256,
-                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-                    },
-                    "repository": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 512,
-                      "description": "`host/owner/repo`, lower case."
-                    },
-                    "number": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "url": {
-                      "type": "string",
-                      "maxLength": 2048
-                    },
-                    "title": {
-                      "type": "string",
-                      "maxLength": 1000
-                    },
-                    "source": {
-                      "type": "string",
-                      "enum": [
-                        "branch",
-                        "created",
-                        "agent",
-                        "manual"
-                      ]
-                    },
-                    "createdBy": {
-                      "oneOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "user"
-                            },
-                            "user": {
-                              "type": "object",
-                              "properties": {
-                                "id": {
-                                  "oneOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "const": "account"
-                                        },
-                                        "accountId": {
-                                          "type": "string",
-                                          "maxLength": 256
-                                        }
-                                      },
-                                      "required": [
-                                        "kind",
-                                        "accountId"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "const": "local"
-                                        },
-                                        "localId": {
-                                          "type": "string",
-                                          "maxLength": 256
-                                        }
-                                      },
-                                      "required": [
-                                        "kind",
-                                        "localId"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "const": "guest"
-                                        },
-                                        "guestId": {
-                                          "type": "string",
-                                          "maxLength": 256
-                                        }
-                                      },
-                                      "required": [
-                                        "kind",
-                                        "guestId"
-                                      ],
-                                      "additionalProperties": false
-                                    }
-                                  ]
-                                },
-                                "displayName": {
-                                  "type": "string",
-                                  "maxLength": 500
-                                },
-                                "email": {
-                                  "type": "string",
-                                  "maxLength": 500
-                                },
-                                "avatarUrl": {
-                                  "type": "string",
-                                  "maxLength": 2048
-                                }
-                              },
-                              "required": [
-                                "id",
-                                "displayName"
-                              ],
-                              "additionalProperties": false
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "user"
-                          ],
-                          "additionalProperties": false
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "agent"
-                            },
-                            "sessionId": {
-                              "type": "string",
-                              "maxLength": 256
-                            },
-                            "provider": {
-                              "type": "string",
-                              "enum": [
-                                "claude-code",
-                                "codex",
-                                "opencode"
-                              ]
-                            },
-                            "title": {
-                              "type": "string",
-                              "maxLength": 500
-                            },
-                            "for": {
-                              "type": "object",
-                              "properties": {
-                                "id": {
-                                  "oneOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "const": "account"
-                                        },
-                                        "accountId": {
-                                          "type": "string",
-                                          "maxLength": 256
-                                        }
-                                      },
-                                      "required": [
-                                        "kind",
-                                        "accountId"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "const": "local"
-                                        },
-                                        "localId": {
-                                          "type": "string",
-                                          "maxLength": 256
-                                        }
-                                      },
-                                      "required": [
-                                        "kind",
-                                        "localId"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "const": "guest"
-                                        },
-                                        "guestId": {
-                                          "type": "string",
-                                          "maxLength": 256
-                                        }
-                                      },
-                                      "required": [
-                                        "kind",
-                                        "guestId"
-                                      ],
-                                      "additionalProperties": false
-                                    }
-                                  ]
-                                },
-                                "displayName": {
-                                  "type": "string",
-                                  "maxLength": 500
-                                },
-                                "email": {
-                                  "type": "string",
-                                  "maxLength": 500
-                                },
-                                "avatarUrl": {
-                                  "type": "string",
-                                  "maxLength": 2048
-                                }
-                              },
-                              "required": [
-                                "id",
-                                "displayName"
-                              ],
-                              "additionalProperties": false
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "sessionId"
-                          ],
-                          "additionalProperties": false
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "automation"
-                            },
-                            "automationId": {
-                              "type": "string",
-                              "maxLength": 256
-                            },
-                            "name": {
-                              "type": "string",
-                              "maxLength": 500
-                            },
-                            "for": {
-                              "type": "object",
-                              "properties": {
-                                "id": {
-                                  "oneOf": [
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "const": "account"
-                                        },
-                                        "accountId": {
-                                          "type": "string",
-                                          "maxLength": 256
-                                        }
-                                      },
-                                      "required": [
-                                        "kind",
-                                        "accountId"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "const": "local"
-                                        },
-                                        "localId": {
-                                          "type": "string",
-                                          "maxLength": 256
-                                        }
-                                      },
-                                      "required": [
-                                        "kind",
-                                        "localId"
-                                      ],
-                                      "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "object",
-                                      "properties": {
-                                        "kind": {
-                                          "type": "string",
-                                          "const": "guest"
-                                        },
-                                        "guestId": {
-                                          "type": "string",
-                                          "maxLength": 256
-                                        }
-                                      },
-                                      "required": [
-                                        "kind",
-                                        "guestId"
-                                      ],
-                                      "additionalProperties": false
-                                    }
-                                  ]
-                                },
-                                "displayName": {
-                                  "type": "string",
-                                  "maxLength": 500
-                                },
-                                "email": {
-                                  "type": "string",
-                                  "maxLength": 500
-                                },
-                                "avatarUrl": {
-                                  "type": "string",
-                                  "maxLength": 2048
-                                }
-                              },
-                              "required": [
-                                "id",
-                                "displayName"
-                              ],
-                              "additionalProperties": false
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "automationId"
-                          ],
-                          "additionalProperties": false
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "upstream"
-                            },
-                            "provider": {
-                              "type": "string",
-                              "enum": [
-                                "gdrive",
-                                "confluence",
-                                "github",
-                                "jira"
-                              ]
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "provider"
-                          ],
-                          "additionalProperties": false
-                        },
-                        {
-                          "type": "object",
-                          "properties": {
-                            "kind": {
-                              "type": "string",
-                              "const": "system"
-                            }
-                          },
-                          "required": [
-                            "kind"
-                          ],
-                          "additionalProperties": false
-                        }
-                      ],
-                      "description": "Who did something: a person, an agent's session and the person it worked for, an automation, an upstream system, or Solus itself."
-                    },
-                    "linkedAt": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "snapshot": {
-                      "type": "object",
-                      "properties": {
-                        "number": {
-                          "type": "integer",
-                          "minimum": 1,
-                          "maximum": 9007199254740991
-                        },
-                        "url": {
-                          "type": "string",
-                          "maxLength": 2048
-                        },
-                        "title": {
-                          "type": "string",
-                          "maxLength": 1000
-                        },
-                        "state": {
-                          "type": "string",
-                          "enum": [
-                            "open",
-                            "closed",
-                            "merged"
-                          ]
-                        },
-                        "draft": {
-                          "type": "boolean"
-                        },
-                        "updatedAt": {
-                          "type": "string",
-                          "maxLength": 64
-                        },
-                        "baseRepo": {
-                          "type": "object",
-                          "properties": {
-                            "host": {
-                              "type": "string",
-                              "maxLength": 256
-                            },
-                            "owner": {
-                              "type": "string",
-                              "maxLength": 256
-                            },
-                            "repo": {
-                              "type": "string",
-                              "maxLength": 256
-                            }
-                          },
-                          "required": [
-                            "host",
-                            "owner",
-                            "repo"
-                          ],
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "number",
-                        "url",
-                        "title",
-                        "state",
-                        "draft",
-                        "updatedAt",
-                        "baseRepo"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "missing": {
-                      "type": "boolean"
-                    },
-                    "watch": {
-                      "type": "object",
-                      "properties": {
-                        "startedAt": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 9007199254740991
-                        }
-                      },
-                      "required": [
-                        "startedAt"
-                      ],
-                      "additionalProperties": false
-                    }
-                  },
-                  "required": [
-                    "sessionId",
-                    "repository",
-                    "number",
-                    "url",
-                    "title",
-                    "source",
-                    "linkedAt"
-                  ],
-                  "additionalProperties": false,
-                  "description": "A pull request the session works on. Its id in a path is `repository#number`, URL-encoded."
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "412": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Request failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        },
-        "x-required-scope": "sessions:write",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "url": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 2048,
-                    "description": "The pull request's URL. It must name the pull request in the path."
-                  }
-                },
-                "required": [
-                  "url"
-                ],
-                "additionalProperties": false
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "operationId": "deleteSessionPullRequest",
-        "parameters": [
-          {
-            "name": "sessionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-            }
-          },
-          {
-            "name": "pullRequestId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
-            }
-          }
-        ],
+        "operationId": "putLink",
+        "parameters": [],
         "security": [
           {
             "bearerAuth": []
@@ -14340,7 +13939,522 @@
             }
           }
         },
-        "x-required-scope": "sessions:write"
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "task",
+                          "session"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "to": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "work"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "plan"
+                          },
+                          "sessionId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "planId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "description": "The tool-use id of the plan in its session."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "sessionId",
+                          "planId"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "pr"
+                          },
+                          "url": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048,
+                            "description": "The pull request's URL."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "url"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "automation"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "hostId": {
+                            "description": "The host that holds the automation, when this home does not.",
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "session"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "file"
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096
+                          },
+                          "hostId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                            "description": "The host that holds the file: the session's execution host."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "path",
+                          "hostId"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "title": {
+                    "description": "A label. When omitted, it is read from the target.",
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "role": {
+                    "description": "A task's session only: 'working' (the default) or 'referenced'.",
+                    "type": "string",
+                    "enum": [
+                      "working",
+                      "referenced"
+                    ]
+                  },
+                  "originSessionId": {
+                    "description": "The session whose agent makes the link. A pull request of a session that works on the task stays that session's link.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "additionalProperties": false,
+                "examples": [
+                  {
+                    "from": {
+                      "kind": "session",
+                      "id": "ses_01"
+                    },
+                    "to": {
+                      "kind": "pr",
+                      "url": "https://github.com/acme/app/pull/7"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteLink",
+        "parameters": [],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Request failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "task",
+                          "session"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "to": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "work"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "plan"
+                          },
+                          "sessionId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "planId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "description": "The tool-use id of the plan in its session."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "sessionId",
+                          "planId"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "pr"
+                          },
+                          "url": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048,
+                            "description": "The pull request's URL."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "url"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "automation"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "hostId": {
+                            "description": "The host that holds the automation, when this home does not.",
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "session"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "file"
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 4096
+                          },
+                          "hostId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$",
+                            "description": "The host that holds the file: the session's execution host."
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "path",
+                          "hostId"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
       }
     },
     "/v1/sessions/{sessionId}/messages": {
@@ -17537,7 +17651,7 @@
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Exchange a verified source credential at /v1/auth/session. Resource requests use the returned short-lived credential."
+        "description": "An access token for the Solus API (`aud` includes urn:solus:api), or a pairing session token on a host. A token that lists several organizations works in the one the Solus-Organization header names."
       }
     },
     "schemas": {

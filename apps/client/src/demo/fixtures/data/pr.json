@@ -2,11 +2,11 @@
  "list": [
   {
    "number": 142,
-   "url": "https://github.com/acme/acme/pull/142",
+   "url": "https://github.com/acme/api-gateway/pull/142",
    "title": "Add per-key rate limiting to public API",
    "baseRepo": {
     "owner": "acme",
-    "repo": "acme",
+    "repo": "api-gateway",
     "host": "github.com"
    },
    "author": "acme-dev",
@@ -37,7 +37,7 @@
    "mergeStateStatus": "clean",
    "headRepo": {
     "owner": "acme",
-    "repo": "acme",
+    "repo": "api-gateway",
     "isFork": false
    },
    "capabilities": {
@@ -80,11 +80,11 @@
  "overview": {
   "pullRequest": {
    "number": 142,
-   "url": "https://github.com/acme/acme/pull/142",
+   "url": "https://github.com/acme/api-gateway/pull/142",
    "title": "Add per-key rate limiting to public API",
    "baseRepo": {
     "owner": "acme",
-    "repo": "acme",
+    "repo": "api-gateway",
     "host": "github.com"
    },
    "author": "acme-dev",
@@ -115,7 +115,7 @@
    "mergeStateStatus": "clean",
    "headRepo": {
     "owner": "acme",
-    "repo": "acme",
+    "repo": "api-gateway",
     "isFork": false
    },
    "capabilities": {
@@ -363,5 +363,47 @@
   "src/api/router.ts": "diff --git a/src/api/router.ts b/src/api/router.ts\nindex 90a3bf2..1ab214a 100644\n--- a/src/api/router.ts\n+++ b/src/api/router.ts\n@@ -1,5 +1,6 @@\n import { Hono } from 'hono'\n import { authenticateApiKey } from '../auth/apiKey'\n+import { rateLimit } from '../middleware/rateLimit'\n import { linkRoutes } from './links'\n@@ -12,9 +13,12 @@ export function createApiRouter(deps: ApiDeps) {\n   const api = new Hono<ApiContext>()\n-  api.use('/v1/*', authenticateApiKey(deps.apiKeys))\n-  api.route('/v1/links', linkRoutes(deps))\n+  api.use('/v1/*', authenticateApiKey(deps.apiKeys))\n+  api.use('/v1/*', rateLimit({ redis: deps.redis, policy: deps.config.rateLimit, mode: deps.config.rateLimit.mode, now: Date.now }))\n+  api.route('/v1/links', linkRoutes(deps))\n   return api\n }\n",
   "src/ratelimit/tokenBucket.test.ts": "diff --git a/src/ratelimit/tokenBucket.test.ts b/src/ratelimit/tokenBucket.test.ts\nnew file mode 100644\nindex 0000000..149e61d\n--- /dev/null\n+++ b/src/ratelimit/tokenBucket.test.ts\n@@ -0,0 +1,69 @@\n+import { afterAll, beforeEach, expect, test } from 'bun:test'\n+import { redis } from '../test/redis'\n+import { consumeTokenBucket } from './tokenBucket'\n+\n+const key = 'test:ratelimit:key-1'\n+const policy = { capacity: 2, refillPerSecond: 1 }\n+const now = Date.parse('2026-07-14T12:00:00.000Z')\n+\n+beforeEach(() => redis.del(key))\n+afterAll(() => redis.disconnect())\n+\n+test('allows requests until capacity is exhausted', async () => {\n+  expect((await consumeTokenBucket(redis, key, policy, now)).allowed).toBe(true)\n+  expect((await consumeTokenBucket(redis, key, policy, now)).allowed).toBe(true)\n+  const denied = await consumeTokenBucket(redis, key, policy, now)\n+  expect(denied.allowed).toBe(false)\n+  expect(denied.remaining).toBe(0)\n+  expect(denied.resetAfterMs).toBe(1000)\n+})\n+\n+test('refills fractional tokens without exceeding capacity', async () => {\n+  await consumeTokenBucket(redis, key, policy, now)\n+  await consumeTokenBucket(redis, key, policy, now)\n+  expect((await consumeTokenBucket(redis, key, policy, now + 500)).allowed).toBe(false)\n+  expect((await consumeTokenBucket(redis, key, policy, now + 1000)).allowed).toBe(true)\n+  expect((await consumeTokenBucket(redis, key, policy, now + 10000)).remaining).toBe(1)\n+})\n+\n+test('only one concurrent request consumes the final token', async () => {\n+  await consumeTokenBucket(redis, key, { capacity: 1, refillPerSecond: 1 }, now)\n+  await redis.hset(key, { tokens: 1, updated_at: now })\n+  const consume = () => consumeTokenBucket(redis, key, { capacity: 1, refillPerSecond: 1 }, now)\n+  const decisions = await Promise.all([consume(), consume()])\n+  expect(decisions.filter((decision) => decision.allowed)).toHaveLength(1)\n+})\n",
   "docs/api/rate-limits.md": "diff --git a/docs/api/rate-limits.md b/docs/api/rate-limits.md\nindex c1d22d0..d8a035a 100644\n--- a/docs/api/rate-limits.md\n+++ b/docs/api/rate-limits.md\n@@ -1,8 +1,33 @@\n # API limits\n \n-The API may reject unusually high traffic.\n+acme applies a token bucket to each API key. Short bursts are allowed up to the plan capacity; tokens then refill continuously.\n+\n+| Plan | Sustained rate | Burst capacity |\n+| --- | ---: | ---: |\n+| Free | 5 req/s | 20 |\n+| Pro | 50 req/s | 200 |\n+| Business | 200 req/s | 800 |\n+\n+Every authenticated response includes:\n+\n+- `RateLimit-Limit`: bucket capacity\n+- `RateLimit-Remaining`: whole tokens remaining\n+- `RateLimit-Reset`: seconds until one token is available\n+\n+Rejected requests return `429 Too Many Requests` and include `Retry-After`.\n+\n+```json\n+{\n+  \"error\": {\n+    \"code\": \"rate_limit_exceeded\",\n+    \"message\": \"Too many requests\",\n+    \"requestId\": \"req_01J2...\"\n+  }\n+}\n+```\n \n Contact support before planned traffic spikes.\n"
- }
+ },
+ "checks": [
+  {
+   "id": "9120401",
+   "name": "typecheck",
+   "conclusion": "success",
+   "inFlight": false,
+   "detailsUrl": "https://github.com/acme/api-gateway/actions/runs/11841",
+   "appName": "GitHub Actions",
+   "startedAt": "2026-07-14T15:41:02.000Z",
+   "completedAt": "2026-07-14T15:41:49.000Z"
+  },
+  {
+   "id": "9120402",
+   "name": "lint",
+   "conclusion": "success",
+   "inFlight": false,
+   "detailsUrl": "https://github.com/acme/api-gateway/actions/runs/11842",
+   "appName": "GitHub Actions",
+   "startedAt": "2026-07-14T15:41:02.000Z",
+   "completedAt": "2026-07-14T15:41:38.000Z"
+  },
+  {
+   "id": "9120403",
+   "name": "unit tests",
+   "conclusion": "success",
+   "inFlight": false,
+   "detailsUrl": "https://github.com/acme/api-gateway/actions/runs/11843",
+   "appName": "GitHub Actions",
+   "startedAt": "2026-07-14T15:41:03.000Z",
+   "completedAt": "2026-07-14T15:43:12.000Z"
+  },
+  {
+   "id": "9120404",
+   "name": "integration (redis)",
+   "conclusion": "success",
+   "inFlight": false,
+   "detailsUrl": "https://github.com/acme/api-gateway/actions/runs/11844",
+   "appName": "GitHub Actions",
+   "startedAt": "2026-07-14T15:41:03.000Z",
+   "completedAt": "2026-07-14T15:44:27.000Z"
+  }
+ ]
 }

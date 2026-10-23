@@ -14,13 +14,17 @@ export type NewTaskHostGate = 'compose' | 'connect'
  * One connected host is enough to compose. The connect screen replaces the
  * composer only on a known answer: a host not yet dialed, or one still dialing,
  * keeps the composer, so a short drop does not take the composer away. The
- * supervisor says `offline` only after its retry ladder gives up.
+ * supervisor says `offline` only after its retry ladder gives up. Once the
+ * screen shows, only a connected host brings the composer back: a Retry dials
+ * again, and that dial must not show the composer until it is answered.
  */
-export function newTaskHostGate(phases: readonly (HostConnectionPhase | null)[]): NewTaskHostGate {
-  if (phases.length === 0) return 'connect'
-  const isUndecided = phases.some(
-    (phase) => phase === null || phase === 'connected' || phase === 'connecting' || phase === 'reconnecting',
-  )
+export function newTaskHostGate(
+  phases: readonly (HostConnectionPhase | null)[],
+  previous: NewTaskHostGate,
+): NewTaskHostGate {
+  if (phases.includes('connected')) return 'compose'
+  if (phases.length === 0 || previous === 'connect') return 'connect'
+  const isUndecided = phases.some((phase) => phase === null || phase === 'connecting' || phase === 'reconnecting')
   return isUndecided ? 'compose' : 'connect'
 }
 

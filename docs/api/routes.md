@@ -4,7 +4,6 @@ Generated contract: [openapi.json](openapi.json).
 
 | Method | Path | Operation |
 | --- | --- | --- |
-| POST | `/v1/auth/session` | `exchangeCredential` |
 | GET | `/v1/capabilities` | `capabilities` |
 | GET | `/v1/openapi.json` | `openApi` |
 | GET | `/v1/tasks` | `listTasks` |

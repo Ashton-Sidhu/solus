@@ -56,7 +56,7 @@ filled from the live Solus theme, so a page matches the conversation around it.
 The frame's accent, neutrals, and series are the render palette (`--solus-render-*`
 in `workspace.css`). `--primary`, `--accent`, and `--ring` are the render accent:
 slate blue in light mode, so a render's selected tab or button does not compete
-with the app's terracotta chrome, and terracotta in dark mode. `--card` is the
+with the app's terracotta chrome, and terracotta in dark mode. `--brand` and `--brand-foreground` are the app's own accent (`--solus-accent`), terracotta in both modes, for a mock-up of Solus's own UI. `--card` is the
 page colour; `--muted` and `--border` are washes of the text colour like the
 app's own hover wash and hairlines. The chart series is one family around the
 render accent at one OKLCH lightness and chroma per mode. Inside the app, `--chart-N` keeps its hue

@@ -25,12 +25,14 @@ export function profileIntegrations(deps: {
     list: (owner: ProfileIntegrationOwner) => store.list(owner.organizationId, owner.ownerKey),
     findByUrl: (owner, url) => store.findByUrl(url, owner.organizationId, owner.ownerKey),
     create: (owner, entry: AgentProfileIntegrationEntry): Integration => {
-      const integration = store.create({ name: entry.name, url: entry.url, slug: entry.slug, auth: entry.auth }, owner.organizationId, owner.ownerKey)
+      const created = store.create({ name: entry.name, url: entry.url, slug: entry.slug, auth: entry.auth }, owner.organizationId, owner.ownerKey)
+      // The tools the person turned off on another host stay off here (§6.1).
+      const integration = entry.disabledTools.length ? store.update(created.id, { disabledTools: entry.disabledTools }, owner.organizationId) ?? created : created
       void events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
       return integration
     },
     update: (id, entry) => {
-      const integration = store.update(id, { name: entry.name, url: entry.url, auth: entry.auth }, organizationOf(id, store))
+      const integration = store.update(id, { name: entry.name, url: entry.url, auth: entry.auth, disabledTools: entry.disabledTools }, organizationOf(id, store))
       if (!integration) return
       gateway.invalidate(id)
       void events.broadcast('integration.changed', { integrationId: id, change: 'updated' })

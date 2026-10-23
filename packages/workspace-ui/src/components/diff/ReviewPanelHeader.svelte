@@ -13,6 +13,7 @@
   import { comboHint } from "../../lib/keybindings/manifest";
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import type { ChangeKind } from "@solus/client-core/change-breakdown";
   import ChangeSummaryPopover from "./ChangeSummaryPopover.svelte";
   import ReviewPanelOverflowMenu from "./ReviewPanelOverflowMenu.svelte";
   import ReviewScopePicker from "./ReviewScopePicker.svelte";
@@ -50,6 +51,8 @@
     additions,
     deletions,
     changedFiles,
+    selectedKinds = null,
+    onSelectKinds,
     baseLabel,
     reviewScope = null,
     onSelectScope,
@@ -84,6 +87,8 @@
     additions: number;
     deletions: number;
     changedFiles: ChangedFileSummary[];
+    selectedKinds?: ChangeKind[] | null;
+    onSelectKinds?: (kinds: ChangeKind[] | null) => void;
     baseLabel: string;
     /** Which change the review reads. Null where the host fixes the scope, such
      *  as a pull request, so the band has no picker. */
@@ -217,6 +222,8 @@
     {additions}
     {deletions}
     files={changedFiles}
+    {selectedKinds}
+    {onSelectKinds}
     {baseLabel}
     {scopeLabel}
     {onOpenFile}

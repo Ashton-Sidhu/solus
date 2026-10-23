@@ -1,4 +1,5 @@
-import type { Integration, IntegrationConnection } from '@solus/contracts/integration-types'
+import { DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection } from '@solus/contracts/integration-types'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import type { UploadMaterial, VaultConnection } from '@solus/contracts/vault'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
@@ -6,23 +7,41 @@ import type { ProfileIntegrationOwner } from '../execution/seats/agent-profile'
 import { mcpCredentialRef, type AccountCredentialRead, type Vault } from '../vault/vault'
 import type { IntegrationClients, IntegrationConnectionStore } from './connection-store'
 import type { IntegrationStore } from './integration-store'
-import { discoverAddressOf, type IntegrationConnectionEvents, type IntegrationOAuth } from './oauth'
+import type { IntegrationConnectionEvents, IntegrationOAuth } from './oauth'
 import { readServerIdentity } from './server-identity'
 
 const log = createLogger('integrations', 'connections.ts')
 
 /** What the gateway asks for one call (docs/plans/mcp-integrations.md §4.1 rules 3 and 4). */
 export interface IntegrationCredentials {
-  /** The Authorization header value for this integration and person, refreshed when due; null when there is no usable connection. Never throws for "not connected". */
-  authorizationFor(integrationId: string, personKey: string): Promise<string | null>
+  /**
+   * The Authorization header value for this integration, person, and account
+   * (the first when left out, §13.3), refreshed when due; null when there is no
+   * usable connection. Never throws for "not connected".
+   */
+  authorizationFor(integrationId: string, personKey: string, accountId?: string): Promise<string | null>
   /** The server refused the credential (401/403): record `needs-sign-in` and publish the change. */
-  markNeedsSignIn(integrationId: string, personKey: string, message: string): void
+  markNeedsSignIn(integrationId: string, personKey: string, message: string, accountId?: string): void
   /** The person's own connection row, for `connection_status`; never another person's. */
   statusFor?(integrationId: string, personKey: string): IntegrationConnection | null
+  /** Every account the person connected to the integration, the first first (§13.3). */
+  accountsFor?(integrationId: string, personKey: string): IntegrationConnection[]
+}
+
+/** A credential a first-party connection supplies (§13.1): the token, and the account it belongs to. */
+export interface FirstPartyCredential {
+  token: string
+  label: string | null
 }
 
 export interface IntegrationConnectionsDeps {
   store: IntegrationConnectionStore
+  /**
+   * The person's credential from a Solus connection, for an integration whose
+   * first-party client is that connection's app (GitHub). Null when they have
+   * no such connection. Absent where no first-party connection applies.
+   */
+  firstPartyCredential?: (id: 'github', personKey: string) => Promise<FirstPartyCredential | null>
   integrations: Pick<IntegrationStore, 'get' | 'list'>
   /** Where each person's credential is, on this host or in their account (docs/plans/access-model.md §2.6). */
   vault: Pick<Vault, 'read' | 'save' | 'remove' | 'upload' | 'forget'>
@@ -53,18 +72,25 @@ function keyAuthorization(integration: Integration, key: string): string {
 export class IntegrationConnections implements IntegrationCredentials {
   constructor(private readonly deps: IntegrationConnectionsDeps) {}
 
-  async authorizationFor(integrationId: string, personKey: string): Promise<string | null> {
+  async authorizationFor(integrationId: string, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<string | null> {
     const integration = this.deps.integrations.get(integrationId, ANY_ORGANIZATION)
     if (!integration || integration.auth.kind === 'none') return null
-    const connection = this.deps.store.get(integrationId, personKey)
+    const connection = this.deps.store.get(integrationId, personKey, accountId)
+    if (new IntegrationSignIn(integration).usesSolusGithub) {
+      // The token is the person's Solus GitHub connection, so the row alone says
+      // whether they connected this server: Disconnect and a refusal end its use.
+      if (connection?.status !== 'connected') return null
+      const credential = await this.deps.firstPartyCredential?.('github', personKey)
+      return credential ? `Bearer ${credential.token}` : null
+    }
     // A refused credential waits for the person to sign in again.
     if (connection?.status === 'needs-sign-in') return null
-    const credential = await this.deps.vault.read(personKey, mcpCredentialRef(integration))
+    const credential = await this.deps.vault.read(personKey, mcpCredentialRef(integration, accountId))
     if (!credential) return null
     if (credential.location === 'account') return this.accountAuthorization(integration.id, personKey, credential.read)
     if (integration.auth.kind === 'bearer') return keyAuthorization(integration, credential.token.accessToken)
     try {
-      const token = await this.deps.oauth.refreshIfDue(integrationId, personKey, credential.token)
+      const token = await this.deps.oauth.refreshIfDue(integrationId, personKey, credential.token, accountId)
       return token ? `Bearer ${token.accessToken}` : null
     } catch (error) {
       log.warn('integration_authorization_failed', { integrationId, error: error instanceof Error ? error.message : String(error) })
@@ -113,15 +139,33 @@ export class IntegrationConnections implements IntegrationCredentials {
     }
   }
 
-  markNeedsSignIn(integrationId: string, personKey: string, message: string): void {
+  markNeedsSignIn(integrationId: string, personKey: string, message: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): void {
     const integration = this.deps.integrations.get(integrationId, ANY_ORGANIZATION)
-    if (integration) this.deps.vault.forget(personKey, mcpCredentialRef(integration))
-    this.record(integrationId, personKey, 'needs-sign-in', message)
-    log.info('integration_needs_sign_in', { integrationId, personKey })
+    if (integration) this.deps.vault.forget(personKey, mcpCredentialRef(integration, accountId))
+    this.record(integrationId, personKey, 'needs-sign-in', message, accountId)
+    log.info('integration_needs_sign_in', { integrationId, personKey, accountId })
   }
 
   statusFor(integrationId: string, personKey: string): IntegrationConnection | null {
     return this.deps.store.get(integrationId, personKey)
+  }
+
+  accountsFor(integrationId: string, personKey: string): IntegrationConnection[] {
+    return this.deps.store.accounts(integrationId, personKey)
+  }
+
+  /**
+   * An integration whose first-party client is the Solus GitHub app (§13.1):
+   * the person's Solus GitHub connection is the credential, so connecting
+   * needs no sign-in. Throws a plain message when they have no GitHub connection.
+   */
+  async connectFirstParty(integration: Integration, personKey: string): Promise<IntegrationConnection> {
+    const credential = await this.deps.firstPartyCredential?.('github', personKey)
+    if (!credential) throw new Error('Connect GitHub to Solus first, in Settings → Source Control. This server then uses that connection.')
+    const connection = this.deps.store.upsert(integration.id, personKey, { status: 'connected', source: 'host', label: credential.label, info: credential.label ? { displayName: credential.label } : null, error: null })
+    this.deps.events.connectionChanged(personKey, { integrationId: integration.id, connection })
+    log.info('integration_first_party_connected', { integrationId: integration.id, personKey, client: 'github' })
+    return connection
   }
 
   /** An anonymous integration needs no sign-in: the person's row says so. */
@@ -132,35 +176,35 @@ export class IntegrationConnections implements IntegrationCredentials {
   }
 
   /** A `bearer` integration's key, kept only after the server accepted it. Throws a plain message. */
-  async submitKey(integration: Integration, personKey: string, key: string): Promise<IntegrationConnection> {
+  async submitKey(integration: Integration, personKey: string, key: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<IntegrationConnection> {
     if (integration.auth.kind !== 'bearer') throw new Error('This integration does not take an API key.')
     const identity = await readServerIdentity(integration.url, keyAuthorization(integration, key), this.deps.fetch)
-    this.deps.vault.save(personKey, mcpCredentialRef(integration), { accessToken: key, tokenType: 'api-key' })
+    this.deps.vault.save(personKey, mcpCredentialRef(integration, accountId), { accessToken: key, tokenType: 'api-key' })
     const connection = this.deps.store.upsert(integration.id, personKey, {
       status: 'connected',
       source: 'host',
       label: identity.label,
       info: identity.label ? { displayName: identity.label } : null,
       error: null,
-    })
+    }, accountId)
     this.deps.events.connectionChanged(personKey, { integrationId: integration.id, connection })
-    log.info('integration_key_connected', { integrationId: integration.id, personKey })
+    log.info('integration_key_connected', { integrationId: integration.id, personKey, accountId })
     return connection
   }
 
   /** Removes the person's token and row; revokes an OAuth token when the server names a revocation endpoint. */
-  async disconnect(integration: Integration, personKey: string): Promise<boolean> {
-    const token = this.deps.vault.remove(personKey, mcpCredentialRef(integration))
-    const removed = this.deps.store.remove(integration.id, personKey)
-    this.deps.events.connectionChanged(personKey, { integrationId: integration.id, connection: null })
+  async disconnect(integration: Integration, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<boolean> {
+    const token = this.deps.vault.remove(personKey, mcpCredentialRef(integration, accountId))
+    const removed = this.deps.store.remove(integration.id, personKey, accountId)
+    this.deps.events.connectionChanged(personKey, { integrationId: integration.id, accountId, connection: null })
     if (token && integration.auth.kind === 'oauth') await this.deps.oauth.revoke(integration, token)
-    log.info('integration_disconnected', { integrationId: integration.id, personKey })
+    log.info('integration_disconnected', { integrationId: integration.id, personKey, accountId })
     return removed || token !== null
   }
 
   /** The integration was removed: every person's row and credential here, and the host's client for it. */
   removeAllFor(integration: Integration): void {
-    for (const personKey of this.deps.store.removeAllFor(integration.id)) this.deps.vault.remove(personKey, mcpCredentialRef(integration))
+    for (const { personKey, accountId } of this.deps.store.removeAllFor(integration.id)) this.deps.vault.remove(personKey, mcpCredentialRef(integration, accountId))
     this.deps.clients.removeClient(integration.id)
   }
 
@@ -231,7 +275,7 @@ export class IntegrationConnections implements IntegrationCredentials {
     if (credential?.location !== 'host') return null
     const token = credential.token
     if (integration.auth.kind === 'bearer') return { kind: 'key', key: token.accessToken, scheme: integration.auth.scheme }
-    const discover = discoverAddressOf(integration)
+    const discover = new IntegrationSignIn(integration).discoverAddress
     if (!token.refreshToken || !discover) return null
     try {
       const tokenEndpoint = (await this.deps.oauth.tokenEndpointOf(integration)).href
@@ -262,8 +306,8 @@ export class IntegrationConnections implements IntegrationCredentials {
     this.record(integrationId, personKey, 'connected', null)
   }
 
-  private record(integrationId: string, personKey: string, status: IntegrationConnection['status'], error: string | null): void {
-    const connection = this.deps.store.upsert(integrationId, personKey, { status, error })
+  private record(integrationId: string, personKey: string, status: IntegrationConnection['status'], error: string | null, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): void {
+    const connection = this.deps.store.upsert(integrationId, personKey, { status, error }, accountId)
     this.deps.events.connectionChanged(personKey, { integrationId, connection })
   }
 }

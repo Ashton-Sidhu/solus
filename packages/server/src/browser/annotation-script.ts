@@ -82,9 +82,13 @@ function installerBody(): string {
       // and is never reused after an earlier mark is removed.
       count: 0,
       hover: null,
+      pointer: null,
       drag: null,
       browserRegion: null,
       liveScheduled: false,
+      // A sent mark drawn again for the reader. Never one of the annotations.
+      reveal: null,
+      revealScheduled: false,
     };
 
     const layer = document.createElement('div');
@@ -101,8 +105,10 @@ function installerBody(): string {
     // as it got longer.
     const marksGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     const liveGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const revealGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     svg.appendChild(marksGroup);
     svg.appendChild(liveGroup);
+    svg.appendChild(revealGroup);
     layer.appendChild(svg);
     // Pick labels and selection counts are HTML, not SVG: their
     // pills use border-radius and box-shadow, which CSS states exactly and SVG
@@ -113,6 +119,9 @@ function installerBody(): string {
     const liveHtmlGroup = document.createElement('div');
     liveHtmlGroup.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
     layer.appendChild(liveHtmlGroup);
+    const revealHtmlGroup = document.createElement('div');
+    revealHtmlGroup.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
+    layer.appendChild(revealHtmlGroup);
 
     function mount() {
       if (document.body && !layer.isConnected) document.body.appendChild(layer);
@@ -230,7 +239,12 @@ function installerBody(): string {
       add({ tool: 'region', rect: elementBounds(elements), elements: elements });
     }
 
+    function scrollPosition() {
+      return { x: Math.round(window.scrollX), y: Math.round(window.scrollY) };
+    }
+
     function add(annotation) {
+      annotation.scroll = scrollPosition();
       annotation.id = 'an' + (++state.seq);
       annotation.number = ++state.count;
       annotation.createdAt = Date.now();
@@ -323,6 +337,85 @@ function installerBody(): string {
         }
       }
       renderLive();
+    }
+
+    function pinBadge(rect, pin) {
+      const tag = document.createElement('div');
+      tag.style.cssText =
+        'position:absolute;left:' + Math.max(4, rect.x - 9) + 'px;top:' + Math.max(4, rect.y - 9) + 'px;' +
+        'min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;' +
+        'display:flex;align-items:center;justify-content:center;' +
+        'background:' + HIGHLIGHT + ';color:' + ON_HIGHLIGHT + ';font:600 10.5px ' + FONT + ';' +
+        'box-shadow:0 1px 4px rgba(0,0,0,.22);';
+      tag.textContent = String(pin);
+      return tag;
+    }
+
+    /** The element a sent pick named, if this page still has it: the ref while
+     *  the page has not reloaded, then the test id or id it was named by. */
+    function revealElement(mark) {
+      if (mark.tool !== 'pick') return null;
+      const byRef = mark.ref ? document.querySelector(mark.ref) : null;
+      if (byRef || !mark.identifier) return byRef;
+      for (const el of document.querySelectorAll('[data-testid]')) {
+        if (el.getAttribute('data-testid') === mark.identifier) return el;
+      }
+      return document.getElementById(mark.identifier);
+    }
+
+    /** A sent mark, drawn where it is now. An element is measured again; a
+     *  stroke or a box is moved by however far the page scrolled since. */
+    function renderReveal() {
+      clear(revealGroup);
+      while (revealHtmlGroup.firstChild) revealHtmlGroup.removeChild(revealHtmlGroup.firstChild);
+      const reveal = state.reveal;
+      if (!reveal) return;
+      mount();
+      const mark = reveal.mark;
+      if (reveal.element && reveal.element.isConnected) {
+        const rect = box(reveal.element);
+        revealGroup.appendChild(outline(rect, 2, false));
+        revealHtmlGroup.appendChild(pinBadge(rect, mark.pin));
+        return;
+      }
+      const dx = reveal.anchor.x - window.scrollX;
+      const dy = reveal.anchor.y - window.scrollY;
+      const rect = { x: mark.rect.x + dx, y: mark.rect.y + dy, width: mark.rect.width, height: mark.rect.height };
+      if (mark.tool === 'draw' && mark.path && mark.path.length > 1) {
+        revealGroup.appendChild(stroke(mark.path.map((p) => ({ x: p.x + dx, y: p.y + dy })), 3));
+      } else {
+        revealGroup.appendChild(outline(rect, 2, mark.tool === 'region'));
+      }
+      revealHtmlGroup.appendChild(pinBadge(rect, mark.pin));
+    }
+
+    function scheduleReveal() {
+      if (state.revealScheduled) return;
+      state.revealScheduled = true;
+      window.requestAnimationFrame(() => {
+        state.revealScheduled = false;
+        renderReveal();
+      });
+    }
+
+    function hideReveal() {
+      if (!state.reveal) return;
+      state.reveal = null;
+      renderReveal();
+    }
+
+    /** Bring a sent mark into view and draw it. Scrolling is instant: the
+     *  reader asked to be taken there, not to watch the page travel. */
+    function showReveal(mark) {
+      const element = revealElement(mark);
+      if (element) {
+        element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+        state.reveal = { mark: mark, element: element, anchor: scrollPosition() };
+      } else {
+        if (mark.scroll) window.scrollTo({ left: mark.scroll.x, top: mark.scroll.y, behavior: 'instant' });
+        state.reveal = { mark: mark, element: null, anchor: mark.scroll || scrollPosition() };
+      }
+      renderReveal();
     }
 
     /**
@@ -461,15 +554,24 @@ function installerBody(): string {
         return;
       }
       if (state.tool === 'pick') {
-        const el = target(event);
-        const next = el ? box(el) : null;
-        const same = next && state.hover
-          && next.x === state.hover.x && next.y === state.hover.y
-          && next.width === state.hover.width && next.height === state.hover.height;
-        if (same) return;
-        state.hover = next;
-        renderLive();
+        state.pointer = { clientX: event.clientX, clientY: event.clientY };
+        updateHover();
       }
+    }
+
+    /** Outline the element under the last pointer position. A scroll moves the
+     *  page under a still pointer without a pointer event, so the scroll
+     *  handler calls this too. */
+    function updateHover() {
+      if (state.tool !== 'pick' || state.drag || !state.pointer) return;
+      const el = target(state.pointer);
+      const next = el ? box(el) : null;
+      const same = next && state.hover
+        && next.x === state.hover.x && next.y === state.hover.y
+        && next.width === state.hover.width && next.height === state.hover.height;
+      if (same || (!next && !state.hover)) return;
+      state.hover = next;
+      renderLive();
     }
 
     function onUp(event) {
@@ -489,6 +591,10 @@ function installerBody(): string {
       render();
     }
 
+    // A revealed mark is there to be found, then out of the way: the next touch
+    // or key on the page puts it away.
+    window.addEventListener('pointerdown', hideReveal, true);
+    window.addEventListener('keydown', hideReveal, true);
     // Capture phase, so the page never sees a gesture meant for the overlay.
     window.addEventListener('pointerdown', onDown, true);
     window.addEventListener('pointermove', onMove, true);
@@ -513,6 +619,8 @@ function installerBody(): string {
     // them invalidates every DOM-backed rect. Picks and box selections can be
     // measured again; freehand stays where the user put it.
     window.addEventListener('scroll', () => {
+      if (state.reveal) scheduleReveal();
+      updateHover();
       if (!state.annotations.length) return;
       for (const annotation of state.annotations) {
         if (annotation.element) {
@@ -520,6 +628,7 @@ function installerBody(): string {
           if (el) {
             annotation.element = describe(el);
             annotation.rect = annotation.element.rect;
+            annotation.scroll = scrollPosition();
           }
         }
         if (annotation.elements) {
@@ -529,7 +638,10 @@ function installerBody(): string {
             if (el) elements.push(describe(el));
           }
           annotation.elements = elements;
-          if (elements.length) annotation.rect = elementBounds(elements);
+          if (elements.length) {
+            annotation.rect = elementBounds(elements);
+            annotation.scroll = scrollPosition();
+          }
         }
       }
       render();
@@ -544,7 +656,9 @@ function installerBody(): string {
       // Freehand was unusable for exactly this reason.
       if (state.tool === tool) return;
       state.tool = tool;
+      hideReveal();
       state.hover = null;
+      state.pointer = null;
       state.drag = null;
       state.browserRegion = null;
       // The cursor is the only thing that says a tool is armed once the pointer
@@ -554,6 +668,10 @@ function installerBody(): string {
     };
 
     state.apply = function (op) {
+      if (op.kind === 'reveal') {
+        showReveal(op);
+        return;
+      }
       if (op.kind === 'clear') {
         state.annotations = [];
         state.browserRegion = null;
@@ -616,6 +734,7 @@ function installerBody(): string {
             number: annotation.number,
           };
           if (annotation.path) copy.path = annotation.path;
+          if (annotation.scroll) copy.scroll = annotation.scroll;
           if (annotation.element) copy.element = annotation.element;
           if (annotation.elements) copy.elements = annotation.elements;
           if (annotation.note) copy.note = annotation.note;

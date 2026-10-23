@@ -13,7 +13,7 @@ const page = <T extends z.ZodType>(item: T) => z.strictObject({
 
 export const solusApiScopeSchema = z.enum(['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'sessions:admit', 'insights:read', 'profile:read', 'integrations:read', 'integrations:write'])
 export type SolusApiScope = z.infer<typeof solusApiScopeSchema>
-/** What a person's client may do: over its socket, and in the credential it exchanges over HTTP. */
+/** What a person's client may do, over its socket or with its token over HTTP. */
 export const CLIENT_SOLUS_API_SCOPES: SolusApiScope[] = ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'insights:read']
 
 export const workspaceIdSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/)
@@ -68,26 +68,6 @@ const record = {
 }
 
 // Auth and discovery
-
-export const workspaceAuthSessionRequestSchema = z.strictObject({
-  scopes: z.array(solusApiScopeSchema).min(1).max(solusApiScopeSchema.options.length).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
-  shareSecret: z.string().min(32).max(256).meta({ writeOnly: true }).optional(),
-  organizationId: workspaceIdSchema.optional(),
-  /** A link guest states who it is, as at the host's ticket door: the id its page keeps and the name it typed. */
-  guestId: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/).optional(),
-  displayName: z.string().max(80).optional(),
-}).meta({ description: 'Source authority determines the actor, service and Local or organization context. A source token that lists several organizations admits only the organizationId named here, and only when it lists it; a source that names one organization ignores it. The guest of a share link holds no token: with no bearer, shareSecret and guestId are the whole credential, and the session reaches only the one shared resource, with the link\'s current role, until the link is removed or regenerated. Requested scopes only narrow authority.', examples: [{ scopes: ['tasks:read', 'tasks:write'] }] })
-export type WorkspaceAuthSessionRequest = z.infer<typeof workspaceAuthSessionRequestSchema>
-
-export const workspaceAuthSessionSchema = z.strictObject({
-  accessToken: z.string().min(1).max(4096).meta({ 'x-solus-sensitive': true }),
-  tokenType: z.literal('Bearer'),
-  expiresAt: datetime,
-  scopes: z.array(solusApiScopeSchema).max(solusApiScopeSchema.options.length).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
-  home: workspaceRecordHomeSchema,
-  subject: workspaceActorSchema,
-}).meta({ description: 'Verified source authority fixes the actor and home in this credential. At most eight hours and never beyond source expiry. Renewal requires source authority; this bearer cannot renew itself. Keep credentials out of URLs, logs and artifacts.' })
-export type WorkspaceAuthSession = z.infer<typeof workspaceAuthSessionSchema>
 
 export const workspaceCapabilitiesSchema = z.strictObject({
   serviceId: workspaceIdSchema,
@@ -344,14 +324,56 @@ export const workspaceSessionPullRequestSchema = z.strictObject({
   }).optional(),
   missing: z.boolean().optional(),
   watch: z.strictObject({ startedAt: z.number().int().min(0) }).optional(),
-}).meta({ description: 'A pull request the session works on. Its id in a path is `repository#number`, URL-encoded.' })
+}).meta({ description: 'A pull request the session works on.' })
 export type WorkspaceSessionPullRequest = z.infer<typeof workspaceSessionPullRequestSchema>
 export const workspaceSessionPullRequestListSchema = z.strictObject({ items: z.array(workspaceSessionPullRequestSchema).max(500) })
 export type WorkspaceSessionPullRequestList = z.infer<typeof workspaceSessionPullRequestListSchema>
-export const workspaceSessionPullRequestPutSchema = z.strictObject({
-  url: z.string().min(1).max(2048).meta({ description: "The pull request's URL. It must name the pull request in the path." }),
+
+/** The record a link starts from: a task or a session. */
+export const workspaceLinkSourceSchema = z.strictObject({ kind: z.enum(['task', 'session']), id: workspaceIdSchema })
+export type WorkspaceLinkSource = z.infer<typeof workspaceLinkSourceSchema>
+
+/**
+ * What a link points at. A task links a work, a plan, a pull request, an automation,
+ * or a session; a session links a work, a file, an automation, or a pull request.
+ */
+export const workspaceLinkTargetSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('work'), id: workspaceIdSchema }),
+  z.strictObject({ kind: z.literal('plan'), sessionId: workspaceIdSchema, planId: z.string().min(1).max(256).meta({ description: 'The tool-use id of the plan in its session.' }) }),
+  z.strictObject({ kind: z.literal('pr'), url: z.string().min(1).max(2048).meta({ description: "The pull request's URL." }) }),
+  z.strictObject({ kind: z.literal('automation'), id: workspaceIdSchema, hostId: workspaceIdSchema.optional().meta({ description: 'The host that holds the automation, when this home does not.' }) }),
+  z.strictObject({ kind: z.literal('session'), id: workspaceIdSchema }),
+  z.strictObject({ kind: z.literal('file'), path: z.string().min(1).max(4096), hostId: workspaceIdSchema.meta({ description: 'The host that holds the file: the session\'s execution host.' }) }),
+])
+export type WorkspaceLinkTarget = z.infer<typeof workspaceLinkTargetSchema>
+
+/** Link two records. The same link again changes nothing. */
+export const workspaceLinkSchema = z.strictObject({
+  from: workspaceLinkSourceSchema,
+  to: workspaceLinkTargetSchema,
+  title: z.string().max(512).optional().meta({ description: 'A label. When omitted, it is read from the target.' }),
+  role: z.enum(['working', 'referenced']).optional().meta({ description: "A task's session only: 'working' (the default) or 'referenced'." }),
+  originSessionId: workspaceIdSchema.optional().meta({ description: 'The session whose agent makes the link. A pull request of a session that works on the task stays that session\'s link.' }),
+}).meta({ examples: [{ from: { kind: 'session', id: 'ses_01' }, to: { kind: 'pr', url: 'https://github.com/acme/app/pull/7' } }] })
+export type WorkspaceLink = z.infer<typeof workspaceLinkSchema>
+export const workspaceLinkDeleteSchema = workspaceLinkSchema.pick({ from: true, to: true })
+export type WorkspaceLinkDelete = z.infer<typeof workspaceLinkDeleteSchema>
+
+/** A comment on a task. The author is the caller. */
+export const workspaceCreateTaskCommentSchema = z.strictObject({
+  body: z.string().min(1).max(100000),
+  originSessionId: workspaceIdSchema.optional().meta({ description: 'The session whose agent wrote the comment.' }),
 })
-export type WorkspaceSessionPullRequestPut = z.infer<typeof workspaceSessionPullRequestPutSchema>
+export type WorkspaceCreateTaskComment = z.infer<typeof workspaceCreateTaskCommentSchema>
+export const workspaceTaskCommentSchema = z.strictObject({
+  id: workspaceIdSchema,
+  taskId: workspaceIdSchema,
+  body: z.string().max(100000),
+  author: workspaceAttributionSchema.nullable(),
+  originSessionId: workspaceIdSchema.nullable(),
+  createdAt: datetime,
+})
+export type WorkspaceTaskComment = z.infer<typeof workspaceTaskCommentSchema>
 
 /** A change to a session: `settled` for every person (editor), the rest in the caller's own view (viewer). */
 export const workspaceUpdateSessionSchema = z.strictObject({
@@ -414,6 +436,13 @@ export type WorkspaceSession = z.infer<typeof workspaceSessionSchema>
 
 export const workspaceSessionAdmissionRequestSchema = z.strictObject({
   sessionId: workspaceIdSchema,
+  record: z.strictObject({
+    provider: agentProvider,
+    projectPath: z.string().max(4096),
+    cwd: z.string().max(4096).nullable(),
+    /** A chat is its owner's alone until they share it; any other session is the organization's to open. */
+    privateToOwner: z.boolean(),
+  }).optional().meta({ description: 'The first facts of the session. The API writes the session record with the admission; the host sends later facts in its delivery.' }),
 }).meta({ description: 'The Solus session id of the run the credential was issued for. Any other id is refused.', examples: [{ sessionId: 'session_example' }] })
 export type WorkspaceSessionAdmissionRequest = z.infer<typeof workspaceSessionAdmissionRequestSchema>
 

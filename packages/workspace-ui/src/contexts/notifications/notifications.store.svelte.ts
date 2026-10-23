@@ -113,7 +113,7 @@ class NotificationsStore {
       this.snapshotRevisions.set(serverId, (this.snapshotRevisions.get(serverId) ?? 0) + 1)
       this.consumeSnapshot(serverId, entries, deps)
     })
-    const stopStatus = serverConnections.onStatusChange((serverId, status) => {
+    const stopStatus = serverConnections.onPhaseChange((serverId, status) => {
       if (status === 'connected') void this.seedHost(serverId, deps)
       else {
         this.snapshotRevisions.set(serverId, (this.snapshotRevisions.get(serverId) ?? 0) + 1)

@@ -17,10 +17,10 @@ function account(answer: (request: AgentProfileHttpRequest) => Response | null |
 }
 
 describe('the account vault calls', () => {
-  test('status reads every connection from GET /v1/account/vault', async () => {
+  test('status reads every connection from GET /v1/vault', async () => {
     const { requests, sent } = account(() => Response.json({ connections: [CONNECTED] }))
     expect(await requests.accountVault()).toEqual({ kind: 'ok', connections: [CONNECTED] })
-    expect(sent).toEqual([{ method: 'GET', path: '/v1/account/vault' }])
+    expect(sent).toEqual([{ method: 'GET', path: '/v1/vault' }])
   })
 
   test('a pasted key and a disconnect write, then read the statuses as they are after the write', async () => {
@@ -28,7 +28,7 @@ describe('the account vault calls', () => {
     const { requests, sent } = account((request) => request.method === 'DELETE' ? new Response(null, { status: 204 }) : request.method === 'PUT' ? Response.json(CONNECTED) : Response.json({ connections: [CONNECTED] }))
     expect(await requests.accountVaultSaveKey({ ref: LINEAR, key: 'k' })).toEqual({ kind: 'ok', connections: [CONNECTED] })
     expect(await requests.accountVaultDisconnect({ ref: LINEAR })).toEqual({ kind: 'ok', connections: [CONNECTED] })
-    expect(sent.map((request) => `${request.method} ${request.path}`)).toEqual(['PUT /v1/account/vault', 'GET /v1/account/vault', 'DELETE /v1/account/vault', 'GET /v1/account/vault'])
+    expect(sent.map((request) => `${request.method} ${request.path}`)).toEqual(['PUT /v1/vault', 'GET /v1/vault', 'DELETE /v1/vault', 'GET /v1/vault'])
     expect(sent[0].body).toEqual({ ref: LINEAR, key: 'k' })
   })
 
@@ -38,11 +38,11 @@ describe('the account vault calls', () => {
     expect(sent).toHaveLength(1)
   })
 
-  test('a sign-in starts at POST /v1/account/vault/connect; a server the cloud cannot sign in to is refused with its reason', async () => {
+  test('a sign-in starts at POST /v1/vault/connect; a server the cloud cannot sign in to is refused with its reason', async () => {
     let status = 200
     const { requests, sent } = account(() => status === 200 ? Response.json({ kind: 'browser', url: 'https://app.test/oauth/vault/start?ticket=t' }) : Response.json({ error: 'server_not_in_profile', message: 'Not in your profile.' }, { status }))
     expect(await requests.accountVaultConnect({ ref: { kind: 'provider', provider: 'github' } })).toEqual({ kind: 'ok', start: { kind: 'browser', url: 'https://app.test/oauth/vault/start?ticket=t' } })
-    expect(sent[0]).toEqual({ method: 'POST', path: '/v1/account/vault/connect', body: { ref: { kind: 'provider', provider: 'github' } } })
+    expect(sent[0]).toEqual({ method: 'POST', path: '/v1/vault/connect', body: { ref: { kind: 'provider', provider: 'github' } } })
     status = 404
     expect(await requests.accountVaultConnect({ ref: LINEAR })).toEqual({ kind: 'refused', message: 'Not in your profile.' })
   })

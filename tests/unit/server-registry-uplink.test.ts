@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
-import { dialableRoutes, loadServers, nextRouteUrl, savedServerRoutes, type SavedServer } from '@solus/client-core/server-registry'
+import { dialableRoutes, loadServers, savedServerRoutes, type SavedServer } from '@solus/client-core/server-registry'
 import { mergeDirectoryIntoSaved, organizationIdFor, savedServerFromDirectory, withNearbyRoutes } from '@solus/client-core/uplink-session'
 
 // docs/plans/personal-uplink.md C1: the account's directory is a fourth source of
@@ -57,13 +57,6 @@ describe('saved hosts and their routes', () => {
     const routes = [tunnel, { kind: 'direct' as const, url: 'http://192.168.1.42:3000' }]
     expect(dialableRoutes(routes, 'http://192.168.1.42:3000').map((route) => route.kind)).toEqual(['direct', 'tunnel'])
     expect(dialableRoutes(routes, 'https://app.example.test').map((route) => route.kind)).toEqual(['tunnel'])
-  })
-
-  test('after a failed dial the next route is tried, round-robin, so the direct route is found again', () => {
-    const routes = [{ kind: 'direct' as const, url: 'http://192.168.1.42:3000' }, tunnel]
-    expect(nextRouteUrl(routes, 'http://192.168.1.42:3000', 'http://x')).toBe(tunnel.url)
-    expect(nextRouteUrl(routes, tunnel.url, 'http://x')).toBe('http://192.168.1.42:3000')
-    expect(nextRouteUrl([tunnel], tunnel.url, 'http://x')).toBeNull()
   })
 
   test('old and new records decode side by side', () => {
@@ -212,19 +205,6 @@ describe('merging the directory into saved hosts', () => {
     expect(renamed[0].label).toBe('Build box')
     const personal = mergeDirectoryIntoSaved([paired({ label: 'Studio' })], [listed({ label: 'enrolled-name' })], DIRECTORY, 10)
     expect(personal[0].label).toBe('Studio')
-  })
-
-  test('a workspace service saved as a host by an older build is not read as a machine', () => {
-    // WHY: a workspace service is a cloud service, never a host. Read as a
-    // machine it would be dialed, listed, and offered as a place to run work.
-    localStorage.setItem(KEY, JSON.stringify([
-      paired(),
-      {
-        id: 'workspace:org-1', label: 'Acme', url: 'https://ws.example.test', sessionToken: '', installationId: 'workspace:org-1', lastConnected: 1,
-        uplink: { hostId: 'workspace:org-1', directoryUrl: DIRECTORY, kind: 'cloud', organizationIds: ['org-1'] },
-      },
-    ]))
-    expect(loadServers().map((server) => server.id)).toEqual(['inst-1'])
   })
 
   test('hosts from another directory origin are left alone', () => {

@@ -123,7 +123,7 @@ describe('task list resume', () => {
   test('a revision another reader was given sends the whole list', async () => {
     await taskStore.createTask('local', { title: 'Kept' })
     const owner = await read()
-    const remoteOwner = { kind: 'remote-owner', userId: 'user-1', deviceId: 'device-1', expiresAt: 1, deviceLabel: 'Phone' } as const
+    const remoteOwner = { kind: 'owner', via: 'grant', userId: 'user-1', deviceId: 'device-1', expiresAt: 1, deviceLabel: 'Phone' } as const
     const ctx: HandlerCtx = { clientId: 'remote', principal: remoteOwner, actor: actorFor(remoteOwner) }
     const resumed = await read({ since: owner.revision }, ctx)
     expect(resumed.changedTaskIds).toBeUndefined()

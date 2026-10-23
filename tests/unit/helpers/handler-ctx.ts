@@ -7,7 +7,7 @@ import { actorFor } from '@solus/server/admission/actor'
  * with no paired device — the caller every method is open to. `SolusServer.handle()`
  * resolves the actor; a test that calls a handler directly carries it here.
  */
-const LOCAL_OWNER = { kind: 'local-owner', deviceId: null, deviceLabel: 'Test' } as const
+const LOCAL_OWNER = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Test' } as const
 
 export const TEST_HANDLER_CTX: HandlerCtx = { clientId: 'test', principal: LOCAL_OWNER, actor: actorFor(LOCAL_OWNER) }
 

@@ -15,18 +15,17 @@ const identityLoaders = new Map<string, SolusAPI['listProjectIdentities']>()
 // A real transport opens a socket and reads browser lifecycle globals; the
 // behavior under test is only when a connection's side effects run.
 mock.module('@solus/client-core/server-connection', () => ({
-  createSolusConnection: (target: SolusServerTarget, options: {
-    onStatusChange?: (status: string, attempt: number) => void
-  }) => {
+  createSolusConnection: (target: SolusServerTarget) => {
     const transport = {
       events: { subscribe: () => () => {} },
-      start: () => {
-        startedTransports.push(target.id)
-        options.onStatusChange?.('connecting', 0)
-      },
+      serverUrl: target.url,
+      start: () => { startedTransports.push(target.id) },
       probe: async () => {},
       attachDialOutcomeReporter: () => {},
-      switchServerUrl: (url: string) => switchedUrls.push(`${target.id}:${url}`),
+      switchServerUrl: (url: string) => {
+        transport.serverUrl = url
+        switchedUrls.push(`${target.id}:${url}`)
+      },
       destroy: () => destroyedTransports.push(target.id),
     }
     const api = {
@@ -37,6 +36,7 @@ mock.module('@solus/client-core/server-connection', () => ({
     return { transport: transport as unknown as WsTransport, api: api as unknown as SolusAPI, events: transport.events }
   },
   savedServerTarget: (server: { id: string }) => server as SolusServerTarget,
+  preferredRouteUrl: (server: { url: string }) => server.url,
 }))
 
 const { ServerConnections } = await import('@solus/client-core/server-connections')
@@ -272,7 +272,7 @@ describe('lazily created connections', () => {
     connections.registerTarget(remoteTarget)
     const statuses: string[] = []
     const created: string[] = []
-    connections.onStatusChange((serverId, status) => statuses.push(`${serverId}:${status}`))
+    connections.onPhaseChange((serverId, phase) => statuses.push(`${serverId}:${phase}`))
     connections.onConnectionCreated((connection) => created.push(connection.serverId))
 
     const connection = connections.ensure('remote')

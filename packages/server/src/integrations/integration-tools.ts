@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { mcpAppToolMetadataSchema } from '@solus/contracts/mcp-apps'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { ACCOUNT_INPUT, integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ownerKeyOf, type Actor } from '../admission/actor'
 import { recordScopeOf } from '../admission/principal'
 import { createLogger } from '../logger'
@@ -66,7 +66,7 @@ export async function integrationAgentTools(actor: Actor): Promise<AgentTool[]> 
       // An MCP App tool whose `visibility` leaves out `model` is for the app alone.
       const appMetadata = mcpAppToolMetadataSchema.safeParse(upstream._meta)
       if (appMetadata.success && appMetadata.data.ui?.visibility && !appMetadata.data.ui.visibility.includes('model')) continue
-      const agentTool = upstreamToolToAgentTool(integration, upstream, current)
+      const agentTool = upstreamToolToAgentTool(integration, upstream, current, current.accountChoices(integration.id, personKey))
       if (names.has(agentTool.name)) {
         if (!reportedCollisions.has(agentTool.name)) {
           reportedCollisions.add(agentTool.name)
@@ -86,12 +86,18 @@ export function upstreamToolToAgentTool(
   integration: Pick<Integration, 'id' | 'name' | 'slug'>,
   upstream: UpstreamTool,
   calls: Pick<IntegrationGateway, 'call'>,
+  /** The labels of the person's accounts when there are several (§13.3); the tool then takes `solus_account`. */
+  accounts: string[] = [],
 ): AgentTool {
   const fields = inputFieldsFor(upstream.inputSchema)
+  const readOnly = toolSummary(upstream).readOnly
+  const accountField = accounts.length > 1
+    ? { [ACCOUNT_INPUT]: z.enum(accounts).optional().describe(readOnly ? `Which ${integration.name} account. Leave out to read from every account.` : `Which ${integration.name} account. Required: the user has several.`) }
+    : {}
   const agentTool: AgentTool = {
     name: integrationToolName(integration.slug, upstream.name),
     description: `${integration.name}: ${upstream.description ?? upstream.title ?? upstream.name}`.slice(0, DESCRIPTION_MAX_LENGTH),
-    inputFields: fields ?? {},
+    inputFields: { ...(fields ?? {}), ...accountField },
     alwaysLoad: false,
     requiresApproval: toolSummary(upstream).destructive,
     execute: (input, context) => calls.call(integration.id, upstream.name, input, context),

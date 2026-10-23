@@ -34,8 +34,8 @@ const credentialKeyFor = (principal: Principal): string | null => ownerKeyOf(act
 const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
 const { githubCredentials } = await import('@solus/server/providers/github/credentials')
 const token = z.object({ accessToken: z.string() })
-const localOwner = { kind: 'local-owner', deviceId: null, deviceLabel: 'This Mac' } as const
-const remoteOwner = { kind: 'remote-owner', userId: 'alice', deviceId: 'device', deviceLabel: 'Web', expiresAt: Date.now() + 60_000 } as const
+const localOwner = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'This Mac' } as const
+const remoteOwner = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'device', deviceLabel: 'Web', expiresAt: Date.now() + 60_000 } as const
 afterEach(() => { useAccountReads(null); values.clear(); touches.length = 0; resetHostCategoryForTests() })
 afterAll(() => { if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR; else process.env.SOLUS_DATA_DIR = previousDataDir; rmSync(temp, { recursive: true, force: true }) })
 
@@ -83,7 +83,7 @@ describe('account integration identity', () => {
     expect(calls).toEqual([])
     const withCarol = linkAccount(() => Response.json({ accessToken: 'carol-only', scope: 'repo', login: 'carol' }), ['carol'])
     expect(await withUserScope('carol', () => githubCredentials().chain('github.com'))).toEqual([{ source: 'account', token: 'carol-only' }])
-    expect(withCarol).toEqual([{ path: '/v1/vault/read', authorization: 'Bearer delegated-carol', body: JSON.stringify({ ref: GITHUB }) }])
+    expect(withCarol).toEqual([{ path: '/v1/vault', authorization: 'Bearer delegated-carol', body: JSON.stringify({ ref: GITHUB }) }])
     // Another person's call does not borrow it.
     await expect(withUserScope('dave', () => githubCredentials().chain('github.com'))).rejects.toThrow('Reconnect')
     expect(withCarol).toHaveLength(1)
@@ -110,7 +110,7 @@ describe('account integration identity', () => {
         expect(credentialLocationOf(personKey)).toEqual({ kind: 'account', accountId: 'alice' })
         expect(await vault().read(personKey, GOOGLE, token)).toEqual({ accessToken: 'account-copy' })
       }
-      expect(calls.map((call) => call.path)).toEqual(['/v1/vault/read', '/v1/vault/read'])
+      expect(calls.map((call) => call.path)).toEqual(['/v1/vault', '/v1/vault'])
     } finally {
       useHostUser(null)
     }
@@ -153,6 +153,6 @@ describe('account integration identity', () => {
     expect(await vault().read('alice', GITHUB, token)).toBeNull()
     status = 503
     await expect(vault().read('alice', GITHUB, token)).rejects.toThrow('unavailable')
-    expect(calls.map((call) => call.path)).toEqual(Array(3).fill('/v1/vault/read'))
+    expect(calls.map((call) => call.path)).toEqual(Array(3).fill('/v1/vault'))
   })
 })

@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { attributionSchema } from './user'
 
 /** Files and automations retain the host that owns them. Works retain their existing session membership. */
 export const sessionLinkInputSchema = z.strictObject({
@@ -11,6 +10,3 @@ export const sessionLinkInputSchema = z.strictObject({
   title: z.string().max(512).optional(),
 })
 export type SessionLinkInput = z.infer<typeof sessionLinkInputSchema>
-
-/** The existing sessions outbox delivers `link-item` to the session's record home. */
-export const sessionLinkOpSchema = sessionLinkInputSchema.extend({ actor: attributionSchema })

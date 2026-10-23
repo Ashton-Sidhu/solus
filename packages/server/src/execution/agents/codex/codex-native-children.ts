@@ -22,6 +22,13 @@ export interface SettledChild {
   sessionId: string
   client: CodexAppServerClient
   status: BackgroundTaskStatus
+  /** The child's thread: its task id, and how the agent names it. */
+  threadId: string
+  /** What a direct child of the root reported when its turn ended on its own,
+   *  completed or failed. Null for a nested child, which reports to its own
+   *  parent, for a child someone asked to stop, and for a task that settled
+   *  any other way. */
+  report: string | null
 }
 
 /** A child turn for Stop to interrupt. */
@@ -47,6 +54,12 @@ interface NativeChild extends NativeChildOwner {
   isDetached: boolean
   /** A person stopped it, so its end settles as stopped. */
   isStopping: boolean
+  /** Its own end wakes the root: the root spawned it, not another child, and
+   *  no one asked to stop it. */
+  wakesRoot: boolean
+  /** The child's last answer, for its report: Codex can end the turn without
+   *  its items. */
+  answer: string | null
 }
 
 /** Only what belongs to a sub-agent card. A child must never settle, plan for,
@@ -64,6 +77,16 @@ function threadIdOf(message: CodexServerNotification): string | null {
 function settledStatus(child: NativeChild, turnStatus: TurnStatus): BackgroundTaskStatus {
   if (child.isStopping || turnStatus === 'interrupted') return 'stopped'
   return turnStatus === 'completed' ? 'completed' : 'failed'
+}
+
+/** What a child whose turn ended on its own reports to the root. */
+function childReport(child: NativeChild, turn: Turn): string {
+  if (turn.status === 'failed') return turn.error?.message ?? ''
+  for (let index = turn.items.length - 1; index >= 0; index--) {
+    const item = turn.items[index]!
+    if (item.type === 'agentMessage' && item.text) return item.text
+  }
+  return child.answer ?? ''
 }
 
 /** A turn end Codex will not send: the child was stopped, or its app-server is gone. */
@@ -94,6 +117,8 @@ function turnEnd(threadId: string, turnId: string | null, status: TurnStatus, er
  * keyed by its thread), keeps the root's normalizer, and reports to its card.
  * It settles once: when its turn ends, when Stop interrupts it, when a later
  * root run links it again, or when its app-server exits. Shutdown drops all.
+ * A direct child whose turn ends on its own carries its report, so the
+ * backend can wake the root with it.
  */
 export class CodexNativeChildren {
   private readonly children = new Map<string, NativeChild>()
@@ -111,7 +136,8 @@ export class CodexNativeChildren {
   observeRootRunEvent(message: CodexServerNotification, owner: NativeChildOwner, rootThreadId: string | null): void {
     if (message.method === 'item/started' || message.method === 'item/completed') {
       const item = message.params.item
-      for (const link of codexSpawnedThreadLinks(item)) this.link(link.threadId, link.toolId, owner)
+      const isDirect = threadIdOf(message) === rootThreadId
+      for (const link of codexSpawnedThreadLinks(item)) this.link(link.threadId, link.toolId, owner, isDirect)
       if (item.type === 'subAgentActivity' && item.kind === 'interrupted') this.stopWorking(item.agentThreadId, owner)
       return
     }
@@ -127,7 +153,7 @@ export class CodexNativeChildren {
     if (message.method === 'turn/completed') this.stopWorking(threadId, owner)
   }
 
-  private link(threadId: string, toolUseId: string, owner: NativeChildOwner): void {
+  private link(threadId: string, toolUseId: string, owner: NativeChildOwner, isDirect: boolean): void {
     const child = this.children.get(threadId)
     // A repeated or replayed spawn record is no new work: only the child's
     // next turn/started makes an ended child work again.
@@ -136,9 +162,9 @@ export class CodexNativeChildren {
     // old card's background task ends here, once.
     if (child?.isDetached) {
       this.children.delete(threadId)
-      this.reportSettled(threadId, child, 'completed')
+      this.reportSettled(threadId, child, 'completed', null)
     }
-    this.children.set(threadId, { ...owner, toolUseId, turnId: null, isWorking: true, isDetached: false, isStopping: false })
+    this.children.set(threadId, { ...owner, toolUseId, turnId: null, isWorking: true, isDetached: false, isStopping: false, wakesRoot: isDirect, answer: null })
   }
 
   private stopWorking(threadId: string, owner: NativeChildOwner): void {
@@ -188,18 +214,25 @@ export class CodexNativeChildren {
       child.turnId = message.params.turn.id
       if (isStopPending) this.hooks.interrupt({ sessionId: child.sessionId, threadId, turnId: child.turnId, client: child.client })
     }
+    if (message.method === 'item/completed' && message.params.item.type === 'agentMessage' && message.params.item.text) {
+      child.answer = message.params.item.text
+    }
     // Removed before the report, so a repeated end reports nothing.
     if (message.method === 'turn/completed') this.children.delete(threadId)
     for (const event of child.normalizer.push(message)) {
       if (isCardEvent(event)) this.hooks.emit(child.sessionId, event)
     }
-    if (message.method === 'turn/completed') this.reportSettled(threadId, child, settledStatus(child, message.params.turn.status))
+    if (message.method === 'turn/completed') {
+      const status = settledStatus(child, message.params.turn.status)
+      const isOwnEnd = status === 'completed' || status === 'failed'
+      this.reportSettled(threadId, child, status, child.wakesRoot && isOwnEnd ? childReport(child, message.params.turn) : null)
+    }
     return true
   }
 
-  private reportSettled(threadId: string, child: NativeChild, status: BackgroundTaskStatus): void {
+  private reportSettled(threadId: string, child: NativeChild, status: BackgroundTaskStatus, report: string | null): void {
     this.hooks.emit(child.sessionId, { type: 'background_task_settled', taskId: threadId, toolUseId: child.toolUseId, status })
-    this.hooks.settled({ sessionId: child.sessionId, client: child.client, status })
+    this.hooks.settled({ sessionId: child.sessionId, client: child.client, status, threadId, report })
   }
 
   /** Whether a child of the session is a background task. */
@@ -235,6 +268,7 @@ export class CodexNativeChildren {
     const child = this.children.get(taskId)
     if (!child?.isDetached || child.sessionId !== sessionId) return null
     child.isStopping = true
+    child.wakesRoot = false
     return { sessionId, threadId: taskId, turnId: child.turnId, client: child.client }
   }
 
@@ -274,7 +308,7 @@ export class CodexNativeChildren {
       for (const event of child.normalizer.push(turnEnd(threadId, child.turnId, 'failed', 'Codex app-server exited'))) {
         if (isCardEvent(event)) this.hooks.emit(child.sessionId, event)
       }
-      this.reportSettled(threadId, child, 'killed')
+      this.reportSettled(threadId, child, 'killed', null)
     }
   }
 

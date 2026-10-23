@@ -51,7 +51,6 @@ export const APP_NOTICE_LABELS = {
   review_lens_ready: 'Review lens ready',
   work_review: 'Review requested on a work',
   update_available: 'Update available',
-  host_discovered: 'Host found nearby',
   teammate_presence: 'Teammate joins a session',
   share_revoked: 'Share revoked',
 } as const satisfies Record<AppNoticeEvent, string>

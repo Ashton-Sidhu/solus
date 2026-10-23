@@ -4,7 +4,7 @@ import {
     LoaderCircle as SpinnerGapIcon,
     CircleCheck as CheckCircleIcon,
     CircleX as XCircleIcon,
-    Hourglass as HourglassIcon,
+    Clock as ClockIcon,
     Activity as ActivityIcon,
   } from "@lucide/svelte";
   import type { AttentionKind } from '@solus/contracts/attention-types'
@@ -145,9 +145,9 @@ export function getAttentionIcon(state: AttentionState): StatusIcon | null {
   if (state === 'awaiting_plan')
     return { component: FileTextIcon, color: 'var(--solus-status-running)', spin: false }
   // Amber, not the terracotta of a request: the provider holds this turn, and
-  // nothing waits on the user. The hourglass keeps it apart from a queued prompt's clock.
+  // nothing waits on the user. A clock marks the wait for the limit to reset.
   if (state === 'limited')
-    return { component: HourglassIcon, color: 'var(--warning)', spin: false }
+    return { component: ClockIcon, color: 'var(--warning)', spin: false }
   if (state === 'error')
     return { component: XCircleIcon, color: 'var(--solus-status-error)', spin: false }
   if (state === 'unread')

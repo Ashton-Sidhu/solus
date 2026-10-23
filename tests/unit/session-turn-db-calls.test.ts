@@ -151,7 +151,7 @@ async function drain(): Promise<void> {
 }
 
 async function typedTurn(plane: InstanceType<typeof SessionRuntime>, sessionId: string, clientPromptId: string): Promise<void> {
-  const owner = { clientId: 'c1', actor: actorFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }) }
+  const owner = { clientId: 'c1', actor: actorFor({ kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }) }
   await plane.dispatch.submitPrompt(ctx(sessionId), { prompt: `turn ${clientPromptId}`, clientPromptId }, owner)
   await drain()
 }

@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { generateKeyPairSync, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -182,7 +182,6 @@ export async function startLocalCloud(): Promise<LocalCloudStack> {
     const apiPort = await freePort()
     const solusApiUrl = `http://127.0.0.1:${apiPort}`
     // The Solus API's own client key: the cloud registers its public half as `solus-api`.
-    const solusApiClientKey = JSON.stringify(generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'jwk' }))
     const env: NodeJS.ProcessEnv = { ...process.env }
     for (const key of envFileKeys(cloudDir)) env[key] = ''
     Object.assign(env, {
@@ -191,7 +190,6 @@ export async function startLocalCloud(): Promise<LocalCloudStack> {
       DATABASE_URL: databaseUrl,
       BETTER_AUTH_SECRET: randomBytes(32).toString('base64'),
       INTEGRATION_VAULT_KEY: randomBytes(32).toString('base64'),
-      SOLUS_API_CLIENT_KEY: solusApiClientKey,
       SOLUS_API_URL: solusApiUrl,
       DEVELOPMENT_ACCESS_TOKEN_TTL_SECONDS: String(LAB_ACCESS_TOKEN_TTL_SECONDS),
       // Development defaults, named so a reader sees them: console mail, stub tunnels, in-memory managed hosts.
@@ -230,7 +228,6 @@ export async function startLocalCloud(): Promise<LocalCloudStack> {
       issuer: { issuer: origin, jwksUrl: `${origin}/api/auth/jwks` },
       engine: 'sqlite',
       port: apiPort,
-      clientKey: solusApiClientKey,
       tempRoot: scratchDir,
       longLived: true,
     })

@@ -56,8 +56,8 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-const OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
-const REMOTE_OWNER: Principal = { kind: 'remote-owner', userId: 'alice', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
+const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
+const REMOTE_OWNER: Principal = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
 const member = (userId: string, teamIds: string[] = [], organizationRole: 'owner' | 'member' = 'member', hostKind: 'personal' | 'managed' | 'cloud' = 'managed', organizationId = 'org1'): Principal => ({
   kind: 'org-member', userId, organizationId, organizationRole, teamIds, hostKind, displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
@@ -412,6 +412,31 @@ describe('the link and guests', () => {
     // Changing the role keeps the secret, and the answer is the link as it now stands.
     expect(await shares.setLink({ resource: session, role: 'editor' }, member('alice'))).toEqual({ role: 'editor', secret: link.secret })
     expect((await shares.resolveLinkSecret(link.secret))?.role).toBe('editor')
+  })
+
+  test('a link opens in one read that answers every role as roleFor does, and names the runner', async () => {
+    // WHY (instant-share-open.md §4.4): the resolve waits on the database once, so its
+    // one read must give the same role as every gate, or a link would open a member
+    // as more, or less, than the record lets them.
+    const { shares } = manager()
+    const session = { kind: 'session', id: 's1' } as const
+    await seed('session', 's1', 'alice', 'org1')
+    await database.getDatabase().run(sql`UPDATE session_records SET runner_host_id = 'host-a' WHERE session_id = 's1'`)
+    await shares.setEntries({ resource: session, entries: [{ subject: { kind: 'team', id: 'web' }, role: 'editor' }, { subject: { kind: 'user', id: 'carol' }, role: 'viewer' }] }, member('alice'))
+    const link = (await shares.setLink({ resource: session, role: 'viewer' }, member('alice')))!
+    const opened = (await shares.openLink(link.secret))!
+    expect(opened.share).toEqual((await shares.resolveLinkSecret(link.secret))!)
+    expect(opened.runnerHostId).toBe('host-a')
+    for (const principal of [member('alice'), member('bob', ['web']), member('carol'), member('dave'), member('erin', [], 'owner'), member('bob', ['web'], 'member', 'managed', 'org2')]) {
+      expect(opened.roleOf(principal)).toBe(await shares.roleFor(principal, session))
+    }
+    expect(await shares.openLink('nope')).toBeNull()
+
+    await seed('work', 'w1', 'alice', 'org1')
+    const workLink = (await shares.setLink({ resource: { kind: 'work', id: 'w1' }, role: 'editor' }, member('alice')))!
+    const work = (await shares.openLink(workLink.secret))!
+    expect(work.runnerHostId).toBeNull()
+    expect(work.roleOf(member('alice'))).toBe('owner')
   })
 
   test('a guest is bound to its resource and loses access the moment the link is regenerated or removed', async () => {

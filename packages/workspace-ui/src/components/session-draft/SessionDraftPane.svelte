@@ -16,7 +16,7 @@
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
   import DraftComposer from "./DraftComposer.svelte";
   import ConnectHostPage from "./ConnectHostPage.svelte";
-  import { draftHostGate, type GatedHost } from "./lib/host-gate";
+  import { draftHostGate, type DraftHostGate, type GatedHost } from "./lib/host-gate";
   import { liveActivityClock } from "../../lib/shared-clock";
   import SolusTips from "../layout/SolusTips.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
@@ -72,7 +72,9 @@
     if (hasOnlineHost) return;
     return liveActivityClock.subscribe((value) => (now = value));
   });
-  const hostGate = $derived(draftHostGate(gatedHosts, now));
+  // The last answer, so a Retry from the connect page keeps the page while it dials.
+  let lastHostGate: DraftHostGate = "compose";
+  const hostGate = $derived((lastHostGate = draftHostGate(gatedHosts, now, lastHostGate)));
 
   // A draft is its own routed surface, so it owns the focus transition into its
   // own composer. Address the mounted InputBar directly rather than broadcasting

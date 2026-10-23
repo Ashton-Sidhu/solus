@@ -1,8 +1,8 @@
 import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspace/startup-transcript'
 import { mount, unmount } from 'svelte'
 import '@solus/workspace-ui/index.css'
-import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } from '@solus/client-core/ws-transport'
-import { connectionTokenResource, createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
+import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
+import { savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, newGuestId, resolveShareLink, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
 import { isGuestLinkResource, parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
 import { shareLinkOpening, type GuestOpening } from './lib/share-link-opening'
@@ -11,19 +11,19 @@ import { savedRunnerFor } from '@solus/client-core/session-runner'
 import { guestBoot, type GuestShare } from './lib/guest-boot.svelte'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
-import { getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
+import { getActiveServerId, loadServers, markDirectoryAnswered, saveServers, setActiveServerId, touchLastConnected, upsertServer } from '@solus/client-core/server-registry'
 import { appPairLink, pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { adoptAccountOrigin } from '@solus/client-core/uplink-account'
 import { accountOriginShell } from './lib/account-origin'
 import type { HostRoute } from '@solus/contracts/uplink'
 import { startupAccountRead } from '@solus/client-core/cloud-account'
-import { existingWebAccountSession, fetchAuthorize, resumeWebSignIn, webAccountSession } from '@solus/client-core/web-sign-in'
+import { existingWebAccountSession, fetchAuthorize, keepWebSignIn, resumeWebSignIn, webAccountSession, type WebSignInDeps } from '@solus/client-core/web-sign-in'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
-import { activeWorkspace, loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget } from '@solus/client-core/workspace-registry'
+import { saveDirectoryWorkspaces } from '@solus/client-core/workspace-registry'
 import HostlessHome from './routes/HostlessHome.svelte'
-import { pairTokenFromLocation, probeServer } from './lib/connect'
+import { pairTokenFromLocation } from './lib/connect'
+import { probeServingOrigin } from './lib/add-host'
 import { cloudOrigin } from './lib/cloud-origin.svelte'
 import { webState } from './lib/web-state.svelte'
 import { registerServiceWorker } from './lib/service-worker'
@@ -75,9 +75,6 @@ const root = document.getElementById('root')!
 const accountShell = accountOriginShell(document)
 mount(WebToaster, { target: root })
 
-subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
-
-let activeTransport: WsTransport | null = null
 let solusApp: ReturnType<typeof mount> | null = null
 let serviceWorkerBridgeInstalled = false
 let connectionGeneration = 0
@@ -108,38 +105,23 @@ function installServiceWorkerMessageBridge(): void {
   })
 }
 
-async function connectToServer(
-  target: SolusServerTarget,
-  options: { onPreMountAuthFailure?: () => void; intent?: BootIntent } = {},
-): Promise<void> {
+/**
+ * Mounts the workspace on one host: it becomes the window's primary, the new-work
+ * default, and every other catalog host is held beside it. A host that refuses this
+ * browser shows as a blocked row in the app, never as a boot failure.
+ */
+async function connectToServer(target: SolusServerTarget, intent?: BootIntent): Promise<void> {
   const generation = ++connectionGeneration
   toasts.dismiss()
-
-  const { transport, api } = createSolusConnection(target, {
-    verifyConnectedHost: () => serverConnections.verifySavedServerIdentity(target),
-    onStatusChange: (status: ConnectionStatus, attempt: number) => {
-      serverConnections.updateStatus(target.id, status, attempt)
-      // The target names which host this status belongs to — serversStore keys
-      // its per-host connection state (and the web "local" alias) off it.
-      setConnectionState({ status, attempt, target })
-    },
-    onAuthFailed: () => {
-      // Post-mount, a rejected credential is that host's blocked row — the
-      // workspace stands. Pre-mount, the boot sequence moves to the next
-      // catalog candidate instead of rebooting into a picker.
-      if (generation === connectionGeneration && !solusApp) options.onPreMountAuthFailure?.()
-    },
-  })
-
-  installWindowSolusApi(api)
-  serverConnections.registerPrimary(target.id, api, transport, target)
-  activeTransport = transport
+  // A host this browser does not keep (the one serving this page with no auth) is known for this page only.
+  if (serverConnections.presenceOf(target.id) === 'gone') serverConnections.registerTarget(target)
+  const primary = serverConnections.setPrimary(target.id)
+  installWindowSolusApi(primary.api)
   installServiceWorkerMessageBridge()
-  transport.start()
   // The server the page opens at is dialed before the rest of the catalog.
-  const firstServerId = options.intent?.firstServerId ? serverConnections.resolveId(options.intent.firstServerId) : null
+  const firstServerId = intent?.firstServerId ? serverConnections.resolveId(intent.firstServerId) : null
   if (firstServerId && firstServerId !== target.id) serverConnections.ensure(firstServerId)
-  if (!options.intent?.opensResource) void prefetchStartupTranscript()
+  if (!intent?.opensResource) void prefetchStartupTranscript()
   // Every saved host is eagerly desired, not only the one this boot chose.
   serverConnections.startCatalogSupervisors()
   touchLastConnected(target.id)
@@ -156,10 +138,7 @@ async function connectToServer(
     // multi-megabyte shared workspace graph loads lazily behind it.
     // Saved tabs provide the loading state while history arrives in the background.
     const { default: App } = await loadWorkspaceApp()
-    if (generation !== connectionGeneration || activeTransport !== transport) {
-      transport.destroy()
-      return
-    }
+    if (generation !== connectionGeneration) return
     solusApp = mount(App, { target: root })
   } catch (error) {
     if (generation !== connectionGeneration) return
@@ -171,10 +150,6 @@ async function connectToServer(
 function bootHostlessHome(): void {
   connectionGeneration += 1
   toasts.dismiss()
-  activeTransport?.destroy()
-  activeTransport = null
-  webState.hasConnected = false
-  setConnectionState({ status: 'disconnected', attempt: 0 })
   mount(HostlessHome, { target: root })
 }
 
@@ -224,20 +199,6 @@ async function pairFromLocation(pairToken: string): Promise<void> {
   }
 }
 
-async function servingOriginEntry(): Promise<SavedServer | null> {
-  const health = await probeServer(location.origin)
-  if (!health.ok || health.requireAuth !== false || !health.installationId) return null
-  return {
-    id: health.installationId,
-    url: location.origin,
-    sessionToken: '',
-    installationId: health.installationId,
-    label: health.name || 'This computer',
-    os: health.os,
-    lastConnected: Date.now(),
-  }
-}
-
 async function adoptCloudDirectory(options: { waitsForAccount: boolean }): Promise<void> {
   // The same bundle is served at `/` by a host and by the account origin; only the
   // account origin's shell names itself (`accountOriginShell`).
@@ -259,78 +220,29 @@ async function adoptCloudDirectory(options: { waitsForAccount: boolean }): Promi
   markDirectoryAnswered()
 }
 
-/** The catalog this browser keeps: saved hosts, then the organizations' workspace services, the active one first. */
-function catalogTargets(): SolusServerTarget[] {
-  // The window's record home may be a machine or, at the account origin, the
-  // active organization's workspace service. The service is not a saved host,
-  // so it joins the candidates from the workspace registry.
-  const workspaces = loadWorkspaces()
-  const active = activeWorkspace(workspaces)
-  return [
-    ...loadServers().map(savedServerTarget),
-    ...[...(active ? [active] : []), ...workspaces.filter((workspace) => workspace !== active)].map(workspaceTarget),
-  ]
-}
-
-/**
- * Asks the account for the token of the server the page opens at before any other:
- * the account mints tokens one at a time (`OAuthSession`), so the first asked is the
- * first had. Nothing for a server this browser does not keep, or one dialed without
- * the account (a paired host).
- */
-function requestFirstToken(serverId: string): void {
-  const target = catalogTargets().find((candidate) => candidate.id === serverId)
-  if (!target?.uplink || target.sessionToken) return
-  void existingWebAccountSession()?.accessToken(connectionTokenResource(target.uplink.hostId))
-}
-
 async function bootFromCatalog(intent?: BootIntent): Promise<void> {
   // The workspace loads on any success — overlap the import with the probe.
   void loadWorkspaceApp().catch(() => {})
   if (intent?.opensResource) webState.openedFromLink = true
-  if (intent?.firstServerId) requestFirstToken(serverConnections.resolveId(intent.firstServerId))
   const directory = adoptCloudDirectory({ waitsForAccount: !intent?.opensResource }).catch((error) => {
     console.warn("[solus:boot] cloud directory unavailable", error)
   })
   // The account origin is never a host; only a page a host serves asks whether it is one.
-  const origin = accountShell ? null : await servingOriginEntry()
+  const serving = accountShell ? null : await probeServingOrigin(location.origin)
   // A catalog this browser already keeps is dialed now, and the directory refreshes it
   // when it answers; an empty one has nothing to dial until the directory answers.
-  if (catalogTargets().length === 0) await directory
-  else void directory.then(() => { if (activeTransport) serverConnections.startCatalogSupervisors() })
-  const servers = loadServers()
-  const targets = catalogTargets()
+  if (serverConnections.catalogServerIds().length === 0) await directory
+  else void directory.then(() => { if (solusApp) serverConnections.startCatalogSupervisors() })
   let activeId: string | null = null
   try {
     activeId = getActiveServerId()
   } catch {}
-  const candidates: SolusServerTarget[] = [
-    ...targets.filter((target) => target.id === activeId),
-    ...targets.filter((target) => target.id !== activeId),
-  ]
-  const originAlreadySaved = origin
-    && servers.some((server) =>
-      server.id === origin.id
-      || (!!server.installationId && server.installationId === origin.installationId))
-  if (origin && !originAlreadySaved) candidates.push(savedServerTarget(origin))
-
-  if (candidates.length === 0) {
-    bootHostlessHome()
-    return
-  }
-  const tryCandidate = (index: number): void => {
-    const candidate = candidates[index]
-    if (!candidate) {
-      bootHostlessHome()
-      toasts.error('No saved host accepted its credential — re-pair to continue')
-      return
-    }
-    void connectToServer(candidate, {
-      onPreMountAuthFailure: () => tryCandidate(index + 1),
-      intent,
-    })
-  }
-  tryCandidate(0)
+  const catalog = serverConnections.catalogServerIds()
+  const firstId = catalog.find((serverId) => serverId === activeId) ?? catalog[0]
+  const first = firstId ? serverConnections.ensure(firstId).target : null
+  if (first) void connectToServer(first, intent)
+  else if (serving?.entry && !serving.isSaved) void connectToServer(savedServerTarget(serving.entry), intent)
+  else bootHostlessHome()
 }
 
 // ── Share links ───────────────────────────────────────────────────────────────
@@ -367,10 +279,7 @@ async function openShareLink(link: GuestLink): Promise<void> {
     return
   }
   history.replaceState(null, '', opening.address)
-  // The account's tokens are minted one at a time: the runner's goes first, so its
-  // socket is not queued behind every other host this account can reach. The app's
-  // code loads while it is minted (`bootFromCatalog`).
-  if (opening.runnerHostId && signedIn) void signedIn.account.accessToken({ kind: 'host', hostId: opening.runnerHostId })
+  // The runner is dialed first; hosts' tokens are exchanges made at the same time.
   void bootFromCatalog({ firstServerId: opening.runnerHostId ? savedRunnerFor(opening.runnerHostId) : null, opensResource: true })
 }
 
@@ -390,97 +299,71 @@ async function bootGuest(link: GuestLink, opening: GuestOpening, signedIn: { nam
   if (signedIn && opening.kind === 'guest') void connectGuest(link, opening, signedIn.name, () => void unmount(landing))
 }
 
-/** Where a guest connects: the host that runs the resource (live), or the Solus API's copy of it (read only). */
-interface GuestPlace {
-  url: string
-  routes: HostRoute[]
-  live: boolean
-}
+/** The one host a guest's page holds: the resource's host, or the Solus API's read-only copy of it. */
+const GUEST_SERVER_ID = 'guest:workspace'
 
-/** How many failed dials in a row end a live visit and move it to the mirror. */
-const HOST_DIALS_BEFORE_MIRROR = 3
-/** How long the first answer from the host may take before the mirror is tried. */
-const HOST_ANSWER_TIMEOUT_MS = 8_000
-
+/**
+ * Connects the guest and mounts the shell. The host that runs the resource is dialed
+ * on its routes; the Solus API's copy is one more route, dialed only when none of the
+ * host's answers (`fallbackRoutes`), so the same shell opens there read only, with
+ * the page saying so. Each later dial asks the host first again.
+ */
 async function connectGuest(link: GuestLink, opening: GuestOpening, displayName: string, onShellMounted: () => void): Promise<void> {
   if (guestBoot.phase === 'connecting') return
   if (opening.kind === 'failed') {
     guestBoot.fail(opening.reason)
     return
   }
+  const mirror: HostRoute[] = opening.mirror ? [{ kind: 'direct', url: opening.mirror }] : []
+  const hostUrl = guestRouteUrl(opening.host, location.origin)
+  const url = hostUrl ?? mirror[0]?.url
+  if (!url) {
+    guestBoot.fail('Nobody can reach the computer this was shared from right now.')
+    return
+  }
   guestBoot.phase = 'connecting'
   guestBoot.error = null
   const identity: GuestIdentity = { guestId: loadGuestIdentity()?.guestId ?? newGuestId(), displayName }
   saveGuestIdentity(identity)
-  const hostUrl = guestRouteUrl(opening.host, location.origin)
-  const mirror: GuestPlace | null = opening.mirror ? { url: opening.mirror, routes: [{ kind: 'direct', url: opening.mirror }], live: false } : null
-  const first: GuestPlace | null = hostUrl ? { url: hostUrl, routes: opening.host, live: true } : mirror
-  if (!first) {
-    guestBoot.fail('Nobody can reach the computer this was shared from right now.')
-    return
-  }
-  await openGuestPlace(link, identity, first, first.live ? mirror : null, onShellMounted)
-}
-
-/**
- * Connects the guest at one place and mounts the shell. A live place that does not
- * answer, at first or later, gives way to `fallback` once: the same shell, on the
- * mirror, read only, with the page saying so.
- */
-async function openGuestPlace(link: GuestLink, identity: GuestIdentity, place: GuestPlace, fallback: GuestPlace | null, onShellMounted: () => void): Promise<void> {
-  const serverId = 'guest:workspace'
-  const target: SolusServerTarget = { id: serverId, label: 'Shared resource', url: place.url, sessionToken: '', local: false, routes: place.routes }
   const generation = ++connectionGeneration
   toasts.dismiss()
-  let fellBack = false
-  const fallBack = (): void => {
-    if (fellBack || !fallback || generation !== connectionGeneration) return
-    fellBack = true
-    transport.destroy()
-    void openGuestPlace(link, identity, fallback, null, onShellMounted)
+  const target: SolusServerTarget = {
+    id: GUEST_SERVER_ID,
+    label: 'Shared resource',
+    url,
+    sessionToken: '',
+    local: false,
+    routes: opening.host,
+    fallbackRoutes: mirror,
+    guest: { shareSecret: link.secret, guestId: identity.guestId, displayName: identity.displayName },
   }
-  const { transport, api } = createSolusConnection(target, {
-    guest: { shareSecret: link.secret, identity },
-    onStatusChange: (status: ConnectionStatus, attempt: number) => {
-      serverConnections.updateStatus(serverId, status, attempt)
-      setConnectionState({ status, attempt, target })
-      if (status === 'disconnected' && attempt >= HOST_DIALS_BEFORE_MIRROR) fallBack()
-    },
+  serverConnections.registerTarget(target)
+  const connection = serverConnections.setPrimary(GUEST_SERVER_ID)
+  installWindowSolusApi(connection.api)
+  serverConnections.onPhaseChange((serverId, phase) => {
+    if (serverId !== GUEST_SERVER_ID || generation !== connectionGeneration) return
+    if (phase === 'connected') guestBoot.live = !mirror.some((route) => route.url === connection.target.url)
     // The host refused the secret: the link was turned off or regenerated.
-    onAuthFailed: () => guestBoot.revoke(),
+    else if (phase === 'blocked' && serverConnections.blockedReasonFor(serverId) === 'auth') guestBoot.revoke()
+    else if (phase === 'offline' && guestBoot.phase === 'connecting') guestBoot.fail('The computer this was shared from did not answer.')
   })
-  installWindowSolusApi(api)
-  serverConnections.registerPrimary(serverId, api, transport, target)
-  activeTransport = transport
-  transport.start()
 
   try {
-    const answered = await Promise.race([
-      serverConnections.serverInfoFor(serverId),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), HOST_ANSWER_TIMEOUT_MS)),
-    ])
-    if (generation !== connectionGeneration) return
-    if (!answered) {
-      if (fallback) { fallBack(); return }
-      guestBoot.fail('The computer this was shared from did not answer.')
-      return
-    }
-    const info = answered
+    const info = await serverConnections.serverInfoFor(GUEST_SERVER_ID)
+    if (generation !== connectionGeneration || guestBoot.phase !== 'connecting') return
     const share = linkShare(info, link)
     if (!share) {
       guestBoot.fail('This link does not match the shared resource.')
       return
     }
-    guestBoot.serverId = serverId
-    guestBoot.live = place.live
+    guestBoot.serverId = GUEST_SERVER_ID
     guestBoot.share = share
     guestBoot.displayName = info.displayName ?? identity.displayName
-    if (guestBoot.phase === 'ready') return
     const { default: GuestApp } = await loadGuestApp()
     if (generation !== connectionGeneration) return
     onShellMounted()
     guestBoot.phase = 'ready'
-    solusApp = mount(GuestApp, { target: root, props: { serverId, share } })
+    solusApp = mount(GuestApp, { target: root, props: { serverId: GUEST_SERVER_ID, share } })
   } catch (error) {
     if (generation !== connectionGeneration || guestBoot.revoked) return
     if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
@@ -503,14 +386,17 @@ function linkShare(info: ConnectionsServerInfo, link: GuestLink): GuestShare | n
  */
 async function resumeAccountSignIn(): Promise<boolean> {
   if (!accountShell) return true
-  const outcome = await resumeWebSignIn({
+  const deps: WebSignInDeps = {
     session: webAccountSession(location.origin, accountShell.discovery),
     location,
     navigate: (url) => location.assign(url),
     // A guest who opened a share link has no account to sign in to.
     whenSignedOut: (returnTo) => (/^\/(w|s|t)\//.test(returnTo) ? 'stay' : 'sign-in'),
     authorize: fetchAuthorize,
-  })
+  }
+  const outcome = await resumeWebSignIn(deps)
+  // A tab open for a long time outlives its grant: sign in again rather than redial forever.
+  if (outcome !== 'redirecting') keepWebSignIn(deps, () => serverConnections.dialHostsBlockedOnSignIn())
   return outcome !== 'redirecting'
 }
 

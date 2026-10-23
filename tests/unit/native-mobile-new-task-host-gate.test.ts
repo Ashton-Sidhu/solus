@@ -30,23 +30,31 @@ const state = (phase: HostConnectionState['phase']): HostConnectionState => ({
 
 describe('the new-task host gate', () => {
   test('one connected host is enough to compose', () => {
-    expect(newTaskHostGate(['offline', 'connected'])).toBe('compose')
+    expect(newTaskHostGate(['offline', 'connected'], 'compose')).toBe('compose')
   })
 
   test('no host at all asks for one', () => {
-    expect(newTaskHostGate([])).toBe('connect')
+    expect(newTaskHostGate([], 'compose')).toBe('connect')
   })
 
   test('every host offline, stopped, or refused asks for one', () => {
-    expect(newTaskHostGate(['offline', 'blocked', 'waiting-for-compute', 'no-route'])).toBe('connect')
+    expect(newTaskHostGate(['offline', 'blocked', 'waiting-for-compute', 'no-route'], 'compose')).toBe('connect')
   })
 
   test('a host still dialing keeps the composer', () => {
-    expect(newTaskHostGate(['offline', 'reconnecting'])).toBe('compose')
+    expect(newTaskHostGate(['offline', 'reconnecting'], 'compose')).toBe('compose')
   })
 
   test('a host not yet dialed keeps the composer, because nothing is known yet', () => {
-    expect(newTaskHostGate([null])).toBe('compose')
+    expect(newTaskHostGate([null], 'compose')).toBe('compose')
+  })
+
+  test('a retry from the connect screen keeps the screen while the host dials', () => {
+    expect(newTaskHostGate(['connecting'], 'connect')).toBe('connect')
+  })
+
+  test('the composer comes back from the connect screen once a host connects', () => {
+    expect(newTaskHostGate(['offline', 'connected'], 'connect')).toBe('compose')
   })
 })
 

@@ -25,6 +25,7 @@ import type {
   TaskSessionLink,
 } from '@solus/contracts/task-types'
 import type { ReviewGuide } from '@solus/contracts/review'
+import type { CheckItem } from '@solus/contracts/checks-types'
 import type {
   ChangedFileStat,
   GitState,
@@ -34,7 +35,7 @@ import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import type { PersistedTabs } from '@solus/workspace-ui/contexts/workspace/tab-persistence'
 
-export const DEMO_PROJECT = '/home/demo/acme'
+export const DEMO_PROJECT = '/home/demo/api-gateway'
 export const DEMO_INSTALLATION_ID = 'demo'
 /** The login the visitor is signed in as. It is the author of the demo's pull
  *  request and of the replies in its review threads, so the surfaces that ask
@@ -65,6 +66,8 @@ export interface DemoFixtures {
     threads: ReviewThread[]
     guide: ReviewGuide
     filePatches: Record<string, string>
+    /** The required checks on the head commit. Absent means the repository has no CI. */
+    checks?: CheckItem[]
   }
   tasks: {
     list: TaskListResult

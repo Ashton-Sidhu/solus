@@ -44,12 +44,12 @@ describe('pairing clients', () => {
     try {
       const firstPairToken = auth.generatePairToken()
       const first = await postJson(`${baseUrl}/pair`, {
-        code: firstPairToken.code,
+        pairToken: firstPairToken.code,
         deviceLabel: 'First client',
       })
       const secondPairToken = auth.generatePairToken()
       const second = await postJson(`${baseUrl}/pair`, {
-        code: secondPairToken.code,
+        pairToken: secondPairToken.code,
         deviceLabel: 'Second client',
       })
 
@@ -71,8 +71,8 @@ describe('pairing clients', () => {
     const pairToken = auth.generatePairToken()
     const { server, baseUrl } = await listen()
     try {
-      expect((await postJson(`${baseUrl}/pair`, { code: pairToken.code })).status).toBe(200)
-      expect((await postJson(`${baseUrl}/pair`, { code: pairToken.code })).status).toBe(401)
+      expect((await postJson(`${baseUrl}/pair`, { pairToken: pairToken.code })).status).toBe(200)
+      expect((await postJson(`${baseUrl}/pair`, { pairToken: pairToken.code })).status).toBe(401)
     } finally {
       await close(server)
     }

@@ -5,7 +5,6 @@ import * as queries from './queries'
 const empty = z.strictObject({})
 /** Runtime validation, route discovery, and OpenAPI all use this registry. */
 export const solusApiOperations = {
-  exchangeCredential: { method: 'post', path: '/auth/session', query: empty, body: schemas.workspaceAuthSessionRequestSchema, response: schemas.workspaceAuthSessionSchema, status: 200 },
   capabilities: { method: 'get', path: '/capabilities', query: empty, response: schemas.workspaceCapabilitiesSchema, status: 200 },
   openApi: { method: 'get', path: '/openapi.json', query: empty, status: 200 },
   listTasks: { method: 'get', path: '/tasks', scope: 'tasks:read', query: queries.workspaceTaskQuerySchema, response: schemas.workspaceTaskPageSchema, status: 200 },
@@ -14,6 +13,8 @@ export const solusApiOperations = {
   createTask: { method: 'post', path: '/tasks', scope: 'tasks:write', query: empty, body: schemas.workspaceCreateTaskSchema, response: schemas.workspaceTaskSchema, status: 201, idempotent: true },
   updateTask: { method: 'patch', path: '/tasks/:taskId', scope: 'tasks:write', query: empty, body: schemas.workspaceUpdateTaskSchema, response: schemas.workspaceTaskSchema, status: 200, conditional: true },
   deleteTask: { method: 'delete', path: '/tasks/:taskId', scope: 'tasks:write', query: empty, status: 204, conditional: true },
+  /** Comment on a task as the caller. */
+  createTaskComment: { method: 'post', path: '/tasks/:taskId/comments', scope: 'tasks:write', query: empty, body: schemas.workspaceCreateTaskCommentSchema, response: schemas.workspaceTaskCommentSchema, status: 201, idempotent: true },
   listWorks: { method: 'get', path: '/works', scope: 'works:read', query: queries.workspaceWorkQuerySchema, response: schemas.workspaceWorkPageSchema, status: 200 },
   publishWork: { method: 'post', path: '/works/:workId/publish', scope: 'works:write', query: empty, body: schemas.workspacePublishWorkSchema, response: schemas.workspaceWorkUpstreamSchema, status: 200 },
   pullWorkUpstream: { method: 'post', path: '/works/:workId/pull', scope: 'works:write', query: empty, body: empty, response: schemas.workspaceWorkUpstreamSchema, status: 200 },
@@ -34,10 +35,13 @@ export const solusApiOperations = {
   /** Settle a session for every person, or archive and snooze it in the caller's own list. */
   updateSession: { method: 'patch', path: '/sessions/:sessionId', scope: 'sessions:write', query: empty, body: schemas.workspaceUpdateSessionSchema, response: schemas.workspaceSessionChangedSchema, status: 200 },
   listSessionPullRequests: { method: 'get', path: '/sessions/:sessionId/pull-requests', scope: 'sessions:read', query: empty, response: schemas.workspaceSessionPullRequestListSchema, status: 200 },
-  /** Link a pull request to the session. The same link again changes nothing. */
-  putSessionPullRequest: { method: 'put', path: '/sessions/:sessionId/pull-requests/:pullRequestId', scope: 'sessions:write', query: empty, body: schemas.workspaceSessionPullRequestPutSchema, response: schemas.workspaceSessionPullRequestSchema, status: 200 },
-  /** Remove a pull request from the session. PR sync does not link it again. */
-  deleteSessionPullRequest: { method: 'delete', path: '/sessions/:sessionId/pull-requests/:pullRequestId', scope: 'sessions:write', query: empty, status: 204 },
+  /**
+   * Link a task or a session to another record. The same link again changes nothing.
+   * It needs `tasks:write` from a task and `sessions:write` from a session, and editor on `from`.
+   * Removing a pull request from a session leaves it removed: PR sync does not link it again.
+   */
+  putLink: { method: 'put', path: '/links', query: empty, body: schemas.workspaceLinkSchema, status: 204 },
+  deleteLink: { method: 'delete', path: '/links', query: empty, body: schemas.workspaceLinkDeleteSchema, status: 204 },
   listSessionMessages: { method: 'get', path: '/sessions/:sessionId/messages', scope: 'sessions:read', query: queries.workspacePageQuerySchema, response: schemas.workspaceTranscriptPageSchema, status: 200 },
   listSessionActivity: { method: 'get', path: '/sessions/:sessionId/activity', scope: 'sessions:read', query: queries.workspaceActivityQuerySchema, response: schemas.workspaceActivityListSchema, status: 200 },
   /** Activity that names the caller, from every record kind the credential may read; each row's record is checked. */

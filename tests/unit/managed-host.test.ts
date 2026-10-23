@@ -5,6 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { Database } from 'bun:sqlite'
 import { io as connect } from 'socket.io-client'
+import { SOLUS_PROTOCOL } from '@solus/contracts/uplink'
 
 // bun has no node:sqlite; the http module's import chain reaches the db even
 // though these tests never open it. Same seam tunnel-listener.test.ts uses.
@@ -101,7 +102,7 @@ describe('managed host', () => {
   })
 
   test('the link and the pairing RPCs are refused with MANAGED_HOST, even for a local owner', async () => {
-    const owner = { kind: 'local-owner' as const, deviceId: null, deviceLabel: 'Mac' }
+    const owner = { kind: 'owner' as const, via: 'local' as const, expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
     for (const method of ['uplinkLink', 'uplinkUnlink', 'connectionsGeneratePairToken', 'connectionsSetTrustLocalNetwork', 'connectionsSetRemoteAccess'] as const) {
       let refusal: unknown
       try { await assertRpcAccess(method, owner, [{}]) } catch (err) { refusal = err }
@@ -128,7 +129,6 @@ describe('managed host', () => {
       expect(health.requireAuth).toBe(true)
       expect((await fetch(`${baseUrl}/pair`, { method: 'POST', body: '{}' })).status).toBe(404)
       expect((await fetch(`${baseUrl}/pair/open`, { method: 'POST' })).status).toBe(404)
-      expect((await fetch(`${baseUrl}/auth/ws-ticket`, { method: 'POST' })).status).toBe(401)
     } finally {
       await close(server)
     }
@@ -148,7 +148,7 @@ describe('managed host', () => {
     const url = `http://127.0.0.1:${address && typeof address === 'object' ? address.port : 0}`
     try {
       const outcome = await new Promise<string>((resolve) => {
-        const socket = connect(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { clientInstanceId: 'test0123456789abcdef' } })
+        const socket = connect(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { protocol: SOLUS_PROTOCOL, clientInstanceId: 'test0123456789abcdef' } })
         socket.once('connect', () => { socket.disconnect(); resolve('connected') })
         socket.once('connect_error', (error: Error & { data?: { code?: string } }) => resolve(error.data?.code ?? error.message))
       })
@@ -166,7 +166,7 @@ describe('managed host', () => {
     const workspace = projectsRootFor(member, join(dataDir, 'projects'))
     expect(workspace).toBe(join(dataDir, 'projects', 'user_abc123'))
     expect(existsSync(workspace)).toBe(true)
-    expect(projectsRootFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }, join(dataDir, 'projects'))).toBe(join(dataDir, 'projects'))
+    expect(projectsRootFor({ kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }, join(dataDir, 'projects'))).toBe(join(dataDir, 'projects'))
     expect(projectsRootFor(undefined, join(dataDir, 'projects'))).toBe(join(dataDir, 'projects'))
     expect(() => projectsRootFor({ ...member, userId: '../escape' }, join(dataDir, 'projects'))).toThrow()
   })
@@ -185,7 +185,7 @@ describe('managed host', () => {
       { path: join(root, 'user_abc123-not', 'solus') },
     ]
     expect(projectsVisibleTo(member, projects, root).map((project) => project.path)).toEqual([join(root, 'user_abc123', 'solus'), join(root, 'user_abc123')])
-    expect(projectsVisibleTo({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }, projects, root)).toHaveLength(5)
+    expect(projectsVisibleTo({ kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }, projects, root)).toHaveLength(5)
     expect(projectsVisibleTo(undefined, projects, root)).toHaveLength(5)
   })
 

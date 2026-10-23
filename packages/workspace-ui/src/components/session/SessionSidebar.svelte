@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { TaskOpenTrace } from "./lib/task-open-timing";
-  import { serverConnections } from "@solus/client-core/server-connections";
   import TaskIcon from "../ui/TaskIcon.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import { localApi } from "@solus/client-core/local-api";
@@ -415,12 +413,7 @@
   });
 
   function activateTask(task: SidebarTask, event?: MouseEvent) {
-    const serverId = task.serverId ?? session.serverIdForContext(session.ctx);
-    const timing = new TaskOpenTrace(task.taskId ?? null, (report) =>
-      serverConnections.apiFor(serverId).tasksLogOpenTiming(report),
-    );
     sidebarStore.acknowledgeRow(task);
-    timing.mark("row_acknowledged");
     // The reads start now; only the switch waits for the two frames below.
     sidebarStore.prepareOpen(task);
     // `detail` is 0 for a click from the keyboard, which leaves no pointer here.
@@ -434,15 +427,8 @@
         // A fast double-click can enter rename mode before the first click's
         // deferred navigation runs. Do not let that stale navigation take the
         // caret back from the rename field.
-        if (renamingTaskId || renamingTabId) {
-          void timing.finish("cancelled");
-          return;
-        }
-        timing.mark("navigation_started");
-        void sidebarStore.selectTask(task, timing).then(
-          () => timing.finish("completed"),
-          () => timing.finish("failed"),
-        );
+        if (renamingTaskId || renamingTabId) return;
+        void sidebarStore.selectTask(task);
         requestInputFocus();
         onSessionSelect?.();
       });

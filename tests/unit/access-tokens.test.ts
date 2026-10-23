@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { generateKeyPairSync, sign, type KeyObject } from 'crypto'
 import { AccessTokenVerifier, JWKS_REFRESH_MIN_INTERVAL_MS, type FetchLike } from '@solus/server/admission/access-tokens'
-import { ACCESS_TOKEN_TTL_SECONDS, ACCOUNT_AUDIENCE, HOST_REACH_TOKEN_TTL_SECONDS, SOLUS_API_AUDIENCE, hostAudience, hostReachAudience } from '@solus/contracts/uplink'
+import { ACCESS_TOKEN_TTL_SECONDS, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, hostAudience } from '@solus/contracts/uplink'
 
 // plans/010-standard-oauth.md: a host trusts one issuer and one key set, both from
 // its link config, and accepts the account plane's access tokens for its own
@@ -92,16 +92,16 @@ describe('access token verification', () => {
     expect(await verifier.verify(signToken(key.privateKey, key.kid, { iat: nowSeconds + 300, exp: nowSeconds + 600 }, nowSeconds))).toEqual({ ok: false, reason: 'not-yet-valid' })
   })
 
-  test('another host\'s host-reach token lives up to eight hours, and only when it names the acting host', async () => {
-    // WHY: docs/plans/host-reach.md §3 — the account plane checks the reach when it
-    // issues the token, so the token lives eight hours, and no client can hold a reach token.
+  test('another host acting for a person presents a token with this host\'s own audience; the old reach audience is refused', async () => {
+    // WHY: docs/plans/simplify-auth-and-sync.md §3 rule 2 — one host audience. A person's
+    // client token and a host's delegated token for this host differ only by `act`.
     const key = keyPair('k1')
-    const verifier = new AccessTokenVerifier({ audience: AUDIENCE, reachAudience: hostReachAudience(HOST_ID), issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
-    const reach = { aud: hostReachAudience(HOST_ID), act: { sub: 'host_other', host_id: 'other' }, access: 'owner', exp: nowSeconds + HOST_REACH_TOKEN_TTL_SECONDS }
-    expect(await verifier.verify(signToken(key.privateKey, key.kid, reach, nowSeconds))).toMatchObject({ ok: true })
-    expect(await verifier.verify(signToken(key.privateKey, key.kid, { ...reach, exp: nowSeconds + HOST_REACH_TOKEN_TTL_SECONDS + 61 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
-    expect(await verifier.verify(signToken(key.privateKey, key.kid, { ...reach, act: undefined, access: undefined }, nowSeconds))).toEqual({ ok: false, reason: 'wrong-audience' })
-    expect(await verifier.verify(signToken(key.privateKey, key.kid, { ...reach, aud: hostReachAudience('another') }, nowSeconds))).toEqual({ ok: false, reason: 'wrong-audience' })
+    const verifier = new AccessTokenVerifier({ audience: AUDIENCE, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
+    const reach = { act: { sub: 'host_other', host_id: 'other' }, access: 'owner' }
+    const verdict = await verifier.verify(signToken(key.privateKey, key.kid, reach, nowSeconds))
+    expect(verdict.ok && verdict.claims.act).toEqual({ sub: 'host_other', host_id: 'other' })
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, { ...reach, aud: `urn:solus:host-reach:${HOST_ID}` }, nowSeconds))).toEqual({ ok: false, reason: 'wrong-audience' })
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, { ...reach, exp: nowSeconds + ACCESS_TOKEN_TTL_SECONDS + 61 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
   })
 
   test('the Solus API accepts a host\'s delegated token, which names it among several audiences', async () => {

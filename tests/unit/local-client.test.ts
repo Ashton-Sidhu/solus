@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { VAULT_READ_PATH } from '@solus/contracts/vault'
+import { VAULT_PATH } from '@solus/contracts/vault'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -115,8 +115,8 @@ describe('the desktop presents its token to its own host', () => {
         return Response.json({ ok: true })
       },
     })
-    expect(await reads.fetch('alice', null, VAULT_READ_PATH, { method: 'POST' })).toBeInstanceOf(Response)
-    expect(sent).toEqual([{ url: `${REGISTRATION.directoryUrl}${VAULT_READ_PATH}`, authorization: 'Bearer delegated-1' }])
+    expect(await reads.fetch('alice', null, VAULT_PATH, { method: 'POST' })).toBeInstanceOf(Response)
+    expect(sent).toEqual([{ url: `${REGISTRATION.directoryUrl}${VAULT_PATH}`, authorization: 'Bearer delegated-1' }])
   })
 
   test('sign-out ends the delegations of the desktop’s grant at once; one a phone made goes on', async () => {
@@ -233,7 +233,7 @@ describe('the owner’s delegation follows the desktop’s sign-in', () => {
     const w = world()
     await w.door.renew()
     const reads = new AccountReads({ origin: () => REGISTRATION.directoryUrl, delegations: () => w.delegations, fetchImpl: async () => Response.json({}) })
-    expect(await reads.fetch('alice', null, '/v1/account/agent-profile/read')).toMatchObject({ refused: 'NO_DELEGATION' })
+    expect(await reads.fetch('alice', null, '/v1/agent-profile')).toMatchObject({ refused: 'NO_DELEGATION' })
   })
 })
 
@@ -273,7 +273,7 @@ describe('the host’s registration and its client', () => {
     await door.presentToken(owner)
     expect(delegations.holders()).toEqual([{ userId: 'alice', scope: 'personal' }])
     const reads = new AccountReads({ origin: () => registrar.current()?.directoryUrl ?? null, delegations: () => delegations, fetchImpl: plane })
-    expect(await reads.fetch('alice', null, VAULT_READ_PATH, { method: 'POST' })).toBeInstanceOf(Response)
+    expect(await reads.fetch('alice', null, VAULT_PATH, { method: 'POST' })).toBeInstanceOf(Response)
     // No route of the link was ever called.
     expect(routes.some((route) => route.endsWith('/link'))).toBe(false)
   })

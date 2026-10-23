@@ -31,9 +31,8 @@ export function actorFor(principal: Principal): Actor {
 
 function userFor(principal: Principal): User | null {
   switch (principal.kind) {
-    case 'local-owner':
-      return hostUser()
-    case 'remote-owner': {
+    case 'owner': {
+      if (principal.via === 'local') return hostUser()
       const host = hostUser()
       // A linked host always has its user; the fallback is for a host with no settings.
       const user: User = host ? { ...host } : { id: { kind: 'account', accountId: principal.userId }, displayName: principal.displayName ?? principal.userId }
@@ -63,7 +62,7 @@ function userFor(principal: Principal): User | null {
 export function ownerKeyOf(actor: Actor): string | null {
   if (actor.user) return userKey(actor.user.id)
   const kind = actor.principal.kind
-  return kind === 'local-owner' || kind === 'remote-owner' ? hostUserKey() : null
+  return kind === 'owner' ? hostUserKey() : null
 }
 
 /**
@@ -100,8 +99,7 @@ export function seatFor(actor: Actor): Seat {
       const sharer = principal.share.sharedByUserId
       return isHostUserKey(sharer) ? HOST_LOGIN_SEAT : { kind: 'user', userId: parseUserKey(sharer) }
     }
-    case 'local-owner':
-    case 'remote-owner':
+    case 'owner':
     case 'runner':
     case 'system':
       return HOST_LOGIN_SEAT
@@ -116,7 +114,7 @@ export function seatFor(actor: Actor): Seat {
  * unattended.
  */
 export function unattendedActorFor(user: User, organizationId: string, label: string): Actor | null {
-  if (isHostUserKey(userKey(user.id))) return { principal: { kind: 'local-owner', deviceId: null, deviceLabel: label }, user }
+  if (isHostUserKey(userKey(user.id))) return { principal: { kind: 'owner', via: 'local', deviceId: null, deviceLabel: label, expiresAt: null }, user }
   if (user.id.kind !== 'account') return null
   return {
     principal: {

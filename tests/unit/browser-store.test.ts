@@ -89,7 +89,7 @@ describe('BrowserStore page reconciliation', () => {
     await store.loadPages('host-a')
 
     listed = [page('after-restart', 2)]
-    connections.emitStatus('host-a', 'connected')
+    connections.emitPhase('host-a', 'connected')
     await Promise.resolve()
     await Promise.resolve()
 
@@ -171,7 +171,7 @@ describe('BrowserStore streamed frame cache', () => {
     )
     await Promise.resolve()
 
-    connections.emitStatus('host-a', 'connected')
+    connections.emitPhase('host-a', 'connected')
     await Promise.resolve()
     await Promise.resolve()
 

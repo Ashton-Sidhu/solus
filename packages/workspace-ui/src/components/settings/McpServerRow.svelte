@@ -13,12 +13,13 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import * as Popover from "../ui/popover";
   import IntegrationConnectForm from "./IntegrationConnectForm.svelte";
+  import IntegrationExtraAccounts from "./IntegrationExtraAccounts.svelte";
   import McpServerIcon from "./McpServerIcon.svelte";
   import McpToolSwitches from "./McpToolSwitches.svelte";
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
   import { hosts } from "../../contexts";
-  import { canListTools, integrationStatusText, urlHost } from "./lib/integration-labels";
+  import { IntegrationLabels, urlHost } from "./lib/integration-labels";
 
   interface Props {
     serverId: string;
@@ -41,14 +42,15 @@
   const hostState = $derived(integrationsStore.states.get(serverId));
   const connection = $derived(hostState?.connections.get(integration.id) ?? null);
   const flow = $derived(hostState?.connectFlows.get(integration.id) ?? null);
-  const status = $derived(integrationStatusText(integration.auth, connection));
-  const toolsListable = $derived(canListTools(integration.auth, connection));
+  const labels = $derived(new IntegrationLabels(integration));
+  const status = $derived(labels.statusText(connection));
+  const toolsListable = $derived(labels.canListTools(connection));
   const isBusy = $derived(!!hostState?.saving);
   const isOffline = $derived(!!hostState?.isDisconnected);
   // A running sign-in shows in the body, so the row stays open while it runs.
   const isOpen = $derived(isExpanded || (!!flow && flow.kind !== "failed"));
   const showConnect = $derived(status.canConnect && !isOpen && hostState?.connectionsStatus === "loaded");
-  const needsOAuthClient = $derived(integration.auth.kind === "oauth" && integration.auth.registration === "client-required");
+  const offersOAuthClientSetup = $derived(integration.auth.kind === "oauth");
   const disabledTools = $derived(new Set(integration.disabledTools));
   // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
   const canEdit = $derived(hosts.get(serverId)?.me.may("edit", { kind: "integration", id: integration.id, role: integration.role }) ?? true);
@@ -104,6 +106,7 @@
 
 {#snippet account()}
   <IntegrationConnectForm {serverId} integrationId={integration.id} integrationName={integration.name} />
+  <IntegrationExtraAccounts {serverId} {integration} />
 {/snippet}
 
 {#snippet oauthClient()}
@@ -206,7 +209,7 @@
       {#if isRenaming && hostState?.writeError}
         <p role="alert" class="break-words py-3 text-workspace-chrome text-(--solus-status-error)">{hostState.writeError}</p>
       {/if}
-      {#if needsOAuthClient}
+      {#if offersOAuthClientSetup}
         {@render field("OAuth client", oauthClient)}
       {/if}
       {#if integration.auth.kind !== "none"}

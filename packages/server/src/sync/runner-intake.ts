@@ -2,159 +2,138 @@ import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getDatabase, type Db } from '../db/database'
 import { createLogger } from '../logger'
-import { applyOutboxOp, PermanentApplyError } from './outbox/outbox-store'
-import { runnerCursors } from './outbox/schema'
+import { PermanentApplyError } from './outbox/outbox-store'
+import { runnerDeliveryCursors } from './outbox/schema'
 import { getSessionRecord, upsertSessionRecord } from '../data/sessions/session-records'
 import { readSessionAdmission } from '../data/sessions/session-admissions'
 import { applyMirrorItem } from './mirror/mirror-sinks'
 import type { ShareManager } from '../sharing/share-manager'
 import type { Principal } from '../admission/principal'
-import type { OutboxOp } from '@solus/contracts/outbox-types'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
 import {
   activityMirrorPayloadSchema,
+  sessionRecordUpsertWireSchema,
   transcriptMirrorPayloadSchema,
-  type RunnerMirrorRequest,
-  type RunnerMirrorResponse,
-  type RunnerOutboxRequest,
-  type RunnerOutboxResponse,
-  type RunnerSessionRecordsRequest,
-  type RunnerSessionRecordsResponse,
+  type RunnerDeliverItem,
+  type RunnerDeliverRequest,
+  type RunnerDeliverResponse,
 } from './runner-protocol'
 
 const log = createLogger('main', 'runner-intake')
 
 /**
- * The workspace service's side of runner delivery
- * (docs/plans/cloud-service-model.md §16). A runner's ops and reports land in
- * the runner's organization through the same appliers and record store a host
- * uses for its own; the per-stream cursor in `runner_cursors` is what makes a
- * redelivery harmless. An op and its cursor advance in one transaction, so a
- * crash between them cannot apply the op twice.
+ * The Solus API's side of host delivery (docs/plans/simplify-auth-and-sync.md §4.5).
+ * A host's items land in the host's organization through the same sinks
+ * and record store a host uses for its own. A batch is applied in one transaction
+ * with one cursor write for the (host, person), which is what makes a redelivery
+ * harmless: a crash cannot apply an item and leave the cursor before it.
+ *
+ * Each item applies under a savepoint. One that can never apply
+ * (`PermanentApplyError`) is rolled back alone, skipped, and named; one that may
+ * apply later (any other error) is rolled back and stops the batch there, and the
+ * host sends it and the rest again.
  */
 
 export type RunnerPrincipal = Extract<Principal, { kind: 'runner' }>
 
-type RunnerStream = 'outbox' | 'session-records' | 'mirror'
+export interface RunnerIntakeDeps {
+  shares?: ShareManager
+  /** A mirrored session's transcript or activity changed: its readers hear it once per batch. */
+  onTranscriptChanged?: (sessionId: string) => void
+}
 
 const cursorRowSchema = z.object({ last_seq: z.number() })
 
-async function readCursor(db: Db, runner: RunnerPrincipal, stream: RunnerStream): Promise<number> {
+async function readCursor(db: Db, runner: RunnerPrincipal): Promise<number> {
   const row = cursorRowSchema.nullish().parse(await db.get(sql`
-    SELECT last_seq FROM ${runnerCursors}
-    WHERE organization_id = ${runner.organizationId} AND host_id = ${runner.hostId} AND actor_user_id = ${runner.ownerUserId} AND stream = ${stream}
+    SELECT last_seq FROM ${runnerDeliveryCursors}
+    WHERE organization_id = ${runner.organizationId} AND host_id = ${runner.hostId} AND actor_user_id = ${runner.ownerUserId}
   `))
   return row?.last_seq ?? 0
 }
 
-async function writeCursor(db: Db, runner: RunnerPrincipal, stream: RunnerStream, seq: number): Promise<void> {
+async function writeCursor(db: Db, runner: RunnerPrincipal, seq: number): Promise<void> {
   await db.run(sql`
-    INSERT INTO ${runnerCursors} (organization_id, host_id, actor_user_id, stream, last_seq, updated_at)
-    VALUES (${runner.organizationId}, ${runner.hostId}, ${runner.ownerUserId}, ${stream}, ${seq}, ${Date.now()})
-    ON CONFLICT (organization_id, host_id, actor_user_id, stream) DO UPDATE SET last_seq = excluded.last_seq, updated_at = excluded.updated_at
+    INSERT INTO ${runnerDeliveryCursors} (organization_id, host_id, actor_user_id, last_seq, updated_at)
+    VALUES (${runner.organizationId}, ${runner.hostId}, ${runner.ownerUserId}, ${seq}, ${Date.now()})
+    ON CONFLICT (organization_id, host_id, actor_user_id) DO UPDATE SET last_seq = excluded.last_seq, updated_at = excluded.updated_at
   `)
 }
 
-/** The batch's items in ascending order; a runner that sends them out of order gets them applied in order anyway. */
-function ascending<T extends { seq: number }>(items: T[]): T[] {
-  return [...items].sort((a, b) => a.seq - b.seq)
-}
-
-/** A `create` op made a task or a work: owned by the runner's person, and the organization's to open, as anything made in its space is. */
-async function shareCreated(shares: ShareManager | undefined, runner: RunnerPrincipal, op: OutboxOp): Promise<void> {
-  if (!shares || op.name !== 'create' || (op.domain !== 'tasks' && op.domain !== 'works')) return
-  await shares.shareRunnerWrite({ kind: op.domain === 'tasks' ? 'task' : 'work', id: op.resourceId }, runner, runner.ownerUserId)
-}
-
-export async function applyRunnerOutbox(runner: RunnerPrincipal, request: RunnerOutboxRequest, shares?: ShareManager): Promise<RunnerOutboxResponse> {
-  const database = getDatabase()
-  let lastSeq = await readCursor(database, runner, 'outbox')
-  const failed: RunnerOutboxResponse['failed'] = []
-  for (const { seq, op } of ascending(request.ops)) {
-    if (seq <= lastSeq) continue
-    try {
-      await database.transaction(async (db) => {
-        await applyOutboxOp(op, { organizationId: runner.organizationId, ownerKey: runner.ownerUserId })
-        await shareCreated(shares, runner, op)
-        await writeCursor(db, runner, 'outbox', seq)
-      })
-      lastSeq = seq
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      const permanent = error instanceof PermanentApplyError
-      log.warn('runner_outbox_op_failed', { hostId: runner.hostId, organizationId: runner.organizationId, seq, opId: op.id, domain: op.domain, name: op.name, permanent, error: message })
-      failed.push({ seq, error: message, permanent })
-      // Keep the failure repeatable if this response is lost. The runner removes
-      // a permanent failure from its pending queue only after it receives it;
-      // its next batch then advances past that item. Never acknowledge it here.
-      break
-    }
-  }
-  return { lastSeq, failed }
-}
-
-export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request: RunnerSessionRecordsRequest, shares?: ShareManager): Promise<RunnerSessionRecordsResponse> {
-  const database = getDatabase()
-  let lastSeq = await readCursor(database, runner, 'session-records')
-  for (const { seq, record } of ascending(request.reports)) {
-    if (seq <= lastSeq) continue
-    // The record names the runner that holds the transcript; a runner cannot speak for another.
-    await database.transaction(async (db) => {
-      const { admissionId, privateToOwner, ...facts } = record
-      const existing = await getSessionRecord(runner.organizationId, record.sessionId)
-      // The owner is established once, from verified authority (organization-vms §4): a
-      // session admitted before its provider started belongs to the person whose run
-      // authority admitted it; any other new record to the account that linked the
-      // runner. A report never names or changes the owner, and a replay restores nothing.
-      const admission = !existing && admissionId ? await readSessionAdmission(runner.organizationId, admissionId) : null
-      const owner = admission && admission.hostId === runner.hostId ? admission.ownerKey : runner.ownerUserId
-      const report: SessionRecordUpsert = { ...facts, runnerHostId: runner.hostId }
-      // A runner reports only published sessions, so the record it creates is published, owned by `owner`.
-      await upsertSessionRecord(runner.organizationId, report, { organizationId: runner.organizationId, published: true, ownerKey: owner })
-      // A new session the runner reports is the organization's to open, like anything else it
-      // writes here; a chat is its owner's alone until they share it (plan 004 D14).
-      if (shares && !existing && !privateToOwner) await shares.shareRunnerWrite({ kind: 'session', id: record.sessionId }, runner, owner)
-      await writeCursor(db, runner, 'session-records', seq)
-    })
-    lastSeq = seq
-  }
-  return { lastSeq }
-}
-
 /**
- * The mirrored domains (§6): transcript rows, session activity and insights. A malformed item is
- * skipped and the cursor moves past it; any other failure holds the cursor
- * where it is, and the runner sends the rest again.
+ * A session's facts as the host holds them. The owner is established once, from
+ * verified authority (organization-vms §4): the person whose admission created the
+ * record at the API, or, for a session no admission names, the person delivering.
+ * Facts never name or change the owner, and a replay restores nothing.
  */
-export async function applyRunnerMirror(runner: RunnerPrincipal, request: RunnerMirrorRequest, onTranscriptChanged?: (sessionId: string) => void, shares?: ShareManager): Promise<RunnerMirrorResponse> {
-  const database = getDatabase()
+async function applySessionFacts(runner: RunnerPrincipal, upsert: SessionRecordUpsert, shares: ShareManager | undefined): Promise<void> {
+  const { admissionId, privateToOwner, ...facts } = upsert
+  const existing = await getSessionRecord(runner.organizationId, facts.sessionId)
+  const admission = !existing && admissionId ? await readSessionAdmission(runner.organizationId, admissionId) : null
+  const owner = admission && admission.hostId === runner.hostId ? admission.ownerKey : runner.ownerUserId
+  const record: SessionRecordUpsert = { ...facts, runnerHostId: runner.hostId }
+  // A host sends only published sessions, so the record it creates is published, owned by `owner`.
+  await upsertSessionRecord(runner.organizationId, record, { organizationId: runner.organizationId, published: true, ownerKey: owner })
+  // A new session is the organization's to open, like anything else the host writes here;
+  // a chat is its owner's alone until they share it (plan 004 D14).
+  if (shares && !existing && !privateToOwner) await shares.shareRunnerWrite({ kind: 'session', id: facts.sessionId }, runner, owner)
+}
+
+async function applyItem(runner: RunnerPrincipal, item: RunnerDeliverItem, deps: RunnerIntakeDeps): Promise<void> {
   const origin = { organizationId: runner.organizationId, hostId: runner.hostId }
-  const changedSessions = new Set<string>()
-  let lastSeq = await readCursor(database, runner, 'mirror')
-  for (const { seq, domain, key, payload } of ascending(request.items)) {
-    if (seq <= lastSeq) continue
-    try {
-      await database.transaction(async (db) => {
-        await applyMirrorItem(origin, { domain, payload }, shares)
-        await writeCursor(db, runner, 'mirror', seq)
-      })
-      if (domain === 'transcripts') {
-        const transcript = transcriptMirrorPayloadSchema.safeParse(payload)
-        if (transcript.success) changedSessions.add(transcript.data.sessionId)
-      }
-      if (domain === 'activity') {
-        const subject = activityMirrorPayloadSchema.safeParse(payload)
-        if (subject.success && subject.data.activity.subject.kind === 'session') changedSessions.add(subject.data.activity.subject.id)
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      const permanent = error instanceof PermanentApplyError
-      log.warn('runner_mirror_item_failed', { hostId: runner.hostId, organizationId: runner.organizationId, seq, domain, key, permanent, error: message })
-      if (!permanent) break
-      await writeCursor(database, runner, 'mirror', seq)
+  switch (item.kind) {
+    case 'session': {
+      const facts = sessionRecordUpsertWireSchema.safeParse(item.payload)
+      if (!facts.success) throw new PermanentApplyError(`Malformed session facts: ${facts.error.message}`)
+      return applySessionFacts(runner, facts.data, deps.shares)
     }
-    lastSeq = seq
+    default: return applyMirrorItem(origin, { kind: item.kind, payload: item.payload }, deps.shares)
   }
-  for (const sessionId of changedSessions) onTranscriptChanged?.(sessionId)
-  return { lastSeq }
+}
+
+/** The session an applied item changed the history of, for the readers who watch it. */
+function changedSessionOf(item: RunnerDeliverItem): string | null {
+  if (item.kind === 'transcript') {
+    const transcript = transcriptMirrorPayloadSchema.safeParse(item.payload)
+    return transcript.success ? transcript.data.sessionId : null
+  }
+  if (item.kind === 'activity') {
+    const subject = activityMirrorPayloadSchema.safeParse(item.payload)
+    return subject.success && subject.data.activity.subject.kind === 'session' ? subject.data.activity.subject.id : null
+  }
+  return null
+}
+
+export async function applyRunnerDelivery(runner: RunnerPrincipal, request: RunnerDeliverRequest, deps: RunnerIntakeDeps = {}): Promise<RunnerDeliverResponse> {
+  const changedSessions = new Set<string>()
+  const failed: RunnerDeliverResponse['failed'] = []
+  // A runner that sends items out of order gets them applied in order anyway.
+  const items = [...request.items].sort((a, b) => a.seq - b.seq)
+  const lastSeq = await getDatabase().transaction(async (db) => {
+    const cursor = await readCursor(db, runner)
+    let lastSeq = cursor
+    for (const item of items) {
+      if (item.seq <= lastSeq) continue
+      await db.run(sql`SAVEPOINT runner_item`)
+      try {
+        await applyItem(runner, item, deps)
+        await db.run(sql`RELEASE SAVEPOINT runner_item`)
+        const sessionId = changedSessionOf(item)
+        if (sessionId) changedSessions.add(sessionId)
+      } catch (error) {
+        await db.run(sql`ROLLBACK TO SAVEPOINT runner_item`)
+        await db.run(sql`RELEASE SAVEPOINT runner_item`)
+        const message = error instanceof Error ? error.message : String(error)
+        const permanent = error instanceof PermanentApplyError
+        log.warn('runner_item_failed', { hostId: runner.hostId, organizationId: runner.organizationId, seq: item.seq, kind: item.kind, permanent, error: message })
+        if (!permanent) break
+        failed.push({ seq: item.seq, error: message })
+      }
+      lastSeq = item.seq
+    }
+    if (lastSeq !== cursor) await writeCursor(db, runner, lastSeq)
+    return lastSeq
+  })
+  for (const sessionId of changedSessions) deps.onTranscriptChanged?.(sessionId)
+  return { lastSeq, failed }
 }

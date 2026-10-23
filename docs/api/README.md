@@ -32,19 +32,22 @@ A Solus client (desktop, web, or mobile) sends its record requests over the
 socket it already holds, with the `solusApiRequest` RPC. The request is the same
 `/v1` request, without a bearer: the socket's principal is its authority. The
 host runs it through the same routes, schemas, and operations as HTTP. It holds
-that principal to the rules of an exchange: a revoked device, an expired token,
-and the host itself are refused with `401`. The client exchanges no credential,
-so a record request costs one round trip.
+that principal to the rules of an HTTP bearer: a revoked device, an expired token,
+and the host itself are refused with `401`. A record request costs one round trip.
 
-Every record request over HTTP needs a bearer, including loopback requests. First exchange
-an existing desktop/paired-device token or an access token from the account plane
-at `POST /v1/auth/session`. Local pairing works without a cloud connection. The
-configured issuer and JWKS verifier admit cloud and on-premises access tokens
-(plans/010-standard-oauth.md).
+Every record request over HTTP needs a bearer, including loopback requests. The
+bearer is the caller's own credential; there is no second credential to exchange it
+for (docs/plans/simplify-auth-and-sync.md §4.2). On the Solus API it is the access
+token for our servers (`aud` includes `urn:solus:api`), or a host's delegated token.
+On a host it is a paired device's session token, or an access token for that host.
+Local pairing works without a cloud connection. The configured issuer and JWKS
+verifier admit cloud and on-premises access tokens (plans/010-standard-oauth.md).
 
-The issuer verifies membership and binds the access token to an organization.
-The API derives the principal, home, and organization from verified authority.
-The exchange accepts requested scopes and an optional guest share secret. It
+A person's token lists the organizations they may work in. A request names one in
+the `Solus-Organization` header, and the API admits it only when the token lists it.
+A delegated token names its one organization itself. The API derives the principal,
+home, and organization from verified authority. A person's request has the client
+scopes; a host's agent has every scope, and its writes are the agent's. A request
 cannot choose a user or organization. Request bodies and queries are strict:
 an unknown field, such as an organization selector, is rejected. Scopes restrict
 operations; the operation itself checks them, so an in-process agent tool and an
@@ -74,25 +77,19 @@ pull an external document through the API: `POST /v1/works/import`, `POST /v1/wo
 connection or the host owner's connection. `GET /v1/works/search` searches the
 title and content of the works the caller can see.
 
-API credentials expire after at most eight hours and no later than the access
-token they came from. Renewal needs another access token. Access tokens are bearer
-tokens: the API does not spend them, and it refuses one that lives longer than eight
-hours. API credentials cannot exchange themselves or impersonate runners.
+Access tokens are bearer tokens: the API does not spend them, and it refuses one
+that lives longer than the account plane's limit. Renewal is the client's next token.
 Device revocation is checked on each request; guest access checks read the current
-share. Account membership changes take effect by credential expiry at latest.
+share. A link guest reaches records over its socket only. Account membership changes
+take effect when the token expires, at the latest.
 
-Each connection caches its credential separately. A host or organization change
-invalidates its context and rejects late responses. External clients can use the
-HTTP API without a WebSocket connection.
+A host or organization change invalidates a client's context and rejects late
+responses. External clients can use the HTTP API without a WebSocket connection.
 
 ```sh
-curl "$SOLUS_URL/v1/auth/session" \
-  -H "Authorization: Bearer $SOLUS_SOURCE_CREDENTIAL" \
-  -H 'Content-Type: application/json' \
-  --data '{"scopes":["tasks:read","insights:read"]}'
-
 curl "$SOLUS_URL/v1/tasks?limit=50" \
-  -H "Authorization: Bearer $SOLUS_API_TOKEN"
+  -H "Authorization: Bearer $SOLUS_ACCESS_TOKEN" \
+  -H "Solus-Organization: $SOLUS_ORGANIZATION_ID"
 ```
 
 ## Reads, writes, and scale

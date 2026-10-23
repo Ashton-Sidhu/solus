@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite'
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { io } from 'socket.io-client'
+import { SOLUS_PROTOCOL } from '@solus/contracts/uplink'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -28,7 +29,8 @@ test('a share rule\'s refusal reaches the client with its code', async () => {
   server.register('shareTransfer', () => {
     throw new ShareAccessError('FORBIDDEN', 'Only the owner can transfer ownership')
   })
-  const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false })
+  // The server is credential-free (`requireAuth: false`), so the handshake names only the protocol it speaks.
+  const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { protocol: SOLUS_PROTOCOL } })
   try {
     await new Promise<void>((resolve, reject) => { socket.once('connect', () => resolve()); socket.once('connect_error', reject) })
     const envelope = await new Promise<{ error?: { message: string; code?: string } }>((resolve) => {

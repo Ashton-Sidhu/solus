@@ -358,6 +358,10 @@ describe('render_artifact checks a page before and after it is shown', () => {
     expect(result.text).toContain('the page is 412px tall')
     expect(result.text).toContain('[error] Uncaught ReferenceError: chart is not defined (line 4)')
     expect(result.text).toContain('/tmp/missing-shot.png')
+    // The result names the step that shows the page. Without it, an agent
+    // pasted the screenshot as its answer and the user got no live page.
+    expect(result.text).toContain('```html fence')
+    expect(result.text).toContain('again without preview')
     // The agent sees the screenshot in the result: no second call to read a file.
     expect(result.image).toEqual({ mimeType: 'image/png', data: ONE_PIXEL_PNG.toString('base64') })
   })

@@ -44,7 +44,7 @@ afterAll(async () => {
   hostCategory.resetHostCategoryForTests()
 })
 
-const LOCAL_OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
+const LOCAL_OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 const memberOf = (organizationId: string): Principal => ({
   kind: 'org-member', userId: 'bob', organizationId, organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', deviceId: 'd-bob', expiresAt: 0, deviceLabel: 'Solus cloud',
 })

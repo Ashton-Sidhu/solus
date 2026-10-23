@@ -4,7 +4,7 @@
       {
         "id": "ACME-214",
         "providerId": "jira",
-        "projectKey": "/home/demo/acme",
+        "projectKey": "/home/demo/api-gateway",
         "title": "Expose rate-limit headers on 429s",
         "body": "Return `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, and `Retry-After` from every enforced rejection. Preserve the existing API error envelope and request id.",
         "status": "in_progress",
@@ -18,7 +18,7 @@
         "priority": "high",
         "branch": "feat/rate-limiting",
         "pr": {
-          "url": "https://github.com/acme/acme/pull/142",
+          "url": "https://github.com/acme/api-gateway/pull/142",
           "number": 142
         },
         "canEditPlanningFields": true,
@@ -33,7 +33,7 @@
       {
         "id": "demo-task-2",
         "providerId": "local",
-        "projectKey": "/home/demo/acme",
+        "projectKey": "/home/demo/web-dashboard",
         "title": "Dashboard: usage graph for API keys",
         "body": "Plot daily requests by API key with plan quota and projected overage. Show when data was last aggregated.",
         "status": "todo",
@@ -52,7 +52,7 @@
       {
         "id": "demo-task-3",
         "providerId": "local",
-        "projectKey": "/home/demo/acme",
+        "projectKey": "/home/demo/api-gateway",
         "title": "Rotate webhook signing secrets",
         "body": "Support overlapping webhook secrets for seven days and expose the active secret prefix in settings.",
         "status": "todo",
@@ -71,7 +71,7 @@
       {
         "id": "demo-task-4",
         "providerId": "local",
-        "projectKey": "/home/demo/acme",
+        "projectKey": "/home/demo/billing-service",
         "title": "Backfill invoice-grade usage ledger",
         "body": "Import the current billing period from request logs with deterministic event ids and a distinct backfill source marker.",
         "status": "in_progress",
@@ -91,7 +91,7 @@
       {
         "id": "demo-task-5",
         "providerId": "local",
-        "projectKey": "/home/demo/acme",
+        "projectKey": "/home/demo/api-gateway",
         "title": "Alert on Redis fail-open decisions",
         "body": "Page API on-call when fail-open exceeds 0.1% of authenticated requests for ten minutes. Link the alert to the rollout runbook.",
         "status": "in_progress",
@@ -111,7 +111,7 @@
       {
         "id": "demo-task-6",
         "providerId": "local",
-        "projectKey": "/home/demo/acme",
+        "projectKey": "/home/demo/api-gateway",
         "title": "Add custom domains to link analytics",
         "body": "Include custom-domain hostnames in click breakdowns without increasing the analytics query count.",
         "status": "todo",
@@ -129,7 +129,7 @@
       {
         "id": "demo-task-7",
         "providerId": "local",
-        "projectKey": "/home/demo/acme",
+        "projectKey": "/home/demo/api-gateway",
         "title": "Make webhook retry timing deterministic",
         "body": "Remove endpoint-scoped retry counters, inject scheduling time, and add an interleaving regression test.",
         "status": "done",
@@ -148,7 +148,7 @@
       {
         "id": "demo-task-8",
         "providerId": "local",
-        "projectKey": "/home/demo/acme",
+        "projectKey": "/home/demo/api-gateway",
         "title": "Document API key rotation procedure",
         "body": "Publish the overlapping-key rotation flow, grace periods, audit events, and emergency revocation steps.",
         "status": "done",
@@ -166,7 +166,7 @@
       {
         "id": "demo-task-9",
         "providerId": "local",
-        "projectKey": "/home/demo/acme",
+        "projectKey": "/home/demo/api-gateway",
         "title": "Reduce redirect endpoint p95 below 25 ms",
         "body": "Cache active link destinations in Redis and preserve click tracking through the async event queue.",
         "status": "done",
@@ -203,7 +203,7 @@
       "priority": "high",
       "branch": "feat/rate-limiting",
       "pr": {
-        "url": "https://github.com/acme/acme/pull/142",
+        "url": "https://github.com/acme/api-gateway/pull/142",
         "number": 142
       },
       "canEditPlanningFields": true,
@@ -430,7 +430,7 @@
       {
         "taskId": "ACME-214",
         "kind": "work",
-        "targetScope": "/home/demo/acme",
+        "targetScope": "/home/demo/api-gateway",
         "targetKey": "demo-work-rollout-notes",
         "title": "Rate limiting rollout notes",
         "createdBy": { "kind": "agent", "sessionId": "" },
@@ -439,16 +439,16 @@
       {
         "taskId": "ACME-214",
         "kind": "work",
-        "targetScope": "/home/demo/acme",
+        "targetScope": "/home/demo/api-gateway",
         "targetKey": "demo-work-acme-architecture",
-        "title": "acme architecture",
+        "title": "Platform architecture",
         "createdBy": { "kind": "user", "user": { "id": { "kind": "local", "localId": "demo" }, "displayName": "Demo user" } },
         "linkedAt": 1783857600000
       },
       {
         "taskId": "ACME-214",
         "kind": "plan",
-        "targetScope": "/home/demo/acme",
+        "targetScope": "/home/demo/api-gateway",
         "targetKey": "plan-api-key-rotation",
         "title": "Zero-downtime API key rotation",
         "createdBy": { "kind": "agent", "sessionId": "" },
@@ -457,7 +457,7 @@
       {
         "taskId": "ACME-214",
         "kind": "automation",
-        "targetScope": "/home/demo/acme",
+        "targetScope": "/home/demo/api-gateway",
         "targetKey": "demo-automation-pr-triage",
         "title": "PR triage on open",
         "createdBy": { "kind": "user", "user": { "id": { "kind": "local", "localId": "demo" }, "displayName": "Demo user" } },
@@ -466,10 +466,10 @@
       {
         "taskId": "ACME-214",
         "kind": "pr",
-        "targetScope": "acme/acme",
+        "targetScope": "acme/api-gateway",
         "targetKey": "142",
         "title": "Add per-key rate limiting to public API",
-        "url": "https://github.com/acme/acme/pull/142",
+        "url": "https://github.com/acme/api-gateway/pull/142",
         "createdBy": { "kind": "agent", "sessionId": "" },
         "linkedAt": 1784044800000
       }

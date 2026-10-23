@@ -33,6 +33,10 @@ const THEME_TOKENS = [
   ['--accent-foreground', '--solus-render-on-accent'],
   ['--accent-surface', '--solus-render-accent-light'],
   ['--accent-surface-foreground', '--solus-text-primary'],
+  // The app's own accent, terracotta in both modes. A mock-up of Solus's own
+  // UI uses it, so its buttons match the real app and not the render accent.
+  ['--brand', '--solus-accent'],
+  ['--brand-foreground', '--solus-text-on-accent'],
   ['--destructive', '--solus-art-negative'],
   ['--destructive-foreground', '--solus-art-negative'],
   ['--success', '--solus-art-positive'],
@@ -145,6 +149,7 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-art-border': '#ebe5d8',
     '--solus-art-border-strong': '#d9d0bd',
     '--solus-accent': '#d97757',
+    '--solus-text-on-accent': '#ffffff',
     '--solus-art-negative': '#c9302d',
     '--solus-art-positive': '#26894c',
     '--solus-art-4': '#0d9488',
@@ -186,6 +191,7 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-art-border': 'rgba(255, 240, 215, 0.11)',
     '--solus-art-border-strong': 'rgba(255, 240, 215, 0.2)',
     '--solus-accent': '#e68e6b',
+    '--solus-text-on-accent': '#2c1a12',
     '--solus-art-negative': '#f75d59',
     '--solus-art-positive': '#2ee07e',
     '--solus-art-4': '#2dd4bf',

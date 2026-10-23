@@ -1,4 +1,3 @@
-import { installWindowSolusApi, mergeNativeOnlySolusApi } from './native-api-overlay'
 import {
   dialableRoutes,
   loadServers,
@@ -8,12 +7,11 @@ import {
   type SavedServer,
   type SavedServerUplink,
 } from './server-registry'
-import { WsTransport, type ConnectionStatus, type GrantRefusal, type WsTransportOptions } from './ws-transport'
+import { WsTransport, type GrantRefusal, type GrantSource, type GuestCredential } from './ws-transport'
 import { isLastingRefusal, type ResourceRefusal } from './oauth-session'
 import { withBrowserCapabilities } from './ws-browser-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
-import type { NativeSolusAPI } from '@solus/contracts/host-api'
 import { organizationIdOfSolusApiId, type HostRoute } from '@solus/contracts/uplink'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import { uplinkAccountSource } from './uplink-account'
@@ -36,8 +34,13 @@ export interface SolusServerTarget {
   local: boolean
   /** Every route known for the host; `url` is the one chosen from them. */
   routes?: HostRoute[]
+  /** Routes dialed only when no route in `routes` answers: a guest's read-only mirror of the resource. */
+  fallbackRoutes?: HostRoute[]
   /** Present when the host is dialable with a grant from the owner's account. */
   uplink?: SavedServerUplink
+  /** A guest of a share link (docs/plans/multiplayer-sharing.md §4.2): the link's
+   *  secret is the one credential. No account, no saved host. */
+  guest?: GuestCredential
 }
 
 /** The route a saved host is dialed on first: direct before tunnel, from this page's origin. */
@@ -56,16 +59,9 @@ export interface InstalledSolusConnection {
 }
 
 export interface CreateSolusConnectionOptions {
-  onStatusChange?: (status: ConnectionStatus, attempt: number) => void
-  onAuthFailed?: () => void
   verifyConnectedHost?: () => Promise<boolean>
   refreshLocalSessionToken?: () => Promise<string>
-  /** A guest link (docs/plans/multiplayer-sharing.md §4.2): each dial mints a guest
-   *  grant and presents the link secret with it. No account, no saved host. */
-  guest?: { shareSecret: string; identity: { guestId: string; displayName: string } }
 }
-
-export type InstallSolusConnectionOptions = Omit<CreateSolusConnectionOptions, 'refreshLocalSessionToken'>
 
 export function localServerTarget(local: LocalConnectionInfoLike): SolusServerTarget {
   return {
@@ -93,26 +89,6 @@ export function savedServerTarget(server: SavedServer): SolusServerTarget {
   return target
 }
 
-export function installWsBackedSolusApi(
-  target: SolusServerTarget,
-  nativeApi: NativeSolusAPI,
-  options: InstallSolusConnectionOptions = {},
-): InstalledSolusConnection {
-  const refreshLocalSessionToken = nativeApi.refreshLocalSessionToken
-
-  const connection = createSolusConnection(target, {
-    ...options,
-    refreshLocalSessionToken,
-  })
-  const mergedApi = mergeNativeOnlySolusApi(
-    connection.api,
-    nativeApi,
-  )
-  const api = asHostApi(mergedApi)
-  installWindowSolusApi(mergedApi)
-  return { transport: connection.transport, api, events: connection.events }
-}
-
 /** What a directory id names: an organization's Solus API (`workspace:<organizationId>`), or a host. */
 export function connectionTokenResource(uplinkHostId: string): ConnectionTokenResource {
   return organizationIdOfSolusApiId(uplinkHostId) ? { kind: 'api' } : { kind: 'host', hostId: uplinkHostId }
@@ -125,14 +101,15 @@ function grantRefusalOf(refusal: ResourceRefusal | null): GrantRefusal | null {
   return { lasting: isLastingRefusal(refusal), reason: `${reason} (HTTP ${refusal.status})` }
 }
 
-/** A dial's access token from the account's sign-in, and why there was none when it was refused. None without an account or a resource (a guest, a paired host). */
-function grantSource(account: UplinkAccountSource | null, resource: ConnectionTokenResource | null): Pick<WsTransportOptions, 'acquireGrant' | 'grantRefusal'> {
-  const source: Pick<WsTransportOptions, 'acquireGrant' | 'grantRefusal'> = {}
-  if (!account || !resource) return source
-  source.acquireGrant = (grantOptions) => account.accessToken(resource, grantOptions)
+/** A dial's access token from the account's sign-in, and why there was none. None without an account or a resource (a guest, a paired host). */
+function grantSource(account: UplinkAccountSource | null, resource: ConnectionTokenResource | null): GrantSource | undefined {
+  if (!account || !resource) return undefined
   const refusal = account.accessTokenRefusal?.bind(account)
-  if (refusal) source.grantRefusal = () => grantRefusalOf(refusal(resource))
-  return source
+  return {
+    acquire: (tokenOptions) => account.accessToken(resource, tokenOptions),
+    refusal: refusal ? () => grantRefusalOf(refusal(resource)) : undefined,
+    isSignedOut: () => account.isSignedOut(),
+  }
 }
 
 export function createSolusConnection(
@@ -140,16 +117,16 @@ export function createSolusConnection(
   options: CreateSolusConnectionOptions = {},
 ): InstalledSolusConnection {
   // A host known through the directory and never paired has no long-lived
-  // credential: each dial presents a five-minute access token from the account's
-  // sign-in, which keeps it until a minute before its end (`OAuthSession`).
-  const uplinkHostId = !target.sessionToken && target.uplink ? target.uplink.hostId : null
+  // credential: each dial presents an access token from the account's sign-in,
+  // which keeps it until a minute before its end (`OAuthSession`).
+  const guest = target.guest
+  const uplinkHostId = !guest && !target.sessionToken && target.uplink ? target.uplink.hostId : null
   const account = uplinkHostId ? uplinkAccountSource() : null
   const resource = uplinkHostId ? connectionTokenResource(uplinkHostId) : null
   // An access token lists the organizations the person reaches this host through; a
   // connection names the one it works in (ADR 0001 §6.4): the Solus API's own, or the
   // window's when the host is shared with it, else the host's first share.
   const dialOrganizationId = () => organizationIdOfSolusApiId(target.id) ?? organizationIdFor(null, target.uplink, activeOrganizationId())
-  const guest = options.guest
   // A registered host dialed without the account token (paired, or a trusted network)
   // is still shown the signed-in person's token, so it keeps their delegation (ADR 0001 §6 item 5).
   const presentedHostId = !guest && !uplinkHostId && target.uplink && !organizationIdOfSolusApiId(target.uplink.hostId) ? target.uplink.hostId : null
@@ -158,13 +135,10 @@ export function createSolusConnection(
     serverUrl: target.url,
     serverId: target.id,
     sessionToken: target.sessionToken,
-    ...grantSource(guest ? null : account, resource),
+    grants: grantSource(account, resource),
     dialOrganizationId: account && resource ? dialOrganizationId : undefined,
     accountToken: presentingAccount && presentedHostId ? () => presentingAccount.accessToken({ kind: 'host', hostId: presentedHostId }) : undefined,
-    shareSecret: guest?.shareSecret,
-    guestIdentity: guest?.identity,
-    onStatusChange: options.onStatusChange,
-    onAuthFailed: options.onAuthFailed,
+    guest,
     verifyConnectedHost: options.verifyConnectedHost,
     // The local target's page origin (dev server / file://) is always
     // cross-origin from the loopback server, so the HTTP refresh fallback

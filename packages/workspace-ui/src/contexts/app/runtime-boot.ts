@@ -1,6 +1,7 @@
 import { afterPaint } from '../../lib/after-paint'
 import { sessionListStore } from '../workspace/session-list.store.svelte'
-import { TransportDisconnectedError, type ConnectionStatus } from '@solus/client-core/ws-transport'
+import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
+import type { HostPhase } from '@solus/client-core/host-supervisor'
 import { bootstrapRuntimeTabs, prioritizeTabHydration } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -119,8 +120,8 @@ export function initializeRuntime(
 
 /** Detect reconnect edges after the first connected state has been observed. */
 export function createReconnectDetector(
-  initialStatus: ConnectionStatus,
-): (status: ConnectionStatus) => boolean {
+  initialStatus: HostPhase,
+): (status: HostPhase) => boolean {
   let previousStatus = initialStatus
   let hasObservedConnected = initialStatus === 'connected'
 

@@ -74,7 +74,6 @@ export {
   filterUnsavedDiscoveredServers,
   mergeNearbyHosts,
   NEARBY_HOST_TTL_MS,
-  unannouncedDiscoveredServers,
 } from './connections/discovery'
 export {
   hostAffinityGlyph,

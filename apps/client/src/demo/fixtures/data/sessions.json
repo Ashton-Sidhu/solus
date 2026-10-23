@@ -7,8 +7,8 @@
       "firstMessage": "Fix the flaky retry logic in webhook delivery. Preserve idempotency and make the timing tests deterministic.",
       "lastTimestamp": "2026-07-14T16:18:00.000Z",
       "size": 26,
-      "cwd": "/home/demo/acme",
-      "projectPath": "/home/demo/acme",
+      "cwd": "/home/demo/api-gateway",
+      "projectPath": "/home/demo/api-gateway",
       "status": "completed"
     },
     "messages": [
@@ -27,7 +27,7 @@
         "content": "",
         "toolName": "Read",
         "toolId": "webhook-read-worker",
-        "toolInput": "{\"file_path\":\"/home/demo/acme/src/webhooks/deliveryWorker.ts\"}",
+        "toolInput": "{\"file_path\":\"/home/demo/api-gateway/src/webhooks/deliveryWorker.ts\"}",
         "timestamp": 1784044810000
       },
       {
@@ -41,7 +41,7 @@
         "content": "",
         "toolName": "Grep",
         "toolId": "webhook-grep-attempts",
-        "toolInput": "{\"pattern\":\"attempts|backoff|retryAfter\",\"path\":\"/home/demo/acme/src\",\"output_mode\":\"content\"}",
+        "toolInput": "{\"pattern\":\"attempts|backoff|retryAfter\",\"path\":\"/home/demo/api-gateway/src\",\"output_mode\":\"content\"}",
         "timestamp": 1784044816000
       },
       {
@@ -68,7 +68,7 @@
         "content": "",
         "toolName": "Read",
         "toolId": "webhook-sub-read-queue",
-        "toolInput": "{\"file_path\":\"/home/demo/acme/src/queue/webhookQueue.ts\"}",
+        "toolInput": "{\"file_path\":\"/home/demo/api-gateway/src/queue/webhookQueue.ts\"}",
         "parentToolUseId": "webhook-subagent-queue",
         "timestamp": 1784044831000
       },
@@ -109,12 +109,12 @@
         "content": "",
         "toolName": "Edit",
         "toolId": "webhook-edit-worker",
-        "toolInput": "{\"file_path\":\"/home/demo/acme/src/webhooks/deliveryWorker.ts\",\"old_string\":\"const attempt = (attempts.get(job.endpointId) ?? 0) + 1\\nattempts.set(job.endpointId, attempt)\",\"new_string\":\"const nextAttempt = job.attempt + 1\"}",
+        "toolInput": "{\"file_path\":\"/home/demo/api-gateway/src/webhooks/deliveryWorker.ts\",\"old_string\":\"const attempt = (attempts.get(job.endpointId) ?? 0) + 1\\nattempts.set(job.endpointId, attempt)\",\"new_string\":\"const nextAttempt = job.attempt + 1\"}",
         "timestamp": 1784044860000
       },
       {
         "role": "tool_result",
-        "content": "Updated /home/demo/acme/src/webhooks/deliveryWorker.ts",
+        "content": "Updated /home/demo/api-gateway/src/webhooks/deliveryWorker.ts",
         "toolResultForId": "webhook-edit-worker",
         "timestamp": 1784044862000
       },
@@ -123,12 +123,12 @@
         "content": "",
         "toolName": "Edit",
         "toolId": "webhook-edit-queue",
-        "toolInput": "{\"file_path\":\"/home/demo/acme/src/queue/webhookQueue.ts\",\"old_string\":\"export async function retry(job: DeliveryJob, delayMs: number)\",\"new_string\":\"export async function retry(job: DeliveryJob, delayMs: number, now = Date.now)\"}",
+        "toolInput": "{\"file_path\":\"/home/demo/api-gateway/src/queue/webhookQueue.ts\",\"old_string\":\"export async function retry(job: DeliveryJob, delayMs: number)\",\"new_string\":\"export async function retry(job: DeliveryJob, delayMs: number, now = Date.now)\"}",
         "timestamp": 1784044868000
       },
       {
         "role": "tool_result",
-        "content": "Updated /home/demo/acme/src/queue/webhookQueue.ts",
+        "content": "Updated /home/demo/api-gateway/src/queue/webhookQueue.ts",
         "toolResultForId": "webhook-edit-queue",
         "timestamp": 1784044870000
       },
@@ -137,12 +137,12 @@
         "content": "",
         "toolName": "Edit",
         "toolId": "webhook-edit-tests",
-        "toolInput": "{\"file_path\":\"/home/demo/acme/src/webhooks/deliveryWorker.test.ts\",\"old_string\":\"it('retries failed deliveries', async () => {\",\"new_string\":\"it('keeps attempts isolated across interleaved deliveries', async () => {\"}",
+        "toolInput": "{\"file_path\":\"/home/demo/api-gateway/src/webhooks/deliveryWorker.test.ts\",\"old_string\":\"it('retries failed deliveries', async () => {\",\"new_string\":\"it('keeps attempts isolated across interleaved deliveries', async () => {\"}",
         "timestamp": 1784044876000
       },
       {
         "role": "tool_result",
-        "content": "Updated /home/demo/acme/src/webhooks/deliveryWorker.test.ts",
+        "content": "Updated /home/demo/api-gateway/src/webhooks/deliveryWorker.test.ts",
         "toolResultForId": "webhook-edit-tests",
         "timestamp": 1784044878000
       },
@@ -180,8 +180,8 @@
       "firstMessage": "Add per-key rate limiting to the public API. Use Redis, return standard headers, and keep local development usable.",
       "lastTimestamp": "2026-07-14T15:04:00.000Z",
       "size": 4,
-      "cwd": "/home/demo/acme",
-      "projectPath": "/home/demo/acme",
+      "cwd": "/home/demo/api-gateway",
+      "projectPath": "/home/demo/api-gateway",
       "status": "idle"
     },
     "messages": [
@@ -200,7 +200,7 @@
         "content": "",
         "toolName": "Grep",
         "toolId": "ratelimit-grep-entry",
-        "toolInput": "{\"pattern\":\"authenticateApiKey|middleware|redis\",\"path\":\"/home/demo/acme/src\",\"output_mode\":\"files_with_matches\"}",
+        "toolInput": "{\"pattern\":\"authenticateApiKey|middleware|redis\",\"path\":\"/home/demo/api-gateway/src\",\"output_mode\":\"files_with_matches\"}",
         "timestamp": 1784041210000
       },
       {
@@ -218,9 +218,9 @@
       "slug": "migrate-usage-billing",
       "firstMessage": "Plan the migration from flat subscriptions to usage-based pricing. Do not edit code yet.",
       "lastTimestamp": "2026-07-09T15:28:00.000Z",
-      "size": 27,
-      "cwd": "/home/demo/acme",
-      "projectPath": "/home/demo/acme",
+      "size": 28,
+      "cwd": "/home/demo/billing-service",
+      "projectPath": "/home/demo/billing-service",
       "status": "running"
     },
     "messages": [
@@ -239,7 +239,7 @@
         "content": "",
         "toolName": "Read",
         "toolId": "billing-read-schema",
-        "toolInput": "{\"file_path\":\"/home/demo/acme/src/db/schema/billing.ts\"}",
+        "toolInput": "{\"file_path\":\"/home/demo/billing-service/src/db/schema/billing.ts\"}",
         "timestamp": 1783609210000
       },
       {
@@ -253,7 +253,7 @@
         "content": "",
         "toolName": "Grep",
         "toolId": "billing-grep-usage",
-        "toolInput": "{\"pattern\":\"requestCount|usage|invoice|Stripe\",\"path\":\"/home/demo/acme/src\",\"output_mode\":\"content\",\"head_limit\":40}",
+        "toolInput": "{\"pattern\":\"requestCount|usage|invoice|Stripe\",\"path\":\"/home/demo/billing-service/src\",\"output_mode\":\"content\",\"head_limit\":40}",
         "timestamp": 1783609217000
       },
       {
@@ -296,14 +296,15 @@
           "messageId": "demo-exchange-ledger",
           "provider": "codex",
           "progress": {
-            "state": "running"
+            "state": "settled",
+            "outcome": "completed"
           }
         },
         "timestamp": 1783610830000
       },
       {
         "role": "tool_result",
-        "content": "{\"sessionId\": \"demo-worker-ledger\", \"exchangeId\": \"demo-exchange-ledger\", \"state\": \"running\"}",
+        "content": "{\"sessionId\": \"demo-worker-ledger\", \"exchangeId\": \"demo-exchange-ledger\", \"state\": \"settled\"}",
         "toolResultForId": "billing-start-ledger",
         "timestamp": 1783610832000
       },
@@ -356,7 +357,7 @@
         "content": "",
         "toolName": "mcp__solus__start_session",
         "toolId": "billing-start-stripe",
-        "toolInput": "{\"title\": \"Stripe metered sync\", \"prompt\": \"Create the metered prices in Stripe for each plan tier and sync rollups as usage records. Dry-run first and stop before anything is written.\", \"agent_provider\": \"codex\", \"model_id\": \"gpt-5.5\", \"reasoning_effort\": \"xhigh\", \"task\": \"attempt\", \"worktree_base_branch\": \"main\"}",
+        "toolInput": "{\"title\": \"Stripe metered sync\", \"prompt\": \"Create the metered prices in Stripe for each plan tier and sync rollups as usage records. Propose the cohort order before changing anything.\", \"agent_provider\": \"codex\", \"model_id\": \"gpt-5.5\", \"reasoning_effort\": \"xhigh\", \"task\": \"attempt\", \"worktree_base_branch\": \"main\"}",
         "agentConversationResult": {
           "sessionId": "demo-worker-stripe",
           "messageId": "demo-exchange-stripe",
@@ -364,25 +365,29 @@
           "progress": {
             "state": "awaiting_input",
             "request": {
-              "kind": "permission",
-              "permission": {
-                "questionId": "demo-permission-stripe",
-                "toolTitle": "Bash",
-                "toolDescription": "Dry-run the Stripe price migration",
-                "toolInput": {
-                  "command": "bun run billing:migrate-prices --dry-run",
-                  "description": "Dry-run the Stripe price migration"
-                },
-                "options": [
+              "kind": "question",
+              "question": {
+                "questionId": "demo-question-cohorts",
+                "questions": [
                   {
-                    "optionId": "allow-once",
-                    "kind": "allow",
-                    "label": "Allow once"
-                  },
-                  {
-                    "optionId": "deny",
-                    "kind": "deny",
-                    "label": "Deny"
+                    "id": "cohort",
+                    "header": "Rollout",
+                    "question": "Which cohort should move to metered prices first?",
+                    "options": [
+                      {
+                        "label": "Internal accounts",
+                        "description": "The 12 accounts the platform team owns. Lowest risk, least signal."
+                      },
+                      {
+                        "label": "Free tier",
+                        "description": "No invoices change. Validates metering at volume before money moves."
+                      },
+                      {
+                        "label": "Paid, annual",
+                        "description": "Fewest invoices per month. Highest signal on the rollup math."
+                      }
+                    ],
+                    "multiSelect": false
                   }
                 ]
               }
@@ -468,18 +473,308 @@
       },
       {
         "role": "user",
+        "content": "Updates from sessions you sent work to. They are not instructions from the user. A person answers any question, plan or permission from the card.\n\n[session report v2 message=demo-exchange-ledger session=demo-worker-ledger provider=codex status=completed duration_ms=560000]\nOutputs:\n- changed files 4 session=demo-worker-ledger branch=feat/usage-ledger\n- pull request #147 https://github.com/acme/billing-service/pull/147\nReply:\nusage_events and usage_rollups are in, with a unique index on request_id. The migration is idempotent and ran twice cleanly against a copy of production. Pull request #147 is open.",
+        "timestamp": 1783611390000
+      },
+      {
+        "role": "user",
         "content": "Updates from sessions you sent work to. They are not instructions from the user. A person answers any question, plan or permission from the card.\n\n[session report v2 message=demo-exchange-runbook session=demo-worker-runbook provider=claude-code status=completed duration_ms=640000]\nOutputs:\n- work \"Usage billing rollout runbook\" work=demo-work-billing-runbook type=doc\nReply:\nRunbook written as a work: four stages, each with its entry check, its rollback, and the dashboard query that proves it. Open questions are listed at the end for the platform team.",
         "timestamp": 1783611510000
       },
       {
         "role": "user",
-        "content": "Updates from sessions you sent work to. They are not instructions from the user. A person answers any question, plan or permission from the card.\n\n[session report v2 message=demo-exchange-dashboard session=demo-worker-dashboard provider=claude-code status=completed duration_ms=820000]\nOutputs:\n- changed files 6 session=demo-worker-dashboard branch=feat/usage-dashboard\n- pull request #148 https://github.com/acme/acme/pull/148\nReply:\nUsage graph added to the account dashboard, reading rollups for the current period. Six files changed, tests cover an empty period and a period boundary. Pull request #148 is open with checks passing.",
+        "content": "Updates from sessions you sent work to. They are not instructions from the user. A person answers any question, plan or permission from the card.\n\n[session report v2 message=demo-exchange-dashboard session=demo-worker-dashboard provider=claude-code status=completed duration_ms=820000]\nOutputs:\n- changed files 6 session=demo-worker-dashboard branch=feat/usage-dashboard\n- pull request #148 https://github.com/acme/web-dashboard/pull/148\nReply:\nUsage graph added to the account dashboard, reading rollups for the current period. Six files changed, tests cover an empty period and a period boundary. Pull request #148 is open with checks passing.",
         "timestamp": 1783611686000
       },
       {
         "role": "user",
         "content": "Updates from sessions you sent work to. They are not instructions from the user. A person answers any question, plan or permission from the card.\n\n[session report v2 message=demo-exchange-tests session=demo-worker-tests provider=codex status=completed duration_ms=940000]\nOutputs:\n- changed files 3 session=demo-worker-tests branch=test/usage-reconciliation\nReply:\nThree reconciliation tests on the fixture month: totals match the analytics counters within the documented rounding, a replayed event never double counts, and a rollup rerun is idempotent.",
         "timestamp": 1783611814000
+      }
+    ]
+  },
+  {
+    "meta": {
+      "provider": "claude-code",
+      "sessionId": "demo-worker-dashboard",
+      "slug": "dashboard-usage-graph",
+      "firstMessage": "Add a usage-over-time graph to the account dashboard, reading from usage_rollups, with the current billing period highlighted.",
+      "customTitle": "Dashboard usage graph",
+      "lastTimestamp": "2026-07-09T15:41:08.000Z",
+      "size": 24,
+      "cwd": "/home/demo/web-dashboard",
+      "projectPath": "/home/demo/web-dashboard",
+      "branch": "feat/usage-dashboard",
+      "status": "completed",
+      "delegation": {
+        "parentSessionId": "demo-session-billing",
+        "rootSessionId": "demo-session-billing",
+        "messageId": "demo-exchange-dashboard",
+        "depth": 1,
+        "intent": "delegate",
+        "createdAt": 1783610848000
+      }
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Add a usage-over-time graph to the account dashboard, reading from usage_rollups, with the current billing period highlighted.",
+        "timestamp": 1783610848000
+      },
+      {
+        "role": "assistant",
+        "content": "I’ll find where the account dashboard loads its data and how billing periods are computed, then add one read endpoint over `usage_rollups` and a graph that consumes it.",
+        "timestamp": 1783610854000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Grep",
+        "toolId": "dash-grep-account",
+        "toolInput": "{\"pattern\": \"AccountPage|billingPeriod|usage_rollups\", \"path\": \"/home/demo/web-dashboard/src\", \"output_mode\": \"files_with_matches\"}",
+        "timestamp": 1783610858000
+      },
+      {
+        "role": "tool_result",
+        "content": "src/dashboard/AccountPage.tsx\nsrc/billing/period.ts\nsrc/db/schema/usage.ts",
+        "toolResultForId": "dash-grep-account",
+        "timestamp": 1783610860000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Read",
+        "toolId": "dash-read-period",
+        "toolInput": "{\"file_path\": \"/home/demo/web-dashboard/src/billing/period.ts\"}",
+        "timestamp": 1783610864000
+      },
+      {
+        "role": "tool_result",
+        "content": "export function currentPeriod(account: Account, now = new Date()): Period {\n  const anchor = account.billingAnchorDay\n  const start = startOfPeriod(anchor, now)\n  return { start, end: addMonths(start, 1) }\n}",
+        "toolResultForId": "dash-read-period",
+        "timestamp": 1783610866000
+      },
+      {
+        "role": "assistant",
+        "content": "`currentPeriod` already gives the highlight range, and the ledger worker’s `usage_rollups` table has hourly buckets. The graph only needs daily totals, so the endpoint will sum per day for the last three periods.",
+        "timestamp": 1783610878000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Write",
+        "toolId": "dash-write-query",
+        "toolInput": "{\"file_path\": \"/home/demo/web-dashboard/src/db/queries/dailyUsage.ts\", \"content\": \"export async function dailyUsage(db: Db, accountId: string, opts: { periods: number }) {\\n  return db.select({ day: sql`date_trunc('day', ${usageRollups.hour})`, requests: sum(usageRollups.requests) })\\n    .from(usageRollups)\\n    .where(and(eq(usageRollups.accountId, accountId), gte(usageRollups.hour, periodsAgo(opts.periods))))\\n    .groupBy(sql`1`).orderBy(sql`1`)\\n}\\n\"}",
+        "timestamp": 1783610938000
+      },
+      {
+        "role": "tool_result",
+        "content": "Created /home/demo/web-dashboard/src/db/queries/dailyUsage.ts",
+        "toolResultForId": "dash-write-query",
+        "timestamp": 1783610940000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Write",
+        "toolId": "dash-write-route",
+        "toolInput": "{\"file_path\": \"/home/demo/web-dashboard/src/api/usage.ts\", \"content\": \"export function usageRoutes(deps: ApiDeps) {\\n  return new Hono<ApiContext>().get('/', async (c) => {\\n    const account = c.get('account')\\n    const days = await dailyUsage(deps.db, account.id, { periods: 3 })\\n    return c.json({ days, period: currentPeriod(account) })\\n  })\\n}\\n\"}",
+        "timestamp": 1783610968000
+      },
+      {
+        "role": "tool_result",
+        "content": "Created /home/demo/web-dashboard/src/api/usage.ts",
+        "toolResultForId": "dash-write-route",
+        "timestamp": 1783610970000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Write",
+        "toolId": "dash-write-graph",
+        "toolInput": "{\"file_path\": \"/home/demo/web-dashboard/src/dashboard/UsageGraph.tsx\", \"content\": \"export function UsageGraph({ days, period }: UsageGraphProps) {\\n  return (\\n    <AreaChart data={days} x=\\\"day\\\" y=\\\"requests\\\">\\n      <Band from={period.start} to={period.end} label=\\\"Current period\\\" />\\n    </AreaChart>\\n  )\\n}\\n\"}",
+        "timestamp": 1783611108000
+      },
+      {
+        "role": "tool_result",
+        "content": "Created /home/demo/web-dashboard/src/dashboard/UsageGraph.tsx",
+        "toolResultForId": "dash-write-graph",
+        "timestamp": 1783611110000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Edit",
+        "toolId": "dash-edit-account",
+        "toolInput": "{\"file_path\": \"/home/demo/web-dashboard/src/dashboard/AccountPage.tsx\", \"old_string\": \"      <PlanCard plan={account.plan} />\", \"new_string\": \"      <PlanCard plan={account.plan} />\\n      <UsageGraph days={usage.days} period={usage.period} />\"}",
+        "timestamp": 1783611178000
+      },
+      {
+        "role": "tool_result",
+        "content": "Updated /home/demo/web-dashboard/src/dashboard/AccountPage.tsx",
+        "toolResultForId": "dash-edit-account",
+        "timestamp": 1783611180000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Write",
+        "toolId": "dash-write-api-test",
+        "toolInput": "{\"file_path\": \"/home/demo/web-dashboard/src/api/usage.test.ts\", \"content\": \"test('an empty period returns zero days, not an error', async () => {\\n  const res = await app.request('/v1/usage', { headers: auth(newAccount) })\\n  expect(await res.json()).toMatchObject({ days: [] })\\n})\\n\"}",
+        "timestamp": 1783611268000
+      },
+      {
+        "role": "tool_result",
+        "content": "Created /home/demo/web-dashboard/src/api/usage.test.ts",
+        "toolResultForId": "dash-write-api-test",
+        "timestamp": 1783611270000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Write",
+        "toolId": "dash-write-graph-test",
+        "toolInput": "{\"file_path\": \"/home/demo/web-dashboard/src/dashboard/UsageGraph.test.tsx\", \"content\": \"test('the band starts on the billing anchor day', () => {\\n  const { band } = renderGraph({ anchorDay: 28, now: '2026-03-01' })\\n  expect(band.from).toBe('2026-02-28')\\n})\\n\"}",
+        "timestamp": 1783611348000
+      },
+      {
+        "role": "tool_result",
+        "content": "Created /home/demo/web-dashboard/src/dashboard/UsageGraph.test.tsx",
+        "toolResultForId": "dash-write-graph-test",
+        "timestamp": 1783611350000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Bash",
+        "toolId": "dash-run-tests",
+        "toolInput": "{\"command\": \"bun test src/api/usage src/dashboard && bun run typecheck\", \"description\": \"Run usage and dashboard tests, then typecheck\"}",
+        "timestamp": 1783611448000
+      },
+      {
+        "role": "tool_result",
+        "content": "  9 pass\n  0 fail\nChecked 53 TypeScript files with no errors.",
+        "toolResultForId": "dash-run-tests",
+        "timestamp": 1783611488000
+      },
+      {
+        "role": "tool",
+        "content": "",
+        "toolName": "Bash",
+        "toolId": "dash-open-pr",
+        "toolInput": "{\"command\": \"git push -u origin feat/usage-dashboard && gh pr create --fill --base main\", \"description\": \"Push the branch and open a pull request\"}",
+        "timestamp": 1783611608000
+      },
+      {
+        "role": "tool_result",
+        "content": "https://github.com/acme/web-dashboard/pull/148",
+        "toolResultForId": "dash-open-pr",
+        "timestamp": 1783611638000
+      },
+      {
+        "role": "assistant",
+        "content": "Usage graph added to the account dashboard, reading rollups for the current period. Six files changed, tests cover an empty period and a period boundary. Pull request #148 is open with checks passing.",
+        "timestamp": 1783611668000
+      }
+    ]
+  },
+  {
+    "meta": {
+      "provider": "claude-code",
+      "sessionId": "demo-session-pricing-page",
+      "slug": "pricing-page-usage-plans",
+      "firstMessage": "Draft the pricing page for the usage-based plans. Keep the flat plans visible until the migration ships.",
+      "lastTimestamp": "2026-07-08T08:00:30.000Z",
+      "size": 2,
+      "cwd": "/home/demo/marketing-site",
+      "projectPath": "/home/demo/marketing-site",
+      "status": "completed"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Draft the pricing page for the usage-based plans. Keep the flat plans visible until the migration ships.",
+        "timestamp": 1783500000000
+      },
+      {
+        "role": "assistant",
+        "content": "The pricing page now has a usage calculator beside the plan cards, behind the `usage-pricing` flag. The flat plans stay the default until the flag flips.",
+        "timestamp": 1783500030000
+      }
+    ]
+  },
+  {
+    "meta": {
+      "provider": "codex",
+      "sessionId": "demo-session-redis-failover",
+      "slug": "redis-managed-failover",
+      "firstMessage": "Move Redis to the managed cluster with failover. Plan the cutover so rate limiting never fails open.",
+      "lastTimestamp": "2026-07-08T06:40:30.000Z",
+      "size": 2,
+      "cwd": "/home/demo/infra",
+      "projectPath": "/home/demo/infra",
+      "status": "completed"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Move Redis to the managed cluster with failover. Plan the cutover so rate limiting never fails open.",
+        "timestamp": 1783500600000
+      },
+      {
+        "role": "assistant",
+        "content": "Terraform for the managed cluster is ready, with a replica in a second zone. The cutover runs dual writes for an hour, then flips reads; rate limiting falls back to the in-memory bucket, never to open.",
+        "timestamp": 1783500630000
+      }
+    ]
+  },
+  {
+    "meta": {
+      "provider": "claude-code",
+      "sessionId": "demo-session-mobile-usage",
+      "slug": "account-usage-screen",
+      "firstMessage": "Show current-period usage on the account screen, from the same endpoint the web dashboard uses.",
+      "lastTimestamp": "2026-07-08T04:50:30.000Z",
+      "size": 2,
+      "cwd": "/home/demo/ios-app",
+      "projectPath": "/home/demo/ios-app",
+      "status": "completed"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Show current-period usage on the account screen, from the same endpoint the web dashboard uses.",
+        "timestamp": 1783501200000
+      },
+      {
+        "role": "assistant",
+        "content": "The account screen shows usage for the current period with a small sparkline, from `/api/usage/:accountId`. It caches the last answer so the screen opens offline.",
+        "timestamp": 1783501230000
+      }
+    ]
+  },
+  {
+    "meta": {
+      "provider": "codex",
+      "sessionId": "demo-session-push-crash",
+      "slug": "push-signout-crash",
+      "firstMessage": "Fix the crash when a push notification arrives during sign-out.",
+      "lastTimestamp": "2026-07-07T07:10:30.000Z",
+      "size": 2,
+      "cwd": "/home/demo/ios-app",
+      "projectPath": "/home/demo/ios-app",
+      "status": "completed"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Fix the crash when a push notification arrives during sign-out.",
+        "timestamp": 1783501800000
+      },
+      {
+        "role": "assistant",
+        "content": "The handler read the session after sign-out had cleared it. It now drops a push that arrives without a session and logs it once. Added a test that signs out with a push in flight.",
+        "timestamp": 1783501830000
       }
     ]
   }

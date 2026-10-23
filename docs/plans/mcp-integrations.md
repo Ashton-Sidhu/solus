@@ -2,7 +2,8 @@
 
 Status: phases 1 to 3 implemented in the working tree on 2026-10-08 (§12);
 phase 4 not started. OpenAPI is in the first release and policy is not
-(§9, §6). This plan takes the model of
+(§9, §6). §13 (connecting with less setup) was decided on 2026-10-22 and is
+not started. This plan takes the model of
 Executor v2 (`UsefulSoftwareCo/executor`, branch `v2`) and maps it onto Solus.
 It locks the vocabulary and the ownership. It names what Solus takes from
 Executor, what it does not take, and why.
@@ -22,6 +23,14 @@ Executor is a layer between agents and services. Its model, in its own words:
 | Authorization policy | Per grant: which apps, which tools (`all`, `readOnly`, `selected`), and which profiles. Scoped connections are named MCP URLs with such a policy. |
 | Execution | One MCP endpoint with three tools: `skills`, `execute({ code })` (codemode in a sandboxed interpreter), and `resume`. Tool calls leave the sandbox into the trusted runtime where credentials live. |
 | Elicitation | A paused call asks the person in one of three modes: `model` (the agent relays), `native` (MCP elicitation), or `browser` (a signed-in page). |
+
+Correction of 2026-10-22: on 2026-10-13 (commit `27f130b9` on `v2`) Executor
+stopped reading integrations.sh. Its catalog is now its own feed,
+`https://catalog.executor.sh/index.json`: 1,839 vetted app packages, each the
+TypeScript source of one service (provider, curated tools, and tools generated
+from OpenAPI). Gmail, Zoom, and HubSpot are such packages, not MCP entries.
+Solus keeps the integrations.sh feed (§3.1) and does not run Executor's app
+code (§13). The table above describes Executor before that change.
 
 The property the maintainers asked for is already Executor's core rule: a
 tool call runs with the caller's own account, and nobody runs with another
@@ -74,9 +83,22 @@ inside Solus instead of beside it.
 - **Policy, in the first release.** Allow, ask, and block per tool come
   later (§6). The first release uses the provider's own permission system
   through the existing `requiresApproval` flag.
-- **Profiles.** One connection per person per integration in this plan. Several
-  accounts for one service (`work`, `personal`) is a later step, named in §9.
+- **Profiles.** Executor's profile is a choice of accounts per app. Solus does
+  not take that object. Several accounts for one person on one integration
+  (`Work`, `Personal`) are §13.3, as extra connections, not as profiles.
 - **Effect.** Solus ports the behavior, not the library.
+
+### Manual OAuth client setup (2026-10-22)
+
+Every OAuth integration offers **Use your own OAuth app**, including servers
+that advertise automatic registration. Manual setup shows the full host
+callback URL and takes a client ID and optional secret. Saving a client selects
+host sign-in on desktop, web, and mobile, since the host holds that client's
+secret. Removing the client restores automatic setup when available. A pending
+sign-in is cancelled when the client changes. Registration errors distinguish
+callback refusal, registration restrictions, invalid responses, and temporary
+service failures. A provider error page that does not return to Solus cannot
+update the form; manual setup remains available while it waits.
 
 ### 1.1 No code per integration
 
@@ -109,6 +131,10 @@ follow the specification gets `client-required` (an admin enters a client) or
 The existing hand-written connections (GitHub, Google, Atlassian)
 stay as they are. No new one is added for a service that has an MCP server or
 an OpenAPI document.
+
+Exception of 2026-10-22: for a service that has no usable MCP server, Solus
+writes its own MCP server, in this repository (§13.6). It is still an MCP
+server behind the same gateway, not a new kind of connection. Google is first.
 
 ## 2. Vocabulary
 
@@ -154,9 +180,8 @@ CLI's own servers (§8).
 
 The host fetches the feed on request and keeps the last good copy. A feed
 whose envelope version is unknown shows "catalog unavailable"; the custom
-URL path does not depend on it. A Solus-published daily copy on app.solus.sh,
-as `model-profiles.json` is published from `main`, is a later option for
-insulation and curation. It is not part of the first release.
+URL path does not depend on it. The Solus catalog (§13.5) adds the servers the
+feed does not list.
 
 For an OpenAPI entry the feed gives the spec URL and little else. The auth
 declaration comes from the document's own `securitySchemes`: an API key with
@@ -407,8 +432,11 @@ turned off (an off list, so a tool the server adds later is on).
 refuses a call to one, so a run built before the change cannot use it.
 `integrationUpdate` takes the whole list; `mayChange` decides who edits it,
 as for a rename. A change keeps the upstream session. This is the `block`
-rule of §6.2 alone, without `ask` and without derived defaults. The list is
-not in the agent profile entry.
+rule of §6.2 alone, without `ask` and without derived defaults.
+
+Decision of 2026-10-22: the list is in the agent profile entry
+(`plans/020-agent-profile.md`). An integration is personal (D3), so a switch is
+its owner's choice and follows them to every host.
 
 Beside it, the only gate is the one every Solus tool has today, the `requiresApproval`
 flag, and the provider's own permission system decides what to do with it
@@ -507,8 +535,9 @@ the first release.
 
 Later, in this order of demand:
 
+- Connecting with less setup (§13): the agent's connect tool, the probe
+  hand-off, several accounts, first-party clients.
 - Policy: allow, ask, block per tool (§6.2).
-- Several accounts for one person on one integration (Executor's profiles).
 - A shared account an admin connects for a group (Executor's shared account).
 - Remembered approvals.
 - Stdio servers on the host, with the person's environment from their seat.
@@ -573,7 +602,7 @@ Types in `packages/contracts/src/integration-types.ts`: `Integration`,
 ## 11. Open questions for the maintainers
 
 1. Is one connection per person per integration enough for the first release
-   (§1, profiles)? The plan says yes.
+   (§1, profiles)? The plan says yes. Several accounts follow in §13.3.
 2. Should the host owner's integrations be `local` records only, or may an
    organization admin add one that every linked host of the organization
    mirrors? The plan starts with host records and leaves the mirror to the
@@ -645,3 +674,392 @@ The build order for phase 1 (§9), with the files each step touches.
 End-to-end check: add DeepWiki from the catalog, ask a Claude session and a
 Codex session to call one of its tools, and see parallel calls under the
 provider's own loop with one card each.
+
+## 13. Connecting with less setup
+
+Decisions of 2026-10-22. The aim: a person who asks for Gmail, Zoom, or
+HubSpot gets a working connection in as few steps as the service allows, from
+the conversation or from Settings, with Claude and with Codex. These four
+steps take the useful parts of Executor's connect flow
+(`apps/docs/content/connect-an-account.mdx` on `v2`). They do not take its
+app packages (§0).
+
+**Every connector goes through the Solus gateway.** The server holds the
+token, and Claude and Codex get the same integration tools (§5.2). A
+provider's own connectors, such as the claude.ai connectors a Claude session
+sees, are not a way in: Codex does not have them. Decision of 2026-10-22:
+Solus does not use them. A service a person wants in Solus comes through the
+gateway, for Claude and Codex alike. Turning them off in the Claude sessions
+Solus starts needs the Claude Code setting that controls them; find it and
+record it here before that change.
+
+The order of work, the build steps, and the status of each part are in
+`connect-with-less-setup.md`. This section is the design it builds.
+
+### 13.1 The client chain
+
+Status on 2026-10-23: steps 1 to 3 below work, and first-party clients for
+GitHub and Google work on the host path (`connect-with-less-setup.md`, step 6).
+
+Most business services run an MCP server but do not let an unknown client
+register (no RFC 7591). On 2026-10-22, Zoom (`mcp.zoom.us`) and HubSpot
+(`mcp.hubspot.com`) published no `registration_endpoint`; Asana did. Those
+servers are `client-required`, and the client, not the tools, is the work.
+
+`clientFor` in `integrations/oauth.ts` resolves a client in this order today:
+
+1. A saved client registered for this callback.
+2. The owner's client on the integration record (§1, manual setup).
+   Correction of 2026-10-22: an integration is personal (access-model D3), so
+   its owner enters this client, and it serves only that owner. There is no
+   organization-wide client today. A client that an admin enters once for
+   every member needs shared integrations or an organization client record;
+   that is a separate decision, not part of this step.
+3. A new dynamic registration.
+4. Refusal with `OAUTH_CLIENT_REQUIRED_MESSAGE`.
+
+Add one step between 2 and 3:
+
+- **A first-party client.** An OAuth app that Solus registers with a vendor
+  (Google, Microsoft, Zoom, HubSpot, Slack). It is defined in code, in
+  `first-party-clients.ts` in `@solus/contracts`: id, label, authorization and token
+  endpoints, `allowedScopes`, and the hosts its token may go to. Only its
+  credentials are configuration. It is offered for an integration only when
+  the discovered endpoints equal its endpoints and every requested scope is in
+  `allowedScopes`. A token response with a scope outside `allowedScopes` is
+  refused. The token goes only to the listed hosts (§4.1 rule 4). This is
+  Executor's `FirstPartyOAuthClient`
+  (`apps/hosted/server/src/implementation/first-party-oauth.ts`).
+
+The owner's client stays ahead of the first-party client: an explicit choice
+wins. A server with dynamic registration does not need a first-party client,
+so the order between steps 3 and the new step matters only when a vendor has
+both; then the vendor-verified client wins, because its consent screen names
+Solus.
+
+**Where a first-party client runs.** Decision of 2026-10-22: it follows the
+rule every credential follows today (`plans/020-agent-profile.md` §5.1). Not
+signed in, or sync off: the host holds the token and refreshes it. Signed in
+with sync on: the account vault holds it and the cloud refreshes it. There is
+no separate rule per vendor. A vendor that offers only a confidential web app
+with fixed HTTPS redirect addresses (Zoom, HubSpot, Slack) cannot run on a
+host, because its secret cannot ship in a build; its first-party client exists
+only on the signed-in path. Tool calls never pass through the cloud: they go
+from the host to the vendor.
+
+**Vendor work outside the code.** Each first-party client needs the vendor's
+review: Google app verification (Gmail scopes are restricted and also need an
+annual security assessment), Microsoft publisher verification, the Zoom App
+Marketplace, the HubSpot app listing, and the Slack Marketplace for use
+outside one workspace. Start these first. They take weeks, and they gate this
+step, not the code.
+
+**The interface: one registry, no screen per vendor.** A first-party client
+is one entry in a code-defined registry, `first-party-clients.ts` in
+`@solus/contracts`, so the host, the cloud, and the clients read the same
+list. Only the client ID and secret are configuration, and they live in the
+cloud only. An entry:
+
+```ts
+{
+  id: 'github',
+  label: 'Solus for GitHub',
+  authorizationUrl: 'https://github.com/login/oauth/authorize',
+  tokenUrl: 'https://github.com/login/oauth/access_token',
+  allowedScopes: ['repo', 'read:org', 'gist', 'project'],
+  authorizationParams: {},          // Google: { access_type: 'offline', prompt: 'select_account consent' }
+  tokenHosts: ['api.githubcopilot.com'],
+}
+```
+
+It is matched automatically, never chosen by a person: when the endpoints an
+integration's discovery returns equal an entry's endpoints and every
+requested scope is in `allowedScopes`, sign-in uses the entry. Requested
+scopes outside `allowedScopes` are left out; a token response that reports
+one is refused. The connect dialog and the card then show "Sign in with
+Solus for GitHub" and no client form. Nothing else in the UI changes, on
+desktop, web, and mobile.
+
+**A service with no Solus client** keeps the generic path, as Executor does:
+the owner's client form (§1, "Manual OAuth client setup"), the callback URL to
+copy, the vendor's help link (§13.5 `authHelp`), and the agent hand-off
+(§13.4). Executor has no client for Salesforce, Zoom, or HubSpot either. Its
+Salesforce app says "the org's External Client App supplies the client", and
+its Zoom and HubSpot apps say the connect page asks for the person's own OAuth
+app. Its own first-party clients are three: GitHub (a GitHub App), Google
+(verified, 35 scopes), and Slack (unlisted, because Slack allows MCP outside
+one workspace only for apps in the Slack Marketplace). Its definitions are MIT
+code and a template for ours. Its clients, secrets, and verification belong
+to Executor and cannot be reused.
+
+**The first first-party clients are the ones Solus already owns.** Solus ships
+OAuth clients for GitHub, Google, and Atlassian (`SOLUS_GITHUB_CLIENT_ID`,
+`SOLUS_GOOGLE_CLIENT_ID`, and the Atlassian client) for its hand-written
+connections. They come before any new vendor registration:
+
+1. **GitHub.** GitHub's MCP server (`https://api.githubcopilot.com/mcp/`)
+   names `https://github.com/login/oauth` as its authorization server, which
+   has no dynamic registration, so today a person who adds it brings their own
+   client. Its supported scopes include every scope Solus's GitHub client asks
+   for (`repo`, `read:org`, `gist`, `project`; checked 2026-10-22). Registered
+   as a first-party client, a person connected to GitHub in Solus signs in to
+   GitHub's MCP server with one click.
+2. **Google.** Status on 2026-10-22, from the Google Cloud console: branding
+   is verified; Data Access declares one scope, `drive.file` (non-sensitive),
+   so no data-access review has been needed. The build also asks for
+   `drive.readonly` (`contracts/google-auth.ts`), which is restricted and not
+   declared. A user who grants it sees Google's unverified-app warning. Fix it
+   in the console, not in code or GitHub: Google Auth Platform → Data Access →
+   Add or remove scopes. Add `drive.readonly` and the Calendar and Gmail scopes
+   §13.6 needs, then submit one review from the Verification Center. The
+   restricted scopes bring the annual security assessment, which Solus
+   accepted. The GitHub secrets `SOLUS_GOOGLE_CLIENT_ID` and
+   `SOLUS_GOOGLE_CLIENT_SECRET` (`release.yml`, `release-server.yml`) only
+   choose which client a build embeds; confirm they name this project's
+   client.
+3. **Atlassian.** Check how Atlassian's MCP server accepts clients before
+   adding it.
+
+Then new registrations, in order of demand: Microsoft, Zoom, HubSpot, Slack.
+
+The client ID metadata document (`registration: 'metadata-document'`) is in
+the contract but not implemented. It needs a public HTTPS document whose
+redirect addresses cover every host. It is not part of this step.
+
+### 13.2 A connect card the agent starts
+
+Today a call to an installed integration without a connection returns
+`CONNECTION_REQUIRED` and raises the connect card (`gateway.ts`
+`connectionRequired`), and `connection_status` takes `integration`. An agent
+cannot connect a service that is not installed yet.
+
+Status: implemented on 2026-10-22 (`integrations/connect-integration-tool.ts`,
+`integrations/integration-create.ts`; tests in
+`tests/unit/integrations/connect-integration-tool.test.ts`).
+
+Add the agent tool `connect_integration({ service })`:
+
+1. Find an installed integration by slug or name. If one is found and the
+   person is connected, return its status. If the person is not connected,
+   raise the connect card (`askToConnect`) and return
+   `waiting for the person to connect`.
+2. Else search the catalog (`IntegrationCatalog.list`) and return at most five
+   matches when the name is not exact. The agent asks the person which one,
+   in text.
+3. For one chosen entry: if the person already has an integration with the
+   same URL, use it. Else probe the entry and create it as the acting person's
+   own integration, through the same `createIntegration` as Settings, then
+   raise the connect card. Integrations are personal (D3), so any person may
+   add one; a turn that acts for no person adds nothing.
+4. `client-required`: the card shows the integration's OAuth client form
+   above the connect form. Only the owner's list holds the integration, so
+   only the owner sees the form. Connect stays disabled until the client is
+   saved.
+
+Rules: the tool never takes a secret, never returns a token, and never
+completes a sign-in itself; the person finishes in the browser or in the card.
+The turn does not wait on the card. After `host.integrationAuthFinished`,
+the next run lists the new tools (§5.1). The card is the existing connect card
+chassis on desktop, web, and mobile. After it closes, focus returns to the
+input. The tool is a Solus agent tool, so Claude and Codex get the same one.
+`requiresApproval` is set, because it can create a host record.
+
+### 13.3 Several accounts for one integration
+
+Status: implemented 2026-10-23 on the host; an added account stays on its host,
+and Rename is not built (`connect-with-less-setup.md`, step 5).
+
+One person may connect more than one account to one integration, such as
+`Work` and `Personal` Gmail.
+
+- **Records.** `integration_connection` gains `account_id`, and its key becomes
+  `(integration_id, user_id, account_id)`. Existing rows get `default`. The
+  label defaults to the identity the server reported (an email) and can be
+  renamed. The token key gains the account:
+  `integration-token-<id>-<base64url(person key)>-<account id>`.
+- **Gateway.** The session key becomes `(integrationId, personKey, accountId)`.
+- **Tools.** The tool list stays one set per integration, listed with the
+  first connected account. When the person has more than one account, each
+  tool gains an optional `solus_account` input (the label). A tool the server
+  marks `readOnlyHint: true` runs for every account when `solus_account` is
+  omitted, and the result names the account of each part. Any other tool
+  needs `solus_account`, and a call without it fails with the list of labels. This
+  is the rule Executor's Gmail app uses: reads span accounts, writes name one.
+- **Surfaces.** The integration row lists the person's accounts with Rename,
+  Reconnect, and Disconnect each, and "Add another account". The connect card
+  connects a new account only from "Add another account", never by accident.
+  Desktop, web, and mobile.
+- **Contracts.** `integrationConnectStart` and `integrationDisconnect` take
+  `accountId`; `integrationConnectionRename` is new;
+  `IntegrationConnection` gains `accountId`. `integration.connectionChanged`
+  carries it.
+
+### 13.4 The probe hands setup to the agent
+
+Status: implemented 2026-10-22 (`connect-with-less-setup.md`, step 1).
+
+When the probe cannot connect a custom URL by itself, the person often does
+not know what to do next. Executor returns `agent_setup_required` with steps
+an agent can follow (`packages/catalog/README.md`).
+
+Add a hand-off for these probe results:
+
+| Probe result | Hand-off |
+|---|---|
+| `credentials-required` (`bearer`) | Find where the service issues an API key, and how. |
+| `oauth` with `client-required` | Find the service's OAuth app settings, the callback URL to register (shown in the dialog), and the scopes. |
+| `undetermined`, reason `refused`, `oauth_unusable`, or `not_mcp` | Read the service's documentation for its MCP endpoint and how it signs in. |
+
+`undetermined` with `unavailable`, `timeout`, or `redirected` gets Retry only.
+
+The hand-off is a button in the connect dialog, **Set up with an agent**. It
+opens a new conversation tab with a prompt filled in: the service name, the
+URL, the probe signals (§3.2), and the steps above. The prompt tells the agent
+to never ask for a secret in chat, and to send the person back to Settings →
+MCP, or to call `connect_integration`, when the key or client is ready.
+`connect_integration` returns the same steps when its probe gives one of these
+results. Desktop, web, and mobile.
+
+**Guided setup.** Part of it exists: the connect card shows the OAuth client
+form (§13.2), and manual setup shows the callback URL to copy. This step adds
+the agent hand-off. A Solus catalog entry's `authHelp` (§13.5) adds a link to
+the vendor's own page for creating the client or the key, shown in the
+dialog and in the card.
+
+### 13.5 The Solus catalog
+
+Status: implemented 2026-10-23 (`connect-with-less-setup.md`, step 2).
+
+A list of MCP servers that the integrations.sh feed does not list, published
+by Solus. Example: Cloudflare's whole-API server, `https://mcp.cloudflare.com/mcp`.
+The feed lists only `bindings.mcp.cloudflare.com`, and the pull request that
+adds it (`UsefulSoftwareCo/integrations#91`) has been open since 2026-10-08.
+
+- **Where it lives.** `packages/contracts/src/integration-catalog.json`, with
+  its schema in `integration-catalog.ts`. The file on `main` is the published
+  list: an entry ships by merging it, not by a build. A host reads it on
+  request, as it reads the feed, and keeps the last good copy for four hours;
+  when it cannot read it, it uses the copy its build shipped with. Implemented
+  2026-10-23 in `integrations/catalog.ts`; no disk cache and no timer, because
+  the catalog is only read when a person opens it.
+- **An entry** has the fields of `CatalogEntry` and the pages that prove it.
+  The first two entries:
+
+  ```json
+  [
+    {
+      "id": "cloudflare-api",
+      "kind": "mcp",
+      "name": "Cloudflare API",
+      "description": "The whole Cloudflare API (DNS, Workers, R2, Zero Trust) through search and execute tools. Sign in with OAuth.",
+      "domain": "cloudflare.com",
+      "categories": ["code"],
+      "url": "https://mcp.cloudflare.com/mcp",
+      "authHelp": "https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/",
+      "sources": [
+        "https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/",
+        "https://mcp.cloudflare.com/.well-known/oauth-protected-resource/mcp"
+      ]
+    },
+    {
+      "id": "salesforce-records",
+      "kind": "mcp",
+      "name": "Salesforce",
+      "description": "Read, create, and update Salesforce records as the signed-in user. Your org's admin creates an External Client App first.",
+      "domain": "salesforce.com",
+      "categories": ["productivity"],
+      "url": "https://api.salesforce.com/platform/mcp/v1/platform/sobject-all",
+      "authHelp": "https://help.salesforce.com/s/articleView?id=xcloud.external_client_apps.htm",
+      "sources": ["https://api.salesforce.com/platform/mcp/v1/platform/sobject-all"]
+    }
+  ]
+  ```
+
+  Salesforce runs four hosted servers on one host: `sobject-all` (records),
+  `invocable-actions`, `flows`, and `api-catalog`, all under
+  `https://api.salesforce.com/platform/mcp/v1/platform/`. The feed knows that
+  Salesforce has hosted MCP servers but gives no URL, so it does not list them
+  (checked 2026-10-23). Start with records; add the other three as entries of
+  their own when people ask. Sign-in asks for `mcp_api` and `refresh_token`.
+  Salesforce's OpenID metadata publishes a registration endpoint, so the probe
+  decides `dynamic` (checked 2026-10-23); an org that does not allow it refuses
+  the registration, and the person's own client (the org's External Client
+  App) takes over through manual setup.
+  The entry's sources and `authHelp` are confirmed by the probe and the
+  vendor's documentation before it merges.
+
+  `categories` are Solus category ids (`CATALOG_CATEGORIES`), not feed names.
+  An entry has no auth fields: the probe reads the server's challenge and
+  metadata when a person adds it (§3.2). `authHelp` is optional.
+- **Listing.** `integrationCatalogList` merges the two sources. A Solus entry
+  is listed first, with a Solus mark, and `CatalogEntry` gains
+  `source: 'feed' | 'solus'`. When a feed entry has the same URL, the Solus
+  entry replaces it. Adding one is the same probe and `createIntegration` as a
+  feed entry. `connect_integration` finds Solus entries, because it reads the
+  catalog. The Settings catalog shows them on desktop, web, and mobile with no
+  other change.
+- **Many entries.** One file, sorted by id, until it grows to hundreds; then
+  one file per entry with a generated index. A validator test
+  (`tests/unit/integration-catalog.test.ts`) checks the schema, sorted and
+  unique ids, unique URLs, an HTTPS URL, and at least one source, and flags
+  an entry whose URL the feed now lists, so the copy is deleted when upstream
+  merges it.
+- **Who adds entries.** Agents, as the Cloudflare pull request was written:
+  fetch the vendor's documentation, probe the server (`initialize`, then the
+  metadata its challenge names), and put that evidence in the pull request.
+  A scheduled check probes every entry and reports the ones that stop
+  answering.
+- **`codemode=false` and this server.** `MCP_QUERY_DEFAULTS` in
+  `integrations/catalog.ts` adds `codemode=false` to every
+  `mcp.cloudflare.com` URL, a rule copied from Executor, which runs code
+  itself. Checked 2026-10-22: only the whole-API server reads the parameter
+  (`cloudflare/mcp` README, "Disable Code Mode"); the product servers
+  (`bindings.`, `docs.`, and the others in `cloudflare/mcp-server-cloudflare`)
+  do not. With it, the whole-API server registers one tool per endpoint,
+  about 2,500 tools; without it, `search`, `execute`, `docs`, and `whoami`,
+  about 1,000 tokens. Solus registers one Solus tool per upstream tool, so the
+  rule must go. The PostHog rule (`mode=tools`) stays: without it PostHog
+  wraps every tool in one `exec` tool, which hides the per-tool switches and
+  approval (§6.1).
+
+### 13.6 Solus MCP servers for services with none
+
+Status: the framework and Google Calendar implemented 2026-10-23
+(`connect-with-less-setup.md`, step 3). The rest of the Google suite
+implemented 2026-10-23: Gmail, Drive, Docs, Sheets, Slides, Forms, Tasks,
+Contacts, Meet, and Search Console. Decision of 2026-10-23: one server per
+product, not one Google Workspace server, so each sign-in asks only for its
+product's scopes; all ship at once, with Google's verification handled
+outside the code. Each is a `GoogleSolusServer` (`solus-servers/google.ts`),
+which adds Google's sign-in and labels the account by its userinfo email.
+
+Decision of 2026-10-22: for a service with no usable MCP server, Solus writes
+its own MCP server. Google Workspace first, then Microsoft 365. Google's Gmail
+MCP server is a gated preview that cannot send mail, and the feed has no
+Microsoft 365 server.
+
+- **It is an MCP server.** It runs in the host process, and the gateway opens
+  a session to it over the SDK's `InMemoryTransport` instead of streamable
+  HTTP (`gateway.ts`, `open`). Everything after `open` stays as it is: one
+  session per (integration, person), `CONNECTION_REQUIRED`, elicitation,
+  `disabledTools`, `requiresApproval` from `destructiveHint`, and the tools
+  Claude and Codex see (§5.2).
+- **Its network access.** A server reaches only its vendor's API hosts, with
+  the person's token, through one fetch that refuses other hosts and
+  redirects. It reads the token through `IntegrationCredentials` on each
+  request, so a refreshed token needs no new session.
+- **Its auth.** Declared in its code: endpoints and scopes. Google publishes no
+  dynamic registration, so a person enters their own Google client (step 2
+  of §13.1) until the Solus Google client exists (first-party, §13.1). The
+  hand-written Google connection stays for Drive features in Works.
+- **Records.** An integration of kind `solus` with the server's id, in place
+  of a URL. The agent profile entry carries the id (plan 020). A host whose
+  build lacks the server keeps the entry and reports it as skipped.
+- **Order.** Google Calendar first, then the rest of the suite at once
+  (above). Decision of
+  2026-10-22: Solus accepts Google's restricted-scope review and the annual
+  security assessment for Gmail. Microsoft Outlook and Calendar follow
+  Microsoft publisher verification.
+- **Retire it** when the vendor ships a usable MCP server: move the records
+  to a Solus catalog entry (§13.5) for that server.
+- Tests run against recorded responses, with no live credential.

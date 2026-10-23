@@ -21,7 +21,6 @@ for (const client of ['desktop', 'web'] as const) {
     const prefetch = mock(() => history)
     const frames: FrameRequestCallback[] = []
     const target = { id: 'saved-host', local: false, label: 'Saved host', url: 'https://host.example' }
-    const transport = { start() {}, destroy() {} }
     const nativeApi = { refreshLocalSessionToken() {}, rendererReady: ready, rendererMounted() {} }
     const dependencies = {
       performance: { mark() {} },
@@ -29,10 +28,15 @@ for (const client of ['desktop', 'web'] as const) {
       getLocalConnection: async () => ({}),
       localServerTarget: () => target,
       savedServerTarget: () => target,
-      serverConnections: { registerTarget() {}, registerPrimary() {}, setPrimary() {}, startCatalogSupervisors() {} },
-      setConnectionState() {},
-      installWsBackedSolusApi: () => ({ transport, api: {} }),
-      createSolusConnection: () => ({ transport, api: {} }),
+      serverConnections: {
+        registerTarget() {},
+        presenceOf: () => 'present',
+        setPrimary: () => ({ api: {} }),
+        onPhaseChange: () => () => {},
+        resolveId: (serverId: string) => serverId,
+        ensure() {},
+        startCatalogSupervisors() {},
+      },
       installWindowSolusApi() {},
       prefetchStartupTranscript: prefetch,
       loadModule: async () => ({ mount: mounted, default: {} }),
@@ -47,7 +51,7 @@ for (const client of ['desktop', 'web'] as const) {
       isStaleBuildError: () => false,
     }
     const run = new Function(...Object.keys(dependencies), `
-      let bootTarget, activeTransport, solusApp;
+      let bootTarget, solusApp;
       let connectionGeneration = 0;
       const pendingNotificationRoute = null;
       const root = { innerHTML: '' };

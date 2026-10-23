@@ -143,7 +143,7 @@ export class PrsStore {
     if (this.stopListening) return
     const changed = subscribeAllHosts('pr.changed', (serverId, change) => this.applyChange(serverId, change))
     // A host forgets a connection's interest when it drops, so say it again.
-    const reconnected = serverConnections.onStatusChange((serverId, status) => {
+    const reconnected = serverConnections.onPhaseChange((serverId, status) => {
       if (status !== 'connected') return
       for (const wants of this.wants.values()) {
         if (wants.project.serverId === serverId) {

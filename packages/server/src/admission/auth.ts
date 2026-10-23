@@ -2,11 +2,10 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
-import { hostKindSchema, organizationRoleSchema, type HostKind } from '@solus/contracts/uplink'
-import { shareResourceSchema, shareRoleSchema, type ShareResource, type ShareRole } from '@solus/contracts/sharing'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { githubCredentials } from '../providers/github/credentials'
+import { readSignedToken, signToken } from './signed-token'
 
 const log = createLogger('main', 'auth')
 
@@ -32,25 +31,22 @@ const serverKeysSchema = z
   })
   .strict()
 
-const revokedDevicesSchema = z.union([
-  z.array(z.string().min(1)),
-  z
-    .object({
-      version: z.number().optional(),
-      deviceIds: z.array(z.string().min(1)),
-    })
-    .strict()
-    .transform((value) => value.deviceIds),
-])
+const revokedDevicesSchema = z.object({ version: z.literal(1), deviceIds: z.array(z.string().min(1)) }).strict()
 
-interface SessionToken {
-  /** Opaque random id used inside the signed token. */
-  deviceId: string
+/**
+ * A paired device's session token: signed with this host's key (`signed-token.ts`).
+ * `purpose` keeps it apart from every other payload signed with the same code.
+ */
+const sessionTokenSchema = z.object({
+  purpose: z.literal('pairing'),
+  /** Opaque random id: what the Access tab lists and revokes. */
+  deviceId: z.string().min(1),
   /** Human-readable label set during pairing, displayed in Connections panel. */
-  deviceLabel: string
+  deviceLabel: z.string(),
   /** Issuance timestamp (ms). */
-  issuedAt: number
-}
+  issuedAt: z.number().int(),
+}).strict()
+type SessionToken = Omit<z.infer<typeof sessionTokenSchema>, 'purpose'>
 
 let _keys: ServerKeys | null = null
 const _activePairTokens = new Map<string, PairToken>()
@@ -173,51 +169,33 @@ export function issueSshBootstrapCredential(deviceLabel: string, now = Date.now(
 }
 
 function signSessionToken(deviceId: string, deviceLabel: string, issuedAt: number): string {
-  const keys = loadOrCreateKeys()
-  const labelB64 = Buffer.from(deviceLabel).toString('base64url')
-  const payload = `${deviceId}.${issuedAt}.${labelB64}`
-  const sig = createHmac('sha256', keys.signingKey).update(payload).digest('base64url')
-  return `${payload}.${sig}`
+  return signToken<z.infer<typeof sessionTokenSchema>>({ purpose: 'pairing', deviceId, deviceLabel, issuedAt }, signingKey())
 }
 
-/**
- * Signs an opaque session token: `<deviceId>.<issuedAt>.<deviceLabelB64>.<hmac>`.
- * The signing key never leaves the server; clients store the whole opaque blob.
- */
+function signingKey(): Buffer {
+  return Buffer.from(loadOrCreateKeys().signingKey, 'hex')
+}
+
 interface IssuedSessionToken {
   token: string
   deviceId: string
 }
 
+/** A new paired device's session token. The signing key never leaves the server; clients store the opaque token. */
 export function issueSessionToken(deviceLabel: string, now = Date.now()): IssuedSessionToken {
   const deviceId = randomBytes(12).toString('hex')
-  const issuedAt = now
-  return { token: signSessionToken(deviceId, deviceLabel, issuedAt), deviceId }
+  return { token: signSessionToken(deviceId, deviceLabel, now), deviceId }
 }
 
+/** The paired device a session token names, or null when it is forged, too old, from the future, or revoked. */
 export function verifySessionToken(token: string, now = Date.now()): SessionToken | null {
-  const keys = loadOrCreateKeys()
-  loadRevokedDevices()
-  const parts = token.split('.')
-  if (parts.length !== 4) return null
-  const [deviceId, issuedAtStr, labelB64, sig] = parts
-
-  const issuedAt = Number(issuedAtStr)
-  if (!Number.isFinite(issuedAt)) return null
-  if (now - issuedAt > SESSION_TOKEN_TTL_MS) return null
-  if (issuedAt > now + 60_000) return null
-
-  const expected = createHmac('sha256', keys.signingKey).update(`${deviceId}.${issuedAtStr}.${labelB64}`).digest('base64url')
-  const sigBuf = Buffer.from(sig)
-  const expBuf = Buffer.from(expected)
-  if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) return null
-  if (_revokedDevices.has(deviceId)) return null
-
-  return {
-    deviceId,
-    deviceLabel: Buffer.from(labelB64, 'base64url').toString('utf-8'),
-    issuedAt,
-  }
+  if (!token) return null
+  const payload = readSignedToken(token, signingKey(), sessionTokenSchema)
+  if (!payload) return null
+  if (now - payload.issuedAt > SESSION_TOKEN_TTL_MS) return null
+  if (payload.issuedAt > now + 60_000) return null
+  if (isDeviceRevoked(payload.deviceId)) return null
+  return { deviceId: payload.deviceId, deviceLabel: payload.deviceLabel, issuedAt: payload.issuedAt }
 }
 
 export function refreshSessionToken(token: string, now = Date.now()): string | null {
@@ -226,240 +204,10 @@ export function refreshSessionToken(token: string, now = Date.now()): string | n
   return signSessionToken(session.deviceId, session.deviceLabel, now)
 }
 
-/** Five minutes: long enough to open a socket, useless to a log scraper. */
-export const WS_TICKET_TTL_MS = 5 * 60 * 1000
-
-/** A `ws.`-prefixed signature domain: a leaked ticket can never pass where a
- *  session token is expected, and vice versa. */
-const WS_TICKET_PREFIX = 'ws'
-
-/** A ticket derived from a pairing session token: the caller is a local owner. */
-export interface PairingWsTicket {
-  kind: 'pairing'
-  deviceId: string
-  deviceLabel: string
-  issuedAt: number
-  /** One use: consumed at admission. */
-  jti: string
-}
-
-/** The organization facts a member's grant carried (docs/plans/multiplayer-sharing.md §3.2). */
-export interface GrantMembership {
-  organizationId: string
-  organizationRole: 'owner' | 'member'
-  teamIds: string[]
-  hostKind: HostKind
-  displayName: string
-  picture?: string
-  email?: string
-}
-
-/** A ticket derived from a control-plane grant: the owner, or an organization member, arriving remotely. */
-export interface GrantWsTicket {
-  kind: 'grant'
-  userId: string
-  /** The account session the grant was minted for. */
-  deviceId: string
-  /** Grant expiry (ms); the ticket is worthless past it however young it is. */
-  expiresAt: number
-  issuedAt: number
-  jti: string
-  /** Absent for the personal host's owner; present for an organization member. */
-  membership?: GrantMembership
-  /** The owner's account name, when the grant carried one. */
-  displayName?: string
-}
-
-/** A ticket for a visitor who presented a share secret: one resource, one role. */
-export interface GuestWsTicket {
-  kind: 'guest'
-  accountUserId?: string
-  accountSessionId?: string
-  organizationId?: string
-  guestId: string
-  displayName: string
-  share: {
-    resource: ShareResource
-    role: ShareRole
-    sharedByUserId: string
-    /** Re-checked on every call, so a regenerated link ends the visit. */
-    linkSecretHash: string
-  }
-  expiresAt: number
-  issuedAt: number
-  jti: string
-}
-
-/** A linked host's live channel to its organization's Solus API, from the delegated token it delivers with. */
-export interface RunnerWsTicket {
-  kind: 'runner'
-  hostId: string
-  organizationId: string
-  ownerUserId: string
-  expiresAt: number
-  issuedAt: number
-  jti: string
-}
-
-export type VerifiedWsTicket = PairingWsTicket | GrantWsTicket | GuestWsTicket | RunnerWsTicket
-
-const grantMembershipSchema = z.object({
-  organizationId: z.string().min(1),
-  organizationRole: organizationRoleSchema,
-  teamIds: z.array(z.string().min(1)),
-  hostKind: hostKindSchema,
-  displayName: z.string().min(1),
-  picture: z.string().min(1).optional(),
-  email: z.string().min(1).optional(),
-}).strict()
-
-const wsTicketPayloadSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('pairing'),
-    deviceId: z.string().min(1),
-    deviceLabel: z.string(),
-    issuedAt: z.number(),
-    jti: z.string().min(1),
-  }).strict(),
-  z.object({
-    kind: z.literal('grant'),
-    userId: z.string().min(1),
-    deviceId: z.string().min(1),
-    expiresAt: z.number(),
-    issuedAt: z.number(),
-    jti: z.string().min(1),
-    membership: grantMembershipSchema.optional(),
-    displayName: z.string().min(1).optional(),
-  }).strict(),
-  z.object({
-    kind: z.literal('guest'),
-    accountUserId: z.string().min(1).optional(),
-    accountSessionId: z.string().min(1).optional(),
-    organizationId: z.string().min(1).optional(),
-    guestId: z.string().min(1),
-    displayName: z.string().min(1),
-    share: z.object({
-      resource: shareResourceSchema,
-      role: shareRoleSchema,
-      sharedByUserId: z.string().min(1),
-      linkSecretHash: z.string().min(1),
-    }).strict(),
-    expiresAt: z.number(),
-    issuedAt: z.number(),
-    jti: z.string().min(1),
-  }).strict(),
-  z.object({
-    kind: z.literal('runner'),
-    hostId: z.string().min(1),
-    organizationId: z.string().min(1),
-    ownerUserId: z.string().min(1),
-    expiresAt: z.number(),
-    issuedAt: z.number(),
-    jti: z.string().min(1),
-  }).strict(),
-])
-
-/** jti → the instant the ticket would have expired anyway. */
-const _usedWsTickets = new Map<string, number>()
-const PROCESS_STARTED_AT = Date.now()
-
-function signWsTicket(payload: VerifiedWsTicket): string {
-  const keys = loadOrCreateKeys()
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
-  const sig = createHmac('sha256', keys.signingKey).update(`${WS_TICKET_PREFIX}.${body}`).digest('base64url')
-  return `${WS_TICKET_PREFIX}.${body}.${sig}`
-}
-
-/**
- * A short-lived, single-purpose WebSocket ticket (dispatch-client step 4):
- * the long-lived session token only ever travels in HTTP headers, and only
- * this derived ticket rides the socket handshake.
- */
-export function issueWsTicket(sessionToken: string, now = Date.now()): string | null {
-  const session = verifySessionToken(sessionToken, now)
-  if (!session) return null
-  return signWsTicket({
-    kind: 'pairing',
-    deviceId: session.deviceId,
-    deviceLabel: session.deviceLabel,
-    issuedAt: now,
-    jti: randomBytes(12).toString('hex'),
-  })
-}
-
-export interface GrantTicketSubject {
-  userId: string
-  deviceId: string
-  expiresAt: number
-  membership?: GrantMembership
-  displayName?: string
-}
-
-/** The same door for a verified control-plane grant (docs/plans/personal-uplink.md, H1). */
-export function issueGrantWsTicket(grant: GrantTicketSubject, now = Date.now()): string {
-  return signWsTicket({ kind: 'grant', ...grant, issuedAt: now, jti: randomBytes(12).toString('hex') })
-}
-
-export type GuestTicketSubject = Omit<GuestWsTicket, 'kind' | 'issuedAt' | 'jti'>
-
-/** A matching share secret earns a ticket bound to that one resource (host-sharing.md §4.1). */
-export function issueGuestWsTicket(guest: GuestTicketSubject, now = Date.now()): string {
-  return signWsTicket({ kind: 'guest', ...guest, issuedAt: now, jti: randomBytes(12).toString('hex') })
-}
-
-export type RunnerTicketSubject = Omit<RunnerWsTicket, 'kind' | 'issuedAt' | 'jti'>
-
-/** A host's delegated token earns a runner socket on the Solus API: the channel shared prompts arrive on. */
-export function issueRunnerWsTicket(runner: RunnerTicketSubject, now = Date.now()): string {
-  return signWsTicket({ kind: 'runner', ...runner, issuedAt: now, jti: randomBytes(12).toString('hex') })
-}
-
-/** Checks a ticket without spending it. Admission uses `consumeWsTicket`. */
-export function verifyWsTicket(ticket: string, now = Date.now()): VerifiedWsTicket | null {
-  const keys = loadOrCreateKeys()
-  loadRevokedDevices()
-  const parts = ticket.split('.')
-  if (parts.length !== 3 || parts[0] !== WS_TICKET_PREFIX) return null
-  const [, body, sig] = parts
-
-  const expected = createHmac('sha256', keys.signingKey).update(`${WS_TICKET_PREFIX}.${body}`).digest('base64url')
-  const sigBuf = Buffer.from(sig)
-  const expBuf = Buffer.from(expected)
-  if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) return null
-
-  let payload: VerifiedWsTicket
-  try {
-    payload = wsTicketPayloadSchema.parse(JSON.parse(Buffer.from(body, 'base64url').toString('utf-8')))
-  } catch {
-    return null
-  }
-  if (now - payload.issuedAt > WS_TICKET_TTL_MS) return null
-  if (payload.issuedAt > now + 60_000) return null
-  // Consumed tickets are remembered in memory only, so a ticket from before this
-  // process started is refused outright: a restart must not reopen a spent one.
-  if (payload.issuedAt < PROCESS_STARTED_AT) return null
-  // Revoking a device on the Access tab ends both a paired device and a cloud session.
-  if ((payload.kind === 'pairing' || payload.kind === 'grant') && _revokedDevices.has(payload.deviceId)) return null
-  if (payload.kind !== 'pairing' && payload.expiresAt <= now) return null
-  return payload
-}
-
 /** Whether the owner revoked this device (a paired device or an account session) on this host. */
 export function isDeviceRevoked(deviceId: string): boolean {
   loadRevokedDevices()
   return _revokedDevices.has(deviceId)
-}
-
-/** Verifies a ticket and spends it: the same ticket admits exactly one socket. */
-export function consumeWsTicket(ticket: string, now = Date.now()): VerifiedWsTicket | null {
-  const verified = verifyWsTicket(ticket, now)
-  if (!verified) return null
-  for (const [jti, expiresAt] of _usedWsTickets) {
-    if (expiresAt <= now) _usedWsTickets.delete(jti)
-  }
-  if (_usedWsTickets.has(verified.jti)) return null
-  _usedWsTickets.set(verified.jti, verified.issuedAt + WS_TICKET_TTL_MS)
-  return verified
 }
 
 export function revokeDevice(deviceId: string): void {
@@ -487,7 +235,7 @@ function loadRevokedDevices(): void {
   try {
     const parsed = revokedDevicesSchema.safeParse(JSON.parse(readFileSync(file, 'utf-8')))
     if (!parsed.success) return
-    for (const deviceId of parsed.data) _revokedDevices.add(deviceId)
+    for (const deviceId of parsed.data.deviceIds) _revokedDevices.add(deviceId)
   } catch (err) {
     log.warn('revoked_devices_load_failed', { error: err instanceof Error ? err.message : String(err) })
   }
@@ -504,7 +252,6 @@ export function resetAuthStateForTests(): void {
   _activePairTokens.clear()
   _revokedDevices.clear()
   _revokedDevicesLoaded = false
-  _usedWsTickets.clear()
 }
 
 function persistKeys(): void {

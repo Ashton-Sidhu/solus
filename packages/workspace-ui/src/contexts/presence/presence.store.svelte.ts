@@ -105,7 +105,7 @@ class PresenceStore {
     const unsubscribeWork = subscribeAllHosts('work.presenceChanged', (serverId, snapshot) => {
       this.works.set(sessionKey(serverId, snapshot.workId), snapshot)
     })
-    const unsubscribeStatus = serverConnections.onStatusChange((serverId, status) => {
+    const unsubscribeStatus = serverConnections.onPhaseChange((serverId, status) => {
       if (status !== 'connected') return
       // The host may have restarted and forgotten this client: read the room
       // again and say again what is on screen.

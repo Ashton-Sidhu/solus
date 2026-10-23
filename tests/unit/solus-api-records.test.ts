@@ -89,20 +89,24 @@ test('transcript paging reconstructs Unicode text without loading an unbounded m
   await expect(operations.listSessionMessages(bob, sessionId, { limit: 1 })).rejects.toThrow('not found')
 })
 
-test('HTTP works without a socket; credentials bind scope and strict inputs reject organization overrides', async () => {
+test('HTTP works without a socket; the bearer binds scope and strict inputs reject organization overrides', async () => {
   const { Hono } = await import('hono')
-  const { WorkspaceCredentials } = await import('@solus/server/admission/workspace-credentials')
   const { createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
   const { solusApiOpenApi } = await import('@solus/contracts/solus-api/openapi')
-  const credentials = new WorkspaceCredentials({ audience: 'api', authenticateSource: async source => source === 'paired-source' ? { principal: context.principal, expiresAt: Date.now() + 300000 } : null,
-    isRevoked: async () => false, homeFor: () => context.home })
-  const router = createSolusApiRouter({ credentials, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'insights'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
+  const { SOLUS_API_ORGANIZATION_HEADER } = await import('@solus/contracts/solus-api/request')
+  // The bearer is admitted directly (docs/plans/simplify-auth-and-sync.md §4.2); this one may read and write tasks only.
+  const admitted: Array<string | undefined> = []
+  const admission = {
+    socket: async () => null,
+    bearer: async (bearer: string, organizationId: string | undefined): Promise<WorkspaceRequestContext | null> => {
+      admitted.push(organizationId)
+      return bearer === 'paired-source' ? { principal: context.principal, home: context.home, scopes: ['tasks:read', 'tasks:write'] } : null
+    },
+  }
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks', 'works', 'session-records', 'insights'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
   const app = new Hono().route('/v1', router)
   expect((await app.request('/v1/tasks')).status).toBe(401)
-  const exchange = await app.request('/v1/auth/session', { method: 'POST', headers: { Authorization: 'Bearer paired-source', 'Content-Type': 'application/json' }, body: JSON.stringify({ scopes: ['tasks:read', 'tasks:write'] }) })
-  expect(exchange.status).toBe(200)
-  const { accessToken } = await exchange.json()
-  const headers = { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json', 'Idempotency-Key': 'http-create-key-001' }
+  const headers = { Authorization: 'Bearer paired-source', 'Content-Type': 'application/json', 'Idempotency-Key': 'http-create-key-001' }
   const created = await app.request('/v1/tasks', { method: 'POST', headers, body: JSON.stringify({ title: 'Over HTTP' }) })
   expect(created.status).toBe(201)
   const task = workspaceTaskSchema.parse(await created.json())
@@ -117,38 +121,32 @@ test('HTTP works without a socket; credentials bind scope and strict inputs reje
   const actual = new Set(router.routes.filter(route => route.method !== 'ALL').map(route => route.method.toLowerCase() + ' ' + route.path))
   expect(actual).toEqual(new Set(Object.values(metadata).map(route => route.method + ' ' + route.path)))
 
+  // The HTTP client presents its own token on each request, in the organization it names.
   const { SolusApiClient, SolusApiHttp } = await import('@solus/contracts/solus-api/client')
-  const original = globalThis.fetch
-  let exchanges = 0, selected = 'A'
-  globalThis.fetch = mock(async (input, init) => {
-    const url = String(input)
-    if (url.endsWith('/auth/session')) exchanges++
-    return app.fetch(new Request(url, init))
-  }) as typeof fetch
-  try {
-    const client = new SolusApiClient(new SolusApiHttp({ baseUrl: () => 'https://api.example', contextKey: () => selected, acquireSource: async () => 'paired-source' }))
-    const [first, second] = await Promise.all([client.request('getTask', { id: task.id }), client.request('getTask', { id: task.id })])
-    expect(first.id).toBe(second.id); expect(exchanges).toBe(1)
-    const work = await client.request('createWork', { body: { title: 'Poll', type: 'doc', content: '# Content' }, key: 'conditional-work-key-01' })
-    expect(await client.request('getWork', { id: work.id, ifNoneMatch: work.version })).toBeUndefined()
-    await client.request('updateWork', { id: work.id, body: { content: '# Changed', expectedContentVersion: work.contentVersion }, version: work.version })
-    expect((await client.request('getWork', { id: work.id, ifNoneMatch: work.version }))?.content).toBe('# Changed')
-    selected = 'B'
-    await client.request('getTask', { id: task.id })
-    expect(exchanges).toBe(2)
-  } finally { globalThis.fetch = original }
+  const seen: Array<{ path: string; authorization: string | null; organization: string | null }> = []
+  const fetchImpl = async (input: string | URL, init?: RequestInit) => {
+    const request = new Request(String(input), init)
+    seen.push({ path: new URL(request.url).pathname, authorization: request.headers.get('authorization'), organization: request.headers.get(SOLUS_API_ORGANIZATION_HEADER) })
+    return app.fetch(request)
+  }
+  const client = new SolusApiClient(new SolusApiHttp({ baseUrl: () => 'https://api.example', contextKey: () => 'A', acquireSource: async () => 'paired-source', organizationId: () => 'A', fetchImpl }))
+  expect((await client.request('getTask', { id: task.id })).id).toBe(task.id)
+  expect(seen).toEqual([{ path: '/v1/tasks/' + task.id, authorization: 'Bearer paired-source', organization: 'A' }])
+  expect(admitted.at(-1)).toBe('A')
 })
 
 // A client with a socket sends its records there: the socket's principal is their
 // authority, so a cold request costs one round trip and no credential exchange.
 test('records over a socket take its principal as authority and never exchange a credential', async () => {
   const { Hono } = await import('hono')
-  const { WorkspaceCredentials } = await import('@solus/server/admission/workspace-credentials')
+  const { revokeDevice } = await import('@solus/server/admission/auth')
+  const { createDoors } = await import('@solus/server/admission/doors')
+  const { workspaceAdmissionFor } = await import('@solus/server/transport/solus-api/admission')
   const { answerSocketRequest, createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
   const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
-  const credentials = new WorkspaceCredentials({ audience: 'api', authenticateSource: async () => null,
-    isRevoked: async principal => principal.kind !== 'system' && principal.deviceId === 'revoked-device', homeFor: () => context.home })
-  const router = createSolusApiRouter({ credentials, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  revokeDevice('revoked-device')
+  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true }))
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['tasks'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   // Mounted at /v1 over HTTP too: the socket must not open a door HTTP keeps shut.
   const http = new Hono().route('/v1', router)
   const requests = (request: SolusApiRequest, principal: Principal) => answerSocketRequest(router, request, principal)
@@ -205,42 +203,44 @@ test('an editor can save a shared work but only its owner can delete it', async 
   await expect(operations.getWork(context, work.id)).rejects.toThrow('not found')
 })
 
-test('real paired credentials work offline, are revocable, and cannot open the cloud service', async () => {
+test('a paired session token works offline, is revocable, and cannot open the cloud service', async () => {
   const auth = await import('@solus/server/admission/auth')
-  const { workspaceCredentialsForHttp } = await import('@solus/server/transport/solus-api/admission')
+  const { createDoors } = await import('@solus/server/admission/doors')
+  const { workspaceAdmissionFor } = await import('@solus/server/transport/solus-api/admission')
   const paired = auth.issueSessionToken('Test desktop')
   let grantLookups = 0
-  const local = workspaceCredentialsForHttp({ solusApi: { operations, serviceId: 'test-host' },
-    verifyAccessToken: async () => { grantLookups++; return { ok: false, reason: 'not-linked' } } })
-  const session = await local.exchange(paired.token, { scopes: ['tasks:read'] })
-  expect(session?.home).toEqual({ kind: 'local', hostId: 'test-host' })
+  const local = workspaceAdmissionFor({ solusApi: { operations, serviceId: 'test-host' } },
+    createDoors({ place: 'host', verifyAccessToken: async () => { grantLookups++; return { ok: false, reason: 'not-linked' } } }))
+  expect((await local.bearer(paired.token, undefined))?.home).toEqual({ kind: 'local', hostId: 'test-host' })
   expect(grantLookups).toBe(0)
-  expect(await local.verify(session!.accessToken)).not.toBeNull()
-  const cloud = workspaceCredentialsForHttp({ isApiMode: true, solusApi: { operations, serviceId: 'cloud' } })
-  expect(await cloud.exchange(paired.token, { scopes: ['tasks:read'] })).toBeNull()
+  const cloud = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'cloud' } }, createDoors({ place: 'api', pairingDisabled: true }))
+  expect(await cloud.bearer(paired.token, undefined)).toBeNull()
   auth.revokeDevice(paired.deviceId)
-  expect(await local.verify(session!.accessToken)).toBeNull()
+  expect(await local.bearer(paired.token, undefined)).toBeNull()
 })
 
 // docs/plans/host-sharing.md §9.8: the link secret is the whole credential, at the host and the
-// Solus API alike. A guest with no token opens the one shared resource with the link's role as
-// it stands now, and loses it when the link is regenerated or removed.
+// Solus API alike. A guest admitted with it (in its socket's handshake) opens the one shared
+// resource with the link's role as it stands now, and loses it when the link is regenerated or removed.
 test('a link guest opens only its shared work with the secret alone, with the link\'s current role', async () => {
-  const { Hono } = await import('hono')
-  const { workspaceCredentialsForHttp } = await import('@solus/server/transport/solus-api/admission')
-  const { createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
-  const { SolusApiClient, SolusApiHttp, WorkspaceRequestError } = await import('@solus/contracts/solus-api/client')
-  const credentials = workspaceCredentialsForHttp({ isApiMode: true, solusApi: { operations, serviceId: 'api' }, resolveShareSecret: secret => shares.resolveLinkSecret(secret) })
-  const router = createSolusApiRouter({ credentials, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
-  const app = new Hono().route('/v1', router)
-  const fetchImpl = (input: string | URL, init?: RequestInit) => app.fetch(new Request(String(input), init))
-  const guestOf = (shareSecret: string) => new SolusApiClient(new SolusApiHttp({ baseUrl: () => 'https://api.example', contextKey: () => 'maya', acquireSource: async () => null, fetchImpl, shareSecret, guestIdentity: { guestId: 'maya-guest-0000001', displayName: 'Maya' } }))
+  const { createDoors, guestPrincipalFor } = await import('@solus/server/admission/doors')
+  const { workspaceAdmissionFor } = await import('@solus/server/transport/solus-api/admission')
+  const { answerSocketRequest, createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
+  const { SolusApiClient } = await import('@solus/contracts/solus-api/client')
+  const resolveShareSecret = (secret: string) => shares.resolveLinkSecret(secret)
+  const admission = workspaceAdmissionFor({ isApiMode: true, solusApi: { operations, serviceId: 'api' } }, createDoors({ place: 'api', pairingDisabled: true, resolveShareSecret }))
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const guestOf = async (shareSecret: string) => {
+    const admitted = await guestPrincipalFor(resolveShareSecret, shareSecret, 'maya-guest-0000001', 'Maya')
+    if (!admitted.ok) return null
+    return new SolusApiClient({ contextKey: () => 'maya', send: request => answerSocketRequest(router, request, admitted.principal) })
+  }
 
   const work = await operations.createWork(context, { title: 'Linked', type: 'doc', content: 'One' }, 'linked-work-key-0001')
   const other = await operations.createWork(context, { title: 'Not linked', type: 'doc', content: 'Secret' }, 'linked-work-key-0002')
   const resource = { kind: 'work', id: work.id } as const
   const link = (await shares.setLink({ resource, role: 'viewer' }, context.principal))!
-  const maya = guestOf(link.secret)
+  const maya = (await guestOf(link.secret))!
 
   expect((await maya.request('getWork', { id: work.id })).content).toBe('One')
   expect((await maya.request('listWorks')).items.map(item => item.id)).toEqual([work.id])
@@ -248,23 +248,19 @@ test('a link guest opens only its shared work with the secret alone, with the li
   await expect(maya.request('updateWork', { id: work.id, body: { content: 'Viewer edit', expectedContentVersion: work.contentVersion }, version: work.version })).rejects.toMatchObject({ status: 404 })
   await expect(maya.request('createWork', { body: { title: 'Guest root', type: 'doc', content: '' }, key: 'guest-root-work-key-01' })).rejects.toMatchObject({ status: 403 })
 
-  // A role change keeps the secret and applies at once, to the credential she already holds.
+  // A role change keeps the secret and applies at once, to the admission she already holds.
   expect((await shares.setLink({ resource, role: 'editor' }, context.principal))?.secret).toBe(link.secret)
   const saved = await maya.request('updateWork', { id: work.id, body: { content: 'Maya was here', expectedContentVersion: work.contentVersion }, version: work.version })
   expect(saved.content).toBe('Maya was here')
 
-  // A regenerated link ends what the old secret opened, and the old secret opens nothing new.
+  // A regenerated link ends what the old secret opened, and the old secret admits no one new.
   const rotated = (await shares.setLink({ resource, role: 'editor', regenerate: true }, context.principal))!
   await expect(maya.request('getWork', { id: work.id })).rejects.toMatchObject({ status: 404 })
-  await expect(guestOf(link.secret).request('getWork', { id: work.id })).rejects.toMatchObject({ status: 401, code: 'UNAUTHENTICATED' })
-  const again = guestOf(rotated.secret)
+  expect(await guestOf(link.secret)).toBeNull()
+  const again = (await guestOf(rotated.secret))!
   expect((await again.request('getWork', { id: work.id })).content).toBe('Maya was here')
   await shares.setLink({ resource, role: null }, context.principal)
   await expect(again.request('getWork', { id: work.id })).rejects.toMatchObject({ status: 404 })
-
-  // No secret, no token: nothing is asked of the API.
-  const nobody = new SolusApiClient(new SolusApiHttp({ baseUrl: () => 'https://api.example', contextKey: () => 'nobody', acquireSource: async () => null, fetchImpl }))
-  await expect(nobody.request('getWork', { id: work.id })).rejects.toBeInstanceOf(WorkspaceRequestError)
 })
 
 test.skipIf(process.env.SOLUS_DB !== 'postgres')('a database timeout cancels the request and returns a retryable API error', async () => {

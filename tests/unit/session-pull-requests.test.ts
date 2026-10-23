@@ -198,30 +198,20 @@ describe('a task and the pull requests of its sessions', () => {
 })
 
 describe("an agent's link from an attached machine", () => {
-  const AGENT = { kind: 'agent' as const, sessionId: 'worker' }
-  const op = (domain: 'tasks' | 'sessions', resourceId: string, name: string, payload: object) => ({
-    id: `op-${name}-${resourceId}`, domain, resourceId, name, payload, recordedAt: 1, state: 'pending' as const,
-  })
-
-  test('reaches the session on the host that owns it, with or without a task', async () => {
+  test('through a task, reaches the session that works on it', async () => {
     // WHY: the organization's Solus API holds the session a person opens. A
-    // link that stayed on the machine, or that landed on the task, would show
-    // no pull request on that session.
-    const outbox = await import('@solus/server/sync/outbox/outbox-store')
-    ;(await import('@solus/server/data/sessions/session-applier')).registerSessionOutboxApplier()
-    ;(await import('@solus/server/data/tasks/task-applier')).registerTaskOutboxApplier()
-
-    await outbox.applyOutboxOp(op('sessions', 'solo', 'link-pull-request', { url: URL_7, actor: AGENT }), { organizationId: 'local', ownerKey: 'local:test' })
-    expect((await linksOf('solo')).map((link) => [link.number, link.source])).toEqual([[7, 'agent']])
+    // link that landed on the task would show no pull request on that session.
+    const { ShareManager } = await import('@solus/server/sharing/share-manager')
+    const operations = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(new ShareManager({ db: database.getDatabase() }))
+    const context = { principal: SYSTEM, home: { kind: 'local' as const, hostId: 'host-1' }, scopes: ['tasks:write' as const], actingAgent: { organizationId: 'local' } }
 
     const task = await taskStore.createTask('local', { title: 'Ship it', projectKey: '/workspace/solus' })
     await (await tasks.Task.byId('local', task.id)).linkSession('worker', 'working', {})
-    const link = { kind: 'pr', targetScope: REPOSITORY, targetKey: '7', url: URL_7, actor: AGENT }
-    await outbox.applyOutboxOp(op('tasks', task.id, 'link', { ...link, originSessionId: 'worker' }), { organizationId: 'local', ownerKey: 'local:test' })
+    await operations.putLink(context, { from: { kind: 'task', id: task.id }, to: { kind: 'pr', url: URL_7 }, originSessionId: 'worker' })
     expect(await taskPrNumbers(task.id)).toEqual([[7, 'worker']])
 
     // A session that does not work on the task links the task itself.
-    await outbox.applyOutboxOp(op('tasks', task.id, 'link', { ...link, targetKey: '8', url: 'https://github.com/acme/solus/pull/8', originSessionId: 'visitor' }), { organizationId: 'local', ownerKey: 'local:test' })
+    await operations.putLink(context, { from: { kind: 'task', id: task.id }, to: { kind: 'pr', url: 'https://github.com/acme/solus/pull/8' }, originSessionId: 'visitor' })
     expect((await taskPrNumbers(task.id)).sort()).toEqual([[7, 'worker'], [8, null]])
   })
 })

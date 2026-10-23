@@ -111,7 +111,7 @@ function input(provider: AgentId): SessionRunInput {
   }
 }
 
-const OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'This Mac' }
+const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'This Mac' }
 
 let runs = 0
 

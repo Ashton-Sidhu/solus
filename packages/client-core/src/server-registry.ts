@@ -139,14 +139,6 @@ export function dialableRoutes(routes: HostRoute[], clientOrigin: string): HostR
   return [...usable.filter((route) => route.kind === 'direct'), ...usable.filter((route) => route.kind === 'tunnel')]
 }
 
-/** The route to try after `currentUrl` failed: the next dialable one, round-robin. */
-export function nextRouteUrl(routes: HostRoute[], currentUrl: string, clientOrigin: string): string | null {
-  const dialable = dialableRoutes(routes, clientOrigin)
-  if (dialable.length < 2) return null
-  const index = dialable.findIndex((route) => route.url === currentUrl)
-  return dialable[(index + 1) % dialable.length]?.url ?? null
-}
-
 type ServerSavedListener = (server: SavedServer) => void
 type ServerRemovingListener = (server: SavedServer) => void
 
@@ -239,10 +231,7 @@ export function loadServers(): SavedServer[] {
     if (decoded.success) {
       // SAFETY: Every surviving element passed savedServerSchema, whose fields
       // mirror SavedServer; loose passthrough keys widen, never narrow.
-      const servers = decoded.data as SavedServer[]
-      // Builds before the split saved each workspace service as a host. It is
-      // not one, and read as a machine it would be dialed and offered as one.
-      return servers.filter((server) => !isSolusApiId(server.id))
+      return decoded.data as SavedServer[]
     }
   } catch {}
   // An unreadable blob would be re-parsed and re-failed on every boot: delete

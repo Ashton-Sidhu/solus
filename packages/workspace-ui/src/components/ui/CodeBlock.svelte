@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
   import { Copy as CopyIcon, Check as CheckIcon } from "@lucide/svelte";
-  import { createIncrementalHighlight, highlightAfterPaint, loadCodeHighlighter, plainCodeLines } from "../../lib/incremental-highlight";
+  import { highlightAfterPaint, loadCodeHighlighter, plainCodeLines, type CodeHighlighter } from "../../lib/code-highlight";
 
   interface Props {
     text: string;
@@ -17,7 +17,7 @@
   // Strip a single trailing newline so the block doesn't render an empty last line.
   let code = $derived(text.replace(/\n$/, ""));
 
-  let highlight = $state<ReturnType<typeof createIncrementalHighlight> | null>(null);
+  let highlight = $state<CodeHighlighter | null>(null);
   let highlighted = $state.raw<string[]>(untrack(() => plainCodeLines(code)));
 
   $effect(() => {
@@ -26,15 +26,18 @@
     highlight = null;
     if (language) {
       void loadCodeHighlighter(language).then((loaded) => {
-        if (active && loaded) highlight = createIncrementalHighlight(loaded.highlighter, loaded.language);
+        if (active && loaded) highlight = loaded;
       }).catch(() => { /* Plain escaped code remains readable if loading fails. */ });
     }
     return () => { active = false; };
   });
 
-  // Each completed line keeps its DOM. Async grammar loading and source changes
+  // Each completed line keeps its DOM. Async tokenizer loading and source changes
   // invalidate only this block; theme switches use the token CSS variables.
   // The first colours wait for paint; a block that streams then stays live.
+  // The wait is for the DOM, not the lexer: colouring 150 blocks in their first
+  // render put the first frame at 602 ms instead of 165 ms, and every block
+  // was coloured no sooner (tests/benchmarks/code-block.ts).
   let hasColours = false;
   $effect(() => {
     const next = highlight;
@@ -123,6 +126,6 @@
   </div>
   {/if}
   <div class="solus-code-body">
-    <pre use:edgeFade><code class="shiki {lang ? `language-${lang}` : ''}">{#each highlighted as line, index (index)}<span class="code-line">{@html line}</span>{#if index < highlighted.length - 1}{"\n"}{/if}{/each}</code></pre>
+    <pre use:edgeFade><code class="highlights {lang ? `language-${lang}` : ''}">{#each highlighted as line, index (index)}<span class="code-line">{@html line}</span>{#if index < highlighted.length - 1}{"\n"}{/if}{/each}</code></pre>
   </div>
 </div>

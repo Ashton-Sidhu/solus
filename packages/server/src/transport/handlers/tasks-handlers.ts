@@ -41,12 +41,6 @@ import { createHash } from 'node:crypto'
 import { createLogger, isDebugEnabled } from '../../logger'
 
 const log = createLogger('main', 'tasks-handlers')
-const taskOpenTimingSchema = z.object({
-  activationId: z.string().max(100),
-  taskId: z.string().max(200).nullable(),
-  outcome: z.enum(['completed', 'cancelled', 'failed']),
-  marks: z.array(z.object({ stage: z.string().max(64), elapsedMs: z.number().finite().nonnegative() })).max(32),
-})
 /** The most changed sessions a resume looks up; more, and it sends the whole list. */
 const MAX_RESUMED_SESSION_IDS = 1000
 const taskSidebarFilterSchema = z.object({
@@ -165,17 +159,6 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
     return syncTasksNow(recordScopeOf(ctx.principal), id)
   })
 
-
-  server.register('tasksLogOpenTiming', ([input], ctx) => {
-    const timing = taskOpenTimingSchema.parse(input)
-    log.info('task_sidebar_open_timing', {
-      clientId: ctx.clientId,
-      activationId: timing.activationId,
-      taskId: timing.taskId,
-      outcome: timing.outcome,
-      marks: timing.marks.map(({ stage, elapsedMs }) => ({ stage, elapsedMs })),
-    })
-  })
 
   // A share decides who sees a task, so a resume names the task again.
   deps.shares?.onChanged((change) => {

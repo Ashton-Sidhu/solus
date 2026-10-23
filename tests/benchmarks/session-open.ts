@@ -462,19 +462,13 @@ async function openOnce(page: Page, base: string, fixture: Fixture, cdp: CDPSess
 }
 
 /** Save each `render_artifact` work on the host, as the tool did, with the id
- *  its receipt names. The paired client's token signs the workspace API. */
+ *  its receipt names. The paired client's session token is the workspace API's bearer. */
 async function createFixtureWorks(base: string, servers: string): Promise<void> {
   const [{ sessionToken }]: Array<{ sessionToken: string }> = JSON.parse(servers)
-  const auth = await fetch(`${base}/v1/auth/session`, {
-    method: 'POST', headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scopes: ['works:read', 'works:write'] }),
-  })
-  if (!auth.ok) throw new Error(`workspace auth failed: ${auth.status} ${await auth.text()}`)
-  const { accessToken }: { accessToken: string } = await auth.json()
   for (const work of fixtures.flatMap((fixture) => fixture.works)) {
     const created = await fetch(`${base}/v1/works`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'Idempotency-Key': work.workId },
+      headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json', 'Idempotency-Key': work.workId },
       body: JSON.stringify({ id: work.workId, title: work.title, type: 'artifact', content: work.html }),
     })
     if (!created.ok) throw new Error(`work create failed: ${created.status} ${await created.text()}`)

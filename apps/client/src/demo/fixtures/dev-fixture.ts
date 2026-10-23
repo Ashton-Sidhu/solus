@@ -188,8 +188,8 @@ export const devFixtures: DemoFixtures = {
     overview: {
       pullRequest: {
         number: 1,
-        url: 'https://github.com/acme/acme/pull/1',
-        baseRepo: { host: 'github.com', owner: 'acme', repo: 'acme' },
+        url: 'https://github.com/acme/api-gateway/pull/1',
+        baseRepo: { host: 'github.com', owner: 'acme', repo: 'api-gateway' },
         title: 'Demo pull request',
         author: 'demo',
         authorAvatarUrl: '',
@@ -208,7 +208,7 @@ export const devFixtures: DemoFixtures = {
         changedFiles: 0,
         mergeable: true,
         mergeStateStatus: 'clean',
-        headRepo: { owner: 'acme', repo: 'acme', isFork: false },
+        headRepo: { owner: 'acme', repo: 'api-gateway', isFork: false },
         capabilities: {
           diff: true,
           diffFileContents: true,

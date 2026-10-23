@@ -27,7 +27,7 @@ Preconditions:
 
 ## Gotchas
 
-- Fixed 2026-10-13 (found by `organization-work`): an agent's first tool call in a new organization session could come before the session's record was written on the host. The task then went into the host's own tables, or the Solus API refused it (404) because the session's first report had not arrived. Now the tool context takes the API home from the admission (`admittedHomeOf`), and `deliverSessionReport` waits for an admitted session's first report (`tests/unit/organization-vm-records.test.ts`, `tests/unit/runner-delivery.test.ts`).
+- Fixed 2026-10-13 (found by `organization-work`): an agent's first tool call in a new organization session could come before the session's record was written on the host. The task then went into the host's own tables, or the Solus API refused it (404) because the session's first report had not arrived. Now the tool context takes the API home from the admission (`admittedHomeOf`), and the API writes the session record when it admits the session, so nothing waits for a report (`tests/unit/organization-vm-records.test.ts`; docs/plans/simplify-auth-and-sync.md §4.5).
 - The Solus API keeps its own copy of a reported session record; its `publication` is the API's (`local` there), not the runner's. Do not assert it.
 - A running host reads its standing every five minutes and at boot; the scenario restarts the host after the share.
 - The Lab-issuer scenarios (`cloud-workspace`, `cloud-sessions`) have their status in the map and their open questions in [TRIAGE.md](./TRIAGE.md); the cloud run above did not run them.

@@ -394,6 +394,39 @@ export class RouterStore {
     }
   }
 
+  /**
+   * Open a surface beside a conversation that may not be on screen. On screen,
+   * this is `navigate`. Otherwise the surface joins that conversation's stored
+   * strip, and the strip shows when the user goes there; what is on screen now
+   * does not change. An automatic open does not take the place of the surface
+   * the strip shows: it goes in the background, marked unread.
+   */
+  openSurfaceBesideSession(sessionId: string, ref: RouteRef, opts: Pick<NavigateOptions, 'automatic'> = {}): void {
+    const destinationKey = `session:${sessionId}`
+    if (destinationKey === this.shownDestinationKey) {
+      this.navigate(ref, opts)
+      return
+    }
+    const stored = this.strips.get(destinationKey)
+    const surfaces = stored?.surfaces.slice() ?? []
+    let activeSurfaceIndex = stored?.activeSurfaceIndex ?? 0
+    const key = surfaceKey(ref)
+    const shown = stored?.isOpen ? surfaces[activeSurfaceIndex] : undefined
+    const background = opts.automatic === true && !!shown && surfaceKey(shown) !== key
+    const existing = surfaces.findIndex((surface) => surfaceKey(surface) === key)
+    if (existing !== -1) {
+      surfaces[existing] = ref
+      if (!background) activeSurfaceIndex = existing
+    } else {
+      const index = surfaces.length === 0 ? 0 : activeSurfaceIndex + 1
+      surfaces.splice(index, 0, ref)
+      if (!background) activeSurfaceIndex = index
+    }
+    this.strips.set(destinationKey, { surfaces, activeSurfaceIndex, isOpen: true })
+    if (background) this.unreadSurfaceKeys.add(key)
+    else this.unreadSurfaceKeys.delete(key)
+  }
+
   /** Every route in a strip that is put away — hidden, or owned by a
    *  destination not on screen. */
   get storedSurfaces(): RouteRef[] {

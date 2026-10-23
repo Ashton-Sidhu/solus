@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { hostForUrl } from '@solus/contracts/entrypoint'
-import type {
-  Integration,
-  IntegrationAuthFinishedEvent,
-  IntegrationConnectionChangedEvent,
-  IntegrationConnectStartResult,
+import {
+  DEFAULT_INTEGRATION_ACCOUNT,
+  type Integration,
+  type IntegrationAuthFinishedEvent,
+  type IntegrationConnectionChangedEvent,
+  type IntegrationConnectStartResult,
 } from '@solus/contracts/integration-types'
-import { McpOAuth, OAuthGrantRefusedError, OAuthSignInError, OAUTH_CLIENT_REQUIRED_MESSAGE, type OAuthClient, type OAuthMetadata, type OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
+import { McpOAuth, OAuthClientRequiredError, OAuthGrantRefusedError, OAuthSignInError, OAUTH_CLIENT_REQUIRED_MESSAGE, type OAuthClient, type OAuthMetadata, type OAuthSignInOptions, type OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { callbackPage } from '../google/oauth'
 import { createLogger } from '../logger'
@@ -15,6 +16,11 @@ import { EncryptionUnavailableError, mcpCredentialRef, type Vault } from '../vau
 import type { IntegrationClients, IntegrationConnectionStore } from './connection-store'
 import type { IntegrationStore } from './integration-store'
 import { readServerIdentity, ServerCredentialRefusedError } from './server-identity'
+import { solusServerFor } from './solus-servers'
+import { firstPartyOAuthClient } from './first-party'
+import { firstPartyClientById } from '@solus/contracts/first-party-clients'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { boundFetch } from './solus-servers/solus-server'
 
 /**
  * Per-person OAuth sign-in to an integration (docs/plans/mcp-integrations.md
@@ -27,6 +33,47 @@ import { readServerIdentity, ServerCredentialRefusedError } from './server-ident
  */
 
 const log = createLogger('integrations', 'oauth.ts')
+
+/**
+ * What a sign-in asks for. A remote MCP server's token is bound to its URL
+ * (RFC 8707) and its metadata names the scopes. A Solus MCP server's code
+ * names its vendor's scopes and parameters, and whether the vendor takes a
+ * `resource` (§13.6).
+ */
+interface SignInRequest {
+  resource?: string
+  options?: OAuthSignInOptions
+}
+
+function signInFor(integration: Integration): SignInRequest {
+  const server = solusServerFor(integration.url)
+  const request: SignInRequest = server
+    ? { resource: server.auth.sendsResource ? integration.url : undefined, options: server.auth.sign }
+    : { resource: integration.url }
+  return withFirstPartyScopes(integration, request)
+}
+
+/** A first-party sign-in asks only for the named scopes Solus's app may hold (§13.1); the rest are left out. */
+function withFirstPartyScopes(integration: Integration, request: SignInRequest): SignInRequest {
+  const firstParty = new IntegrationSignIn(integration).firstParty
+  const named = request.options?.scopes
+  if (!firstParty || !named) return request
+  return { ...request, options: { ...request.options, scopes: firstPartyClientById(firstParty).scopesAllowed(named) } }
+}
+
+/** The account a new token belongs to, for the connection label. A Solus server asks its vendor; a remote server answers at `initialize`. */
+async function identityLabel(integration: Integration, accessToken: string, fetchImpl: typeof fetch): Promise<string | null> {
+  const server = solusServerFor(integration.url)
+  if (!server) return (await readServerIdentity(integration.url, `Bearer ${accessToken}`, fetchImpl)).label
+  const signal = AbortSignal.timeout(10_000)
+  const context = { fetch: boundFetch(server, { authorization: async () => `Bearer ${accessToken}`, onRefused: () => {}, fetch: fetchImpl }, signal), signal }
+  try {
+    return await server.identify(context)
+  } catch (error) {
+    log.warn('solus_server_identify_failed', { integrationId: integration.id, error: errorText(error) })
+    return null
+  }
+}
 
 export const INTEGRATION_OAUTH_CALLBACK_PATH = '/oauth/integration/callback'
 const FLOW_TTL_MS = 10 * 60_000
@@ -42,8 +89,10 @@ interface PendingFlow {
   input: 'callback' | 'redirect-url'
   expiresAt: number
   tokenEndpoint: URL
-  resource: string
+  resource?: string
   client: OAuthClient
+  /** Which of the person's accounts this sign-in becomes (§13.3). */
+  accountId: string
   /** Whose connection this becomes (§4.1 rule 1). */
   personKey: string
 }
@@ -90,11 +139,6 @@ function errorText(cause: unknown): string {
   return text.replace(/(https?:\/\/[^\s?#]+)[?#]\S*/g, '$1').slice(0, 300)
 }
 
-/** The metadata address an integration's record names, when it signs in with OAuth. */
-export function discoverAddressOf(integration: Integration): string | undefined {
-  return integration.auth.kind === 'oauth' ? integration.auth.discover : integration.auth.kind === 'none' ? integration.auth.oauth?.discover : undefined
-}
-
 export class IntegrationOAuth {
   private readonly flows = new Map<string, PendingFlow>()
   private readonly refreshing = new Map<string, Promise<OAuthToken | null>>()
@@ -109,16 +153,16 @@ export class IntegrationOAuth {
   }
 
   /** Starts the acting person's sign-in, or returns the one they already have open for this integration and callback. */
-  async start(integration: Integration, options: IntegrationOAuthStartOptions): Promise<IntegrationConnectStartResult> {
+  async start(integration: Integration, options: IntegrationOAuthStartOptions, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<IntegrationConnectStartResult> {
     if (integration.auth.kind !== 'oauth') throw new Error('This integration does not sign in with OAuth.')
     const personKey = requirePersonKey()
     this.dropExpired()
     const base = callbackBase(options.callbackBaseUrl)
     const redirectUri = `${base ?? `http://${hostForUrl(options.fallbackHost)}:${options.fallbackPort}`}${INTEGRATION_OAUTH_CALLBACK_PATH}`
     for (const [state, flow] of this.flows) {
-      if (flow.integrationId !== integration.id || flow.personKey !== personKey) continue
+      if (flow.integrationId !== integration.id || flow.personKey !== personKey || flow.accountId !== accountId) continue
       if (flow.redirectUri === redirectUri) return waiting(flow)
-      // One flow per person and integration: a start from another origin replaces it.
+      // One flow per person, integration, and account: a start from another origin replaces it.
       this.flows.delete(state)
     }
     let metadata: OAuthMetadata
@@ -130,7 +174,8 @@ export class IntegrationOAuth {
       log.warn('integration_oauth_start_failed', { integrationId: integration.id, error: errorText(error) })
       throw error
     }
-    const { url, state, verifier } = await this.protocol.authorization({ metadata, client, redirectUri, resource: integration.url })
+    const { resource, options: signIn } = signInFor(integration)
+    const { url, state, verifier } = await this.protocol.authorization({ metadata, client, redirectUri, resource, options: signIn })
     const flow: PendingFlow = {
       flowId: randomUUID(),
       state,
@@ -141,8 +186,9 @@ export class IntegrationOAuth {
       input: base ? 'callback' : 'redirect-url',
       expiresAt: this.now() + FLOW_TTL_MS,
       tokenEndpoint: metadata.tokenEndpoint,
-      resource: integration.url,
+      resource,
       client,
+      accountId,
       personKey,
     }
     this.flows.set(state, flow)
@@ -183,22 +229,42 @@ export class IntegrationOAuth {
    * minute left. Null when a refresh failed; a refused refresh marks the
    * connection `needs-sign-in`.
    */
-  refreshIfDue(integrationId: string, personKey: string, token: OAuthToken): Promise<OAuthToken | null> {
+  refreshIfDue(integrationId: string, personKey: string, token: OAuthToken, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<OAuthToken | null> {
     if (!this.protocol.isRefreshDue(token)) return Promise.resolve(token)
     if (!token.refreshToken) {
-      this.record(integrationId, personKey, 'needs-sign-in', 'The sign-in expired. Sign in again.')
+      this.record(integrationId, personKey, 'needs-sign-in', 'The sign-in expired. Sign in again.', accountId)
       return Promise.resolve(null)
     }
-    const key = `${integrationId}\u0000${personKey}`
+    const key = `${integrationId}\u0000${personKey}\u0000${accountId}`
     const pending = this.refreshing.get(key)
     if (pending) return pending
-    const refreshed = this.refresh(integrationId, personKey, token, token.refreshToken).finally(() => this.refreshing.delete(key))
+    const refreshed = this.refresh(integrationId, personKey, token, token.refreshToken, accountId).finally(() => this.refreshing.delete(key))
     this.refreshing.set(key, refreshed)
     return refreshed
   }
 
+  /**
+   * The account of an "Add another account" sign-in the person still has
+   * waiting on this integration, so a second click reuses it instead of a new
+   * account and a second flow (§13.3).
+   */
+  pendingAddedAccount(integrationId: string, personKey: string): string | undefined {
+    this.dropExpired()
+    for (const flow of this.flows.values()) {
+      if (flow.integrationId === integrationId && flow.personKey === personKey && flow.accountId !== DEFAULT_INTEGRATION_ACCOUNT) return flow.accountId
+    }
+    return undefined
+  }
+
   /** Revokes a token at the server when its metadata names a revocation endpoint. Best effort: a failure is logged. */
   async revoke(integration: Integration, token: OAuthToken): Promise<void> {
+    // Google revokes every grant a person gave one app at once: revoking a token
+    // of Solus's Google app would also end their other Google integrations, the
+    // other integrations' accounts, and Solus's own Google connection.
+    if (token.clientId && token.clientId === firstPartyOAuthClient('google')?.clientId) {
+      log.info('integration_token_revoke_skipped', { integrationId: integration.id, reason: 'shared_first_party_grant' })
+      return
+    }
     try {
       const status = await this.protocol.revoke(await this.metadata(integration), this.clientForToken(integration.id, token), token)
       if (status !== null) log.info('integration_token_revoked', { integrationId: integration.id, status })
@@ -252,14 +318,21 @@ export class IntegrationOAuth {
     if (!integration) return failed(400, 'Sign-in failed', 'That integration is no longer on this host.')
     try {
       const token = await this.protocol.exchange({ tokenEndpoint: flow.tokenEndpoint, client: flow.client, code, redirectUri: flow.redirectUri, verifier: flow.verifier, resource: flow.resource })
-      const identity = await readServerIdentity(integration.url, `Bearer ${token.accessToken}`, this.fetch)
-      this.deps.vault.save(user, mcpCredentialRef(integration), token)
+      const label = await identityLabel(integration, token.accessToken, this.fetch)
+      // A browser already signed in to one account can skip the chooser; one account never becomes two (§13.3).
+      const duplicate = label && this.deps.connections.accounts(integrationId, user).find((account) => account.accountId !== flow.accountId && account.label === label)
+      if (duplicate) {
+        // Not revoked: the token is the same person's grant to the same client as
+        // the connected account, and many servers revoke that whole grant.
+        return failed(400, 'Account already connected', `${label} is already connected to ${integration.name}. Sign in again and choose another account.`)
+      }
+      this.deps.vault.save(user, mcpCredentialRef(integration, flow.accountId), token)
       const connection = this.deps.connections.upsert(integrationId, user, {
         status: 'connected',
-        label: identity.label,
-        info: identity.label ? { displayName: identity.label } : null,
+        label,
+        info: label ? { displayName: label } : null,
         error: null,
-      })
+      }, flow.accountId)
       this.deps.events.connectionChanged(user, { integrationId, connection })
       this.deps.events.authFinished(user, { flowId, integrationId, outcome: 'connected' })
       log.info('integration_oauth_connected', { integrationId, flowId, personKey: user })
@@ -271,14 +344,14 @@ export class IntegrationOAuth {
     }
   }
 
-  private async refresh(integrationId: string, personKey: string, token: OAuthToken, refreshToken: string): Promise<OAuthToken | null> {
+  private async refresh(integrationId: string, personKey: string, token: OAuthToken, refreshToken: string, accountId: string): Promise<OAuthToken | null> {
     const integration = this.deps.integrations.get(integrationId, ANY_ORGANIZATION)
     if (!integration) return null
     try {
       const metadata = await this.metadata(integration)
-      const refreshed = await this.protocol.refresh({ tokenEndpoint: metadata.tokenEndpoint, client: this.clientForToken(integrationId, token), refreshToken, resource: integration.url })
+      const refreshed = await this.protocol.refresh({ tokenEndpoint: metadata.tokenEndpoint, client: this.clientForToken(integrationId, token), refreshToken, resource: signInFor(integration).resource })
       try {
-        this.deps.vault.save(personKey, mcpCredentialRef(integration), refreshed)
+        this.deps.vault.save(personKey, mcpCredentialRef(integration, accountId), refreshed)
       } catch (error) {
         // A refresh cannot ask anyone; the token in hand still works for this call.
         log.warn('integration_token_persist_failed', { integrationId, error: errorText(error) })
@@ -288,14 +361,14 @@ export class IntegrationOAuth {
     } catch (error) {
       log.warn('integration_token_refresh_failed', { integrationId, personKey, error: errorText(error) })
       // A refused grant needs the person; an unreachable server is tried again on the next call.
-      if (error instanceof OAuthGrantRefusedError) this.record(integrationId, personKey, 'needs-sign-in', 'The server ended the sign-in. Sign in again.')
-      else this.record(integrationId, personKey, 'error', 'Solus could not renew the sign-in. It tries again on the next call.')
+      if (error instanceof OAuthGrantRefusedError) this.record(integrationId, personKey, 'needs-sign-in', 'The server ended the sign-in. Sign in again.', accountId)
+      else this.record(integrationId, personKey, 'error', 'Solus could not renew the sign-in. It tries again on the next call.', accountId)
       return null
     }
   }
 
   private metadata(integration: Integration): Promise<OAuthMetadata> {
-    const discover = discoverAddressOf(integration)
+    const discover = new IntegrationSignIn(integration).discoverAddress
     if (!discover) return Promise.reject(new OAuthSignInError('This integration does not sign in with OAuth.'))
     return this.protocol.discover(discover)
   }
@@ -311,7 +384,11 @@ export class IntegrationOAuth {
     if (saved?.redirectUris?.includes(redirectUri)) return saved
     const adminClientId = integration.auth.kind === 'oauth' ? integration.auth.clientId : undefined
     if (adminClientId) return saved?.clientId === adminClientId ? saved : { clientId: adminClientId }
-    if (!metadata.registrationEndpoint) throw new OAuthSignInError(OAUTH_CLIENT_REQUIRED_MESSAGE)
+    // The app Solus registered with this vendor, when there is no owner's client (§13.1).
+    const firstPartyId = new IntegrationSignIn(integration).firstParty
+    const firstParty = firstPartyId ? firstPartyOAuthClient(firstPartyId) : null
+    if (firstParty) return firstParty
+    if (!metadata.registrationEndpoint) throw new OAuthClientRequiredError(OAUTH_CLIENT_REQUIRED_MESSAGE)
     try {
       const client = await this.protocol.register(metadata, [...(saved?.redirectUris ?? []), redirectUri])
       this.deps.clients.saveClient(integration.id, client)
@@ -323,8 +400,8 @@ export class IntegrationOAuth {
     }
   }
 
-  private record(integrationId: string, personKey: string, status: 'needs-sign-in' | 'error', error: string): void {
-    const connection = this.deps.connections.upsert(integrationId, personKey, { status, error })
+  private record(integrationId: string, personKey: string, status: 'needs-sign-in' | 'error', error: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): void {
+    const connection = this.deps.connections.upsert(integrationId, personKey, { status, error }, accountId)
     this.deps.events.connectionChanged(personKey, { integrationId, connection })
   }
 }

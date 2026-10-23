@@ -30,19 +30,6 @@ export function hostAudience(hostId: string): string {
 
 const HOST_AUDIENCE_PREFIX = 'urn:solus:host:'
 
-/**
- * The resource of one host as another host reaches it for a person
- * (docs/plans/host-reach.md §3): the `aud` of a delegated token that host A holds
- * to start sessions on host B. Its own audience, so it can live longer than a
- * client's token for the same host.
- */
-export function hostReachAudience(hostId: string): string {
-  return `urn:solus:host-reach:${hostId}`
-}
-
-/** A host-reach token lives eight hours: the account plane checks the reach when it issues one. */
-export const HOST_REACH_TOKEN_TTL_SECONDS = 8 * 60 * 60
-
 /** The host an audience names, or null when it names no host. */
 export function hostIdOfAudience(audience: string): string | null {
   if (!audience.startsWith(HOST_AUDIENCE_PREFIX)) return null
@@ -69,9 +56,6 @@ export const HOST_CONTROL_TOKEN_TTL_SECONDS = 8 * 60 * 60
 
 /** The one scope a host's own access token has: the host's own routes (its registration, organizations, and link). */
 export const HOST_CONTROL_SCOPE = 'host:link'
-
-/** The Solus API's OAuth client: a confidential client with `private_key_jwt`, as a host is (ADR 0001 §6.2). */
-export const SOLUS_API_CLIENT_ID = 'solus-api'
 
 /** A host's OAuth client id. One client per host: registering again replaces it. */
 export function hostClientId(hostId: string): string {
@@ -108,6 +92,49 @@ export function tokenEndpoint(directoryUrl: string): string {
 /** The RFC 8693 grant and token types a host uses. */
 export const TOKEN_EXCHANGE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:token-exchange'
 export const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token'
+
+/**
+ * The protocol a Solus client or host speaks with a Solus server and the account
+ * plane (docs/plans/simplify-auth-and-sync.md §4.6). A server refuses a missing or
+ * other value with `UPDATE_REQUIRED`: a socket ends its handshake with it as the
+ * error message, and an HTTP route answers 426 with `{ error: UPDATE_REQUIRED }`.
+ * Sent as the handshake's `protocol` and as the `SOLUS_PROTOCOL_HEADER` header.
+ */
+export const SOLUS_PROTOCOL = 2
+export const SOLUS_PROTOCOL_HEADER = 'solus-protocol'
+export const UPDATE_REQUIRED = 'update_required'
+
+/**
+ * A socket's one credential, in its handshake (plan §3 rule 4). The server builds the
+ * principal from it directly:
+ * - `access-token`: a person's token for this host, or a host's delegated token; with
+ *   the organization the connection works in when the token lists several;
+ * - `session-token`: a device paired on the local network;
+ * - `share-secret`: a guest of a share link, with the id its page keeps and the name it typed.
+ */
+export const handshakeCredentialSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('access-token'),
+    token: z.string().min(1).max(16_384),
+    organizationId: z.string().min(1).max(256).optional(),
+  }),
+  z.object({ kind: z.literal('session-token'), token: z.string().min(1).max(4096) }),
+  z.object({
+    kind: z.literal('share-secret'),
+    secret: z.string().min(1).max(256),
+    guestId: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/),
+    displayName: z.string().max(80),
+  }),
+])
+export type HandshakeCredential = z.infer<typeof handshakeCredentialSchema>
+
+/** A socket's handshake: the protocol it speaks, its one credential, and the client instance. */
+export const socketHandshakeSchema = z.object({
+  protocol: z.number().int(),
+  credential: handshakeCredentialSchema.optional(),
+  clientInstanceId: z.string().regex(/^[a-zA-Z0-9_-]{16,128}$/).optional(),
+})
+export type SocketHandshake = z.infer<typeof socketHandshakeSchema>
 
 /**
  * What a grant admits to: a person's own machine, one the control plane provisioned
@@ -199,14 +226,14 @@ export const MAX_TEAM_IDS_PER_GRANT = 32
 export const MAX_DISPLAY_NAME_LENGTH = 40
 
 /**
- * The actor of a delegated token (RFC 8693 §4.1): the host, or the Solus API, that
- * acts for the person the token names. A delegated token is what a host holds for a
+ * The actor of a delegated token (RFC 8693 §4.1): the host that acts for the person
+ * the token names. A delegated token is what a host holds for a
  * person's work after their clients closed.
  */
 export const tokenActorSchema = z.object({
-  /** The actor's OAuth client id: a host's, or `SOLUS_API_CLIENT_ID`. */
+  /** The acting host's OAuth client id. */
   sub: z.string().min(1),
-  /** The acting host. Absent when the actor is the Solus API, whose delegated tokens are for the account plane only. */
+  /** The acting host. */
   host_id: z.string().min(1).optional(),
 })
 export type TokenActor = z.infer<typeof tokenActorSchema>
@@ -222,13 +249,13 @@ export type OrganizationMembershipClaim = z.infer<typeof organizationMembershipC
 /** The claims of every access token (RFC 9068) the account plane issues. ES256; `kid` in the header. */
 const accessTokenBaseShape = {
   iss: z.string().min(1),
-  /** `hostAudience(hostId)`, `SOLUS_API_AUDIENCE`, or `ACCOUNT_AUDIENCE`; a delegated token names the last two, or `hostReachAudience(hostId)`. */
+  /** `hostAudience(hostId)` for a host token (a client's own, or another host a host reaches); `[ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE]` for a client's token for our servers; a delegated token names either of the last two. */
   aud: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
   /** The account's user id. */
   sub: z.string().min(1),
   jti: z.string().min(1),
   iat: z.number(),
-  /** ≤ iat + ACCESS_TOKEN_TTL_SECONDS; ≤ iat + HOST_REACH_TOKEN_TTL_SECONDS for a host-reach token. */
+  /** ≤ iat + ACCESS_TOKEN_TTL_SECONDS. */
   exp: z.number(),
   /** The OAuth client the token was issued to. */
   client_id: z.string().min(1).optional(),

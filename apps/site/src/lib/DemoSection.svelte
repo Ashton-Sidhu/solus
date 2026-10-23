@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { downloadApp } from "./download";
+	import { detectPlatform, downloadApp } from "./download";
 
 	let iframeElement = $state<HTMLIFrameElement>();
 	let stageElement = $state<HTMLDivElement>();
@@ -154,7 +154,7 @@
 					break;
 				case "demo:cta-click":
 					window.plausible?.("demo-cta-click");
-					downloadApp();
+					downloadApp(detectPlatform());
 					break;
 				case "demo:interacted":
 					if (!hasVisitorInteracted) {

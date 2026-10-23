@@ -57,7 +57,9 @@ desktop and web clients. It adds no server code and no mobile protocol.
   `deps/` (`deps/README.md`): native selectable text, file link pills, tables,
   and tree-sitter code colors. Code colors elsewhere (source files, diffs)
   through Shiki 4.2.0 with `react-native-shiki-engine` (Metro resolves every
-  `@shikijs/*` package from this app's Shiki copy); media through `expo-video`,
+  `@shikijs/*` package from this app's Shiki copy). The desktop and web
+  clients color code with `@pierre/highlights`, which needs WebAssembly, and
+  Hermes has none. Media through `expo-video`,
   `expo-audio`, and `react-native-image-viewing`; SVG images in Markdown
   through `react-native-svg`; save or share through `expo-sharing`. Host files
   load through a URL the host signs (`src/features/files/host-media-url.ts`).

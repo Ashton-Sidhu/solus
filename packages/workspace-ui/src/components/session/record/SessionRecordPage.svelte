@@ -60,7 +60,7 @@
       runnerState = recordRunnerState(savedId, savedId ? serverConnections.phaseFor(savedId) : undefined);
     };
     find();
-    const stopStatus = serverConnections.onStatusChange(find);
+    const stopStatus = serverConnections.onPhaseChange(find);
     const stopPhase = serverConnections.onPhaseChange(find);
     return () => {
       stopStatus();

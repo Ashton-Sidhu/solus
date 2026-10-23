@@ -3,9 +3,8 @@ import { join } from 'node:path'
 import { agentProfileKeyOf, type AgentProfileCopy } from '@solus/contracts/agent-profile'
 import type { IpcContext, SessionCtx } from '@solus/contracts/types'
 import {
-  ACCOUNT_VAULT_CONNECT_PATH,
-  ACCOUNT_VAULT_PATH,
-  VAULT_READ_PATH,
+  VAULT_CONNECT_PATH,
+  VAULT_PATH,
   VAULT_SIGN_IN_CALLBACK_PATH,
   vaultConnectResultSchema,
   vaultConnectionListSchema,
@@ -46,7 +45,7 @@ function personSecrets(host: CloudHost): string[] {
 }
 
 async function vaultOf(ctx: CloudScenarioContext, alice: SignedIn): Promise<VaultConnection[]> {
-  const response = await accountApi(ctx.stack, alice, ACCOUNT_VAULT_PATH)
+  const response = await accountApi(ctx.stack, alice, VAULT_PATH)
   return vaultConnectionListSchema.parse(await response.json()).connections
 }
 
@@ -136,7 +135,7 @@ export default cloudModeScenario('vault: signed in means the account', async (ct
 
   ctx.step('alice connects GitHub on the website; it reaches her host')
   deferVaultRemoval(ctx, alice, 'GitHub leaves alice\'s vault', GITHUB)
-  const started = await accountApi(ctx.stack, alice, ACCOUNT_VAULT_CONNECT_PATH, { method: 'POST', body: { ref: GITHUB } })
+  const started = await accountApi(ctx.stack, alice, VAULT_CONNECT_PATH, { method: 'POST', body: { ref: GITHUB } })
   const start = vaultConnectResultSchema.parse(await started.json())
   if (start.kind !== 'browser') throw new Error(`GitHub's sign-in did not start in a browser: ${JSON.stringify(start)}`)
   const opened = await fetch(new URL(start.url, ctx.stack.origin), { headers: { cookie: alice.websiteCookie }, redirect: 'manual' })
@@ -154,7 +153,7 @@ export default cloudModeScenario('vault: signed in means the account', async (ct
 
   ctx.step('a token that is not her delegated token reads no provider and no TypeSafe ref')
   for (const ref of [GITHUB, TYPESAFE]) {
-    const response = await fetch(new URL(VAULT_READ_PATH, ctx.stack.origin), {
+    const response = await fetch(new URL(VAULT_PATH, ctx.stack.origin), {
       method: 'POST',
       headers: { authorization: 'Bearer lab-hosts-token', 'content-type': 'application/json' },
       body: JSON.stringify({ ref }),

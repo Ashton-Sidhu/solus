@@ -5,7 +5,7 @@ import type { Work, WorkMeta, SessionRecord, SessionRecordListFilter } from '@so
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { WorkspaceSessionSearchResult, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
-import { pullRequestIdentityOf, sessionPullRequestId } from '@solus/contracts/session-pull-requests'
+import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
 
 type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordSearch' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
 type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 'snippet' | 'timestamp' | 'messageId' | 'rank'>
@@ -107,12 +107,13 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
       return (await client.request('listSessionPullRequests', { id: sessionId })).items
     },
     async sessionPullRequestPut(sessionId, url) {
-      const identity = pullRequestIdentityOf(url)
-      if (!identity) throw new Error('That URL does not name a pull request.')
-      return client.request('putSessionPullRequest', { id: sessionId, pullRequestId: sessionPullRequestId(identity), body: { url } })
+      if (!pullRequestIdentityOf(url)) throw new Error('That URL does not name a pull request.')
+      await client.request('putLink', { body: { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url } } })
     },
     async sessionPullRequestDelete(sessionId, pullRequest) {
-      await client.request('deleteSessionPullRequest', { id: sessionId, pullRequestId: sessionPullRequestId(pullRequest) })
+      // The link is keyed by repository and number; this URL names them.
+      const url = `https://${pullRequest.repository}/pull/${pullRequest.number}`
+      await client.request('deleteLink', { body: { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url } } })
     },
     async sessionRecordSearch(query) {
       const result = await client.request('searchSessions', { query: {

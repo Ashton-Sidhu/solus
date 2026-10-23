@@ -554,6 +554,54 @@ CREATE TABLE browser_profile_defaults (
   PRIMARY KEY (owner_key, project_root)
 );
 `,
+  // One person may connect several accounts to one integration
+  // (docs/plans/mcp-integrations.md §13.3). The key gains the account, so the
+  // table is rebuilt; every existing row is the person's first account.
+  `
+CREATE TABLE integration_connection_next (
+  integration_id TEXT NOT NULL,
+  user_id TEXT,
+  account_id TEXT NOT NULL DEFAULT 'default',
+  status TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'host',
+  label TEXT,
+  info TEXT,
+  error TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (integration_id, user_id, account_id)
+);
+INSERT INTO integration_connection_next (integration_id, user_id, account_id, status, source, label, info, error, updated_at)
+  SELECT integration_id, user_id, 'default', status, source, label, info, error, updated_at FROM integration_connection;
+DROP TABLE integration_connection;
+ALTER TABLE integration_connection_next RENAME TO integration_connection;
+`,
+  // One delivery queue to the Solus API (docs/plans/simplify-auth-and-sync.md §4.5, §5):
+  // session record facts, mirrored rows, and the writes the API has no route for yet
+  // travel in one sequence on one route. The old queues are dropped, not converted, and
+  // every mirrored transcript and activity row is sent once more.
+  `
+DROP TABLE runner_session_reports;
+DROP TABLE mirror_log;
+DELETE FROM outbox_ops WHERE destination = 'cloud';
+DROP INDEX outbox_ops_by_destination_actor;
+ALTER TABLE outbox_ops DROP COLUMN destination;
+ALTER TABLE outbox_ops DROP COLUMN organization_id;
+ALTER TABLE outbox_ops DROP COLUMN actor_user_id;
+ALTER TABLE outbox_ops DROP COLUMN seq;
+DELETE FROM transcript_mirror_rows;
+DELETE FROM activity_mirror_rows;
+CREATE TABLE delivery_queue (
+  seq INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL,
+  key TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  organization_id TEXT NOT NULL,
+  actor_user_id TEXT NOT NULL DEFAULT '',
+  error TEXT
+);
+CREATE INDEX delivery_queue_by_destination ON delivery_queue(organization_id, actor_user_id, seq);
+CREATE INDEX delivery_queue_by_key ON delivery_queue(kind, key);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

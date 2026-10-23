@@ -123,7 +123,7 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
   const timers = new ManualTimers()
   const transports: FakeTransport[] = []
   const grants: string[] = []
-  const grantOptions: Array<{ fresh?: boolean } | undefined> = []
+  const grantOptions: Array<{ refused?: string } | undefined> = []
   const connections = new HostConnections({
     registry,
     createTransport: (transportOptions) => {
@@ -136,6 +136,7 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
       grantOptions.push(options)
       return `grant-for-${host.id}`
     },
+    isSignedOut: () => false,
     dialOrganizationId: (host) => host.uplink?.organizationIds?.[0] ?? null,
     organizationId: () => null,
     fetch: options.fetch ?? healthFetch({}),

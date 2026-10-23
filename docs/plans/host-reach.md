@@ -3,6 +3,11 @@
 Status: implemented (2026-10-13). Replaces cross-host-sessions.md §5.1 (lent host
 access), §9 (host trust), §10 (paired hosts), and §10.5 (two-way pairing).
 
+Amended 2026-10-23 (`simplify-auth-and-sync.md`): the token host A gets for host B has
+host B's one audience (`hostAudience`), the same as a person's client token for B; the
+`urn:solus:host-reach:` audience is gone, and the token lives one hour, like every
+host token. The exchange and the reach rule are as below.
+
 ## 1. Rule
 
 An agent on host A may start a session on host B for person P when P can reach

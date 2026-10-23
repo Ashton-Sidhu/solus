@@ -12,7 +12,7 @@ import { integrationSlug, type IntegrationProbeResult } from '@solus/contracts/i
 import type { SeatProvider } from '@solus/contracts/seats'
 import { MODEL_PROFILES, type RemoteSkill } from '@solus/contracts/types'
 import type { DocumentSyncUnavailable } from '@solus/client-core/document-sync'
-import { installedStatus, urlHost, type ConnectionListState, type InstalledStatus, type IntegrationListState } from '../integrations'
+import { InstalledIntegration, urlHost, type ConnectionListState, type InstalledStatus, type IntegrationListState } from '../integrations'
 
 /**
  * The agent profile as the phone shows and edits it (plans/020-agent-profile.md
@@ -56,7 +56,7 @@ export function skillEntryFromRemote(skill: RemoteSkill): AgentProfileSkillEntry
 export function integrationEntryFromProbe(url: string, probe: IntegrationProbeResult): AgentProfileIntegrationEntry | null {
   if (probe.outcome === 'undetermined') return null
   const name = urlHost(url.trim())
-  return { kind: 'integration', slug: integrationSlug(name), name, url: url.trim(), auth: probe.auth }
+  return { kind: 'integration', slug: integrationSlug(name), name, url: url.trim(), auth: probe.auth, disabledTools: [] }
 }
 
 /** A long list shows this many rows before "Show more". */
@@ -230,5 +230,5 @@ export function profileServerStatus(
   if (list.kind !== 'loaded') return null
   const integration = list.integrations.find((item) => item.url === entry.url)
   if (!integration) return { text: 'Not added yet', tone: 'muted', action: entry.auth.kind === 'none' ? null : 'connect' }
-  return installedStatus(integration, connections)
+  return new InstalledIntegration(integration).status(connections)
 }

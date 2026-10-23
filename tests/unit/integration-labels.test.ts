@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { toolAccess, type IntegrationAuth, type IntegrationConnection, type IntegrationProbeResult } from '@solus/contracts/integration-types'
-import { afterAddStep, canListTools, catalogCountText, connectStep, connectionStatusText, readyToolsText, customUrlProblem, firstLine, integrationStatusText, oauthClientText, oauthRedirectUrl, probeRefusal, urlHost } from '../../packages/workspace-ui/src/components/settings/lib/integration-labels'
+import { catalogCountText, connectionStatusText, readyToolsText, customUrlProblem, firstLine, IntegrationLabels, oauthRedirectUrl, probeRefusal, urlHost } from '../../packages/workspace-ui/src/components/settings/lib/integration-labels'
+
+const labels = (auth: IntegrationAuth) => new IntegrationLabels({ auth, url: 'https://x.example/mcp' })
 
 const tool = { name: 'ask_question', description: 'Ask about a repository', readOnly: true, destructive: false }
 
@@ -20,29 +22,29 @@ describe('one-step Add', () => {
 
   test('after Add, a server with sign-in starts it at once; one with no OAuth client asks for the client first', () => {
     // WHY: adding and then configuring in a second place was the old, confusing flow.
-    expect(afterAddStep({ kind: 'none' })).toBe('ready')
-    expect(afterAddStep(oauth)).toBe('connect')
-    expect(afterAddStep({ kind: 'bearer', scheme: 'bearer' })).toBe('connect')
-    expect(afterAddStep(clientRequired)).toBe('oauth-client')
-    expect(afterAddStep({ ...clientRequired, clientId: 'abc' })).toBe('connect')
+    expect(labels({ kind: 'none' }).afterAdd).toBe('ready')
+    expect(labels(oauth).afterAdd).toBe('connect')
+    expect(labels({ kind: 'bearer', scheme: 'bearer' }).afterAdd).toBe('connect')
+    expect(labels(clientRequired).afterAdd).toBe('oauth-client')
+    expect(labels({ ...clientRequired, clientId: 'abc' }).afterAdd).toBe('connect')
   })
 })
 
 describe('installed server state', () => {
   test('tools are asked for only when the host can list them: an open server, or one the person is connected to', () => {
     // WHY: asking for the tools of a server with no sign-in showed an error instead of the next step.
-    expect(canListTools({ kind: 'none' }, null)).toBe(true)
-    expect(canListTools(oauth, null)).toBe(false)
-    expect(canListTools(oauth, { ...connected, status: 'needs-sign-in' })).toBe(false)
-    expect(canListTools(oauth, connected)).toBe(true)
+    expect(labels({ kind: 'none' }).canListTools(null)).toBe(true)
+    expect(labels(oauth).canListTools(null)).toBe(false)
+    expect(labels(oauth).canListTools({ ...connected, status: 'needs-sign-in' })).toBe(false)
+    expect(labels(oauth).canListTools(connected)).toBe(true)
   })
 
   test('each state reads in a few words, and only a server the person can sign in to offers Connect', () => {
-    expect(integrationStatusText({ kind: 'none' }, null)).toEqual({ text: 'Ready', tone: 'ready', canConnect: false })
-    expect(integrationStatusText(oauth, null)).toEqual({ text: 'Not connected', tone: 'attention', canConnect: true })
-    expect(integrationStatusText(oauth, connected)).toEqual({ text: 'Connected as Ada', tone: 'ready', canConnect: false })
-    expect(integrationStatusText(oauth, { ...connected, status: 'error', error: 'boom' })).toEqual({ text: 'Connection error', tone: 'error', canConnect: true })
-    expect(integrationStatusText(clientRequired, null)).toEqual({ text: 'Needs an OAuth client', tone: 'attention', canConnect: false })
+    expect(labels({ kind: 'none' }).statusText(null)).toEqual({ text: 'Ready', tone: 'ready', canConnect: false })
+    expect(labels(oauth).statusText(null)).toEqual({ text: 'Not connected', tone: 'attention', canConnect: true })
+    expect(labels(oauth).statusText(connected)).toEqual({ text: 'Connected as Ada', tone: 'ready', canConnect: false })
+    expect(labels(oauth).statusText({ ...connected, status: 'error', error: 'boom' })).toEqual({ text: 'Connection error', tone: 'error', canConnect: true })
+    expect(labels(clientRequired).statusText(null)).toEqual({ text: 'Needs an OAuth client', tone: 'attention', canConnect: false })
   })
 })
 
@@ -97,27 +99,30 @@ describe('connection status wording', () => {
 describe('OAuth client wording', () => {
   const discover = 'https://x.example/.well-known/oauth-protected-resource'
 
-  test('only a client-required server asks for a client', () => {
-    expect(oauthClientText({ kind: 'oauth', discover, registration: 'dynamic' })).toBeNull()
-    expect(oauthClientText({ kind: 'oauth', discover, registration: 'metadata-document' })).toBeNull()
-    expect(oauthClientText({ kind: 'none' })).toBeNull()
-    expect(oauthClientText({ kind: 'bearer', scheme: 'bearer' })).toBeNull()
+  test('every OAuth server offers manual setup without blocking automatic sign-in', () => {
+    expect(labels({ kind: 'oauth', discover, registration: 'dynamic' }).clientText).toMatchObject({ state: 'automatic' })
+    expect(labels({ kind: 'oauth', discover, registration: 'metadata-document' }).clientText).toMatchObject({ state: 'automatic' })
+    expect(labels({ kind: 'none' }).clientText).toBeNull()
+    expect(labels({ kind: 'bearer', scheme: 'bearer' }).clientText).toBeNull()
   })
 
   test('no client says what to do and blocks Connect', () => {
-    expect(oauthClientText({ kind: 'oauth', discover, registration: 'client-required' })).toEqual({
+    expect(labels({ kind: 'oauth', discover, registration: 'client-required' }).clientText).toEqual({
       state: 'missing',
-      message: 'This server needs an OAuth client. Create one at the service and enter it here.',
       connectHint: 'Enter the OAuth client first',
     })
   })
 
   test('a set client shows its ID and whether a secret was saved', () => {
-    expect(oauthClientText({ kind: 'oauth', discover, registration: 'client-required', clientId: 'abc123', hasClientSecret: true })).toEqual({
+    expect(labels({ kind: 'oauth', discover, registration: 'client-required', clientId: 'abc123', hasClientSecret: true }).clientText).toEqual({
       state: 'set', message: 'OAuth client set', clientId: 'abc123', secret: 'Secret saved',
       changeHint: 'Enter the secret again to keep it. An empty field saves no secret.',
     })
-    expect(oauthClientText({ kind: 'oauth', discover, registration: 'client-required', clientId: 'abc123' })).toMatchObject({ secret: 'No secret', changeHint: null })
+    expect(labels({ kind: 'oauth', discover, registration: 'client-required', clientId: 'abc123' }).clientText).toMatchObject({ secret: 'No secret', changeHint: null })
+  })
+
+  test('a custom client remains visible for a server with automatic registration', () => {
+    expect(labels({ kind: 'oauth', discover, registration: 'dynamic', clientId: 'custom' }).clientText).toMatchObject({ state: 'set', clientId: 'custom' })
   })
 
   test('the redirect URL is the host callback at the origin this client reaches it on', () => {
@@ -130,14 +135,13 @@ describe('OAuth client wording', () => {
 describe('connect dialog', () => {
   test('a server goes to its tools only when the host can list them', () => {
     // WHY: the tools step reads tools/list, which fails for a server the person has not signed in to.
-    expect(connectStep(null, null)).toBe('adding')
-    expect(connectStep({ kind: 'none' }, null)).toBe('tools')
-    expect(connectStep(oauth, null)).toBe('sign-in')
-    expect(connectStep(oauth, { ...connected, status: 'needs-sign-in' })).toBe('sign-in')
-    expect(connectStep(oauth, connected)).toBe('tools')
-    expect(connectStep(clientRequired, null)).toBe('oauth-client')
-    expect(connectStep({ ...clientRequired, clientId: 'abc' }, null)).toBe('sign-in')
-    expect(connectStep({ kind: 'bearer', scheme: 'bearer' }, null)).toBe('sign-in')
+    expect(labels({ kind: 'none' }).connectStep(null)).toBe('tools')
+    expect(labels(oauth).connectStep(null)).toBe('sign-in')
+    expect(labels(oauth).connectStep({ ...connected, status: 'needs-sign-in' })).toBe('sign-in')
+    expect(labels(oauth).connectStep(connected)).toBe('tools')
+    expect(labels(clientRequired).connectStep(null)).toBe('oauth-client')
+    expect(labels({ ...clientRequired, clientId: 'abc' }).connectStep(null)).toBe('sign-in')
+    expect(labels({ kind: 'bearer', scheme: 'bearer' }).connectStep(null)).toBe('sign-in')
   })
 
   test('a tool reads as Read only when the server says it is read-only; destructive wins', () => {

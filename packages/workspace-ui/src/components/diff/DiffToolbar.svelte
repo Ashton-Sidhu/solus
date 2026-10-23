@@ -8,7 +8,6 @@
 
 <script lang="ts">
   import {
-    GitBranch as GitBranchIcon,
     GitCommitHorizontal as GitCommitIcon,
     Layers as StackIcon,
     MessageCircle as ChatCircleTextIcon,
@@ -24,9 +23,11 @@
     Expand as ArrowsOutLineVerticalIcon,
   } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import ChangeSummaryPopover from "./ChangeSummaryPopover.svelte";
+  import type { ChangedFileSummary } from "./lib/review-header";
+  import type { ChangeKind } from "@solus/client-core/change-breakdown";
   import DiffLayoutToggle from "./DiffLayoutToggle.svelte";
   import DiffTokenToggle from "./DiffTokenToggle.svelte";
-  import { MiddleTruncate } from "@solus/workspace-ui/components/ui/middle-truncate";
   import { MONO_FONT } from "../../lib/diffTheme";
   import type { Snippet } from "svelte";
   import type { TurnSnapshot } from "@solus/contracts/types";
@@ -42,6 +43,10 @@
     targetBranch: string;
     fallbackBranch: string | null;
     headerStats: HeaderStats | null;
+    changedFiles: ChangedFileSummary[];
+    selectedKinds: ChangeKind[] | null;
+    onSelectKinds?: (kinds: ChangeKind[] | null) => void;
+    onOpenFile: (path: string) => void;
     diffStyle: "unified" | "split";
     onSetStyle: (style: "unified" | "split") => void;
     tokenHighlight: boolean;
@@ -91,6 +96,10 @@
     targetBranch,
     fallbackBranch,
     headerStats,
+    changedFiles,
+    selectedKinds,
+    onSelectKinds,
+    onOpenFile,
     diffStyle,
     onSetStyle,
     tokenHighlight,
@@ -185,46 +194,17 @@
       </TooltipUI.Root>
     {/if}
 
-    {#if !hasHostHeaderRow}
-    {#if branchLabel}
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <div
-              {...tooltipProps}
-              class="flex min-w-0 max-w-[24rem] shrink items-center gap-1 desktop-only"
-            >
-              <GitBranchIcon
-                size={14}
-                class="text-(--solus-accent) flex-shrink-0"
-                weight="bold"
-              />
-              <MiddleTruncate
-                value={branchLabel}
-                showTitle={false}
-                class="font-medium text-(--solus-text-primary)"
-                style="font-family:{MONO_FONT}"
-              />
-            </div>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={branchLabel} />
-      </TooltipUI.Root>
-    {/if}
-    {/if}
-
-    {#if headerStats}
-      <!-- The changed-line counts use the same sage/red as the diff rows, so
-           the header summary and the stream read as one palette. -->
-      <div class="diff-stats" style="font-family:{MONO_FONT}">
-        <span style="color:var(--solus-art-3)" class="font-medium"
-          >+{headerStats.additions}</span
-        >
-        <span style="color:var(--solus-stop-bg)" class="font-medium"
-          >−{headerStats.deletions}</span
-        >
-      </div>
-    {/if}
+    <ChangeSummaryPopover
+      branchLabel={branchLabel || "Changed files"}
+      additions={headerStats?.additions ?? 0}
+      deletions={headerStats?.deletions ?? 0}
+      files={changedFiles}
+      baseLabel={targetBranch}
+      scopeLabel={mode === "working-tree" ? "working tree" : selectedTurnLabel}
+      {selectedKinds}
+      {onSelectKinds}
+      {onOpenFile}
+    />
     {#if viewedStatus}
       <span
         class="min-w-0 truncate text-xs tabular-nums {viewedStatus.error ? 'text-destructive' : 'text-(--solus-text-tertiary)'}"

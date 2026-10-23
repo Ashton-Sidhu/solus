@@ -4,7 +4,6 @@ import type { AccountVaultConnectResult, AccountVaultResult } from '@solus/contr
 import { integrationUrlSchema, type Integration, type IntegrationConnection } from '@solus/contracts/integration-types'
 import type { VaultConnection } from '@solus/contracts/vault'
 import {
-  afterCreate,
   appendCatalogEntries,
   catalogCountText,
   isNearEnd,
@@ -17,18 +16,19 @@ import {
   connectSubmitted,
   connectSubmitting,
   filterInstalled,
-  installedStatus,
+  connectionMap,
+  extraAccountMap,
+  withExtraAccount,
+  withAddFinished,
+  InstalledIntegration,
+  type AddingAccount,
   isInstalled,
-  mayLoadTools,
-  needsConnection,
   probeRefusal,
   withConnection,
   type ConnectFlowState,
   type ConnectionListState,
   firstLine,
   isIntegrationUrl,
-  isMissingOAuthClient,
-  needsOAuthClient,
   OAUTH_CALLBACK_PATH,
   oauthClientText,
   isUnsupportedMethodError,
@@ -68,17 +68,17 @@ describe('one-step add', () => {
   })
 
   test('a new server that needs sign-in starts the sign-in at once', () => {
-    expect(afterCreate({ auth: oauthAuth('dynamic') })).toBe('connect')
-    expect(afterCreate({ auth: { kind: 'bearer', scheme: 'bearer' } })).toBe('connect')
-    expect(afterCreate({ auth: oauthAuth('client-required', 'abc') })).toBe('connect')
+    expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: oauthAuth('dynamic') }).afterAdd).toBe('connect')
+    expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: { kind: 'bearer', scheme: 'bearer' } }).afterAdd).toBe('connect')
+    expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: oauthAuth('client-required', 'abc') }).afterAdd).toBe('connect')
   })
 
   test('a new server with no OAuth client opens on the client form, not a sign-in that cannot start', () => {
-    expect(afterCreate({ auth: oauthAuth('client-required') })).toBe('oauth-client')
+    expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: oauthAuth('client-required') }).afterAdd).toBe('oauth-client')
   })
 
   test('a new server without sign-in needs nothing more', () => {
-    expect(afterCreate({ auth: { kind: 'none' } })).toBe('none')
+    expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: { kind: 'none' } }).afterAdd).toBe('ready')
   })
 
   test('a catalog entry whose address is installed says Added', () => {
@@ -86,6 +86,53 @@ describe('one-step add', () => {
     expect(isInstalled(list, 'https://linear.example/mcp')).toBe(true)
     expect(isInstalled(list, '  https://linear.example/mcp ')).toBe(true)
     expect(isInstalled(list, 'https://notion.example/mcp')).toBe(false)
+  })
+})
+
+describe('set up with an agent (§13.4)', () => {
+  test('a server that needs a key or a client offers the hand-off until the person connects', () => {
+    const keyed = record('keyed', 'Keyed', { auth: { kind: 'bearer', scheme: 'bearer' } })
+    const clientless = record('zoom', 'Zoom', { auth: oauthAuth('client-required') })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...keyed }).setupNeedFor(undefined)).toBe('api-key')
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...clientless }).setupNeedFor(connectionOf('zoom', { status: 'needs-sign-in' }))).toBe('oauth-client')
+    // WHY: a connected server has nothing to set up, so the row must not offer it.
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...keyed }).setupNeedFor(connectionOf('keyed'))).toBeNull()
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...record('open', 'Open') }).setupNeedFor(undefined)).toBeNull()
+  })
+})
+
+describe('several accounts (§13.3)', () => {
+  test('the first account stays where every row reads it; the others are listed apart', () => {
+    const list = [connectionOf('gmail'), connectionOf('gmail', { accountId: 'second', label: 'me@example.com' }), connectionOf('linear')]
+    // WHY: the rows, the status, and Connect all read the first account; an added one must not replace it.
+    expect([...connectionMap(list).keys()].sort()).toEqual(['gmail', 'linear'])
+    // A host from before §13.3 sends no account: its one connection is the first.
+    expect(connectionMap(list).get('gmail')).toBe(list[0])
+    expect(extraAccountMap(list).get('gmail')?.map((account) => account.label)).toEqual(['me@example.com'])
+  })
+
+  test('an account changes or leaves alone', () => {
+    const start = extraAccountMap([connectionOf('gmail', { accountId: 'a', label: 'one' }), connectionOf('gmail', { accountId: 'b', label: 'two' })])
+    const without = withExtraAccount(start, 'gmail', 'a', null)
+    expect(without.get('gmail')?.map((account) => account.accountId)).toEqual(['b'])
+    expect(start.get('gmail')).toHaveLength(2)
+  })
+})
+
+describe('adding another account (§13.3)', () => {
+  const waiting: AddingAccount = { flowId: 'flow-1', url: 'https://accounts.google.com/x', error: '' }
+  const adds: ReadonlyMap<string, AddingAccount> = new Map([['gmail', waiting]])
+
+  test('a failed or cancelled sign-in stops the add instead of waiting forever', () => {
+    // WHY: an add only ends on a connected account; a refused duplicate or a cancel sends none.
+    expect(withAddFinished(adds, { flowId: 'flow-1', integrationId: 'gmail', outcome: 'failed', message: 'me@gmail.com is already connected' }).get('gmail'))
+      .toEqual({ flowId: null, url: null, error: 'me@gmail.com is already connected' })
+    expect(withAddFinished(adds, { flowId: 'flow-1', integrationId: 'gmail', outcome: 'cancelled' }).has('gmail')).toBe(false)
+  })
+
+  test('another sign-in of the same integration leaves the add as it is', () => {
+    expect(withAddFinished(adds, { flowId: 'flow-first', integrationId: 'gmail', outcome: 'failed' })).toBe(adds)
+    expect(withAddFinished(adds, { flowId: 'flow-1', integrationId: 'gmail', outcome: 'connected' })).toBe(adds)
   })
 })
 
@@ -180,36 +227,36 @@ describe('installed status', () => {
   const linear = record('linear', 'Linear', { auth: oauthAuth('dynamic') })
 
   test('a server without sign-in is Ready and offers no Connect', () => {
-    expect(installedStatus(record('wiki', 'Wiki'), loaded())).toEqual({ text: 'Ready', tone: 'muted', action: null })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...record('wiki', 'Wiki') }).status(loaded())).toEqual({ text: 'Ready', tone: 'muted', action: null })
   })
 
   test('no connection reads as Not connected and offers Connect on the row', () => {
-    expect(installedStatus(linear, loaded())).toEqual({ text: 'Not connected', tone: 'muted', action: 'connect' })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).status(loaded())).toEqual({ text: 'Not connected', tone: 'muted', action: 'connect' })
   })
 
   test('a connection names the account it signed in as', () => {
-    expect(installedStatus(linear, loaded(connectionOf('linear', { label: 'ada@example.com' }))).text).toBe('Connected as ada@example.com')
-    expect(installedStatus(linear, loaded(connectionOf('linear', { info: { displayName: 'Ada' } }))).text).toBe('Connected as Ada')
-    expect(installedStatus(linear, loaded(connectionOf('linear')))).toEqual({ text: 'Connected', tone: 'muted', action: null })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).status(loaded(connectionOf('linear', { label: 'ada@example.com' }))).text).toBe('Connected as ada@example.com')
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).status(loaded(connectionOf('linear', { info: { displayName: 'Ada' } }))).text).toBe('Connected as Ada')
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).status(loaded(connectionOf('linear')))).toEqual({ text: 'Connected', tone: 'muted', action: null })
   })
 
   test('a lapsed or failed connection offers Reconnect on the row', () => {
-    expect(installedStatus(linear, loaded(connectionOf('linear', { status: 'needs-sign-in' })))).toEqual({ text: 'Needs sign-in', tone: 'danger', action: 'reconnect' })
-    expect(installedStatus(linear, loaded(connectionOf('linear', { status: 'error', error: 'invalid_grant' })))).toEqual({ text: 'Connection error', tone: 'danger', action: 'reconnect' })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).status(loaded(connectionOf('linear', { status: 'needs-sign-in' })))).toEqual({ text: 'Needs sign-in', tone: 'danger', action: 'reconnect' })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).status(loaded(connectionOf('linear', { status: 'error', error: 'invalid_grant' })))).toEqual({ text: 'Connection error', tone: 'danger', action: 'reconnect' })
   })
 
   test('a server with no OAuth client asks for one and offers no Connect that would fail', () => {
-    expect(installedStatus(record('x', 'X', { auth: oauthAuth('client-required') }), loaded())).toEqual({ text: 'Needs an OAuth client', tone: 'danger', action: null })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...record('x', 'X', { auth: oauthAuth('client-required') }) }).status(loaded())).toEqual({ text: 'Needs an OAuth client', tone: 'danger', action: null })
   })
 
   test('while the connections are read, the row does not claim Not connected', () => {
-    expect(installedStatus(linear, { kind: 'loading' })).toMatchObject({ action: null })
-    expect(installedStatus(linear, { kind: 'loading' }).text).not.toBe('Not connected')
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).status({ kind: 'loading' })).toMatchObject({ action: null })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).status({ kind: 'loading' }).text).not.toBe('Not connected')
   })
 
   test('only an integration with sign-in has a connection', () => {
-    expect(needsConnection({ auth: { kind: 'none' } })).toBe(false)
-    expect(needsConnection({ auth: { kind: 'bearer', scheme: 'bearer' } })).toBe(true)
+    expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: { kind: 'none' } }).needsConnection).toBe(false)
+    expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: { kind: 'bearer', scheme: 'bearer' } }).needsConnection).toBe(true)
   })
 
   test('a changed connection replaces the old one; a disconnect removes it', () => {
@@ -226,22 +273,22 @@ describe('tools of an installed server', () => {
   const linear = record('linear', 'Linear', { auth: oauthAuth('dynamic') })
 
   test('tools are read from a server without sign-in', () => {
-    expect(mayLoadTools(record('wiki', 'Wiki'), loaded())).toBe(true)
-    expect(mayLoadTools(record('wiki', 'Wiki'), { kind: 'loading' })).toBe(true)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...record('wiki', 'Wiki') }).mayLoadTools(loaded())).toBe(true)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...record('wiki', 'Wiki') }).mayLoadTools({ kind: 'loading' })).toBe(true)
   })
 
   test('tools are not requested for an oauth integration with no connection', () => {
-    expect(mayLoadTools(linear, loaded())).toBe(false)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).mayLoadTools(loaded())).toBe(false)
   })
 
   test('tools are not requested while the connection lapsed, failed, or is still being read', () => {
-    expect(mayLoadTools(linear, loaded(connectionOf('linear', { status: 'needs-sign-in' })))).toBe(false)
-    expect(mayLoadTools(linear, loaded(connectionOf('linear', { status: 'error' })))).toBe(false)
-    expect(mayLoadTools(linear, { kind: 'loading' })).toBe(false)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).mayLoadTools(loaded(connectionOf('linear', { status: 'needs-sign-in' })))).toBe(false)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).mayLoadTools(loaded(connectionOf('linear', { status: 'error' })))).toBe(false)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).mayLoadTools({ kind: 'loading' })).toBe(false)
   })
 
   test('tools are read once the person is connected', () => {
-    expect(mayLoadTools(linear, loaded(connectionOf('linear')))).toBe(true)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...linear }).mayLoadTools(loaded(connectionOf('linear')))).toBe(true)
   })
 })
 
@@ -299,26 +346,26 @@ describe('administrator OAuth client', () => {
   const oauth = (registration: 'dynamic' | 'metadata-document' | 'client-required', client?: { clientId: string; hasClientSecret?: boolean }) =>
     ({ auth: { kind: 'oauth', discover: 'https://example.com/.well-known/oauth-protected-resource', registration, ...client } }) satisfies Pick<Integration, 'auth'>
 
-  test('only an OAuth server that cannot register Solus asks for a client', () => {
-    expect(needsOAuthClient(oauth('client-required'))).toBe(true)
-    expect(needsOAuthClient(oauth('client-required', { clientId: 'abc' }))).toBe(true)
-    expect(needsOAuthClient(oauth('dynamic'))).toBe(false)
-    expect(needsOAuthClient(oauth('metadata-document'))).toBe(false)
-    expect(needsOAuthClient({ auth: { kind: 'bearer', scheme: 'bearer' } })).toBe(false)
-    expect(needsOAuthClient({ auth: { kind: 'none' } })).toBe(false)
+  test('every OAuth server offers its client setup', () => {
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...oauth('client-required') }).takesOAuthClient).toBe(true)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...oauth('client-required', { clientId: 'abc' }) }).takesOAuthClient).toBe(true)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...oauth('dynamic') }).takesOAuthClient).toBe(true)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...oauth('metadata-document') }).takesOAuthClient).toBe(true)
+    expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: { kind: 'bearer', scheme: 'bearer' } }).takesOAuthClient).toBe(false)
+    expect(new InstalledIntegration({ id: 'x', url: 'https://x.example/mcp', auth: { kind: 'none' } }).takesOAuthClient).toBe(false)
   })
 
   test('Connect waits for the client ID; a secret is not required', () => {
-    expect(isMissingOAuthClient(oauth('client-required'))).toBe(true)
-    expect(isMissingOAuthClient(oauth('client-required', { clientId: 'abc' }))).toBe(false)
-    expect(isMissingOAuthClient(oauth('client-required', { clientId: 'abc', hasClientSecret: true }))).toBe(false)
-    expect(isMissingOAuthClient(oauth('dynamic'))).toBe(false)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...oauth('client-required') }).needsOwnerClient).toBe(true)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...oauth('client-required', { clientId: 'abc' }) }).needsOwnerClient).toBe(false)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...oauth('client-required', { clientId: 'abc', hasClientSecret: true }) }).needsOwnerClient).toBe(false)
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...oauth('dynamic') }).needsOwnerClient).toBe(false)
     expect(oauthClientText.connectBlocked).toBe('Enter the OAuth client first')
   })
 
   test('the redirect path is the host callback, which the phone shows on the host address', () => {
     expect(OAUTH_CALLBACK_PATH).toBe('/oauth/integration/callback')
-    expect(oauthClientText.redirectNote).toContain("on the host's address")
+    expect(oauthClientText.redirectNote).toContain('signs in through this host')
   })
 
   test('the form says whether a secret is saved and never claims to show it', () => {
@@ -342,16 +389,17 @@ describe('a sign-in through Solus Cloud', () => {
     expect(connectsThroughCloud(mine, 'user-1')).toBe(true)
     expect(connectsThroughCloud(record('shared', 'Shared', { ownerKey: 'local:test', url: SERVER, auth: oauthAuth('dynamic') }), 'user-1')).toBe(true)
     expect(connectsThroughCloud(mine, null)).toBe(false)
+    expect(connectsThroughCloud(record('custom', 'Custom', { url: SERVER, auth: oauthAuth('dynamic', 'my-client') }), 'user-1')).toBe(false)
     expect(connectsThroughCloud(record('admin', 'Admin', { url: SERVER, auth: oauthAuth('client-required') }), 'user-1')).toBe(false)
     // Without the record's address and auth there is nothing to send the cloud.
     expect(connectsThroughCloud({ id: 'linear', name: 'Linear' }, 'user-1')).toBe(false)
   })
 
   test('the labels: connected through the account, and a cloud the host could not reach offers no Reconnect', () => {
-    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', label: 'ada@example.com' })))).toEqual({ text: 'Connected in your Solus account as ada@example.com', tone: 'muted', action: null })
-    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'cloud-unreachable' })))).toEqual({ text: 'Solus Cloud unreachable', tone: 'danger', action: null })
-    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'needs-solus-sign-in' })))).toEqual({ text: 'Sign in to Solus', tone: 'danger', action: null })
-    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'needs-sign-in' })))).toMatchObject({ action: 'reconnect' })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...mine }).status(loaded(connectionOf('linear', { source: 'cloud', label: 'ada@example.com' })))).toEqual({ text: 'Connected in your Solus account as ada@example.com', tone: 'muted', action: null })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...mine }).status(loaded(connectionOf('linear', { source: 'cloud', status: 'cloud-unreachable' })))).toEqual({ text: 'Solus Cloud unreachable', tone: 'danger', action: null })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...mine }).status(loaded(connectionOf('linear', { source: 'cloud', status: 'needs-solus-sign-in' })))).toEqual({ text: 'Sign in to Solus', tone: 'danger', action: null })
+    expect(new InstalledIntegration({ url: 'https://x.example/mcp', ...mine }).status(loaded(connectionOf('linear', { source: 'cloud', status: 'needs-sign-in' })))).toMatchObject({ action: 'reconnect' })
     // A host reset ends a host flow, never a cloud one.
     const cloudWaiting = cloudConnectStarted({ kind: 'browser', url: 'https://app.solus.sh/connect' }, SERVER, 'Linear')
     expect(connectReset(cloudWaiting)).toBe(cloudWaiting)

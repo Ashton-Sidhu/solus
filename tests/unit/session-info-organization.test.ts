@@ -40,7 +40,7 @@ afterAll(async () => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-const LOCAL_OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
+const LOCAL_OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 
 function providerMeta(sessionId: string): SessionMeta {
   return { provider: 'claude-code', sessionId, slug: null, firstMessage: 'Hi', lastTimestamp: '', size: 1, cwd: '/repo', projectPath: '-repo' }

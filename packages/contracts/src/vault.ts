@@ -11,18 +11,25 @@ import { oauthClientSchema, oauthTokenSchema } from './integrations/oauth-protoc
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 
-/** Executor routes: the person's delegated token as `Authorization: Bearer`, no cookie. */
-export const VAULT_READ_PATH = '/v1/vault/read'
-export const VAULT_CREDENTIAL_PATH = '/v1/vault/credential'
-/** Account routes: the person's own account session or account token. */
-export const ACCOUNT_VAULT_PATH = '/v1/account/vault'
-export const ACCOUNT_VAULT_CONNECT_PATH = '/v1/account/vault/connect'
+/**
+ * The person's vault, one route for every caller: the website with its cookie, a
+ * Solus client or the Solus API with the person's own token, and a host with its
+ * delegated token. `GET` lists the connections (any caller, never the material).
+ * `POST` reads one credential (a bearer token only: never a cookie). `PUT` saves a
+ * pasted key (the person: cookie or own token) or an executor's upload or write-back
+ * (a bearer token: own or delegated). `DELETE` disconnects (the person).
+ */
+export const VAULT_PATH = '/v1/vault'
+/** The person starts connecting one ref: cookie or own token. */
+export const VAULT_CONNECT_PATH = '/v1/vault/connect'
 /** The one browser sign-in, for provider and MCP refs. */
 export const VAULT_SIGN_IN_START_PATH = '/oauth/vault/start'
 export const VAULT_SIGN_IN_CALLBACK_PATH = '/oauth/vault/callback'
-/** Host-worker routes (the hosts token): seat refs only. */
-export const vaultSeatsPath = (organizationId: string) => `/v1/orgs/${encodeURIComponent(organizationId)}/vault/seats`
-export const vaultSeatPath = (userId: string) => `/v1/vault/seats/${encodeURIComponent(userId)}`
+/**
+ * The host worker's route (the hosts token): seat refs only. `GET ?organizationId=`
+ * lists an organization's seats; `PUT` writes one member's back.
+ */
+export const VAULT_SEATS_PATH = '/v1/vault/seats'
 
 // ── Credential refs ─────────────────────────────────────────────────────────
 
@@ -175,7 +182,7 @@ export type TypesafeDelivery = z.infer<typeof typesafeDeliverySchema>
 export type SeatDelivery = z.infer<typeof seatDeliverySchema>
 export type ProviderDelivery = GithubDelivery | GoogleDelivery | AtlassianDelivery
 
-/** `POST /v1/vault/read`'s answer: its shape is the ref's (`deliverySchemaOf`). */
+/** `POST /v1/vault`'s answer: its shape is the ref's (`deliverySchemaOf`). */
 export const vaultDeliverySchema = z.union([
   atlassianDeliverySchema,
   googleDeliverySchema,
@@ -202,12 +209,12 @@ export function deliverySchemaOf(ref: CredentialRef): z.ZodType<VaultDelivery> {
 
 // ── Executor routes ─────────────────────────────────────────────────────────
 
-/** `POST /v1/vault/read`: 200 the delivery; 404 `not_connected`; 409 `reconnect_required`. */
+/** `POST /v1/vault`: 200 the delivery; 404 `not_connected`; 409 `reconnect_required`. */
 export const vaultReadRequestSchema = z.object({ ref: credentialRefSchema }).strict()
 export type VaultReadRequest = z.infer<typeof vaultReadRequestSchema>
 
 /**
- * `PUT /v1/vault/credential`: an executor's upload or write-back. `expectedVersion`
+ * `PUT /v1/vault` with `material`: an executor's upload or write-back. `expectedVersion`
  * is the version on file, null for none. 201 `{ version }`; 409 `credential_held`;
  * 422 `credential_refused`; 403 `not_uploadable` for a provider ref.
  */
@@ -240,11 +247,11 @@ export const vaultConnectionSchema = z.object({
 })
 export type VaultConnection = z.infer<typeof vaultConnectionSchema>
 
-/** `GET /v1/account/vault`. */
+/** `GET /v1/vault`. */
 export const vaultConnectionListSchema = z.object({ connections: z.array(vaultConnectionSchema) })
 
 /**
- * `POST /v1/account/vault/connect`. An MCP server the person's profile names signs
+ * `POST /v1/vault/connect`. An MCP server the person's profile names signs
  * in as the profile says; any other public HTTPS server as `auth` says (a host probed it).
  */
 export const vaultConnectRequestSchema = z.object({
@@ -256,14 +263,14 @@ export type VaultConnectRequest = z.infer<typeof vaultConnectRequestSchema>
 export const vaultConnectResultSchema = z.discriminatedUnion('kind', [
   /** Open this in a browser signed in to the account; the sign-in lands on the cloud. */
   z.object({ kind: z.literal('browser'), url: z.string().min(1) }),
-  /** The ref takes a pasted key: send it with `PUT /v1/account/vault`. */
+  /** The ref takes a pasted key: send it with `PUT /v1/vault`. */
   z.object({ kind: z.literal('key') }),
   /** No sign-in: an open MCP server. */
   z.object({ kind: z.literal('none') }),
 ])
 export type VaultConnectResult = z.infer<typeof vaultConnectResultSchema>
 
-/** `PUT /v1/account/vault`: a pasted key for `typesafe` or an MCP server. `scheme` is for a server the profile does not name. */
+/** `PUT /v1/vault` with `key`: a pasted key for `typesafe` or an MCP server. `scheme` is for a server the profile does not name. */
 export const vaultSaveKeyRequestSchema = z.object({
   ref: z.discriminatedUnion('kind', [mcpRefSchema, typesafeRefSchema]),
   key: z.string().min(1).max(4096),
@@ -271,13 +278,13 @@ export const vaultSaveKeyRequestSchema = z.object({
 }).strict()
 export type VaultSaveKeyRequest = z.infer<typeof vaultSaveKeyRequestSchema>
 
-/** `DELETE /v1/account/vault`. */
+/** `DELETE /v1/vault`. */
 export const vaultDisconnectRequestSchema = z.object({ ref: credentialRefSchema }).strict()
 export type VaultDisconnectRequest = z.infer<typeof vaultDisconnectRequestSchema>
 
 // ── Host-worker routes: seat refs only ──────────────────────────────────────
 
-/** One member's CLI login, as `GET /v1/orgs/:organizationId/vault/seats` lists it. */
+/** One member's CLI login, as `GET /v1/vault/seats?organizationId=` lists it. */
 export const vaultSeatSchema = z.object({
   userId: z.string().min(1),
   ref: seatRefSchema,
@@ -287,8 +294,9 @@ export const vaultSeatSchema = z.object({
 export type VaultSeat = z.infer<typeof vaultSeatSchema>
 export const vaultSeatListSchema = z.object({ seats: z.array(vaultSeatSchema) })
 
-/** `PUT /v1/vault/seats/:userId`: a write-back after the CLI refreshed. 200 `{ version }`; 409 `credential_held`. */
+/** `PUT /v1/vault/seats`: one member's write-back after the CLI refreshed. 200 `{ version }`; 409 `credential_held`. */
 export const vaultSeatWriteRequestSchema = z.object({
+  userId: z.string().min(1),
   organizationId: z.string().min(1),
   ref: seatRefSchema,
   file: cliLoginFileSchema,

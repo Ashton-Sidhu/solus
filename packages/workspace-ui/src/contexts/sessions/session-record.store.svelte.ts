@@ -64,7 +64,7 @@ export class SessionRecordStore {
         if (event.sessionId === sessionId) this.loadSoon(400)
       })
     }
-    this.stopStatus = serverConnections.onStatusChange((id, status) => {
+    this.stopStatus = serverConnections.onPhaseChange((id, status) => {
       if (id !== serverId || status !== 'connected') return
       if (options.watch) void this.watch()
       void this.load()

@@ -138,3 +138,26 @@ describe('native thread directory keeps unchanged projects', () => {
     expect(directory.projects().map((entry) => entry.project.path)).toEqual(['/w/app'])
   })
 })
+
+test('native organization selection filters cached sessions and restores them without a host read', async () => {
+  const { directory, answer } = world()
+  answer.records = [
+    { ...record('local', 3), organizationId: 'local' },
+    { ...record('first', 2), organizationId: 'org-1' },
+    { ...record('second', 1), organizationId: 'org-2' },
+  ]
+  await directory.load('h')
+  const projects = directory.projects()
+  directory.selectOrganization('org-1')
+  const first = directory.threads().find((thread) => thread.record.sessionId === 'first')
+  expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['local', 'first'])
+  directory.selectOrganization('org-2')
+  expect(directory.thread('h', 'first')).toBe(first!)
+  expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['local', 'second'])
+  directory.selectOrganization('org-1')
+  expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['local', 'first'])
+  expect(directory.threads().find((thread) => thread.record.sessionId === 'first')).toBe(first!)
+  directory.selectOrganization(null)
+  expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['local'])
+  expect(directory.projects()).toBe(projects)
+})

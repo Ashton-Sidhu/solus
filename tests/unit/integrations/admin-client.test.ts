@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { OAUTH_CLIENT_REQUIRED_MESSAGE } from '@solus/contracts/integrations/oauth-protocol'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -68,7 +69,7 @@ function setup() {
   const start = () => withActingScope(ALICE, () => oauth.start(store.get(integration.id, ANY_ORGANIZATION) ?? integration, START))
   const updateAs = (principal: Principal, oauthClient: { clientId: string }) =>
     server.handle('integrationUpdate', [{ id: integration.id, oauthClient }], { clientId: 'other', principal, actor: actorFor(principal) })
-  return { secrets, store, oauth, integration, update, updateAs, start, changed, invalidated }
+  return { secrets, store, oauth, integration, update, updateAs, start, changed, invalidated, server: () => server }
 }
 
 beforeAll(async () => {
@@ -90,7 +91,18 @@ describe('the owner\'s OAuth client', () => {
   test('without registration or a saved client, the sign-in refuses plainly', async () => {
     fake.options.registration = false
     const { start } = setup()
-    await expect(start()).rejects.toThrow('This server needs an OAuth client. Its owner adds one in the server settings.')
+    await expect(start()).rejects.toThrow(OAUTH_CLIENT_REQUIRED_MESSAGE)
+  })
+
+  test('a server the probe saw registration on, but which refuses it at sign-in, is recorded as needing a client', async () => {
+    fake.options.registration = false
+    const { store, integration, changed, server } = setup()
+    store.update(integration.id, { auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'dynamic' } }, 'local')
+    await expect(withActingScope(ALICE, () => server().handle('integrationConnectStart', [{ id: integration.id, callbackBaseUrl: 'https://host.example' }], TEST_HANDLER_CTX)))
+      .rejects.toThrow(OAUTH_CLIENT_REQUIRED_MESSAGE)
+    // WHY: every client shows the client form and "Set up with an agent" from the record; a stale "dynamic" leaves a Sign in button that cannot work.
+    expect(store.get(integration.id, ANY_ORGANIZATION)?.auth).toMatchObject({ registration: 'client-required' })
+    expect(changed.at(-1)).toEqual({ integrationId: integration.id, change: 'updated' })
   })
 
   test('a saved client with a secret signs in and sends the secret as client_secret_post', async () => {
@@ -119,6 +131,23 @@ describe('the owner\'s OAuth client', () => {
     expect(exchange?.get('client_secret')).toBe('zoom-secret')
   })
 
+  test('a custom client overrides automatic registration, and removal restores it', async () => {
+    const { store, update, integration, start, oauth } = setup()
+    store.update(integration.id, { auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'dynamic' } }, ANY_ORGANIZATION)
+    const before = fake.registrations.length
+    await update({ clientId: 'custom-client', clientSecret: 'custom-secret' })
+    const manual = await start()
+    if (manual.kind !== 'waiting') throw new Error('expected waiting')
+    expect(new URL(manual.url).searchParams.get('client_id')).toBe('custom-client')
+    expect(fake.registrations.length).toBe(before)
+    withActingScope(ALICE, () => oauth.cancel(manual.flowId))
+    await update(null)
+    const automatic = await start()
+    if (automatic.kind !== 'waiting') throw new Error('expected waiting')
+    expect(new URL(automatic.url).searchParams.get('client_id')).not.toBe('custom-client')
+    expect(fake.registrations.length).toBe(before + 1)
+  })
+
   test('a client with no secret is a public client', async () => {
     fake.options.registration = false
     const { update, secrets, integration } = setup()
@@ -134,7 +163,7 @@ describe('the owner\'s OAuth client', () => {
     const cleared = await update(null)
     expect(cleared.auth).toEqual({ kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required' })
     expect(secrets.clients.has(integration.id)).toBe(false)
-    await expect(start()).rejects.toThrow('This server needs an OAuth client.')
+    await expect(start()).rejects.toThrow(OAUTH_CLIENT_REQUIRED_MESSAGE)
   })
 
   test('only the owner sets the client; an administrator of the host does not', async () => {

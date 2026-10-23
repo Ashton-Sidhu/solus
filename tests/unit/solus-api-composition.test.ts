@@ -79,22 +79,6 @@ test('the record service answers its own paths on a listener it does not own, an
   expect(() => service.attachLiveTransport(createServer())).toThrow()
 })
 
-test('the record service applies the task, work, and session ops a runner sends', async () => {
-  // WHY: a runner's outbox stops at an op the service cannot apply, so an
-  // organization's agent-made tasks, works, and pull request links never landed.
-  const service = await api.createSolusApiService({ host: '127.0.0.1', port: () => 0 })
-  const { applyOutboxOp } = await import('@solus/server/sync/outbox/outbox-store')
-  const op = (domain: 'tasks' | 'works' | 'sessions') => ({ id: `op-${domain}`, domain, resourceId: 'r1', name: 'from-the-future', payload: {}, sessionId: 's1', recordedAt: 1, state: 'pending' as const })
-  try {
-    for (const domain of ['tasks', 'works', 'sessions'] as const) {
-      const error = await applyOutboxOp(op(domain), { organizationId: 'org1', ownerKey: 'alice' }).then(() => null, (failure: Error) => failure)
-      expect(error?.message ?? '').not.toContain('No applier registered')
-    }
-  } finally {
-    await service.close()
-  }
-})
-
 test('every route the record service registers is a record path, or one only its own listener serves', async () => {
   // These answer only in standalone API mode, where the service owns its listener. In
   // the cloud application they are the site's: pairing does not exist in API mode, and

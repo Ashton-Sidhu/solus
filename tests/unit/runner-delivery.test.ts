@@ -11,18 +11,18 @@ import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// docs/plans/organization-scope.md §6, plans/010-standard-oauth.md: every queued row
-// — a cloud-bound outbox op, a session-record report, a mirror row — names its
-// organization and the person whose work it is; a pass visits every destination and
-// sends it with that person's delegated token, in sequence order, acking per
-// destination. A person the host cannot act for yet waits; a refused person's rows are
-// dropped, and nobody else's. An organization session's comments and links travel
-// here; a personal machine keeps its agent's writes local. Delivery never blocks the
-// tool, survives a restart, and backs off.
+// docs/plans/simplify-auth-and-sync.md §4.5, plans/010-standard-oauth.md: every row of
+// the host's one queue — session record facts and mirrored rows — names its
+// organization and the person whose work it is.
+// A pass visits every destination and sends its rows on one route, `/runner/deliver`,
+// with that person's delegated token, in sequence order, and acknowledges per
+// destination. Writes inside a collect window go in one request. A person the host
+// cannot act for yet waits; a refused person's rows are dropped, and nobody else's.
+// Delivery never blocks the tool, survives a restart, and backs off.
 
 let delivery: typeof import('@solus/server/sync/runner-delivery')
 let outbox: typeof import('@solus/server/sync/outbox/outbox-store')
-let mirrorLog: typeof import('@solus/server/sync/mirror/mirror-log')
+let queue: typeof import('@solus/server/sync/delivery-queue')
 let principal: typeof import('@solus/server/admission/principal')
 let taskTools: typeof import('@solus/server/execution/agents/tools/task-tools')
 let workTools: typeof import('@solus/server/execution/agents/tools/work-tools')
@@ -44,7 +44,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   delivery = await import('@solus/server/sync/runner-delivery')
   outbox = await import('@solus/server/sync/outbox/outbox-store')
-  mirrorLog = await import('@solus/server/sync/mirror/mirror-log')
+  queue = await import('@solus/server/sync/delivery-queue')
   principal = await import('@solus/server/admission/principal')
   taskTools = await import('@solus/server/execution/agents/tools/task-tools')
   workTools = await import('@solus/server/execution/agents/tools/work-tools')
@@ -77,7 +77,7 @@ function onManagedHost(organizationId: string | null): void {
  * the organization, and its tools answer the Solus API, which these tests never reach
  * for a create or read, so the installed operations refuse every call.
  */
-async function installOrganizationSession(sessionId: string, organizationId: string): Promise<() => void> {
+async function installOrganizationSession(sessionId: string, organizationId: string, api?: Partial<import('@solus/server/data/workspace/operations').WorkspaceOperations>): Promise<() => void> {
   const { installWorkspaceToolOperations } = await import('@solus/server/data/workspace/tool-context')
   const { useOrganizationAttachment } = await import('@solus/server/host/organization-attachment')
   const { createWorkspaceOperations } = await import('@solus/server/data/workspace/service')
@@ -86,36 +86,35 @@ async function installOrganizationSession(sessionId: string, organizationId: str
   records.rememberSessionBirth(sessionId, { organizationId, published: true, ownerKey: 'user-alice', admissionId: sessionId })
   await records.upsertOwnSessionRecord({ sessionId, provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
   useOrganizationAttachment(() => 1)
-  const unreachable = new Proxy(createWorkspaceOperations(new ShareManager({ db: getDatabase() })), { get: () => () => Promise.reject(new Error('the test API is not called')) })
+  const unreachable = new Proxy(createWorkspaceOperations(new ShareManager({ db: getDatabase() })), {
+    get: (_target, name) => (api && typeof name === 'string' && name in api ? Reflect.get(api, name) : () => Promise.reject(new Error('the test API is not called'))),
+  })
   const uninstall = installWorkspaceToolOperations(createWorkspaceOperations(new ShareManager({ db: getDatabase() })), 'test-host', () => unreachable)
   return () => { uninstall(); useOrganizationAttachment(() => null) }
 }
 
-/** A cloud-bound task write queued for org1 as `actorUserId`'s, as an organization session's comment or a publication would be. */
-function queueTask(title: string, actorUserId = 'bob'): void {
-  outbox.recordOutboxOp({ domain: 'tasks', resourceId: `task-${title}`, name: 'create', payload: { title }, destination: 'cloud', organizationId: 'org1', actorUserId })
+/** One transcript row queued for org1 as `actorUserId`'s, as a published session's turn is. */
+let queuedLines = 0
+function queueLine(content: string, actorUserId = 'bob'): void {
+  const position = queuedLines++
+  queue.appendDelivery({ organizationId: 'org1', actorUserId }, 'transcript', [{ key: `s-org:${position}`, payload: { sessionId: 's-org', position, message: { role: 'user', content } } }])
 }
 
 const HOST_ID = 'runner-host-1'
 
-const outboxBodySchema = z.object({ hostId: z.string(), ops: z.array(z.object({ seq: z.number(), op: z.object({ id: z.string(), domain: z.string(), resourceId: z.string(), name: z.string(), payload: z.unknown() }) })) })
-const reportsBodySchema = z.object({ hostId: z.string(), reports: z.array(z.object({ seq: z.number(), record: z.object({ sessionId: z.string(), runnerHostId: z.string().nullable().optional(), title: z.string().nullable().optional(), customTitle: z.string().nullable().optional(), status: z.string().optional() }) })) })
-const mirrorBodySchema = z.object({ hostId: z.string(), items: z.array(z.object({ seq: z.number(), domain: z.string(), key: z.string(), payload: z.unknown() })) })
+const deliverBodySchema = z.object({ hostId: z.string(), items: z.array(z.object({ seq: z.number(), kind: z.string(), payload: z.unknown() })) })
+type DeliverBody = z.infer<typeof deliverBodySchema>
 
-type OutboxBody = z.infer<typeof outboxBodySchema>
-type ReportsBody = z.infer<typeof reportsBodySchema>
-type MirrorBody = z.infer<typeof mirrorBodySchema>
-type Stream = 'outbox' | 'reports' | 'mirror'
-
-/** The Solus API's runner routes. Each batch records the token it came with: whose work, in which organization. */
+/** The Solus API's runner route. Each batch records the token it came with: whose work, in which organization. */
 class FakeApi {
-  readonly outboxBatches: Array<{ authorization: string | null; body: OutboxBody }> = []
-  readonly reportBatches: Array<{ authorization: string | null; body: ReportsBody }> = []
-  readonly mirrorBatches: Array<{ authorization: string | null; body: MirrorBody }> = []
+  readonly batches: Array<{ authorization: string | null; protocol: string | null; body: DeliverBody }> = []
   online = true
   unauthorizedOnce = false
+  /** Items the API refuses for good: skipped and named. */
   permanentSeqs = new Set<number>()
-  private waiters: Array<{ kind: Stream; resolve: () => void }> = []
+  /** An item the API cannot apply yet: the batch stops before it, once. */
+  transientSeq: number | null = null
+  private waiters: Array<() => void> = []
   private server: Server | null = null
   url = ''
 
@@ -135,27 +134,19 @@ class FakeApi {
           this.unauthorizedOnce = false
           return json(401, { error: 'Unauthorized' })
         }
-        if (request.url === '/runner/outbox') {
-          const body = outboxBodySchema.parse(JSON.parse(raw))
-          this.outboxBatches.push({ authorization, body })
-          const applied = body.ops.map((entry) => entry.seq)
-          const failed = applied.filter((seq) => this.permanentSeqs.has(seq)).map((seq) => ({ seq, error: 'gone', permanent: true }))
-          this.wake('outbox')
-          return json(200, { lastSeq: Math.max(0, ...applied), failed })
+        if (request.url !== '/runner/deliver') return json(404, { error: 'not found' })
+        const body = deliverBodySchema.parse(JSON.parse(raw))
+        const protocol = typeof request.headers['solus-protocol'] === 'string' ? request.headers['solus-protocol'] : null
+        this.batches.push({ authorization, protocol, body })
+        let lastSeq = 0
+        const failed: Array<{ seq: number; error: string }> = []
+        for (const item of body.items) {
+          if (item.seq === this.transientSeq) { this.transientSeq = null; break }
+          if (this.permanentSeqs.has(item.seq)) failed.push({ seq: item.seq, error: 'gone' })
+          lastSeq = item.seq
         }
-        if (request.url === '/runner/session-records') {
-          const body = reportsBodySchema.parse(JSON.parse(raw))
-          this.reportBatches.push({ authorization, body })
-          this.wake('reports')
-          return json(200, { lastSeq: Math.max(0, ...body.reports.map((entry) => entry.seq)) })
-        }
-        if (request.url === '/runner/mirror') {
-          const body = mirrorBodySchema.parse(JSON.parse(raw))
-          this.mirrorBatches.push({ authorization, body })
-          this.wake('mirror')
-          return json(200, { lastSeq: Math.max(0, ...body.items.map((entry) => entry.seq)) })
-        }
-        json(404, { error: 'not found' })
+        for (const wake of this.waiters.splice(0)) wake()
+        json(200, { lastSeq, failed })
       })
     })
     await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve))
@@ -169,15 +160,13 @@ class FakeApi {
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()))
   }
 
-  /** Resolves on the next request of that kind: the test waits on the wire, never on a timer. */
-  next(kind: Stream): Promise<void> {
-    return new Promise((resolve) => this.waiters.push({ kind, resolve }))
+  /** Resolves on the next request: the test waits on the wire, never on a timer. */
+  next(): Promise<void> {
+    return new Promise((resolve) => this.waiters.push(resolve))
   }
 
-  private wake(kind: Stream): void {
-    const [ready, rest] = [this.waiters.filter((waiter) => waiter.kind === kind), this.waiters.filter((waiter) => waiter.kind !== kind)]
-    this.waiters = rest
-    for (const waiter of ready) waiter.resolve()
+  items(): DeliverBody['items'] {
+    return this.batches.flatMap((batch) => batch.body.items)
   }
 }
 
@@ -200,14 +189,16 @@ function link(api: FakeApi): HostRegistration {
   return { hostId: HOST_ID, issuer: api.url, jwksUrl: `${api.url}/jwks`, directoryUrl: api.url, hostname: 'h.lab.invalid', proxiedPort: 1, generation: 1, apiUrl: api.url }
 }
 
-function startDelivery(api: FakeApi, delegations = new FakeDelegations(), linked: () => boolean = () => true) {
+function startDelivery(api: FakeApi, delegations: delivery.DeliveryDelegations = new FakeDelegations(), options: { linked?: () => boolean; maxDelayMs?: number } = {}) {
+  const linked = options.linked ?? (() => true)
+  const maxDelayMs = options.maxDelayMs ?? 20
   const instance = new delivery.RunnerDelivery({
     registration: () => (linked() ? link(api) : null),
     delegations,
     // Rows no person was named for go as the person who linked the host.
     owner: () => 'owner',
-    // Backoff and waiting delays are real; the test shortens every one to keep the proof under a second.
-    setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 20))) as typeof setTimeout,
+    // Backoff and waiting delays are real; the test shortens them to keep the proof fast.
+    setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, maxDelayMs))) as typeof setTimeout,
   })
   instance.start()
   return instance
@@ -222,12 +213,11 @@ const toolContext = (): AgentToolContext => ({
   emit: () => {},
 })
 
-/** Lets the delivery's own `setTimeout(0)` kick run. */
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 /** Waits, a tick at a time, for a condition the delivery reaches on its own. */
-async function until(condition: () => boolean, attempts = 200): Promise<void> {
-  for (let attempt = 0; attempt < attempts && !condition(); attempt++) await tick()
+async function until(condition: () => boolean, attempts = 400): Promise<void> {
+  for (let attempt = 0; attempt < attempts && !condition(); attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
   expect(condition()).toBe(true)
 }
 
@@ -244,53 +234,65 @@ describe('who delivers a record', () => {
     // WHY (docs/plans/access-model.md §2.2): every record has an owner now, and the host's own
     // records are its `local` user's. No delegation names a local user, so those rows must
     // travel with the linking account's token or they wait forever.
-    expect(outbox.deliveryActorOf('user-alice')).toBe('user-alice')
-    expect(outbox.deliveryActorOf('local:host-1')).toBe('')
+    expect(queue.deliveryActorOf('user-alice')).toBe('user-alice')
+    expect(queue.deliveryActorOf('local:host-1')).toBe('')
     // With no host user, a record of the host's own is the host-owner sentinel's: the linker carries it.
-    expect(outbox.deliveryActorOf('host-owner')).toBe('')
-    expect(outbox.deliveryActorOf('')).toBe('')
+    expect(queue.deliveryActorOf('host-owner')).toBe('')
+    expect(queue.deliveryActorOf('')).toBe('')
   })
 })
 
 describe('runner delivery', () => {
-  test('an organization session\'s queued comment and link reach its organization in order, with its owner\'s token; nothing is applied here', async () => {
-    // WHY: an organization session's tasks and works are written on its Solus API
-    // synchronously (organization-vm-records.test.ts); comments and links, which the
-    // record API does not carry, travel through this queue, in order, as the person
-    // whose session it is (plans/010-standard-oauth.md).
+  test('ten writes within the collect window go in one request, on the one route, with the protocol the API checks', async () => {
+    // WHY: a host sent one request per write, about one a second in production (§1).
     const api = new FakeApi()
     await api.start()
-    const delegations = new FakeDelegations()
-    const runner = startDelivery(api, delegations)
-    const recordReported = api.next('reports')
-    const stopTools = await installOrganizationSession('solus-org', 'org1')
+    const runner = startDelivery(api)
+    try {
+      const sent = api.next()
+      for (let write = 0; write < 10; write++) queueLine(`note ${write}`)
+      await sent
+      expect(api.batches).toHaveLength(1)
+      expect(api.batches[0]).toMatchObject({ authorization: 'Bearer delegated-bob-org1', protocol: '2', body: { hostId: HOST_ID } })
+      expect(api.items().map((item) => item.kind)).toEqual(Array(10).fill('transcript'))
+      await until(() => queue.deliveryDestinations().length === 0)
+    } finally {
+      await runner.stop()
+      await api.stop()
+    }
+  })
+
+  test("an organization session's comment and links reach its Solus API directly; nothing is queued and nothing is applied here", async () => {
+    // WHY (docs/plans/simplify-auth-and-sync.md §4.5): a runner's remaining organization
+    // writes call the Solus API, as task and work creation do; the delivery stream carries none.
+    const api = new FakeApi()
+    await api.start()
+    const runner = startDelivery(api)
+    const calls: Array<[string, unknown]> = []
+    const stopTools = await installOrganizationSession('solus-org', 'org1', {
+      createTaskComment: async (_context, taskId, input) => { calls.push(['createTaskComment', { taskId, ...input }]); return { id: 'c1', taskId, body: input.body, author: null, originSessionId: input.originSessionId ?? null, createdAt: new Date().toISOString() } },
+      putLink: async (_context, input) => { calls.push(['putLink', input]) },
+    })
     const inOrganizationSession = (): AgentToolContext => ({ ...toolContext(), sessionId: () => 'solus-org' })
     try {
       // The published session's own record goes first, as its owner.
-      await recordReported
-      expect(api.reportBatches[0]).toMatchObject({ authorization: 'Bearer delegated-user-alice-org1' })
-      await until(() => outbox.sessionReportDestinations().length === 0)
-      expect(runner.currentStatus()).toEqual({ error: null })
+      await until(() => api.items().some((item) => item.kind === 'session'))
+      await until(() => queue.deliveryDestinations().length === 0)
+      const sent = api.items().length
 
-      const firstBatch = api.next('outbox')
       const commented = await taskTools.commentTaskAgentTool.execute({ task_id: 'task-org', body: 'note' }, inOrganizationSession())
-      expect(commented).toMatchObject({ ok: true })
-      expect(commented.text).toContain('queued for the organization')
-      const linked = await taskTools.linkAgentTool.execute({ task_id: 'task-org', kind: 'session' }, inOrganizationSession())
-      expect(linked.ok).toBe(true)
-      expect(outbox.listOutboxOps()).toEqual([])
-
-      await firstBatch
-      while (api.outboxBatches.flatMap((batch) => batch.body.ops).length < 2) await api.next('outbox')
-      const ops = api.outboxBatches.flatMap((batch) => batch.body.ops)
-      expect(api.outboxBatches.every((batch) => batch.body.hostId === HOST_ID && batch.authorization === 'Bearer delegated-user-alice-org1')).toBe(true)
-      expect(ops.map((entry) => [entry.op.domain, entry.op.name, entry.op.resourceId])).toEqual([
-        ['tasks', 'comment', 'task-org'],
-        ['tasks', 'link-session', 'task-org'],
+      expect(commented).toEqual({ ok: true, text: 'Comment added to task task-org.' })
+      expect((await taskTools.linkAgentTool.execute({ task_id: 'task-org', kind: 'session' }, inOrganizationSession())).ok).toBe(true)
+      expect((await taskTools.linkAgentTool.execute({ task_id: 'task-org', kind: 'work', target_id: 'work-1', title: 'Spec' }, inOrganizationSession())).ok).toBe(true)
+      expect(calls).toEqual([
+        ['createTaskComment', { taskId: 'task-org', body: 'note', originSessionId: 'solus-org' }],
+        ['putLink', { from: { kind: 'task', id: 'task-org' }, to: { kind: 'session', id: 'solus-org' }, role: 'working' }],
+        ['putLink', { from: { kind: 'task', id: 'task-org' }, to: { kind: 'work', id: 'work-1' }, title: 'Spec', originSessionId: 'solus-org' }],
       ])
-      // Acked by sequence: the queue is empty once the service answered.
       await tick()
-      expect(outbox.listCloudOutboxOps({ organizationId: 'org1', actorUserId: 'user-alice' }, 10)).toEqual([])
+      expect(queue.deliveryDestinations()).toEqual([])
+      expect(api.items()).toHaveLength(sent)
+      expect(outbox.listOutboxOps()).toEqual([])
       expect((await taskStore.listTasks(principal.ANY_ORGANIZATION)).tasks).toEqual([])
     } finally {
       stopTools()
@@ -299,68 +301,36 @@ describe('runner delivery', () => {
     }
   })
 
-  test('a session record is reported to its organization only once it is published, stamped with the host, and merged while it waits', async () => {
+  test('a session record is queued only once it is published, stamped with the host, and its facts coalesce while it waits', async () => {
     // WHY: assigning a session to an organization sends its Insights, not its
-    // record or transcript (§3); those leave only through a publication (§7).
+    // record or transcript (§3); those leave only through a publication (§7). A
+    // turn changes a record many times: one row per session waits, not one per change.
     const api = new FakeApi()
     await api.start()
     api.online = false
     const runner = startDelivery(api)
     try {
-      // A Local record is this machine's own, published or not.
       await records.upsertSessionRecord('local', { sessionId: 's-local', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
       await records.markSessionPublished('s-local')
       await records.setSessionRecordStatus(principal.ANY_ORGANIZATION, 's-local', 'running')
-      expect((await records.getSessionRecord('local', 's-local'))?.publication).toBe('local')
-      expect(outbox.sessionReportDestinations()).toEqual([])
+      expect(queue.deliveryDestinations()).toEqual([])
 
-      // A record of the organization is not reported while it is unpublished.
       await ownRecord('s-mirror')
-      expect(await records.getSessionRecord('org1', 's-mirror')).toMatchObject({ organizationId: 'org1', publication: 'local' })
       await records.setSessionRecordStatus(principal.ANY_ORGANIZATION, 's-mirror', 'running')
-      expect(outbox.sessionReportDestinations()).toEqual([])
+      expect(queue.deliveryDestinations()).toEqual([])
 
-      // Published: the record, and every later change to it, is queued for org1; nobody owns it, so the linker carries it.
       await records.markSessionPublished('s-mirror')
       await records.setSessionRecordTitle(principal.ANY_ORGANIZATION, 's-mirror', 'Renamed')
-      const queued = outbox.listSessionReports(linkerIn('org1'), 10)
+      await records.setSessionRecordStatus(principal.ANY_ORGANIZATION, 's-mirror', 'idle')
+      const queued = queue.listDelivery(linkerIn('org1'), 10)
       expect(queued).toHaveLength(1)
-      expect(queued[0]?.record).toMatchObject({ sessionId: 's-mirror', title: 'First words', status: 'running', customTitle: 'Renamed', runnerHostId: HOST_ID })
-      expect(outbox.sessionReportDestinations()).toEqual([linkerIn('org1')])
+      expect(queued[0]).toMatchObject({ kind: 'session', payload: { sessionId: 's-mirror', title: 'First words', status: 'idle', customTitle: 'Renamed', runnerHostId: HOST_ID } })
 
-      const delivered = api.next('reports')
       api.online = true
-      await delivered
-      expect(api.reportBatches[0]?.authorization).toBe('Bearer delegated-owner-org1')
-      expect(api.reportBatches[0]?.body.reports.map((entry) => entry.record.sessionId)).toEqual(['s-mirror'])
-      expect(api.reportBatches[0]?.body.reports[0]?.record.runnerHostId).toBe(HOST_ID)
-      await tick()
-      expect(outbox.listSessionReports(linkerIn('org1'), 10)).toEqual([])
-    } finally {
-      await runner.stop()
-      await api.stop()
-    }
-  })
-
-  test('an agent\'s first write for an admitted session waits for the session\'s first report, also when its record is written after the write began', async () => {
-    // WHY: the Solus API refuses a task or work that names a session it does not know.
-    // A fast agent calls its first tool before the indexer writes the new session's
-    // record, so nothing is queued yet; the write must wait for that report, not fail.
-    const api = new FakeApi()
-    await api.start()
-    const runner = startDelivery(api)
-    try {
-      records.rememberSessionBirth('s-early', { organizationId: 'org1', published: true, ownerKey: 'user-alice', admissionId: 's-early' })
-      let settled = false
-      const delivered = runner.deliverSessionReport('s-early', 5_000).then((value) => { settled = true; return value })
-      await tick()
-      await tick()
-      expect(settled).toBe(false)
-      const reported = api.next('reports')
-      await records.upsertOwnSessionRecord({ sessionId: 's-early', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
-      await reported
-      expect(await delivered).toBe(true)
-      expect(api.reportBatches.flatMap((batch) => batch.body.reports.map((entry) => entry.record.sessionId))).toContain('s-early')
+      await until(() => queue.deliveryDestinations().length === 0)
+      const sent = api.items().filter((item) => item.kind === 'session')
+      expect(sent).toHaveLength(1)
+      expect(api.batches.at(-1)?.authorization).toBe('Bearer delegated-owner-org1')
     } finally {
       await runner.stop()
       await api.stop()
@@ -369,18 +339,12 @@ describe('runner delivery', () => {
 
   test('session records are followed only while a link exists, so an unlinked host pays nothing per record write', async () => {
     // WHY: following records makes every record write read the row back, several
-    // times per turn. An unlinked host would drop the report anyway.
+    // times per turn. An unlinked host would drop the facts anyway.
     const api = new FakeApi()
     await api.start()
     api.online = false
     let linked = false
-    const runner = new delivery.RunnerDelivery({
-      registration: () => (linked ? link(api) : null),
-      delegations: new FakeDelegations(),
-      owner: () => 'owner',
-      setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 20))) as typeof setTimeout,
-    })
-    // Count the record read-backs a status write triggers.
+    const runner = startDelivery(api, new FakeDelegations(), { linked: () => linked })
     const connection = dbModule.getDb() as unknown as { prepare: (text: string) => unknown }
     const prepare = connection.prepare.bind(connection)
     let readBacks = 0
@@ -388,7 +352,6 @@ describe('runner delivery', () => {
       if (/^\s*select[\s\S]*from "session_records"/i.test(text)) readBacks++
       return prepare(text)
     }
-    runner.start()
     try {
       await ownRecord('s-follow')
       await records.markSessionPublished('s-follow')
@@ -400,7 +363,7 @@ describe('runner delivery', () => {
       runner.registrationChanged()
       await records.setSessionRecordStatus(principal.ANY_ORGANIZATION, 's-follow', 'idle')
       expect(readBacks).toBe(1)
-      expect(outbox.listSessionReports(linkerIn('org1'), 10).filter((report) => report.record.sessionId === 's-follow')).toHaveLength(1)
+      expect(queue.listDelivery(linkerIn('org1'), 10).filter((item) => item.kind === 'session')).toHaveLength(1)
 
       linked = false
       runner.registrationChanged()
@@ -411,7 +374,52 @@ describe('runner delivery', () => {
       connection.prepare = prepare
       await runner.stop()
       await api.stop()
-      outbox.ackSessionReportsThrough(linkerIn('org1'), Number.MAX_SAFE_INTEGER)
+      queue.dropQueuedFor(linkerIn('org1'))
+    }
+  })
+
+  test('a permanent failure skips one item and the rest are delivered; it stays named in the queue', async () => {
+    const api = new FakeApi()
+    await api.start()
+    api.online = false
+    const runner = startDelivery(api)
+    try {
+      queueLine('first')
+      queueLine('doomed')
+      queueLine('third')
+      const [, doomed] = queue.listDelivery(bobIn('org1'), 10)
+      api.permanentSeqs.add(doomed!.seq)
+      api.online = true
+      await until(() => queue.deliveryDestinations().length === 0)
+      expect(api.items()).toHaveLength(3)
+      expect(queue.deliveryBacklog()).toEqual([{ organizationId: 'org1', pending: 0, failed: 1 }])
+      expect(runner.currentStatus().error).toBeNull()
+    } finally {
+      await runner.stop()
+      await api.stop()
+      queue.dropQueuedFor(bobIn('org1'))
+    }
+  })
+
+  test('a transient failure stops the batch there; the rest is sent again and lands', async () => {
+    const api = new FakeApi()
+    await api.start()
+    api.online = false
+    const runner = startDelivery(api)
+    try {
+      queueLine('one')
+      queueLine('not yet')
+      queueLine('three')
+      const [, deferred, last] = queue.listDelivery(bobIn('org1'), 10)
+      api.transientSeq = deferred!.seq
+      api.online = true
+      await until(() => queue.deliveryDestinations().length === 0)
+      // The first request applied only the first item; the second carried the rest.
+      expect(api.batches.map((batch) => batch.body.items.map((item) => item.seq))).toEqual([[deferred!.seq - 1, deferred!.seq, last!.seq], [deferred!.seq, last!.seq]])
+      expect(queue.deliveryBacklog()).toEqual([])
+    } finally {
+      await runner.stop()
+      await api.stop()
     }
   })
 
@@ -420,32 +428,24 @@ describe('runner delivery', () => {
     await api.start()
     let runner = startDelivery(api)
     try {
-      const first = api.next('outbox')
-      queueTask('First')
-      await first
+      queueLine('First')
+      await until(() => api.items().length === 1)
 
       api.unauthorizedOnce = true
-      const redelivered = api.next('outbox')
-      queueTask('After a 401')
-      await redelivered
-      expect(api.outboxBatches.at(-1)?.body.ops.map((entry) => entry.op.payload)).toMatchObject([{ title: 'After a 401' }])
+      queueLine('After a 401')
+      await until(() => api.items().length === 2)
 
       // The service goes away; the write is queued, the host keeps working, and the next process delivers it.
       api.online = false
-      await tick()
-      queueTask('While offline')
-      await tick()
-      expect(outbox.listCloudOutboxOps(bobIn('org1'), 10).map((entry) => entry.op.name)).toEqual(['create'])
+      queueLine('While offline')
       await until(() => runner.currentStatus().error !== null)
       expect(runner.currentStatus().error).toContain('503')
+      expect(queue.listDelivery(bobIn('org1'), 10)).toHaveLength(1)
       await runner.stop()
       api.online = true
-      const resumed = api.next('outbox')
       runner = startDelivery(api)
-      await resumed
-      expect(api.outboxBatches.at(-1)?.body.ops.map((entry) => entry.op.payload)).toMatchObject([{ title: 'While offline' }])
-      await tick()
-      expect(outbox.listCloudOutboxOps(bobIn('org1'), 10)).toEqual([])
+      await until(() => queue.deliveryDestinations().length === 0)
+      expect(api.items().at(-1)?.payload).toMatchObject({ message: { content: 'While offline' } })
       expect(runner.currentStatus().error).toBeNull()
     } finally {
       await runner.stop()
@@ -453,42 +453,24 @@ describe('runner delivery', () => {
     }
   })
 
-  test('a permanent failure is dead-lettered where a person can see it; the rows of a person with no token here wait until they connect', async () => {
+  test('the rows of a person with no token here wait until they connect, then go with their token', async () => {
     const api = new FakeApi()
     await api.start()
     const delegations = new FakeDelegations()
+    delegations.away.add('dana')
     const runner = startDelivery(api, delegations)
     try {
-      // The service is down while the op is written, so it is still queued when the test marks it doomed.
-      api.online = false
-      outbox.recordOutboxOp({ domain: 'tasks', resourceId: 'gone-task', name: 'set-status', payload: { status: 'in_review' }, destination: 'cloud', organizationId: 'org1', actorUserId: 'bob' })
-      const [queued] = outbox.listCloudOutboxOps(bobIn('org1'), 1)
-      api.permanentSeqs.add(queued!.seq)
-      const answered = api.next('outbox')
-      api.online = true
-      await answered
-      await tick()
-      expect(outbox.listOutboxOps().map((op) => [op.name, op.state, op.error])).toEqual([['set-status', 'failed', 'gone']])
-      outbox.ackOutboxOps(outbox.listOutboxOps().map((op) => op.id))
-      // The outage's error is gone once a pass reached the service: the status says what is wrong now, not what was.
-      await until(() => runner.currentStatus().error === null)
-
-      // Dana has not connected to this host since it restarted: her rows wait, untouched, and nothing is wrong.
-      delegations.away.add('dana')
-      queueTask('While Dana is away', 'dana')
-      await until(() => outbox.listCloudOutboxOps({ organizationId: 'org1', actorUserId: 'dana' }, 10).length === 1)
-      await tick()
-      expect(api.outboxBatches.some((batch) => batch.authorization === 'Bearer delegated-dana-org1')).toBe(false)
+      queueLine('While Dana is away', 'dana')
+      await until(() => delegations.asked.length === 0 && api.batches.length === 0)
+      await new Promise((resolve) => setTimeout(resolve, 60))
+      expect(api.batches).toEqual([])
       expect(runner.currentStatus().error).toBeNull()
 
-      // She connects: her rows go, with her token.
       delegations.away.delete('dana')
-      const delivered = api.next('outbox')
       runner.retryWaiting()
-      await delivered
-      expect(api.outboxBatches.at(-1)).toMatchObject({ authorization: 'Bearer delegated-dana-org1' })
-      await tick()
-      expect(outbox.listCloudOutboxOps({ organizationId: 'org1', actorUserId: 'dana' }, 10)).toEqual([])
+      await until(() => api.batches.length === 1)
+      expect(api.batches[0]).toMatchObject({ authorization: 'Bearer delegated-dana-org1' })
+      await until(() => queue.deliveryDestinations().length === 0)
     } finally {
       await runner.stop()
       await api.stop()
@@ -497,8 +479,7 @@ describe('runner delivery', () => {
 
   test('a 403 from the token endpoint waits for the person to connect; a stream of writes does not turn it into a request loop', async () => {
     // WHY: a 403 was treated as an outage. Every queued write kicked a new pass past
-    // the backoff, so a busy turn asked Solus for a token hundreds of times, the
-    // rows never moved, and nobody was told to reconnect.
+    // the backoff, so a busy turn asked Solus for a token hundreds of times.
     const api = new FakeApi()
     await api.start()
     let exchanges = 0
@@ -517,30 +498,22 @@ describe('runner delivery', () => {
     const erinsToken = `e30.${Buffer.from(JSON.stringify({ sub: 'erin', grant_id: 'grant_erin' })).toString('base64url')}.c2ln`
     await delegations.establish(erinsToken, { organizationId: 'org1' })
     const erin = { organizationId: 'org1', actorUserId: 'erin' }
-    const runner = new delivery.RunnerDelivery({
-      registration: () => link(api),
-      delegations,
-      owner: () => 'owner',
-      // Delays run as written, so a pass that ignores the waiting time shows up as extra exchanges.
-      setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 60_000))) as typeof setTimeout,
-    })
-    runner.start()
+    // Delays run as written, so a pass that ignores the waiting time shows up as extra exchanges.
+    const runner = startDelivery(api, delegations, { maxDelayMs: 60_000 })
     try {
-      queueTask('For Erin', 'erin')
-      await until(() => runner.waitingReason(erin) !== null)
-      expect(runner.waitingReason(erin)).toContain('Reconnect')
+      queueLine('For Erin', 'erin')
+      await until(() => exchanges === 1)
       expect(runner.currentStatus().error).toBeNull()
-
       for (let write = 0; write < 30; write++) {
-        queueTask(`Busy turn ${write}`, 'erin')
+        queueLine(`Busy turn ${write}`, 'erin')
         await tick()
       }
       expect(exchanges).toBe(1)
-      expect(outbox.listCloudOutboxOps(erin, 100)).toHaveLength(31)
+      expect(queue.listDelivery(erin, 100)).toHaveLength(31)
     } finally {
       await runner.stop()
       await api.stop()
-      outbox.ackCloudOutboxOpsThrough(erin, Number.MAX_SAFE_INTEGER)
+      queue.dropQueuedFor(erin)
     }
   })
 
@@ -552,26 +525,20 @@ describe('runner delivery', () => {
     const counting = new FakeDelegations()
     const accessToken = counting.accessToken.bind(counting)
     counting.accessToken = async (userId, scope, resource) => { passes++; return accessToken(userId, scope, resource) }
-    const runner = new delivery.RunnerDelivery({
-      registration: () => link(api),
-      delegations: counting,
-      owner: () => 'owner',
-      setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 60_000))) as typeof setTimeout,
-    })
-    runner.start()
+    const runner = startDelivery(api, counting, { maxDelayMs: 60_000 })
     try {
-      queueTask('While down')
+      queueLine('While down')
       await until(() => runner.currentStatus().error !== null)
       const afterFailure = passes
       for (let write = 0; write < 30; write++) {
-        queueTask(`Still down ${write}`)
+        queueLine(`Still down ${write}`)
         await tick()
       }
       expect(passes).toBe(afterFailure)
     } finally {
       await runner.stop()
       await api.stop()
-      outbox.ackCloudOutboxOpsThrough(bobIn('org1'), Number.MAX_SAFE_INTEGER)
+      queue.dropQueuedFor(bobIn('org1'))
     }
   })
 
@@ -581,15 +548,13 @@ describe('runner delivery', () => {
     await api.start()
     const delegations = new FakeDelegations()
     delegations.refused.add('mallory')
-    outbox.recordOutboxOp({ domain: 'works', resourceId: 'work-m', name: 'create', payload: { title: 'M' }, destination: 'cloud', organizationId: 'orgA', actorUserId: 'mallory' })
-    mirrorLog.appendMirror({ organizationId: 'orgA', actorUserId: 'mallory' }, 'transcripts', [{ key: 's-m:0', payload: { sessionId: 's-m', position: 0, message: { role: 'user', content: 'hi' } } }])
-    outbox.recordOutboxOp({ domain: 'works', resourceId: 'work-c', name: 'create', payload: { title: 'C' }, destination: 'cloud', organizationId: 'orgA', actorUserId: 'carol' })
+    queue.appendDelivery({ organizationId: 'orgA', actorUserId: 'mallory' }, 'activity', [{ key: 'm', payload: {} }])
+    queue.appendDelivery({ organizationId: 'orgA', actorUserId: 'mallory' }, 'transcript', [{ key: 's-m:0', payload: { sessionId: 's-m', position: 0, message: { role: 'user', content: 'hi' } } }])
+    queue.appendDelivery({ organizationId: 'orgA', actorUserId: 'carol' }, 'activity', [{ key: 'c', payload: {} }])
     const runner = startDelivery(api, delegations)
     try {
-      await api.next('outbox')
-      await until(() => outbox.cloudOutboxDestinations().length === 0 && mirrorLog.mirrorDestinations().length === 0)
-      expect(api.outboxBatches.map((batch) => [batch.authorization, batch.body.ops.map((entry) => entry.op.resourceId)])).toEqual([['Bearer delegated-carol-orgA', ['work-c']]])
-      expect(api.mirrorBatches).toEqual([])
+      await until(() => queue.deliveryDestinations().length === 0)
+      expect(api.batches.map((batch) => [batch.authorization, batch.body.items.map((item) => item.kind)])).toEqual([['Bearer delegated-carol-orgA', ['activity']]])
       expect(runner.currentStatus().error).toBeNull()
     } finally {
       await runner.stop()
@@ -611,7 +576,7 @@ describe('runner delivery', () => {
       expect(work.ok).toBe(true)
       expect((await works.listWorks('local')).map((row) => row.title)).toEqual(['Personal doc'])
       await tick()
-      expect(outbox.cloudOutboxDestinations()).toEqual([])
+      expect(queue.deliveryDestinations()).toEqual([])
       expect(delegations.asked).toEqual([])
     } finally {
       await runner.stop()

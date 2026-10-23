@@ -8,7 +8,7 @@ const connections = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
 const { integrationsStore: store } = await import('@solus/workspace-ui/components/settings/integrations.store.svelte')
 type CloudSignInPort = Parameters<typeof store.useCloudSignIn>[0] & object
-const { connectionStatusText, integrationStatusText } = await import('@solus/workspace-ui/components/settings/lib/integration-labels')
+const { connectionStatusText, IntegrationLabels } = await import('@solus/workspace-ui/components/settings/lib/integration-labels')
 
 const integration = (id: string, name = id): Integration => ({
   id, organizationId: 'local', ownerKey: 'local:test', kind: 'mcp', slug: id, name, url: `https://${id}.example/mcp`,
@@ -69,12 +69,12 @@ describe('integrations store', () => {
     let answer!: (value: Integration[]) => void
     connections.registerHost('reconnect', { integrationList: () => new Promise<Integration[]>((resolve) => { answer = resolve }) })
     const stop = store.watch('reconnect')
-    connections.emitStatus('reconnect', 'reconnecting')
+    connections.emitPhase('reconnect', 'reconnecting')
     answer([integration('stale')])
     await flush()
     expect(store.states.get('reconnect')?.isDisconnected).toBe(true)
     expect(store.states.get('reconnect')?.integrations).toBeNull()
-    connections.emitStatus('reconnect', 'connected')
+    connections.emitPhase('reconnect', 'connected')
     answer([integration('fresh')])
     await flush()
     expect(store.states.get('reconnect')?.integrations?.map((item) => item.id)).toEqual(['fresh'])
@@ -244,7 +244,7 @@ describe('integrations store: sign-in', () => {
     try {
       await flush()
       await store.connect('drop', 'linear')
-      connections.emitStatus('drop', 'reconnecting')
+      connections.emitPhase('drop', 'reconnecting')
       expect(store.connectFlow('drop', 'linear')).toBeNull()
     } finally {
       pages.restore()
@@ -294,6 +294,29 @@ describe('integrations store: OAuth client', () => {
     expect(sent[1]).toEqual({ id: 'acme', oauthClient: null })
     expect(store.states.get('oauth-client')?.integrations?.[0]?.auth).not.toHaveProperty('clientId')
     expect(store.states.get('oauth-client')?.saving).toBe(false)
+  })
+
+  test('saving a custom client cancels the pending sign-in before replacing its credentials', async () => {
+    const pages = recordOpenedPages()
+    const calls: string[] = []
+    connections.registerHost('oauth-replace', {
+      integrationList: async () => [oauthIntegration('linear')],
+      integrationConnectionList: async () => [],
+      integrationConnectStart: async () => waiting('old-client-flow'),
+      integrationConnectCancel: async ({ flowId }: { flowId: string }) => { calls.push(flowId); return { cancelled: true } },
+      integrationUpdate: async () => { calls.push('save'); return { ...oauthIntegration('linear'), auth: { kind: 'oauth', discover: 'https://linear.example/.well-known/oauth-protected-resource', registration: 'dynamic', clientId: 'custom' } } },
+    })
+    const stop = store.watch('oauth-replace')
+    try {
+      await flush()
+      await store.connect('oauth-replace', 'linear')
+      await store.setOAuthClient('oauth-replace', 'linear', { clientId: 'custom' })
+      expect(calls).toEqual(['old-client-flow', 'save'])
+      expect(store.connectFlow('oauth-replace', 'linear')).toBeNull()
+    } finally {
+      stop()
+      pages.restore()
+    }
   })
 
   test('a refused client keeps the record and reports why', async () => {
@@ -512,7 +535,7 @@ describe('integrations store: sign-in through Solus Cloud', () => {
     const clientRequired = cloudPort()
     const sent = { starts: 0 }
     connections.registerHost('cloud-client', {
-      integrationList: async () => [{ ...oauthIntegration('linear'), auth: { kind: 'oauth', discover: 'https://linear.example/.well-known/oauth-protected-resource', registration: 'client-required', clientId: 'admin-client' } }],
+      integrationList: async () => [{ ...oauthIntegration('linear'), auth: { kind: 'oauth', discover: 'https://linear.example/.well-known/oauth-protected-resource', registration: 'dynamic', clientId: 'admin-client' } }],
       integrationConnectionList: async () => [],
       integrationConnectStart: async () => { sent.starts++; return waiting('host-flow') },
     })
@@ -535,11 +558,11 @@ describe('integrations store: sign-in through Solus Cloud', () => {
     expect(connectionStatusText({ ...cloudConnected('linear'), label: 'ada@example.com' }).text).toBe('Connected in your Solus account as ada@example.com')
     const unreachable: IntegrationConnection = { ...cloudConnected('linear'), status: 'cloud-unreachable', error: 'Solus Cloud did not answer.' }
     expect(connectionStatusText(unreachable)).toEqual({ text: 'Solus Cloud unreachable', detail: 'Solus Cloud did not answer.', action: null })
-    expect(integrationStatusText(oauthIntegration('linear').auth, unreachable)).toEqual({ text: 'Solus Cloud unreachable', tone: 'error', canConnect: false })
-    expect(integrationStatusText(oauthIntegration('linear').auth, cloudConnected('linear'))).toEqual({ text: 'Connected in your Solus account', tone: 'ready', canConnect: false })
+    expect(new IntegrationLabels({ auth: oauthIntegration('linear').auth, url: 'https://x.example/mcp' }).statusText(unreachable)).toEqual({ text: 'Solus Cloud unreachable', tone: 'error', canConnect: false })
+    expect(new IntegrationLabels({ auth: oauthIntegration('linear').auth, url: 'https://x.example/mcp' }).statusText(cloudConnected('linear'))).toEqual({ text: 'Connected in your Solus account', tone: 'ready', canConnect: false })
     // No Solus sign-in lets the host read the account: the cloud was not asked, so it is not called unreachable, and no server sign-in fixes it.
     const signedOut: IntegrationConnection = { ...cloudConnected('linear'), status: 'needs-solus-sign-in', error: 'Sign in to Solus so this host can use your account connections.' }
     expect(connectionStatusText(signedOut)).toEqual({ text: 'Sign in to Solus', detail: 'Sign in to Solus so this host can use your account connections.', action: null })
-    expect(integrationStatusText(oauthIntegration('linear').auth, signedOut)).toEqual({ text: 'Sign in to Solus', tone: 'error', canConnect: false })
+    expect(new IntegrationLabels({ auth: oauthIntegration('linear').auth, url: 'https://x.example/mcp' }).statusText(signedOut)).toEqual({ text: 'Sign in to Solus', tone: 'error', canConnect: false })
   })
 })

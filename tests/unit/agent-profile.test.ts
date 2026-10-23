@@ -16,8 +16,10 @@ import {
   type AgentProfileSkip,
 } from '@solus/contracts/agent-profile'
 import type { Integration } from '@solus/contracts/integration-types'
-import { AGENT_PROFILE_READ_PATH, AgentProfileManager, AgentProfileRefused, type ProfileAccount, type ProfileIntegrationOwner, type ProfileIntegrations, type ProfileSkills } from '@solus/server/execution/seats/agent-profile'
+import { AgentProfileManager, AgentProfileRefused, type ProfileAccount, type ProfileIntegrationOwner, type ProfileIntegrations, type ProfileSkills } from '@solus/server/execution/seats/agent-profile'
 import { AccountReads } from '@solus/server/vault/account-reads'
+import { AGENT_PROFILE_PATH } from '@solus/contracts/agent-profile'
+import { VAULT_PATH } from '@solus/contracts/vault'
 
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
@@ -108,8 +110,8 @@ function fakeIntegrations(hostHas: HostRecord[] = []) {
   const integrations: ProfileIntegrations = {
     list: (owner) => rows.filter((row) => row.ownerKey === owner.ownerKey && row.organizationId === owner.organizationId),
     findByUrl: (owner, url) => rows.find((row) => row.url === url && row.ownerKey === owner.ownerKey && row.organizationId === owner.organizationId) ?? null,
-    create: (owner, entry) => { const created = record(owner, entry.slug, entry.name, entry.url); rows.push(created); log.push(`create:${entry.slug}`); return created },
-    update: (id, entry) => { const row = rows.find((each) => each.id === id)!; row.name = entry.name; log.push(`update:${entry.slug}`) },
+    create: (owner, entry) => { const created = { ...record(owner, entry.slug, entry.name, entry.url), disabledTools: entry.disabledTools }; rows.push(created); log.push(`create:${entry.slug}`); return created },
+    update: (id, entry) => { const row = rows.find((each) => each.id === id)!; row.name = entry.name; row.disabledTools = entry.disabledTools; log.push(`update:${entry.slug}`) },
     remove: (id) => { const index = rows.findIndex((each) => each.id === id); log.push(`remove:${rows[index]?.slug}`); rows.splice(index, 1) },
   }
   return { integrations, rows, log }
@@ -410,7 +412,7 @@ function linked(options: { answer?: (request: Request) => Promise<Response>; del
     fetchImpl: async (input, init) => {
       const request = new Request(input, init)
       requests.push(request)
-      return options.answer ? options.answer(request) : Response.json({ profile: null, connections: [] })
+      return (options.answer ?? accountAnswer(null, []))(request)
     },
   })
   const target = seat(() => [], options.hostHas ?? [], {
@@ -421,18 +423,27 @@ function linked(options: { answer?: (request: Request) => Promise<Response>; del
   return { ...target, requests, reconciled }
 }
 
-const accountProfile = (revision: number, connections: string[] = []) => Response.json({
-  profile: { schemaVersion: 1, generation: 0, revision, entries: { 'file:claude-code/agents/rules.md': text('agents/rules.md', `rules v${revision}`) }, updatedAt: 5 },
-  connections: connections.map((serverUrl) => ({ ref: { kind: 'mcp', serverUrl }, material: 'key', status: 'connected', label: null, updatedAt: 1 })),
-})
+/** A profile document before its first write: a person who never synced one. */
+const NO_PROFILE = { schemaVersion: 1, generation: 0, revision: null, entries: {}, updatedAt: null }
 
-test('a pull reads with the person\'s delegated token as the bearer and no body, applies a moved revision as an account copy, and reconciles the connections', async () => {
+/** The account plane's two reads a pull makes: the profile document, and the vault's connection statuses. */
+const accountAnswer = (document: object | null, connections: object[]) => async (request: Request) =>
+  new URL(request.url).pathname === VAULT_PATH ? Response.json({ connections }) : Response.json(document ?? NO_PROFILE)
+
+const accountProfile = (revision: number, connections: string[] = []) => accountAnswer(
+  { schemaVersion: 1, generation: 0, revision, entries: { 'file:claude-code/agents/rules.md': text('agents/rules.md', `rules v${revision}`) }, updatedAt: 5 },
+  connections.map((serverUrl) => ({ ref: { kind: 'mcp', serverUrl }, material: 'key', status: 'connected', label: null, updatedAt: 1 })),
+)
+
+test('a pull reads the profile and the vault with the person\'s delegated token as the bearer and no body, applies a moved revision as an account copy, and reconciles the connections', async () => {
   // WHY: ADR 0001 §2.2 rule 7 — no token in a body, no host token beside it.
-  const host = linked({ answer: async () => accountProfile(3, ['https://linear.example/mcp']) })
+  const host = linked({ answer: accountProfile(3, ['https://linear.example/mcp']) })
   const status = await host.profiles.pull(MEMBER)
-  expect(host.requests[0].url).toBe(`https://cloud.test${AGENT_PROFILE_READ_PATH}`)
-  expect(host.requests[0].headers.get('authorization')).toBe('Bearer delegated-member-1')
-  expect(await host.requests[0].text()).toBe('')
+  expect(host.requests.map((request) => `${request.method} ${request.url}`).sort()).toEqual([`GET https://cloud.test${AGENT_PROFILE_PATH}`, `GET https://cloud.test${VAULT_PATH}`])
+  for (const request of host.requests) {
+    expect(request.headers.get('authorization')).toBe('Bearer delegated-member-1')
+    expect(await request.text()).toBe('')
+  }
   expect(status).toMatchObject({ source: 'account', revision: 3, counts: { files: 1 } })
   expect(readFileSync(join(host.homeFor('claude-code'), 'agents/rules.md'), 'utf8')).toBe('rules v3')
   expect(host.reconciled).toEqual([{ owner: { organizationId: 'org-a', ownerKey: 'member-1' }, connections: ['https://linear.example/mcp'] }])
@@ -442,21 +453,21 @@ test('a revision the host already applied is not applied again, and a person wit
   // WHY: the periodic pull runs for every seat every few minutes; it must cost
   // one read when nothing changed, and must not erase a push from the computer.
   let revision = 3
-  const host = linked({ answer: async () => accountProfile(revision) })
+  const host = linked({ answer: (request) => accountProfile(revision)(request) })
   await host.profiles.pull(MEMBER)
   host.at(2000)
   expect((await host.profiles.pull(MEMBER)).syncedAt).toBe(1000)
   revision = 4
   expect((await host.profiles.pull(MEMBER)).revision).toBe(4)
 
-  const pushed = linked({ answer: async () => Response.json({ profile: null, connections: [] }) })
+  const pushed = linked({ answer: accountAnswer(null, []) })
   await pushed.profiles.apply(MEMBER, profile(text('agents/rules.md', 'from the laptop')), PUSH)
   expect((await pushed.profiles.pull(MEMBER)).source).toBe('computer')
 })
 
 test('a person with no synced profile still has their account connections reconciled', async () => {
   // WHY: a signed-in person signs in at the cloud whether or not their profile syncs; the pull is how a host learns of it.
-  const host = linked({ answer: async () => Response.json({ profile: null, connections: [{ ref: { kind: 'mcp', serverUrl: 'https://linear.example/mcp' }, material: 'oauth', status: 'connected', label: null, updatedAt: 1 }] }) })
+  const host = linked({ answer: accountAnswer(null, [{ ref: { kind: 'mcp', serverUrl: 'https://linear.example/mcp' }, material: 'oauth', status: 'connected', label: null, updatedAt: 1 }]) })
   await host.profiles.pull(MEMBER)
   expect(host.reconciled).toEqual([{ owner: { organizationId: 'org-a', ownerKey: 'member-1' }, connections: ['https://linear.example/mcp'] }])
 })
@@ -470,10 +481,11 @@ test('an unlinked host, a person without a token, an unreachable cloud, and a re
 })
 
 test('the periodic sweep pulls for every target now and again on the interval', async () => {
-  const host = linked({ answer: async () => accountProfile(1) })
+  const host = linked({ answer: accountProfile(1) })
   const stop = host.profiles.startPeriodic(() => [MEMBER, OWNER], 60_000)
   await new Promise((done) => setTimeout(done, 0))
-  expect(host.requests).toHaveLength(2)
+  // Two targets, each one read of the profile and one of the vault.
+  expect(host.requests).toHaveLength(4)
   stop()
 })
 
@@ -487,7 +499,7 @@ function cloudOf(initial: AgentProfile | null) {
   let isDown = false
   const answer = async (request: Request): Promise<Response> => {
     if (isDown) throw new Error('ECONNREFUSED')
-    if (request.url.endsWith('/v1/agent-profile/entries')) {
+    if (request.method === 'POST') {
       const body = await request.json() as { set: AgentProfile; reset: string[] }
       writes.push({ set: Object.keys(body.set), reset: body.reset })
       entries = { ...(entries ?? {}), ...body.set }
@@ -495,13 +507,13 @@ function cloudOf(initial: AgentProfile | null) {
       revision += 1
       return Response.json({ schemaVersion: 1, generation: 0, revision, entries, updatedAt: 1 })
     }
-    return Response.json({ profile: entries ? { schemaVersion: 1, generation: 0, revision, entries, updatedAt: 1 } : null, connections: [] })
+    return accountAnswer(entries ? { schemaVersion: 1, generation: 0, revision, entries, updatedAt: 1 } : null, [])(request)
   }
   return { answer, writes, entries: () => entries, down: (value: boolean) => { isDown = value } }
 }
 
 const PLANETSCALE_URL = 'https://mcp.pscale.dev/mcp/planetscale'
-const serverEntry = (slug: string, url: string): AgentProfileIntegrationEntry => ({ kind: 'integration', slug, name: slug, url, auth: { kind: 'none' } })
+const serverEntry = (slug: string, url: string, disabledTools: string[] = []): AgentProfileIntegrationEntry => ({ kind: 'integration', slug, name: slug, url, auth: { kind: 'none' }, disabledTools })
 
 test('a pull adopts the owner\'s own MCP servers the profile does not name, and creates the profile when there is none', async () => {
   // WHY: signed in, a server added on a host before sync, such as PlanetScale, must become part of the person's profile.
@@ -541,7 +553,7 @@ test('removing a server from the profile takes it off the host on the next pull,
   const entries = cloud.entries()!
   delete entries['integration:planetscale']
   delete entries['integration:linear']
-  await cloud.answer(new Request('https://cloud.test/v1/agent-profile/entries', { method: 'POST', body: JSON.stringify({ set: {}, reset: [] }) }))
+  await cloud.answer(new Request('https://cloud.test/v1/agent-profile', { method: 'POST', body: JSON.stringify({ set: {}, reset: [] }) }))
   cloud.writes.length = 0
 
   await host.profiles.pull(OWNER)
@@ -551,9 +563,22 @@ test('removing a server from the profile takes it off the host on the next pull,
 
   // Added again elsewhere, it comes back.
   cloud.entries()!['integration:planetscale'] = serverEntry('planetscale', PLANETSCALE_URL)
-  await cloud.answer(new Request('https://cloud.test/v1/agent-profile/entries', { method: 'POST', body: JSON.stringify({ set: {}, reset: [] }) }))
+  await cloud.answer(new Request('https://cloud.test/v1/agent-profile', { method: 'POST', body: JSON.stringify({ set: {}, reset: [] }) }))
   await host.profiles.pull(OWNER)
   expect(host.integrations.rows.map((row) => row.slug)).toEqual(['planetscale'])
+})
+
+test('the tools a person turned off travel with their server, from a save to a pull on another host', async () => {
+  // WHY: integrations are personal, so turning a tool off is the person's choice on every host (§6.1, 2026-10-22).
+  const cloud = cloudOf({})
+  const laptop = linked({ answer: cloud.answer })
+  const own: Integration = { id: 'int-own', organizationId: 'local', ownerKey: HOST_USER, kind: 'mcp', slug: 'planetscale', name: 'PlanetScale', url: PLANETSCALE_URL, auth: { kind: 'none' }, disabledTools: ['delete_branch'], createdBy: null, createdAt: '', updatedAt: '' }
+  await laptop.profiles.integrationSaved(OWNER, own)
+  expect(cloud.entries()).toMatchObject({ 'integration:planetscale': { disabledTools: ['delete_branch'] } })
+
+  const server = linked({ answer: cloud.answer })
+  await server.profiles.pull(OWNER)
+  expect(server.integrations.rows.map((row) => row.disabledTools)).toEqual([['delete_branch']])
 })
 
 test('a server saved or removed in Settings → MCP writes through to the profile; another person\'s server does not', async () => {

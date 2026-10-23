@@ -8,7 +8,7 @@ import { clearForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { getIndexedSession, persistIndexedSessionStart } from '../../db/session-indexer'
 import { completeSessionHandoff, registerSessionLineage, replaceSessionLineageThread } from '../../data/sessions/session-lineage'
 import type { AgentBackend } from '../agents/agent-backend'
-import type { SessionStatus, NormalizedEvent, ThreadGoal } from '@solus/contracts/types'
+import type { SessionStatus, NormalizedEvent, PromptVia, ThreadGoal } from '@solus/contracts/types'
 import { encodePathAsFolder, isSessionBusyStatus } from '@solus/contracts/types'
 import { indexLivePlan } from '../../plans/plan-index'
 import type { SessionRuntime } from '../session-runtime'
@@ -547,12 +547,12 @@ export class ProviderEvents {
       }
     })
 
-    backend.on('background-command-completed', (agentSessionId: string, prompt: string) => {
+    backend.on('background-task-completed', (agentSessionId: string, prompt: string, via: PromptVia | undefined) => {
       const sessionId = this.rt.sessionOfThread(agentSessionId)
       if (!sessionId) return
-      void this.rt.dispatch.promptSession(sessionId, prompt, 'queue', { via: 'background-command' }).catch((error) => {
-        log.warn('background_command_wake_failed', { agentSessionId, error: error instanceof Error ? error.message : String(error) })
-        // No turn takes over, so the wait the command held ends here.
+      void this.rt.dispatch.promptSession(sessionId, prompt, 'queue', { via }).catch((error) => {
+        log.warn('background_task_wake_failed', { agentSessionId, error: error instanceof Error ? error.message : String(error) })
+        // No turn takes over, so the wait the task held ends here.
         const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
         if (sessionId) this.endBackgroundWait(sessionId)
       })

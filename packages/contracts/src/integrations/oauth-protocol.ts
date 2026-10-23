@@ -15,7 +15,7 @@ import { z } from 'zod'
 const REQUEST_TIMEOUT_MS = 15_000
 /** A token with less than this left is refreshed before use. */
 export const OAUTH_REFRESH_MARGIN_MS = 60_000
-export const OAUTH_CLIENT_REQUIRED_MESSAGE = 'This server needs an OAuth client. Its owner adds one in the server settings.'
+export const OAUTH_CLIENT_REQUIRED_MESSAGE = 'This server does not let Solus register itself. Create an OAuth client at the service, then enter its client ID.'
 
 export type OAuthAuthMethod = 'none' | 'client_secret_post' | 'client_secret_basic'
 
@@ -62,6 +62,13 @@ export class OAuthSignInError extends Error {
   }
 }
 
+/**
+ * The server will not register Solus (no registration endpoint, or it refused
+ * the registration), so only a client the person creates there can sign in.
+ * Not raised for a limit or an outage, which a retry answers.
+ */
+export class OAuthClientRequiredError extends OAuthSignInError {}
+
 /** The token endpoint refused the grant (400 or 401): the person must sign in again. */
 export class OAuthGrantRefusedError extends Error {
   constructor(message: string) {
@@ -83,15 +90,25 @@ export interface OAuthCodeExchange {
   code: string
   redirectUri: string
   verifier: string
-  /** The server URL: the token's audience (RFC 8707). */
-  resource: string
+  /** The server URL: the token's audience (RFC 8707). Absent for a Solus server whose vendor takes no `resource` (§13.6). */
+  resource?: string
 }
 
 export interface OAuthRefresh {
   tokenEndpoint: URL
   client: OAuthClient
   refreshToken: string
-  resource: string
+  resource?: string
+}
+
+/**
+ * What a Solus MCP server's code fixes for its vendor's sign-in (§13.6): the
+ * scopes to ask for, and parameters such as Google's offline access. A remote
+ * MCP server gets none: its metadata decides.
+ */
+export interface OAuthSignInOptions {
+  scopes?: readonly string[]
+  params?: Readonly<Record<string, string>>
 }
 
 const resourceMetadataSchema = z.object({
@@ -182,7 +199,7 @@ export class McpOAuth {
 
   /** Dynamic client registration (RFC 7591) for these redirect addresses. `OAuthSignInError` when the server offers or accepts none. */
   async register(metadata: OAuthMetadata, redirectUris: string[]): Promise<OAuthClient> {
-    if (!metadata.registrationEndpoint) throw new OAuthSignInError(OAUTH_CLIENT_REQUIRED_MESSAGE)
+    if (!metadata.registrationEndpoint) throw new OAuthClientRequiredError(OAUTH_CLIENT_REQUIRED_MESSAGE)
     const method = chooseAuthMethod(metadata.authMethods)
     const response = await this.fetch(metadata.registrationEndpoint, {
       method: 'POST',
@@ -197,11 +214,21 @@ export class McpOAuth {
       redirect: 'manual',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
-    const parsed = response.ok ? registrationSchema.safeParse(await response.json().catch(() => null)) : null
-    if (!parsed?.success) {
-      await response.body?.cancel().catch(() => undefined)
-      throw new OAuthSignInError(OAUTH_CLIENT_REQUIRED_MESSAGE)
+    const document: unknown = await response.json().catch(() => null)
+    if (!response.ok) {
+      const failure = z.object({ error: z.string() }).safeParse(document)
+      const code = failure.success ? failure.data.error : undefined
+      let reason: string
+      if (response.status === 429) reason = 'The service limited registration requests. Try again later.'
+      else if (response.status >= 500) reason = 'The service could not complete registration. Try again later.'
+      else if (code === 'invalid_redirect_uri') reason = 'The service refused this callback URL. Create an OAuth app with this redirect URL, or ask the service to allow it.'
+      else if (code === 'invalid_client_metadata') reason = 'The service refused the registration details. Check its allowed redirect URLs, or use your own OAuth app.'
+      else if (response.status === 401 || response.status === 403) reason = 'The service does not allow automatic registration. Create an OAuth app in its developer settings.'
+      else reason = `The service refused automatic registration (HTTP ${response.status}). Use your own OAuth app.`
+      throw response.status === 429 || response.status >= 500 ? new OAuthSignInError(reason) : new OAuthClientRequiredError(reason)
     }
+    const parsed = registrationSchema.safeParse(document)
+    if (!parsed.success) throw new OAuthSignInError('The service returned an invalid OAuth client registration response.')
     const registered = parsed.data.token_endpoint_auth_method
     const client: OAuthClient = {
       clientId: parsed.data.client_id,
@@ -213,7 +240,7 @@ export class McpOAuth {
   }
 
   /** A fresh sign-in: PKCE, a state, and the authorization URL with the `resource` the token is for. */
-  async authorization(request: { metadata: OAuthMetadata; client: OAuthClient; redirectUri: string; resource: string }): Promise<OAuthAuthorization> {
+  async authorization(request: { metadata: OAuthMetadata; client: OAuthClient; redirectUri: string; resource?: string; options?: OAuthSignInOptions }): Promise<OAuthAuthorization> {
     const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)))
     const state = base64url(crypto.getRandomValues(new Uint8Array(32)))
     const challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))
@@ -224,8 +251,13 @@ export class McpOAuth {
     url.searchParams.set('state', state)
     url.searchParams.set('code_challenge', challenge)
     url.searchParams.set('code_challenge_method', 'S256')
-    if (request.metadata.scopes?.length) url.searchParams.set('scope', request.metadata.scopes.join(' '))
-    url.searchParams.set('resource', request.resource)
+    const scopes = request.options?.scopes ?? request.metadata.scopes
+    if (scopes?.length) url.searchParams.set('scope', scopes.join(' '))
+    if (request.resource) url.searchParams.set('resource', request.resource)
+    // The protocol's own parameters are set above and cannot be replaced.
+    for (const [name, value] of Object.entries(request.options?.params ?? {})) {
+      if (!url.searchParams.has(name)) url.searchParams.set(name, value)
+    }
     return { url: url.href, state, verifier }
   }
 
@@ -235,14 +267,15 @@ export class McpOAuth {
       code: exchange.code,
       redirect_uri: exchange.redirectUri,
       code_verifier: exchange.verifier,
-      resource: exchange.resource,
     })
+    if (exchange.resource) body.set('resource', exchange.resource)
     return this.token(exchange.tokenEndpoint, body, exchange.client, undefined)
   }
 
   /** `OAuthGrantRefusedError` when the server ended the sign-in; any other error is the server being unreachable or broken. */
   refresh(refresh: OAuthRefresh): Promise<OAuthToken> {
-    const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refresh.refreshToken, resource: refresh.resource })
+    const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refresh.refreshToken })
+    if (refresh.resource) body.set('resource', refresh.resource)
     return this.token(refresh.tokenEndpoint, body, refresh.client, refresh.refreshToken)
   }
 

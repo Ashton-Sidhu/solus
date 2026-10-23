@@ -1,5 +1,4 @@
 import { GIT_DIFF_FILE_BREAK_REGEX, parsePatchFiles, type FileDiffMetadata } from '@pierre/diffs'
-import { decodeGitPath } from '@solus/client-core/git-path-name'
 
 /** One file of a multi-file git patch. */
 export interface PatchFileChunk {
@@ -35,8 +34,8 @@ export function patchFileChunks(patch: string): PatchFileChunk[] {
     const file = parseFileHeader(text)
     if (!file?.name) continue
     chunks.push({
-      path: decodeGitPath(file.name),
-      previousPath: file.prevName ? decodeGitPath(file.prevName) : undefined,
+      path: file.name,
+      previousPath: file.prevName,
       text,
     })
   }

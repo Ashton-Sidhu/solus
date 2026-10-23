@@ -6,15 +6,16 @@ import { workspaceRecordMethods } from '@solus/client-core/workspace-records'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import type { HostEvent } from '@solus/contracts/host-events'
-import type { HostKind } from '@solus/contracts/uplink'
+import { SOLUS_PROTOCOL, type HandshakeCredential, type HostKind, type SocketHandshake } from '@solus/contracts/uplink'
 import type { LabIssuer } from './issuer'
 import type { Persona } from './personas'
 
 /**
  * One persona's connection to the Lab host (plan §8.2). It walks the real admission
- * path: a fresh grant per dial, exchanged at `/auth/ws-ticket` (with the share secret
- * for a guest) for a one-use ticket that rides the socket handshake. RPC answers and
- * host events come back typed; a refusal keeps its code so a scenario can assert it.
+ * path: one credential in the socket handshake (docs/plans/simplify-auth-and-sync.md
+ * §3 rule 4) — a fresh grant per dial, a paired session token, or a guest's share
+ * secret with its id and name. RPC answers and host events come back typed; a
+ * refusal keeps its code so a scenario can assert it.
  */
 
 const envelopeSchema = z.object({
@@ -32,7 +33,6 @@ export class LabRpcError extends Error {
 
 export type DialOutcome =
   | { ok: true }
-  | { ok: false; stage: 'ticket'; status: number }
   | { ok: false; stage: 'socket'; code: string | null }
 
 export interface LabClientOptions {
@@ -43,13 +43,15 @@ export interface LabClientOptions {
   issuer?: LabIssuer
   /** A real sign-in's access token for this host (cloud mode: `OAuthSession.accessToken`). */
   accessToken?: () => Promise<string | null>
+  /** A device paired on the local network dials with its session token instead. */
+  sessionToken?: () => Promise<string>
   hostId: string
   hostKind: HostKind
   hostOwnerUserId?: string
   /** A guest presents the link secret alone, with the id and name it states (host-sharing.md §4.1). */
   shareSecret?: string
   /**
-   * The organization a host owner's connection names: the ticket door then makes her
+   * The organization a host owner's connection names: the host then makes her
    * delegation for it too, beside the personal one (ADR 0001 stage 4). A member always
    * names their own.
    */
@@ -78,7 +80,7 @@ type RpcResult<M extends RpcInvokeMethod> = Awaited<ReturnType<SolusAPI[M]>>
 
 export class LabClient {
   readonly persona: Persona
-  /** The record API on the same authority the socket dials with: a fresh grant per exchange, or the owner's paired token. */
+  /** The record API over HTTP, with the persona's access token or the owner's paired token as its bearer. */
   readonly api: SolusApiClient
   /** The record methods as the clients call them, over `api`. */
   readonly records: ReturnType<typeof workspaceRecordMethods>
@@ -96,8 +98,6 @@ export class LabClient {
       contextKey: () => options.persona.id,
       acquireSource: async () => options.credentialFree ? (await options.localOwnerToken?.()) ?? null : this.grant(),
       organizationId: () => options.persona.kind === 'org-member' ? options.persona.organizationId : null,
-      shareSecret: options.shareSecret,
-      guestIdentity: options.persona.kind === 'guest' ? { guestId: options.persona.guestId, displayName: options.persona.displayName } : undefined,
     }))
     this.records = workspaceRecordMethods(this.api, (id) => this.rpc('tasksReadExtras', id))
   }
@@ -120,47 +120,33 @@ export class LabClient {
     })
   }
 
-  /** Mints a grant (a guest: states who it is) and exchanges it for one ticket; null with the refusal status. */
-  async fetchTicket(): Promise<{ ticket: string } | { status: number }> {
-    const grant = await this.grant()
+  /** The one credential this persona's dial presents; undefined for a credential-free caller. */
+  async credential(): Promise<HandshakeCredential | undefined> {
     const persona = this.persona
-    const request = persona.kind === 'guest'
-      ? { shareSecret: this.options.shareSecret, guestId: persona.guestId, displayName: persona.displayName }
-      : persona.kind === 'org-member' ? { organizationId: persona.organizationId }
-      : this.options.organizationId ? { organizationId: this.options.organizationId } : {}
-    const headers: { [name: string]: string } = { 'content-type': 'application/json' }
-    if (grant) headers.authorization = `Bearer ${grant}`
-    const response = await fetch(`${this.options.hostUrl}/auth/ws-ticket`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(request),
-    })
-    if (!response.ok) return { status: response.status }
-    const body = z.object({ ticket: z.string().min(1) }).parse(await response.json())
-    return { ticket: body.ticket }
+    if (this.options.credentialFree) return undefined
+    if (persona.kind === 'guest') {
+      return this.options.shareSecret ? { kind: 'share-secret', secret: this.options.shareSecret, guestId: persona.guestId, displayName: persona.displayName } : undefined
+    }
+    if (this.options.sessionToken) return { kind: 'session-token', token: await this.options.sessionToken() }
+    const token = await this.grant()
+    if (!token) return undefined
+    const organizationId = persona.kind === 'org-member' ? persona.organizationId : this.options.organizationId
+    return organizationId ? { kind: 'access-token', token, organizationId } : { kind: 'access-token', token }
   }
 
   async connect(): Promise<DialOutcome> {
-    let ticket: string | undefined
-    if (!this.options.credentialFree) {
-      const outcome = await this.fetchTicket()
-      if ('status' in outcome) {
-        this.timeline({ kind: 'dial', ok: false, code: `ticket:${outcome.status}` })
-        return { ok: false, stage: 'ticket', status: outcome.status }
-      }
-      ticket = outcome.ticket
-    }
-    return this.dial(ticket)
+    return this.dial(await this.credential())
   }
 
-  /** Dials with a ticket the caller already holds (to prove a ticket admits one socket only). */
-  dial(ticket: string | undefined): Promise<DialOutcome> {
+  /** Dials with the credential given (a scenario may present one by hand). */
+  dial(credential: HandshakeCredential | undefined): Promise<DialOutcome> {
+    const handshake: SocketHandshake = credential ? { protocol: SOLUS_PROTOCOL, credential, clientInstanceId: this.clientInstanceId } : { protocol: SOLUS_PROTOCOL, clientInstanceId: this.clientInstanceId }
     this.disconnectedAt = null
     const socket = io(this.options.hostUrl, {
       path: '/ws',
       transports: ['websocket'],
       reconnection: false,
-      auth: ticket ? { ticket, clientInstanceId: this.clientInstanceId } : { clientInstanceId: this.clientInstanceId },
+      auth: handshake,
     })
     socket.on('host-event', (event: HostEvent) => {
       this.events.push(event)
@@ -181,11 +167,11 @@ export class LabClient {
         socket.off('connect_error', onError)
         if (outcome.ok) this.socket = socket
         else socket.disconnect()
-        this.timeline({ kind: 'dial', ok: outcome.ok, code: outcome.ok ? undefined : 'code' in outcome ? outcome.code ?? undefined : String(outcome.status) })
+        this.timeline({ kind: 'dial', ok: outcome.ok, code: outcome.ok ? undefined : outcome.code ?? undefined })
         resolveOutcome(outcome)
       }
       const onConnect = () => finish({ ok: true })
-      const onError = (error: Error & { data?: { code?: string } }) => finish({ ok: false, stage: 'socket', code: error.data?.code ?? null })
+      const onError = (error: Error & { data?: { code?: string } }) => finish({ ok: false, stage: 'socket', code: error.data?.code ?? error.message ?? null })
       socket.once('connect', onConnect)
       socket.once('connect_error', onError)
     })

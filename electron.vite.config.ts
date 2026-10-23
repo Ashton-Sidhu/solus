@@ -134,7 +134,7 @@ export default defineConfig(({ mode }) => {
         allow: devServeRoots(__dirname)
       }
     },
-    // The @pierre/diffs highlighter worker dynamically imports its Shiki/WASM
+    // The @pierre/diffs highlighter worker dynamically imports its highlighter
     // chunks, so it must be emitted as an ES module — Vite's default IIFE
     // worker format cannot code-split.
     worker: {

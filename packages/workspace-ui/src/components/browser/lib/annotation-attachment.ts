@@ -74,6 +74,11 @@ function browserMark(annotation: BrowserAnnotation, index: number): BrowserMark 
     pin: markPin(annotation, index),
     selector: markSelector(element),
     note: annotation.note,
+    rect: annotation.rect,
+    path: annotation.path,
+    scroll: annotation.scroll,
+    ref: annotation.tool === 'pick' ? element?.ref : undefined,
+    identifier: annotation.tool === 'pick' ? element?.identifier : undefined,
   }
 }
 

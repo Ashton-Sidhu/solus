@@ -35,7 +35,7 @@ afterAll(async () => {
 
 function recordChanges(run: () => void): boolean[] {
   const changes: boolean[] = []
-  const unsubscribe = outbox.onOutboxChanged(({ courierListChanged }) => changes.push(courierListChanged))
+  const unsubscribe = outbox.onOutboxChanged(() => changes.push(true))
   try {
     run()
   } finally {
@@ -45,28 +45,23 @@ function recordChanges(run: () => void): boolean[] {
 }
 
 describe('outbox change announcements', () => {
-  test('only a change to what a client courier lists is announced to couriers', () => {
+  test('every outbox change is one a client courier lists, and the delivery queue to the Solus API announces nothing to couriers', async () => {
+    const queue = await import('@solus/server/sync/delivery-queue')
     const changes = recordChanges(() => {
-      outbox.queueSessionReport({ organizationId: 'org1', actorUserId: '' }, { sessionId: 's-1', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
-      const cloudOp = outbox.recordOutboxOp({ domain: 'tasks', resourceId: 't-cloud', name: 'setStatus', payload: {}, destination: 'cloud', organizationId: 'org1' })
-      outbox.ackCloudOutboxOpsThrough({ organizationId: 'org1', actorUserId: '' }, Number.MAX_SAFE_INTEGER)
-      expect(outbox.listOutboxOps().map((op) => op.id)).not.toContain(cloudOp.id)
-
+      queue.queueSessionFacts({ organizationId: 'org1', actorUserId: '' }, { sessionId: 's-1', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
+      queue.appendDelivery({ organizationId: 'org1', actorUserId: '' }, 'transcript', [{ key: 's-1:0', payload: { sessionId: 's-1', position: 0, message: {} } }])
       const hostOp = outbox.recordOutboxOp({ domain: 'tasks', resourceId: 't-host', name: 'setStatus', payload: {} })
       outbox.ackOutboxOps([hostOp.id])
-      const deadCloudOp = outbox.recordOutboxOp({ domain: 'tasks', resourceId: 't-dead', name: 'setStatus', payload: {}, destination: 'cloud', organizationId: 'org1' })
-      outbox.markOutboxOpsFailed([{ id: deadCloudOp.id, error: 'refused' }])
-      expect(outbox.listOutboxOps().map((op) => op.id)).toContain(deadCloudOp.id)
+      const deadOp = outbox.recordOutboxOp({ domain: 'tasks', resourceId: 't-dead', name: 'setStatus', payload: {} })
+      outbox.markOutboxOpsFailed([{ id: deadOp.id, error: 'refused' }])
+      expect(outbox.listOutboxOps().map((op) => op.id)).toContain(deadOp.id)
     })
 
     expect(changes).toEqual([
-      false, // session report
-      false, // cloud op recorded
-      false, // cloud op acked by the workspace service
       true, // host op recorded
       true, // host op acked
-      false, // cloud op recorded
-      true, // dead-lettered cloud op becomes listed
+      true, // op recorded
+      true, // dead-lettered op stays listed
     ])
   })
 })

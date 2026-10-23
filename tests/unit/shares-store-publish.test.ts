@@ -16,7 +16,7 @@ const offlineServerIds = new Set<string>()
 mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
     ...connections,
-    statusFor: (serverId: string) => (offlineServerIds.has(serverId) ? 'disconnected' : 'connected'),
+    phaseFor: (serverId: string) => (offlineServerIds.has(serverId) ? 'offline' : 'connected'),
   },
 }))
 

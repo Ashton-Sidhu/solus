@@ -8,6 +8,7 @@ import diffs from '../../apps/client/src/demo/fixtures/data/diffs.json'
 import tasks from '../../apps/client/src/demo/fixtures/data/tasks.json'
 import replayScript from '../../apps/client/src/demo/fixtures/data/replay-script.json'
 import pr from '../../apps/client/src/demo/fixtures/data/pr.json'
+import sessions from '../../apps/client/src/demo/fixtures/data/sessions.json'
 import { demoTurnRecords, turnListingResult, turnPageResult, turnListingSummaryResult } from '../../apps/client/src/demo/fixtures/insights'
 import { answerFor, sqlSessionId, sqlWindow } from '../../apps/client/src/demo/fixtures/insights-answers'
 import { defaultExploreSql, sessionTurnsSql, sqlPresets } from '@solus/workspace-ui/components/insights/lib/insights-queries'
@@ -44,9 +45,14 @@ describe('demo diff fixtures', () => {
   // The demo's diff lookup is keyed by `IpcContext.session.sessionId`, which is
   // the persisted tab's `sessionId` — not its `tabId` and not its
   // `agentSessionId`. Keying the fixture by either of the others produced no
-  // error, just an empty working-tree and session diff for every tab.
-  test('every diff is keyed by a persisted tab session id', () => {
-    const sessionIds = new Set(demoFixtures.persistedTabs.tabs.map((tab) => tab.sessionId))
+  // error, just an empty working-tree and session diff for every tab. A session
+  // the visitor opens from the sidebar or an agent card gets a tab whose
+  // `sessionId` is its session record's id, so that id is a valid key too.
+  test('every diff is keyed by the session id a tab sends', () => {
+    const sessionIds = new Set([
+      ...demoFixtures.persistedTabs.tabs.map((tab) => tab.sessionId),
+      ...sessions.map((session) => session.meta.sessionId),
+    ])
     for (const key of Object.keys(demoFixtures.diffs)) {
       expect(sessionIds).toContain(key)
     }
@@ -85,7 +91,7 @@ describe('demo task links', () => {
 
 describe('demo pull request', () => {
   const prFixture = pr as unknown as DemoFixtures['pr']
-  const ctx = { session: { projectPath: '/home/demo/acme' } }
+  const ctx = { session: { projectPath: '/home/demo/api-gateway' } }
   const backend = new DemoBackend()
   registerPrHandlers(backend, new DemoStore({ ...devFixtures, pr: prFixture }))
 

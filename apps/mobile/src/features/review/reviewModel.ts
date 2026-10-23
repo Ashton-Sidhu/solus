@@ -7,7 +7,6 @@
 // returns a `ReviewParsedDiff` (`empty`, `raw`, or `files` with hunk and line rows).
 import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import type { ChangeTypes, FileDiffMetadata } from "@pierre/diffs/types";
-import { decodeGitPath } from "@solus/client-core/git-path-name";
 
 export interface ReviewRenderableHunkRow {
   readonly kind: "hunk";
@@ -323,9 +322,9 @@ function buildRenderableRows(file: FileDiffMetadata): ReadonlyArray<ReviewRender
 }
 
 function mapRenderableFile(file: FileDiffMetadata): ReviewRenderableFile {
-  // The parser keeps git's quotes and escapes; the host sends real paths.
-  const previousPath = file.prevName ? decodeGitPath(file.prevName) : null;
-  const path = file.name ? decodeGitPath(file.name) : (previousPath ?? "");
+  // The parser decodes git's quotes and escapes; the host sends real paths.
+  const previousPath = file.prevName ?? null;
+  const path = file.name || (previousPath ?? "");
   const additions = file.hunks.reduce((total, hunk) => total + hunk.additionLines, 0);
   const deletions = file.hunks.reduce((total, hunk) => total + hunk.deletionLines, 0);
   const cacheKey = file.cacheKey ?? `${previousPath ?? "none"}:${path}:${file.type}`;

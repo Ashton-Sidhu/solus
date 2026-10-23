@@ -309,7 +309,7 @@ describe('signed in means synced, and hosts pull after this device writes', () =
         if (url.startsWith(ISSUER) && !url.includes('/v1/')) return plane.fetch(url, init)
         const health = /^(http:\/\/[ab]:1)\/health$/.exec(url)
         if (health) return new Response(JSON.stringify({ ok: true, installationId: `inst-${health[1]!.slice(7, 8)}`, name: 'Mac', os: 'macos' }), { status: 200 })
-        if (url.endsWith('/v1/account/agent-profile')) {
+        if (url.endsWith('/v1/agent-profile')) {
           profileReads += 1
           await cloudGate
           const result = init?.method === 'PATCH'
@@ -372,7 +372,7 @@ describe('the parts the screen shows', () => {
 
     const signals: never[] = []
     expect(integrationEntryFromProbe('https://mcp.example.com/mcp ', { outcome: 'credentials-required', auth: { kind: 'bearer', scheme: 'bearer' }, signals }))
-      .toEqual({ kind: 'integration', slug: 'mcp-example-com', name: 'mcp.example.com', url: 'https://mcp.example.com/mcp', auth: { kind: 'bearer', scheme: 'bearer' } })
+      .toEqual({ kind: 'integration', slug: 'mcp-example-com', name: 'mcp.example.com', url: 'https://mcp.example.com/mcp', auth: { kind: 'bearer', scheme: 'bearer' }, disabledTools: [] })
     expect(integrationEntryFromProbe('https://x.example', { outcome: 'undetermined', reason: 'not_mcp', signals })).toBeNull()
   })
 

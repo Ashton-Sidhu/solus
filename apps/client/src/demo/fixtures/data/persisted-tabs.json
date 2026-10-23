@@ -18,12 +18,12 @@
       "taskServerId": "local",
       "agentSessionId": "demo-session-webhooks",
       "provider": "claude-code",
-      "workingDirectory": "/home/demo/acme",
+      "workingDirectory": "/home/demo/api-gateway",
       "additionalDirs": [],
       "gitContext": {
         "branch": "fix/webhook-retries",
         "targetBranch": "main",
-        "repoRoot": "/home/demo/acme"
+        "repoRoot": "/home/demo/api-gateway"
       },
       "worktreeBaseBranch": null,
       "worktreeRequested": false,
@@ -45,12 +45,12 @@
       "taskServerId": "local",
       "agentSessionId": "demo-session-ratelimit",
       "provider": "claude-code",
-      "workingDirectory": "/home/demo/acme",
+      "workingDirectory": "/home/demo/api-gateway",
       "additionalDirs": [],
       "gitContext": {
         "branch": "feat/rate-limiting",
         "targetBranch": "main",
-        "repoRoot": "/home/demo/acme"
+        "repoRoot": "/home/demo/api-gateway"
       },
       "worktreeBaseBranch": null,
       "worktreeRequested": false,
@@ -72,12 +72,12 @@
       "taskServerId": "local",
       "agentSessionId": "demo-session-billing",
       "provider": "claude-code",
-      "workingDirectory": "/home/demo/acme",
+      "workingDirectory": "/home/demo/billing-service",
       "additionalDirs": [],
       "gitContext": {
         "branch": "plan/usage-billing",
         "targetBranch": "main",
-        "repoRoot": "/home/demo/acme"
+        "repoRoot": "/home/demo/billing-service"
       },
       "worktreeBaseBranch": null,
       "worktreeRequested": false,
@@ -99,12 +99,12 @@
       "taskServerId": "local",
       "agentSessionId": null,
       "provider": null,
-      "workingDirectory": "/home/demo/acme",
+      "workingDirectory": "/home/demo/api-gateway",
       "additionalDirs": [],
       "gitContext": {
         "branch": "feat/rate-limiting",
         "targetBranch": "main",
-        "repoRoot": "/home/demo/acme"
+        "repoRoot": "/home/demo/api-gateway"
       },
       "worktreeBaseBranch": null,
       "worktreeRequested": false,

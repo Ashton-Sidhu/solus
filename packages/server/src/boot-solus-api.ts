@@ -20,9 +20,8 @@ import { onWorkReviewsChanged } from './data/works/work-reviews'
 import { publishNotificationChanges } from './notifications/hub-events'
 import { WorkLiveManager } from './work-live/work-live-manager'
 import { installWorkLiveBridge } from './data/works/work-live-bridge'
-import { getSessionRecord } from './data/sessions/session-records'
 import { createWorkspaceOperations } from './data/workspace/service'
-import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './sync/runner-intake'
+import { applyRunnerDelivery } from './sync/runner-intake'
 import { SolusServer } from './transport/server'
 import { ActingIdentities, useActingIdentities, withHostScope } from './execution/seats/acting-identity'
 import { buildHttpServer, HTTP_SERVER_TIMEOUTS } from './transport/http'
@@ -36,9 +35,6 @@ import { publishSessionViewChanges } from './transport/events/session-view-event
 import { organizationPrSync } from './prs/organization-pr-sync'
 import type { PrSync } from './prs/pr-sync'
 import { useAccountCredentialSource, type AccountCredentialSource } from './vault/vault'
-import { registerTaskOutboxApplier } from './data/tasks/task-applier'
-import { registerSessionOutboxApplier } from './data/sessions/session-applier'
-import { registerWorkOutboxApplier } from './data/works/work-applier'
 
 /**
  * The record service without a listener: the request handler, the live transport,
@@ -120,25 +116,14 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
   const presence = workspacePresence(server, events)
   registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port })
-  // A runner's outbox carries an organization's task, work, and session writes
-  // here (`/runner/outbox`); without its appliers, the first op stops the queue.
-  registerTaskOutboxApplier()
-  registerSessionOutboxApplier()
-  registerWorkOutboxApplier()
-  const { requestListener, routes, solusApiRouter, exchangeCredential } = buildHttpServer({
+  const { requestListener, routes, solusApiRouter, doors } = buildHttpServer({
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
     solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
     verifyAccessToken: (token) => tokens.verify(token),
     resolveShareSecret: secret => shares.resolveLinkSecret(secret),
-    shareLinks: new ShareLinkResolver({
-      shares,
-      runnerOf: async (organizationId, sessionId) => (await getSessionRecord(organizationId, sessionId))?.runnerHostId ?? null,
-      hostRoutes: options.hostRoutes,
-    }),
+    shareLinks: new ShareLinkResolver({ shares, hostRoutes: options.hostRoutes }),
     runner: {
-      applyOutbox: (runner, request) => applyRunnerOutbox(runner, request, shares),
-      applySessionRecords: (runner, request) => applyRunnerSessionRecords(runner, request, shares),
-      applyMirror: (runner, request) => applyRunnerMirror(runner, request, sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) }, shares),
+      deliver: (runner, request) => applyRunnerDelivery(runner, request, { shares, onTranscriptChanged: sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) } }),
     },
   })
   // A client's records go over its socket, with the socket's principal as their authority (docs/api/README.md).
@@ -188,7 +173,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     server, requestListener, routes,
     attachLiveTransport(http) {
       if (socket || liveClosed) throw new Error('The live transport is already attached or closed.')
-      socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true, verifyAccessToken: (token) => tokens.verify(token), exchangeCredential,
+      socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true, verifyAccessToken: (token) => tokens.verify(token), doors,
         onClientConnected: ({ clientId }) => {
           const principal = socket?.principalOf(clientId)
           if (principal) presence.connected(clientId, principal)

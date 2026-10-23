@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "cloudflare-api",
+      "kind": "mcp",
+      "name": "Cloudflare API",
+      "description": "The whole Cloudflare API, including DNS, Workers, R2, and Zero Trust, through search and execute tools.",
+      "domain": "cloudflare.com",
+      "categories": ["code"],
+      "url": "https://mcp.cloudflare.com/mcp",
+      "authHelp": "https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/",
+      "sources": [
+        "https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/",
+        "https://mcp.cloudflare.com/.well-known/oauth-protected-resource/mcp"
+      ]
+    },
+    {
+      "id": "salesforce-records",
+      "kind": "mcp",
+      "name": "Salesforce",
+      "description": "Read, create, and update Salesforce records as the signed-in user. If your org does not allow automatic setup, an admin creates an External Client App.",
+      "domain": "salesforce.com",
+      "categories": ["sales"],
+      "url": "https://api.salesforce.com/platform/mcp/v1/platform/sobject-all",
+      "authHelp": "https://help.salesforce.com/s/articleView?id=xcloud.external_client_apps.htm",
+      "sources": [
+        "https://api.salesforce.com/.well-known/oauth-protected-resource/platform/mcp/v1/platform/sobject-all",
+        "https://login.salesforce.com/.well-known/openid-configuration"
+      ]
+    }
+  ]
+}

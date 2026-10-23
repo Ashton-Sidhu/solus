@@ -30,7 +30,7 @@ class HostSettingsStore {
       this.nextRevision(serverId)
       this.adopt(serverId, snapshot)
     })
-    const stopStatus = serverConnections.onStatusChange((serverId, status) => {
+    const stopStatus = serverConnections.onPhaseChange((serverId, status) => {
       if (status === 'connected') void this.load(serverId)
     })
     for (const serverId of serverConnections.connectedServerIds()) void this.load(serverId)

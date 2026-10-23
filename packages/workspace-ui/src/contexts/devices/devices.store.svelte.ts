@@ -75,7 +75,7 @@ export class DevicesStore {
     const unsubscribers = [
       subscribeAllHosts('device.stateChanged', (serverId, { state }) => this.adopt(serverId, state, false)),
       subscribeAllHosts('device.surfaceRequested', (serverId, payload) => this.onSurfaceRequested?.(serverId, payload)),
-      serverConnections.onStatusChange((serverId, status) => {
+      serverConnections.onPhaseChange((serverId, status) => {
         if (status !== 'connected') return
         void this.load(serverId)
       }),

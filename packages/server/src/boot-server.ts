@@ -2,15 +2,15 @@ import { installWorkspaceToolOperations, type RemoteToolOperations } from './dat
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
 import { refreshingSessionIndexOnList } from './transport/solus-api/session-index-refresh'
-import { AccountReads, useAccountReads } from './vault/account-reads'
+import { AccountReads, PresentedTokens, useAccountReads } from './vault/account-reads'
 import { useVault, Vault } from './vault/vault'
-import { ANY_ORGANIZATION, principalFor, recordScopeOf, scopeAdmits } from './admission/principal'
+import { ANY_ORGANIZATION, CREDENTIAL_FREE_PRINCIPAL, recordScopeOf, scopeAdmits, type Principal } from './admission/principal'
 import type { ShareResource } from '@solus/contracts/sharing'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { workOrganizationId } from './data/works/works'
 import { taskOrganizationId } from './data/tasks/task-store'
 import { transcriptDestination } from './sync/mirror/transcript-mirror'
-import { appendMirror } from './sync/mirror/mirror-log'
+import { appendDelivery, deliveryBacklog, dropQueuedFor } from './sync/delivery-queue'
 import { RemoteUpdateService } from './updates/remote-update-service'
 import type { ServerUpdateSupport, SupervisorMessage } from '@solus/contracts/server-update'
 import { UpdateStatusService } from './updates/update-status-service'
@@ -23,7 +23,7 @@ import { join } from 'path'
 import { z } from 'zod'
 import { createServer as createNodeHttpServer, type IncomingMessage, type Server as HttpServer } from 'http'
 import { SolusServer } from './transport/server'
-import { buildHttpServer, type HttpServerOptions } from './transport/http'
+import { buildHttpServer } from './transport/http'
 import { answerSocketRequest } from './transport/solus-api/router'
 import { AccessTokenVerifier, type TokenVerdict } from './admission/access-tokens'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
@@ -31,10 +31,10 @@ import { readStoredTunnel, splitLegacyLinkRecord, UplinkLinkManager } from './tr
 import { HostRegistrar, readStoredRegistration } from './host/host-registration'
 import { RunnerDelivery } from './sync/runner-delivery'
 import type { TurnOrganizationDeps } from './execution/sessions/turn-organization'
-import { Delegations, establishWith } from './sync/delegations'
+import { Delegations, type DelegationScope } from './sync/delegations'
 import { remoteWorkspaceOperations } from './sync/remote-operations'
 import { useOrganizationAttachment } from './host/organization-attachment'
-import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './sync/runner-intake'
+import { applyRunnerDelivery } from './sync/runner-intake'
 import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirror'
 import { HostOrganizations } from './host/organizations'
 import { hasLeftOrganization, removeDepartedMembers } from './host/departed-members'
@@ -47,9 +47,9 @@ import { adoptHostUser, followHostAccount } from './host/host-user-rows'
 import { registerOrganizationHandlers } from './transport/handlers/organization-handlers'
 import { enrollHostCategorySchema, type EnrollHostCategory } from '@solus/contracts/uplink'
 import { TranscriptMirror, listOwnInterruptedSessions } from './sync/mirror/transcript-mirror'
-import { applyApiMode, isApiMode, apiModeConfig, apiModeCredential } from './host/api-mode'
+import { applyApiMode, isApiMode, apiModeConfig } from './host/api-mode'
 import type { HostCredential } from './host/host-credential'
-import { SOLUS_API_AUDIENCE, directoryResponseSchema, hostAudience, hostReachAudience, type HostKind, type HostRegistration } from '@solus/contracts/uplink'
+import { SOLUS_API_AUDIENCE, directoryResponseSchema, hostAudience, type HostKind, type HostRegistration } from '@solus/contracts/uplink'
 import { registerUplinkHandlers } from './transport/handlers/uplink-handlers'
 import { registerSharingHandlers } from './transport/handlers/sharing-handlers'
 import { registerCloudUploadHandlers } from './transport/solus-api/cloud-uploads'
@@ -60,6 +60,9 @@ import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
 import { IntegrationApps } from './integrations/mcp-apps'
 import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
+import { installConnectIntegrationTool } from './integrations/connect-integration-tool'
+import { createIntegration } from './integrations/integration-create'
+import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationGateway } from './integrations/gateway'
 import { hostIntegrationClients, IntegrationConnectionStore } from './integrations/connection-store'
 import { IntegrationConnections } from './integrations/connections'
@@ -83,13 +86,14 @@ import { syncBundledPlugins } from './execution/agents/plugins'
 import { setupProjectsRoot } from './workspace'
 import { fetchLogin } from './providers/github/auth'
 import { githubCredentials } from './providers/github/credentials'
+import { withUserScope } from './vault/acting-scope'
 import { solusGitHelper } from './providers/github/git-credential'
 import { SeatConnector } from './execution/seats/seat-connect'
 import { AgentAuthFlows } from './execution/seats/agent-auth'
 import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabase, getDatabase } from './db/database'
-import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, useSessionIndexState } from './data/sessions/session-records'
+import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
 import { sessionIndexComplete } from './db/session-indexer'
 import { assertRpcAccess } from './admission/access-policy'
 import { LOCAL_ORGANIZATION_ID } from './admission/principal'
@@ -186,10 +190,9 @@ import { emitSessionTasksChanged } from './data/tasks/task-sessions'
 import { onSessionPullRequestsChanged } from './data/sessions/session-pull-requests'
 import { onPullRequestWatchesChanged, stopSessionPullRequestWatches } from './data/sessions/pull-request-watches'
 import { onSessionReadStateChanged, onSessionStateChanged } from './data/sessions/session-states'
-import { deliveryBacklog, dropQueuedFor, onOutboxChanged } from './sync/outbox/outbox-store'
+import { onOutboxChanged } from './sync/outbox/outbox-store'
 import { registerOutboxHandlers } from './transport/handlers/outbox-handlers'
 import { registerTaskOutboxApplier } from './data/tasks/task-applier'
-import { registerSessionOutboxApplier } from './data/sessions/session-applier'
 import { registerWorkOutboxApplier } from './data/works/work-applier'
 import { agentTargetFromMetadata } from './execution/agents/agent-targets'
 import { registerAttachmentHandlers } from './transport/handlers/attachment-handlers'
@@ -345,7 +348,7 @@ function resolveServerRoles(apiMode: boolean): ReadonlySet<SolusRole> {
 
 /** One verifier per registration: a host with none treats every token as a stranger's. */
 function tokenVerifierFor(registration: HostRegistration | null): AccessTokenVerifier | null {
-  return registration ? new AccessTokenVerifier({ issuer: registration.issuer, jwksUrl: registration.jwksUrl, audience: hostAudience(registration.hostId), reachAudience: hostReachAudience(registration.hostId) }) : null
+  return registration ? new AccessTokenVerifier({ issuer: registration.issuer, jwksUrl: registration.jwksUrl, audience: hostAudience(registration.hostId) }) : null
 }
 
 /** The Solus API's one verifier: the account plane's issuer, for `SOLUS_API_AUDIENCE`; null on a host, whose verifier follows its registration. */
@@ -356,9 +359,9 @@ function workspaceTokenVerifier(apiMode: boolean): AccessTokenVerifier | null {
 /**
  * What a host does for its organization's Solus API once it is registered
  * (cloud-service-model.md §4–§6, §16; plans/010-standard-oauth.md): the delivery of
- * its streams, each with the delegated token of the person whose work it is, and
- * the mirror of turns its previous process left unsettled. Those rows wait in the
- * log until their person's token can carry them.
+ * its queue, each row with the delegated token of the person whose work it is, its
+ * session records once at boot, and the mirror of turns its previous process left
+ * unsettled. Those rows wait in the queue until their person's token can carry them.
  */
 function startRunnerCloud(deps: {
   registrar: HostRegistrar
@@ -372,9 +375,9 @@ function startRunnerCloud(deps: {
     delegations: deps.delegations,
     owner: deps.owner,
   })
-  // The sweep's `interrupted` reaches the Solus API as any record change does.
-  void deps.interruptSweep.then((sessionIds) => delivery.reportStoredSessions(sessionIds ?? [])).catch((error) => {
-    log.warn('session_records_interrupt_report_failed', { error: String(error) })
+  // Every own organization session's record goes once at boot, the sweep's `interrupted` among them.
+  void deps.interruptSweep.then(ownPublishedSessionIds).then((sessionIds) => delivery.reportStoredSessions(sessionIds)).catch((error) => {
+    log.warn('session_records_boot_report_failed', { error: String(error) })
   })
   void deps.interruptSweep.then(listOwnInterruptedSessions).then((sessions) => {
     for (const session of sessions) deps.transcriptMirror.touch(session.sessionId, session)
@@ -382,15 +385,6 @@ function startRunnerCloud(deps: {
     log.warn('transcript_mirror_interrupted_sweep_failed', { error: String(error) })
   })
   return delivery
-}
-
-/** The workspace service's runner routes (cloud-service-model.md §16); `buildHttpServer` mounts them in API mode only. */
-function runnerRoutes(shares: ShareManager): NonNullable<HttpServerOptions['runner']> {
-  return {
-    applyOutbox: (runner, request) => applyRunnerOutbox(runner, request, shares),
-    applySessionRecords: (runner, request) => applyRunnerSessionRecords(runner, request, shares),
-    applyMirror: applyRunnerMirror,
-  }
 }
 
 /**
@@ -479,7 +473,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const mirrorShareRows = async (resource: ShareResource): Promise<void> => {
     const destination = await transcriptDestination(resource.id)
     if (!destination) return
-    appendMirror(destination, 'shares', [{ key: `${resource.kind}:${resource.id}`, payload: { resource, rows: await shares.mirroredRows(resource) } }])
+    appendDelivery(destination, 'shares', [{ key: `${resource.kind}:${resource.id}`, payload: { resource, rows: await shares.mirroredRows(resource) } }])
   }
   const workspaceOperations = createWorkspaceOperations(shares)
   // An organization run's tools read and write its Solus API (organization-vms §3), once the link and its run authorities exist below.
@@ -557,7 +551,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // A client with no socket principal is the desktop's own IPC connection: the
   // local owner, who still does not hear another person's personal events.
   const clientEvents = new ClientEventRegistry((clientId, event) =>
-    eventVisibleTo(ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' }), event, shares))
+    eventVisibleTo(ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL, event, shares))
   const events = new HostEventPublisher(clientEvents)
   // Works people edit live (work review plan, phase 3b): a room per open work;
   // its updates go to that room only, never to everyone with access.
@@ -600,9 +594,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onWorkDeleted((change) => events.prepareBroadcast('works.changed', change)),
     onWorkReviewsChanged((change) => events.broadcast('workReviews.changed', change)),
     // A client with no socket principal is the desktop's own IPC connection: the local owner.
-    publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })),
-    publishTaskSnoozeChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })),
-    publishSessionViewChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })),
+    publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
+    publishTaskSnoozeChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
+    publishSessionViewChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
     installWorkLiveBridge(workLive.bridge()),
     // A deleted work's room ends; its clients hear the delete as `works.changed`.
     onWorkDeleted(async (change) => async () => { workLive.forget(change.workId); return 0 }),
@@ -631,9 +625,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onWorkspaceProjectsChanged(() => events.broadcast('workspaceProjects.changed', {})),
     onProjectsChanged(() => events.broadcast('projects.changed', {})),
     onTurnRowWritten((change) => events.broadcast('metrics.turnsChanged', change)),
-    onOutboxChanged(({ courierListChanged }) => {
-      if (courierListChanged) events.broadcast('outbox.changed', {})
-    }),
+    onOutboxChanged(() => events.broadcast('outbox.changed', {})),
   ]
   // A pull request changed on the code host announces nothing to Solus, so PR
   // sync asks on the workspace's behalf and turns what it finds into the same
@@ -744,7 +736,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // principal is that person. A client with no socket principal is the desktop's
   // own IPC connection, the local owner.
   const clientsForIntegrationUser = (personKey: string): string[] => clientEvents.routableClientIds().filter((clientId) =>
-    ownerKeyOf(actorFor(ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' }))) === personKey)
+    ownerKeyOf(actorFor(ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL)) === personKey)
   const integrationConnectionEvents: IntegrationConnectionEvents = {
     connectionChanged: (personKey, event) => {
       // A sign-in or a disconnect changes the header a session must send, and the tools it sees.
@@ -756,19 +748,29 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   const integrationConnectionStore = new IntegrationConnectionStore()
   // Every read of a person's account (docs/adr/0001-standard-authentication.md §3.4):
-  // with the person's delegated token as the bearer, from this host's delegations, or
-  // the Solus API's in API mode. A person's connection may live in their account
-  // (plans/020 §5): this host reads an access token per call, and holds nothing else.
+  // a host reads with its delegated token for the person; the Solus API with the
+  // person's own token, which their client presented and whose `aud` includes the
+  // account plane (docs/plans/simplify-auth-and-sync.md §3 rule 1). A person's connection
+  // may live in their account (plans/020 §5): it is read per call, and nothing else is held.
+  const presentedTokens = apiMode ? new PresentedTokens() : null
   const accountReadsOfServer = new AccountReads({
     origin: () => apiMode ? apiModeConfig().issuer : hostOrganizationsDeps.registration()?.directoryUrl ?? null,
     delegations: () => delegations,
+    ownToken: (userId) => presentedTokens?.tokenFor(userId) ?? null,
   })
   useAccountReads(accountReadsOfServer)
   // The one place a person's credentials are kept and read (docs/plans/access-model.md §2.6).
   const credentialVault = new Vault({ reads: accountReadsOfServer })
   useVault(credentialVault)
   const integrationOAuth = new IntegrationOAuth({ connections: integrationConnectionStore, integrations, vault: credentialVault, clients: hostIntegrationClients, events: integrationConnectionEvents })
-  const integrationConnections = new IntegrationConnections({ store: integrationConnectionStore, integrations, vault: credentialVault, clients: hostIntegrationClients, oauth: integrationOAuth, events: integrationConnectionEvents })
+  const integrationConnections = new IntegrationConnections({
+    store: integrationConnectionStore, integrations, vault: credentialVault, clients: hostIntegrationClients, oauth: integrationOAuth, events: integrationConnectionEvents,
+    // The Solus GitHub app's token, read as the person, is GitHub's MCP server's credential (§13.1).
+    firstPartyCredential: async (_client, personKey) => {
+      const token = await withUserScope(personKey, () => githubCredentials().accountToken())
+      return token ? { token: token.accessToken, label: token.login ?? null } : null
+    },
+  })
   integrationGateway.useCredentials(integrationConnections)
   // The agent profile (plans/020-agent-profile.md): one owner applies a person's
   // files, registry skills, and MCP servers to their seats, or to the host's own
@@ -809,9 +811,25 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const organizationId = (held && held !== 'personal' ? held.organizationId : null) ?? provisionedOrganizationId()
     return organizationId ? { kind: 'member', userId, organizationId } : null
   }
+  const integrationCatalog = new IntegrationCatalog()
+  const integrationProfile = {
+    saved: async (principal: Principal, integration: Integration) => {
+      const target = profileTargetFor(principal)
+      if (target) await profiles.integrationSaved(target, integration).catch((error) => log.warn('agent_profile_publish_failed', { error: error instanceof Error ? error.message : String(error) }))
+    },
+    removing: async (principal: Principal, integration: Integration) => {
+      const target = profileTargetFor(principal)
+      if (target) await profiles.integrationRemoving(target, integration)
+    },
+  }
+  // The agent adds and connects a service from the same catalog and create path as Settings (§13.2).
+  installConnectIntegrationTool({
+    catalog: integrationCatalog,
+    create: (principal, owner, request) => createIntegration({ store: integrations, events, profile: integrationProfile }, principal, owner, request),
+  })
   registerIntegrationHandlers(server, {
     store: integrations,
-    catalog: new IntegrationCatalog(),
+    catalog: integrationCatalog,
     gateway: integrationGateway,
     events,
     connectionStore: integrationConnectionStore,
@@ -819,16 +837,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     oauth: integrationOAuth,
     clients: hostIntegrationClients,
     getServerInfo: () => ({ host, port: actualPort }),
-    profile: {
-      saved: async (principal, integration) => {
-        const target = profileTargetFor(principal)
-        if (target) await profiles.integrationSaved(target, integration).catch((error) => log.warn('agent_profile_publish_failed', { error: error instanceof Error ? error.message : String(error) }))
-      },
-      removing: async (principal, integration) => {
-        const target = profileTargetFor(principal)
-        if (target) await profiles.integrationRemoving(target, integration)
-      },
-    },
+    profile: integrationProfile,
   })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   const guides = new ReviewGuideJobs((event) => publishGuideStatus(events, event), { pr: prGuideSource, local: localGuideSource })
@@ -865,7 +874,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   // A registered host that is not linked is reached on the local network (ADR 0001 §2.2 rule 9).
   // Account reach (docs/plans/host-reach.md §3): the person's directory, and an
-  // eight-hour host-reach token for one host, both with this host's delegation for them.
+  // one-hour token for one other host, both with this host's delegation for them.
   const accountReach = (actor: ReachActor): AccountReach | null => {
     const held = delegations
     if (apiMode || !held) return null
@@ -878,7 +887,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       },
       accessToken: async (hostId) => {
         try {
-          return await held.accessToken(actor.userId, actor.scope, { kind: 'host-reach', hostId })
+          return await held.accessToken(actor.userId, actor.scope, { kind: 'host', hostId })
         } catch (error) {
           log.info('host_reach_token_unavailable', { hostId, error: error instanceof Error ? error.message : String(error) })
           return null
@@ -895,7 +904,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     reachRequestFor: (sessionId): ReachRequest | null => {
       const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
       const principal = actor?.principal
-      if (!actor?.user || principal?.kind === 'local-owner' || principal?.kind === 'remote-owner') {
+      if (!actor?.user || principal?.kind === 'owner') {
         const owner = delegations?.holders().find((holder) => holder.scope === 'personal')
         return { account: owner ? { userId: owner.userId, scope: 'personal' } : null, isOwner: true }
       }
@@ -907,7 +916,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     organizationApisFor: (sessionId) => {
       const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
       const principal = actor?.principal
-      const owner = !actor?.user || principal?.kind === 'local-owner' || principal?.kind === 'remote-owner'
+      const owner = !actor?.user || principal?.kind === 'owner'
       const ownerId = owner ? delegations?.holders().find((holder) => holder.scope === 'personal')?.userId : undefined
       return (delegations?.holders() ?? []).flatMap((holder) => {
         if (holder.scope === 'personal') return []
@@ -965,7 +974,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Any host can own tasks (and their works), so the owner-side appliers
   // register unconditionally.
   registerTaskOutboxApplier()
-  registerSessionOutboxApplier()
   registerWorkOutboxApplier()
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
   registerAtlassianHandlers(server)
@@ -1324,30 +1332,20 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     }))
     // Organization runs on an attached machine (organization-vms §3, §4): the host acts
     // for the person behind each turn, and its tools use the Solus API as them.
-    const delivery = runnerDelivery
     turnAdmission.delegations = hostDelegations
     turnAdmission.markAttached = () => { registrar.markAttached() }
     remoteToolOperations = (sessionId) => {
       const actor = hostDelegations.actorOf(sessionId)
       if (!actor) return null
-      return remoteWorkspaceOperations(hostDelegations.apiClient(actor.userId, { organizationId: actor.organizationId }), (sessionRecordId) => delivery.deliverSessionReport(sessionRecordId))
-    }
-  } else {
-    // The Solus API reads a person's account as a host does (ADR 0001 §6.2): it exchanges
-    // the API token their client presented, for the organization the request names, with
-    // its service credential. A refusal ends nothing else here: the next request makes a
-    // new delegation, or reads nothing.
-    const credential = apiModeCredential()
-    if (credential) {
-      delegations = new Delegations({
-        registration: () => null,
-        credential: () => credential,
-        onRevoked: (userId, scope, refusal) => log.info('delegation_revoked', { userId, scope: scope === 'personal' ? scope : scope.organizationId, refusal }),
-      })
-    } else {
-      log.warn('api_account_reads_off', { reason: 'SOLUS_API_CLIENT_KEY is not set' })
+      return remoteWorkspaceOperations(hostDelegations.apiClient(actor.userId, { organizationId: actor.organizationId }))
     }
   }
+  // What a token a person's client presents here makes: a host's delegations for them,
+  // or, in the Solus API, the token kept to read their account with (`PresentedTokens`).
+  const heldDelegations = delegations
+  const establishPresented = heldDelegations
+    ? (token: string, scope: DelegationScope) => heldDelegations.establish(token, scope)
+    : presentedTokens ? async (token: string) => presentedTokens.keep(token) : undefined
   registerOrganizationHandlers(server, {
     hostOrganizations,
     forgetResource: (resource) => shares.forget(resource),
@@ -1357,7 +1355,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     delivery: () => ({ backlog: deliveryBacklog(), error: runnerDelivery?.currentStatus().error ?? null }),
   })
 
-  const { server: http, requestListener, solusApiRouter, exchangeCredential } = buildHttpServer({
+  const { server: http, requestListener, solusApiRouter, doors } = buildHttpServer({
     solusApi: { operations: refreshingSessionIndexOnList(workspaceOperations, () => opts.sessionRuntime.requestSessionIndexRefresh()), ...apiSettings },
     isVerifyingUpdate: () => server.isVerifyingUpdate,
     host,
@@ -1374,13 +1372,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     pairingDisabled: credentialAlwaysRequired,
     isApiMode: apiMode,
     verifyAccessToken: verifyHostAccessToken,
-    // The Solus API acts for a person only in one organization: it makes no personal delegation.
-    establishDelegation: delegations ? establishWith(delegations, apiMode) : undefined,
+    establishDelegation: establishPresented,
     // Every host admits its own guests (docs/plans/host-sharing.md §4.1).
     resolveShareSecret: (secret) => shares.resolveLinkSecret(secret),
     runner: {
-      ...runnerRoutes(shares),
-      applyMirror: (runner, request) => applyRunnerMirror(runner, request, (sessionId) => events.broadcast('session.transcriptChanged', { sessionId }), shares),
+      deliver: (runner, request) => applyRunnerDelivery(runner, request, { shares, onTranscriptChanged: (sessionId) => events.broadcast('session.transcriptChanged', { sessionId }) }),
     },
     transcribeAudio: opts.transcribeAudio,
     completeIntegrationOAuth: (params) => integrationOAuth.complete(params),
@@ -1445,7 +1441,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     clientEvents,
     browserFrames,
     verifyAccessToken: verifyHostAccessToken,
-    exchangeCredential,
+    doors,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
     isTunnelRequest,
@@ -1605,7 +1601,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       clientEvents,
       browserFrames,
       verifyAccessToken: verifyHostAccessToken,
-      exchangeCredential,
+      doors,
       requireAuth: () => requireAuth,
       isTrustedRequester: isTrustedRequesterAddress,
       isTunnelRequest,
@@ -1631,7 +1627,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   // Every admitted socket may present the person's account token: renewal and `accountPresent` keep their delegation (ADR 0001 §6 item 5).
-  registerAuthHandlers(server, delegations ? { verify: verifyHostAccessToken, establish: establishWith(delegations, apiMode) } : null)
+  registerAuthHandlers(server, establishPresented ? { verify: verifyHostAccessToken, establish: establishPresented } : null)
   registerConnectionsHandlers(server, {
     getServerInfo: () => ({
       host,

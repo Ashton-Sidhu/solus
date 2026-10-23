@@ -35,7 +35,7 @@ export default defineConfig({
     // those resolve correctly from the original file locations because Vite
     // walks the actual file path, not the alias.
   },
-  // The @pierre/diffs highlighter worker dynamically imports its Shiki/WASM
+  // The @pierre/diffs highlighter worker dynamically imports its highlighter
   // chunks — IIFE format (Vite default) cannot code-split, so use ES modules.
   worker: {
     format: 'es',

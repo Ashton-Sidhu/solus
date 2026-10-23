@@ -12,6 +12,7 @@ import { createLogger } from '../logger'
 import type { FetchLike } from '../admission/access-tokens'
 import { HostCredentialError, type HostCredential } from './host-credential'
 import { LOCAL_ORGANIZATION_ID } from './host-category'
+import { fetchAccountPlane } from './account-plane'
 
 const log = createLogger('main', 'host-organizations')
 
@@ -129,7 +130,6 @@ export class HostOrganizations {
       this.setStanding(null)
       return
     }
-    const fetchImpl: FetchLike = this.deps.fetchImpl ?? fetch
     let answer: HostOrganizationsResponse | null = null
     try {
       const token = await credential.hostAccessToken().catch(refusedAsNull)
@@ -140,7 +140,7 @@ export class HostOrganizations {
         this.deps.onRegistrationRefused?.()
         return
       }
-      const response = await fetchImpl(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/organizations`, {
+      const response = await fetchAccountPlane(this.deps.fetchImpl, `${registration.directoryUrl}/v1/hosts/${registration.hostId}/organizations`, {
         headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })

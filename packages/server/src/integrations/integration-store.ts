@@ -2,7 +2,7 @@ import type { SQLInputValue } from 'node:sqlite'
 import { sql, type SQL } from 'drizzle-orm'
 import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { z } from 'zod'
-import { integrationAuthSchema, type Integration, type IntegrationAuth } from '@solus/contracts/integration-types'
+import { integrationAuthSchema, integrationKindSchema, solusServerIdOf, type Integration, type IntegrationAuth } from '@solus/contracts/integration-types'
 import { ulid } from '@solus/contracts/ulid'
 import type { RecordScope } from '../admission/principal'
 import { scopeClause } from '../data/scope'
@@ -23,7 +23,7 @@ const integrationRowSchema = z.object({
   id: z.string(),
   organization_id: z.string(),
   owner_key: z.string(),
-  kind: z.literal('mcp'),
+  kind: integrationKindSchema,
   slug: z.string(),
   name: z.string(),
   url: z.string(),
@@ -139,6 +139,8 @@ export class IntegrationStore {
     const now = new Date().toISOString()
     const id = ulid()
     const auth = JSON.stringify(integrationAuthSchema.parse(input.auth))
+    // A `solus:` address names a Solus MCP server the host runs itself (§13.6).
+    const kind = solusServerIdOf(input.url) ? 'solus' : 'mcp'
     withTx(() => {
       for (let attempt = 1; ; attempt++) {
         const slug = slugCandidate(input.slug, attempt)
@@ -146,7 +148,7 @@ export class IntegrationStore {
         if (taken) continue
         run(sql`
           INSERT INTO integration (id, organization_id, owner_key, kind, slug, name, url, auth, created_by, created_at, updated_at)
-          VALUES (${id}, ${organizationId}, ${ownerKey}, 'mcp', ${slug}, ${input.name}, ${input.url}, ${auth}, ${ownerKey}, ${now}, ${now})
+          VALUES (${id}, ${organizationId}, ${ownerKey}, ${kind}, ${slug}, ${input.name}, ${input.url}, ${auth}, ${ownerKey}, ${now}, ${now})
         `)
         return
       }

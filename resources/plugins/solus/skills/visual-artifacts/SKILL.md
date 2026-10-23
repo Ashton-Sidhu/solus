@@ -112,6 +112,7 @@ Use the injected theme tokens. They follow the user's light or dark mode live:
 - Page and text: `--background` (the conversation around the frame), `--foreground`, `--muted-foreground`.
 - Panels and lines: `--card`, `--muted`, `--secondary`, `--popover`, each with a `-foreground`; `--border`, `--input`, `--ring`.
 - Actions and single-series data: `--primary` and `--primary-foreground` for solid buttons; `--accent` and `--accent-foreground` for the brand accent; `--accent-surface` for a quiet selected or hover fill.
+- Solus's own UI: `--brand` and `--brand-foreground` are the app's accent. In a mock-up of a Solus screen, use them for solid buttons instead of `--primary`, which is the calmer render accent.
 - Status: `--destructive`, `--warning`, `--success`, `--info`, each with a `-foreground` for text; `--destructive-surface` and `--warning-surface` for tinted backgrounds.
 - Categories: `--chart-1` through `--chart-6`. Code: `--code-background`, `--code-foreground`.
 - Shape and type: `--radius`, `--font-sans`, `--font-mono`.

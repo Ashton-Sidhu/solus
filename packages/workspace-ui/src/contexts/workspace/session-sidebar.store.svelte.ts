@@ -1,4 +1,3 @@
-import type { TaskOpenTrace } from '../../components/session/lib/task-open-timing'
 import { createAppContext } from '../app/create-app-context'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { untrack } from 'svelte'
@@ -87,6 +86,7 @@ import {
   type PrLinkDiscoveryAttempt,
 } from './pr-link-discovery'
 import { projectHome, runHost, workingPlace } from './run-location'
+import { visibleInWindow } from '@solus/client-core/organization-filter'
 
 function restoredSessionActivityAt(
   liveActivityAt: number,
@@ -156,6 +156,8 @@ export function runGroupKey(run: Pick<RunConfig, 'location'>, projectKey: string
 export function mountedSidebarTabIds(
   tabOrder: readonly string[],
   tabs: Readonly<Record<string, Tab>>,
+  organizationIdForTab: (tabId: string) => string | undefined = () => undefined,
+  activeOrganizationId: string | null = null,
 ): string[] {
   const mounted = tabOrder.filter((tabId) => !!tabs[tabId])
   const seen = new Set(mounted)
@@ -164,14 +166,14 @@ export function mountedSidebarTabIds(
     mounted.push(tabId)
     seen.add(tabId)
   }
-  return mounted
+  return mounted.filter((tabId) => visibleInWindow(organizationIdForTab(tabId), activeOrganizationId))
 }
 
 /** The homes as the saved-host registry and the live sockets know them, without a reactive store. */
 export function registrySessionHomes(): SessionHomeHosts {
   return {
     isSolusApi: isSolusApiId,
-    isConnected: (serverId) => !!serverId && serverConnections.statusFor(serverId) === 'connected',
+    isConnected: (serverId) => !!serverId && serverConnections.phaseFor(serverId) === 'connected',
   }
 }
 
@@ -193,6 +195,8 @@ export class SessionSidebarStore {
   visibleTabIds: string[] = $derived.by(() => mountedSidebarTabIds(
     this.session.tabOrder,
     this.session.tabs,
+    (tabId) => this.session.sessionFor(tabId)?.organizationId ?? undefined,
+    this.activeOrganizationId(),
   ))
 
   /** Which tab, if any, has a given session mounted. Built once per
@@ -542,7 +546,7 @@ export class SessionSidebarStore {
       const session = this.session.sessionFor(tabId)
       return session ? [session.id] : []
     }))
-    const listedSessions = sessionListStore.sessions
+    const listedSessions = sessionListStore.sessionsInOrganization(this.activeOrganizationId())
       .filter((listed) => {
         if (mountedSessionIds.has(listed.sessionId)) return false
         if (sessionListStore.stateFor(listed.sessionId)?.settledBy === 'task') return false
@@ -1134,6 +1138,7 @@ export class SessionSidebarStore {
      *  its homes. The app core hands in the reactive servers store; the registry
      *  answers on its own for a store built without one. */
     private readonly sessionHomes: SessionHomeHosts = registrySessionHomes(),
+    private readonly activeOrganizationId: () => string | null = () => null,
   ) {
     this.openTaskIds = new SvelteSet(loadOpenSidebarTaskIds() ?? [])
     this.session.onTaskOpened = (taskId) => this.restoreTask(taskId)
@@ -1677,13 +1682,13 @@ export class SessionSidebarStore {
     this.session.selectTab(tabId)
   }
 
-  async selectTask(task: SidebarTask, timing?: TaskOpenTrace): Promise<void> {
+  async selectTask(task: SidebarTask): Promise<void> {
     // A task is talked to through its lead, with the task page beside it
     // (docs/plans/task-conversation.md). A task with no lead gets a lead
     // draft. Its other sessions are on its page.
     const record = task.taskId ? this.taskRecord(task.taskId) : undefined
     if (record) {
-      await this.session.opening.openTask(record, timing)
+      await this.session.opening.openTask(record)
       return
     }
     // A session's own row stands for one conversation: the mounted one, or
@@ -1691,7 +1696,6 @@ export class SessionSidebarStore {
     const tabId = task.tabIds[0]
     if (tabId) this.selectTab(tabId)
     else await this.openListedSession(task)
-    timing?.shown()
   }
 
   /** The next/previous-session keys: open the open row `delta` rows from the

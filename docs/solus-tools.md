@@ -23,6 +23,8 @@ The Automations tools reach only the automations that person may see: their
 own, or every one for a host administrator. `query_insights` runs SQL over every
 person's turns, so only a host administrator's turn may call it; another
 person's turn gets a refusal and can open Insights to see their own turns.
+`connect_integration` adds a server only to the calling person's own servers,
+and only from an exact catalog match (docs/integrations.md).
 
 These switches control Solus tools only. Provider-native tools and external MCP
 servers keep their own settings. The internal `submit_review_guide` output tool

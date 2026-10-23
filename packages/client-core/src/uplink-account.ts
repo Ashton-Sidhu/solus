@@ -1,7 +1,8 @@
 import type { NativeSolusAPI } from '@solus/contracts/host-api'
 import type { UplinkDirectory } from '@solus/contracts/uplink'
 import { configureCloudAccount, oauthCloudAccount, type CloudAccountSession } from './cloud-account'
-import { oauthUplinkAccountSource, type UplinkAccountSource } from './uplink-session'
+import type { AccountState } from '@solus/contracts/account-types'
+import { isSignedOutState, oauthUplinkAccountSource, type UplinkAccountSource } from './uplink-session'
 import { webAccountSession } from './web-sign-in'
 
 /**
@@ -19,9 +20,14 @@ function detectSource(): UplinkAccountSource | null {
   // SAFETY: `solusNative` is what the desktop preload exposes (apps/desktop/src/renderer/env.d.ts).
   const native = (globalThis as { window?: { solusNative?: NativeSolusAPI } }).window?.solusNative
   if (!native) return null
+  // Main holds the sign-in and pushes each change. Until it first answers, no dial is blocked on a guess.
+  let state: AccountState | undefined
+  native.onAccountStateChange((next) => { state = next })
+  void native.accountState().then((next) => { state ??= next }, () => {})
   return {
     listDirectory: () => native.uplinkListDirectory(),
     accessToken: (resource, options) => native.accountAccessToken(resource, options),
+    isSignedOut: () => isSignedOutState(state),
     issueEnrollmentTicket: () => native.uplinkIssueEnrollmentTicket(),
     loadOrganizationDirectory: (organizationId) => native.uplinkOrganizationDirectory(organizationId),
     startManagedHost: (hostId) => native.uplinkStartManagedHost(hostId),

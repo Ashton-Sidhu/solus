@@ -118,8 +118,8 @@ afterAll(async () => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-const PAIRED: Principal = { kind: 'local-owner', deviceId: 'phone', deviceLabel: 'Phone' }
-const ALICE: Principal = { kind: 'remote-owner', userId: 'alice', deviceId: 'account-session', expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
+const PAIRED: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: 'phone', deviceLabel: 'Phone' }
+const ALICE: Principal = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'account-session', expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
 const BOB_IN_A: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', deviceId: 'd-bob', expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
 
 const ctx = (sessionId: string, organizationId?: string, extra: Partial<IpcContext['session']> = {}): IpcContext => ({ session: { sessionId, organizationId, ...extra } } as IpcContext)
@@ -281,7 +281,8 @@ describe('every new session passes the turn admission', () => {
   test('a headless start with the requester\'s organization is admitted on the Solus API before its provider runs', async () => {
     const { start, runs, authorities } = await harness()
     const started = await start(ALICE, 'A') as { sessionId: string }
-    expect(authorities.calls).toEqual([{ sessionId: started.sessionId, userId: 'alice', organizationId: 'A', admit: true }])
+    // The API writes the session's record from the facts the admission carries.
+    expect(authorities.calls).toEqual([{ sessionId: started.sessionId, userId: 'alice', organizationId: 'A', admit: true, record: expect.objectContaining({ provider: 'claude-code', privateToOwner: false }) }])
     expect(runs.map((run) => run.sessionId)).toEqual([started.sessionId])
     expect(turnOrganization.pendingOrganizationFor(started.sessionId)).toBe('A')
     expect((await shares.homeOf({ kind: 'session', id: started.sessionId }))?.ownerKey).toBe('alice')
@@ -291,7 +292,7 @@ describe('every new session passes the turn admission', () => {
     const { startChild, runs, authorities, actors } = await harness()
     await bobsParent(actors)
     const child = await startChild()
-    expect(authorities.calls).toEqual([{ sessionId: child.sessionId, userId: 'bob', organizationId: 'A', admit: true }])
+    expect(authorities.calls).toEqual([{ sessionId: child.sessionId, userId: 'bob', organizationId: 'A', admit: true, record: expect.objectContaining({ privateToOwner: false }) }])
     expect(runs.map((run) => run.sessionId)).toEqual([child.sessionId])
     expect(turnOrganization.pendingOrganizationFor(child.sessionId)).toBe('A')
     expect((await shares.homeOf({ kind: 'session', id: child.sessionId }))?.ownerKey).toBe('bob')
@@ -526,24 +527,40 @@ describe('the Solus API takes a session\'s owner from its admission', () => {
     await expect(operations.admit(withoutDelegation, { sessionId: 'solus-bob' })).rejects.toMatchObject({ status: 403 })
   })
 
+  test('the admission writes the session record, so an agent\'s first write that names the session finds it; asking again changes nothing', async () => {
+    // WHY: the host waited up to ten seconds for its first report to arrive before an
+    // agent's first write (simplify-auth-and-sync §4.5). The record is written where the session is admitted.
+    const operations = new sessionApi.SessionApiOperations(shares)
+    const record = { provider: 'codex' as const, projectPath: '-repo', cwd: '/repo', privateToOwner: false }
+    await operations.admit(delegatedContext(), { sessionId: 'solus-admitted', record })
+    expect(await records.getSessionRecord('A', 'solus-admitted')).toMatchObject({ ownerKey: 'bob', runnerHostId: 'VM', publication: 'published', provider: 'codex', status: 'running' })
+    expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, { kind: 'session', id: 'solus-admitted' })).toBe('editor')
+    await records.setSessionRecordStatus('A', 'solus-admitted', 'idle')
+    await operations.admit(delegatedContext(), { sessionId: 'solus-admitted', record })
+    expect((await records.getSessionRecord('A', 'solus-admitted'))?.status).toBe('idle')
+    // A chat stays its owner's alone.
+    await operations.admit(delegatedContext(), { sessionId: 'solus-admitted-chat', record: { ...record, privateToOwner: true } })
+    expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, { kind: 'session', id: 'solus-admitted-chat' })).toBe('none')
+  })
+
   test('the first report takes the admission\'s owner, not the linker\'s or the report\'s; later reports and replays cannot change it', async () => {
-    const report = (seq: number, sessionId: string, extra: Record<string, string> = {}) => ({ seq, record: { sessionId, provider: 'claude-code' as const, projectPath: '-repo', lastActivityAt: seq, ...extra } })
-    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [report(1, 'thread-bob', { admissionId: 'solus-bob', ownerKey: 'mallory' })] }, shares)
+    const report = (seq: number, sessionId: string, extra: { admissionId?: string; ownerKey?: string; title?: string } = {}) => ({ seq, kind: 'session' as const, payload: { sessionId, provider: 'claude-code' as const, projectPath: '-repo', lastActivityAt: seq, ...extra } })
+    await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [report(1, 'thread-bob', { admissionId: 'solus-bob', ownerKey: 'mallory' })] }, { shares })
     expect(await records.getSessionRecord('A', 'thread-bob')).toMatchObject({ ownerKey: 'bob', runnerHostId: 'VM' })
     expect((await shares.homeOf({ kind: 'session', id: 'thread-bob' }))?.ownerKey).toBe('bob')
     // Existing organization access: the organization's members may open it (editor), as anything made in its space.
     expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, { kind: 'session', id: 'thread-bob' })).toBe('editor')
-    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [report(2, 'thread-bob', { ownerKey: 'mallory', title: 'Renamed' })] }, shares)
+    await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [report(2, 'thread-bob', { ownerKey: 'mallory', title: 'Renamed' })] }, { shares })
     expect(await records.getSessionRecord('A', 'thread-bob')).toMatchObject({ ownerKey: 'bob', title: 'Renamed' })
     expect((await shares.homeOf({ kind: 'session', id: 'thread-bob' }))?.ownerKey).toBe('bob')
     // A record with no admission — a published Local session — belongs to the account that linked the runner.
-    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [report(3, 'thread-published', { ownerKey: 'mallory' })] }, shares)
+    await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [report(3, 'thread-published', { ownerKey: 'mallory' })] }, { shares })
     expect(await records.getSessionRecord('A', 'thread-published')).toMatchObject({ ownerKey: 'alice' })
   })
 
   test('a chat the runner reports is its owner\'s alone on the API until they share it (plan 004 D14)', async () => {
     const chat = { kind: 'session', id: 'thread-bob-chat' } as const
-    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [{ seq: 10, record: { sessionId: chat.id, provider: 'claude-code', projectPath: '-chat', lastActivityAt: 10, privateToOwner: true } }] }, shares)
+    await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [{ seq: 10, kind: 'session', payload: { sessionId: chat.id, provider: 'claude-code', projectPath: '-chat', lastActivityAt: 10, privateToOwner: true } }] }, { shares })
     expect((await shares.homeOf(chat))?.ownerKey).toBe('alice')
     expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, chat)).toBe('none')
     expect(await records.getSessionRecord('A', chat.id)).not.toHaveProperty('privateToOwner')
@@ -551,7 +568,7 @@ describe('the Solus API takes a session\'s owner from its admission', () => {
 
   test('a record a runner report creates reads published to the organization\'s clients', async () => {
     // WHY: a runner reports only published sessions; a client that reads `local` treats the session as not on the API.
-    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [{ seq: 20, record: { sessionId: 'thread-reported', provider: 'codex', projectPath: '-repo', lastActivityAt: 20 } }] }, shares)
+    await intake.applyRunnerDelivery(runner('alice'), { hostId: 'VM', items: [{ seq: 20, kind: 'session', payload: { sessionId: 'thread-reported', provider: 'codex', projectPath: '-repo', lastActivityAt: 20 } }] }, { shares })
     const reader = { principal: { ...BOB_IN_A, userId: 'carol' } as Principal, home: { kind: 'organization' as const, serviceId: 'api', organizationId: 'A' }, scopes: ['sessions:read' as const] }
     expect(await new sessionApi.SessionApiOperations(shares).get(reader, 'thread-reported')).toMatchObject({ id: 'thread-reported', organizationId: 'A', publication: 'published' })
   })

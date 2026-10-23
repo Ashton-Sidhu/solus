@@ -64,13 +64,17 @@ describe('the share link door', () => {
       },
       shareLinks: new ShareLinkResolver({
         shares: {
-          resolveLinkSecret: async (secret) => (secret === SECRET ? LINK : null),
-          roleFor: async (principal) => {
-            askedFor.push(principal)
-            return 'editor'
-          },
+          openLink: async (secret) => (secret === SECRET
+            ? {
+                share: LINK,
+                runnerHostId: 'host_a',
+                roleOf: (principal) => {
+                  askedFor.push(principal)
+                  return 'editor'
+                },
+              }
+            : null),
         },
-        runnerOf: async () => 'host_a',
       }),
     })
     server = built.server

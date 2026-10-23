@@ -1,4 +1,6 @@
-import { integrationUrlSchema, type IntegrationAuth, type IntegrationConnection, type IntegrationProbeResult } from '@solus/contracts/integration-types'
+import { firstPartyClientById } from '@solus/contracts/first-party-clients'
+import { integrationUrlSchema, solusServerIdOf, type IntegrationConnection, type IntegrationProbeResult } from '@solus/contracts/integration-types'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 
 type UndeterminedReason = Extract<IntegrationProbeResult, { outcome: 'undetermined' }>['reason']
 
@@ -19,21 +21,6 @@ export function probeRefusal(result: IntegrationProbeResult): string | null {
   return result.outcome === 'undetermined' ? UNDETERMINED_REASONS[result.reason] : null
 }
 
-/** What runs right after Add: a sign-in, the administrator's OAuth client form, or nothing. */
-export function afterAddStep(auth: IntegrationAuth): 'ready' | 'connect' | 'oauth-client' {
-  if (auth.kind === 'none') return 'ready'
-  if (auth.kind === 'oauth' && auth.registration === 'client-required' && !auth.clientId) return 'oauth-client'
-  return 'connect'
-}
-
-/**
- * The host lists tools only for a server that works without sign-in or that the
- * person is connected to. Asking for any other is an error, not a list.
- */
-export function canListTools(auth: IntegrationAuth, connection: IntegrationConnection | null): boolean {
-  return auth.kind === 'none' || connection?.status === 'connected'
-}
-
 /** "3 tools are ready" for the connect dialog's last step. */
 export function readyToolsText(count: number): string {
   if (count === 0) return 'No tools are on. Agents get none from this server.'
@@ -48,26 +35,11 @@ export function readyToolsText(count: number): string {
  */
 export type ConnectStep = 'adding' | 'oauth-client' | 'sign-in' | 'tools'
 
-export function connectStep(auth: IntegrationAuth | null, connection: IntegrationConnection | null): ConnectStep {
-  if (!auth) return 'adding'
-  if (canListTools(auth, connection)) return 'tools'
-  return afterAddStep(auth) === 'oauth-client' ? 'oauth-client' : 'sign-in'
-}
-
 export interface IntegrationStatusText {
   text: string
   tone: 'ready' | 'attention' | 'error'
   /** The row shows Connect or Reconnect beside the status. */
   canConnect: boolean
-}
-
-/** One installed server's state in a few words, for its row in the MCP list. */
-export function integrationStatusText(auth: IntegrationAuth, connection: IntegrationConnection | null): IntegrationStatusText {
-  if (auth.kind === 'none') return { text: 'Ready', tone: 'ready', canConnect: false }
-  if (afterAddStep(auth) === 'oauth-client' && connection?.status !== 'connected') return { text: 'Needs an OAuth client', tone: 'attention', canConnect: false }
-  const status = connectionStatusText(connection)
-  if (connection?.status === 'connected') return { text: status.text, tone: 'ready', canConnect: false }
-  return { text: status.text, tone: connection ? 'error' : 'attention', canConnect: status.action !== null }
 }
 
 /** "1,306 servers" for the whole catalog, or every match of a query. */
@@ -110,6 +82,8 @@ export function connectionStatusText(connection: IntegrationConnection | null): 
 
 /** The host part of an integration's address, or the address when it does not parse. */
 export function urlHost(url: string): string {
+  // A Solus MCP server runs inside the host and has no address of its own (§13.6).
+  if (solusServerIdOf(url)) return 'Built by Solus'
   return URL.canParse(url) ? new URL(url).host : url
 }
 
@@ -133,29 +107,56 @@ export function oauthRedirectUrl(hostOrigin: string): string {
 }
 
 export type OAuthClientText =
-  | { state: 'missing'; message: string; connectHint: string }
+  | { state: 'automatic'; message: string }
+  | { state: 'missing'; connectHint: string }
   | { state: 'set'; message: string; clientId: string; secret: string; changeHint: string | null }
 
 /**
- * The administrator's OAuth client of a server with no dynamic registration
- * (mcp-integrations.md §4.3), in words. Null when the server needs no client.
+ * One installed server as the desktop and web settings word it: the shared
+ * sign-in rules (`IntegrationSignIn`) and this client's text for them.
  */
-export function oauthClientText(auth: IntegrationAuth): OAuthClientText | null {
-  if (auth.kind !== 'oauth' || auth.registration !== 'client-required') return null
-  if (!auth.clientId) {
-    return {
-      state: 'missing',
-      message: 'This server needs an OAuth client. Create one at the service and enter it here.',
-      connectHint: 'Enter the OAuth client first',
-    }
+export class IntegrationLabels extends IntegrationSignIn {
+  /** Where the connect dialog stands once the host has the record. */
+  connectStep(connection: IntegrationConnection | null): Exclude<ConnectStep, 'adding'> {
+    if (this.canListTools(connection)) return 'tools'
+    return this.needsOwnerClient ? 'oauth-client' : 'sign-in'
   }
-  // Save replaces the whole client on the host, so a saved secret must be typed again to stay.
-  return {
-    state: 'set',
-    message: 'OAuth client set',
-    clientId: auth.clientId,
-    secret: auth.hasClientSecret ? 'Secret saved' : 'No secret',
-    changeHint: auth.hasClientSecret ? 'Enter the secret again to keep it. An empty field saves no secret.' : null,
+
+  /** The server's state in a few words, for its row in the MCP list. */
+  statusText(connection: IntegrationConnection | null): IntegrationStatusText {
+    if (!this.needsConnection) return { text: 'Ready', tone: 'ready', canConnect: false }
+    if (this.needsOwnerClient && connection?.status !== 'connected') return { text: 'Needs an OAuth client', tone: 'attention', canConnect: false }
+    const status = connectionStatusText(connection)
+    if (connection?.status === 'connected') return { text: status.text, tone: 'ready', canConnect: false }
+    return { text: status.text, tone: connection ? 'error' : 'attention', canConnect: status.action !== null }
+  }
+
+  /**
+   * The OAuth client line. Manual client setup is available for every OAuth
+   * server; it blocks sign-in only when the server cannot register a client
+   * automatically.
+   */
+  get clientText(): OAuthClientText | null {
+    const { auth } = this.integration
+    if (auth.kind !== 'oauth') return null
+    const firstParty = this.firstParty
+    // A Solus app signs in; the owner may still use their own (§13.1).
+    if (firstParty) return { state: 'automatic', message: `Signs in with ${firstPartyClientById(firstParty).label}. Use your own OAuth app instead` }
+    if (!auth.clientId && auth.registration !== 'client-required') return { state: 'automatic', message: 'Use your own OAuth app' }
+    if (!auth.clientId) {
+      return {
+        state: 'missing',
+        connectHint: 'Enter the OAuth client first',
+      }
+    }
+    // Save replaces the whole client on the host, so a saved secret must be typed again to stay.
+    return {
+      state: 'set',
+      message: 'OAuth client set',
+      clientId: auth.clientId,
+      secret: auth.hasClientSecret ? 'Secret saved' : 'No secret',
+      changeHint: auth.hasClientSecret ? 'Enter the secret again to keep it. An empty field saves no secret.' : null,
+    }
   }
 }
 

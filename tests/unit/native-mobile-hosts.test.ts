@@ -163,7 +163,9 @@ describe('native host connections', () => {
     expect(transports).toHaveLength(2)
   })
 
-  test('a cloud host forwards forced grant renewal and falls back from direct to tunnel', async () => {
+  test('a cloud host passes a refused token back to the account, and every dial goes through route choice', async () => {
+    // WHY (simplify-auth-and-sync §4.4): one route policy. A failed dial is not
+    // re-aimed round-robin; the next dial asks every route again, in parallel.
     const { registry, connections, transports, timers, grantOptions } = createHostWorld()
     await registry.load()
     registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
@@ -172,13 +174,14 @@ describe('native host connections', () => {
     connections.connection('inst-cloud')
     const transport = transports[0]
     expect(transport?.options.sessionToken).toBe('')
-    expect(await transport?.options.acquireGrant?.()).toBe('grant-for-inst-cloud')
-    expect(await transport?.options.acquireGrant?.({ fresh: true })).toBe('grant-for-inst-cloud')
-    expect(grantOptions).toEqual([undefined, { fresh: true }])
+    expect(await transport?.options.grants?.acquire()).toBe('grant-for-inst-cloud')
+    expect(await transport?.options.grants?.acquire({ refused: 'grant-old' })).toBe('grant-for-inst-cloud')
+    expect(grantOptions).toEqual([undefined, { refused: 'grant-old' }])
     expect(transport?.serverUrl).toBe('http://10.0.0.20:51234')
     await flushRouteChecks()
+    expect(transport?.dials).toBe(1)
     transport?.fail('dial-failed')
-    expect(transport?.serverUrl).toBe('https://build.tunnel.solus.sh')
+    expect(transport?.serverUrl).toBe('http://10.0.0.20:51234')
     timers.runAll()
     await flushRouteChecks()
     expect(transport?.dials).toBe(2)
@@ -218,7 +221,7 @@ describe('native host connections', () => {
     const [cloud, paired] = transports
     // An access token lists every organization that reaches the host; the dial picks one (ADR 0001 §6.4).
     expect(cloud?.options.dialOrganizationId?.()).toBe('org-1')
-    expect(paired?.options.acquireGrant).toBeUndefined()
+    expect(paired?.options.grants).toBeUndefined()
     expect(paired?.options.dialOrganizationId).toBeUndefined()
   })
 

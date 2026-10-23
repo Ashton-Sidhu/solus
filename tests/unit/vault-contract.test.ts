@@ -99,7 +99,7 @@ describe('requests', () => {
   })
 
   test('a host worker writes back seat refs only', () => {
-    const write = { organizationId: 'org', ref: { kind: 'seat', provider: 'codex' }, file: '{}', expectedVersion: 4 }
+    const write = { userId: 'user_a', organizationId: 'org', ref: { kind: 'seat', provider: 'codex' }, file: '{}', expectedVersion: 4 }
     expect(vaultSeatWriteRequestSchema.safeParse(write).success).toBe(true)
     expect(vaultSeatWriteRequestSchema.safeParse({ ...write, ref: { kind: 'typesafe' } }).success).toBe(false)
   })

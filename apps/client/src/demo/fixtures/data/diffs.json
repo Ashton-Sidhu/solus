@@ -50,5 +50,60 @@
       }
     ],
     "changedFiles": ["src/ratelimit/tokenBucket.ts", "src/middleware/rateLimit.ts", "src/api/router.ts"]
+  },
+  "demo-worker-dashboard": {
+    "patch": "diff --git a/src/dashboard/AccountPage.tsx b/src/dashboard/AccountPage.tsx\nindex 4d1c2a9..8f03b7e 100644\n--- a/src/dashboard/AccountPage.tsx\n+++ b/src/dashboard/AccountPage.tsx\n@@ -12,13 +12,17 @@\n import { PlanCard } from './PlanCard'\n-import { RequestCountChart } from './RequestCountChart'\n+import { UsageGraph } from './UsageGraph'\n import { useAccount } from '../hooks/useAccount'\n \n export function AccountPage() {\n   const { account, billingPeriod } = useAccount()\n   return (\n     <Page title=\"Usage\">\n       <PlanCard plan={account.plan} />\n-      <RequestCountChart accountId={account.id} days={30} />\n+      <UsageGraph\n+        accountId={account.id}\n+        period={billingPeriod}\n+        periodsBack={3}\n+      />\n     </Page>\n   )\n }\ndiff --git a/src/dashboard/UsageGraph.tsx b/src/dashboard/UsageGraph.tsx\nnew file mode 100644\nindex 0000000..e20812d\n--- /dev/null\n+++ b/src/dashboard/UsageGraph.tsx\n@@ -0,0 +1,18 @@\n+import { AreaChart, ReferenceArea } from '../ui/charts'\n+import { useQuery } from '../hooks/useQuery'\n+import type { BillingPeriod } from '../billing/types'\n+\n+export function UsageGraph({ accountId, period, periodsBack }: {\n+  accountId: string\n+  period: BillingPeriod\n+  periodsBack: number\n+}) {\n+  const { data, isLoading } = useQuery(`/api/usage/${accountId}?periods=${periodsBack}`)\n+  if (isLoading) return <AreaChart.Skeleton />\n+  if (!data?.days.length) return <AreaChart.Empty label=\"No usage yet this period\" />\n+  return (\n+    <AreaChart data={data.days} x=\"day\" y=\"units\" unit=\"requests\">\n+      <ReferenceArea from={period.start} to={period.end} label=\"Current period\" />\n+    </AreaChart>\n+  )\n+}\ndiff --git a/src/db/queries/dailyUsage.ts b/src/db/queries/dailyUsage.ts\nnew file mode 100644\nindex 0000000..88b1ef6\n--- /dev/null\n+++ b/src/db/queries/dailyUsage.ts\n@@ -0,0 +1,13 @@\n+import { sql } from 'drizzle-orm'\n+import { db } from '../client'\n+import { usageRollups } from '../schema/billing'\n+\n+/** Daily totals from the hourly rollups, oldest first. */\n+export async function dailyUsage(accountId: string, from: Date, to: Date) {\n+  return db\n+    .select({ day: sql<string>`date_trunc('day', ${usageRollups.hour})`, units: sql<number>`sum(${usageRollups.units})` })\n+    .from(usageRollups)\n+    .where(sql`${usageRollups.accountId} = ${accountId} and ${usageRollups.hour} >= ${from} and ${usageRollups.hour} < ${to}`)\n+    .groupBy(sql`1`)\n+    .orderBy(sql`1`)\n+}\ndiff --git a/src/api/usage.ts b/src/api/usage.ts\nnew file mode 100644\nindex 0000000..7fd2ee5\n--- /dev/null\n+++ b/src/api/usage.ts\n@@ -0,0 +1,11 @@\n+import { Router } from 'express'\n+import { dailyUsage } from '../db/queries/dailyUsage'\n+import { periodsBefore } from '../billing/periods'\n+\n+export const usageRouter = Router()\n+\n+usageRouter.get('/:accountId', async (req, res) => {\n+  const periods = periodsBefore(new Date(), Number(req.query.periods ?? 3))\n+  const days = await dailyUsage(req.params.accountId, periods.from, periods.to)\n+  res.json({ days, period: periods.current })\n+})\ndiff --git a/src/api/usage.test.ts b/src/api/usage.test.ts\nnew file mode 100644\nindex 0000000..bc3b523\n--- /dev/null\n+++ b/src/api/usage.test.ts\n@@ -0,0 +1,15 @@\n+import { describe, expect, it } from 'bun:test'\n+import { request, seedRollups } from '../test/helpers'\n+\n+describe('GET /api/usage/:accountId', () => {\n+  it('answers an empty period with no days', async () => {\n+    const res = await request.get('/api/usage/acct_empty?periods=1')\n+    expect(res.body.days).toEqual([])\n+  })\n+\n+  it('splits a rollup at the period boundary', async () => {\n+    await seedRollups('acct_1', [{ hour: '2026-06-30T23:00Z', units: 40 }, { hour: '2026-07-01T00:00Z', units: 60 }])\n+    const res = await request.get('/api/usage/acct_1?periods=2')\n+    expect(res.body.days.map((day) => day.units)).toEqual([40, 60])\n+  })\n+})\ndiff --git a/src/dashboard/UsageGraph.test.tsx b/src/dashboard/UsageGraph.test.tsx\nnew file mode 100644\nindex 0000000..79aab76\n--- /dev/null\n+++ b/src/dashboard/UsageGraph.test.tsx\n@@ -0,0 +1,7 @@\n+import { render, screen } from '@testing-library/react'\n+import { UsageGraph } from './UsageGraph'\n+\n+it('shows the empty state for a new account', async () => {\n+  render(<UsageGraph accountId=\"acct_empty\" period={{ start: '2026-07-01', end: '2026-07-31' }} periodsBack={1} />)\n+  expect(await screen.findByText('No usage yet this period')).toBeTruthy()\n+})\n",
+    "stats": [
+      {
+        "path": "src/dashboard/AccountPage.tsx",
+        "additions": 6,
+        "deletions": 2
+      },
+      {
+        "path": "src/dashboard/UsageGraph.tsx",
+        "additions": 18,
+        "deletions": 0
+      },
+      {
+        "path": "src/db/queries/dailyUsage.ts",
+        "additions": 13,
+        "deletions": 0
+      },
+      {
+        "path": "src/api/usage.ts",
+        "additions": 11,
+        "deletions": 0
+      },
+      {
+        "path": "src/api/usage.test.ts",
+        "additions": 15,
+        "deletions": 0
+      },
+      {
+        "path": "src/dashboard/UsageGraph.test.tsx",
+        "additions": 7,
+        "deletions": 0
+      }
+    ],
+    "turnSnapshots": [
+      {
+        "index": 0,
+        "sha": "3c7a91e0b2d84f5a6e1c09d7b3f2a8e4c5d6b7a1",
+        "timestamp": 1783611600000,
+        "partial": false,
+        "userMessagePreview": "Add a usage-over-time graph to the account dashboard",
+        "filesChanged": 6,
+        "additions": 70,
+        "deletions": 2
+      }
+    ],
+    "changedFiles": [
+      "src/dashboard/AccountPage.tsx",
+      "src/dashboard/UsageGraph.tsx",
+      "src/db/queries/dailyUsage.ts",
+      "src/api/usage.ts",
+      "src/api/usage.test.ts",
+      "src/dashboard/UsageGraph.test.tsx"
+    ]
   }
 }

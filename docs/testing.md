@@ -132,36 +132,7 @@ workflows were not executed. No product implementation was changed in this pass.
 Concurrent workspace fixes resolved the behavior failures recorded in the first
 pass; the cleanup did not delete those failing assertions.
 
-### Session sidebar task timing
-
-Task-row activation in the shared desktop/web sidebar records
-`task_sidebar_open_timing` in the client console and sends one report to the
-selected host log after navigation. Reports have an `activationId`, `taskId`,
-`outcome`, and `marks`. Each mark is milliseconds since activation, measured
-with the client's monotonic clock; subtract adjacent values for a step's cost.
-
-- `row_acknowledged` and `navigation_started` isolate the initial work and the
-  two-frame navigation delay.
-- `task_resolved`, `owner_lookup_started` / `owner_lookup_finished`, and
-  `session_metadata_started` / `session_metadata_finished` identify task and
-  host reads. Marks for unused paths are absent.
-- `destination_selected` and `destination_frame` measure when navigation chose
-  the destination and a subsequent paint opportunity.
-- `navigation_completed` / `navigation_failed` / `navigation_cancelled` and
-  `settled_frame` cover the navigation promise and a subsequent frame. Completion
-  means the navigation function returned; a superseded request can return
-  without selecting a destination.
-
-Frame marks follow a Svelte flush and two animation callbacks. They estimate a
-paint opportunity, not actual display time or completion of separately loaded
-page details. Hidden clients can delay animation callbacks. Older hosts that
-lack `tasksLogOpenTiming` still have the console report. The host must run the
-updated handler for the report to reach its log. This adds diagnostics to the
-shared sidebar; it does not change navigation or native mobile UI behavior.
-
-```sh
-jq -c 'select(.msg == "task_sidebar_open_timing")' dev.log
-```
+### Task activity timeline
 
 Task activity uses the same timeline window helper as PR activity. It folds the
 middle when there are more than 20 entries or 16,000 comment characters. The

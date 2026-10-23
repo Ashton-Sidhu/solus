@@ -1,59 +1,37 @@
+import { randomUUID } from 'node:crypto'
 import {
+  DEFAULT_INTEGRATION_ACCOUNT,
   integrationCatalogListRequestSchema,
   integrationConnectCancelRequestSchema,
   integrationConnectStartRequestSchema,
   integrationConnectSubmitRequestSchema,
   integrationCreateRequestSchema,
+  integrationAccountRequestSchema,
   integrationIdRequestSchema,
   integrationProbeRequestSchema,
-  integrationSlug,
   integrationUpdateRequestSchema,
   type Integration,
   type IntegrationAuth,
   type IntegrationOAuthClientInput,
-  type IntegrationProbeUndeterminedReason,
 } from '@solus/contracts/integration-types'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { OAuthClientRequiredError } from '@solus/contracts/integrations/oauth-protocol'
 import { roleOf } from '../../admission/access'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
-import { organizationForNew, recordScopeOf, type Principal } from '../../admission/principal'
+import { recordScopeOf, type Principal } from '../../admission/principal'
 import type { IntegrationCatalog } from '../../integrations/catalog'
 import type { IntegrationClients, IntegrationConnectionStore } from '../../integrations/connection-store'
 import type { IntegrationConnections } from '../../integrations/connections'
 import type { IntegrationGateway } from '../../integrations/gateway'
 import type { IntegrationStore } from '../../integrations/integration-store'
 import type { IntegrationOAuth } from '../../integrations/oauth'
-import { probeMcpServer } from '../../integrations/probe'
+import { createIntegration, probeAddress, probeForWrite } from '../../integrations/integration-create'
+import { createLogger } from '../../logger'
 import { currentPersonKey, requirePersonKey } from '../../vault/acting-scope'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { SolusServer } from '../server'
 
-/** Why a probe decided nothing, as the person reads it. */
-const UNDETERMINED_MESSAGES = {
-  unavailable: 'The server is unavailable right now. Try again later.',
-  unreachable: 'Solus could not reach the server.',
-  timeout: 'The server did not answer in time.',
-  redirected: 'The server redirected the request. Use the address it redirects to.',
-  refused: 'The server refused the request, or the address is not public.',
-  not_mcp: 'The address did not answer as an MCP server.',
-  initialize_error: 'The server refused to start an MCP session.',
-  tools_error: 'The server did not list its tools.',
-  oauth_unusable: 'The server advertises a sign-in that Solus cannot use.',
-} satisfies Record<IntegrationProbeUndeterminedReason, string>
-
-/** The probe decided nothing, so no integration is written. */
-export class IntegrationProbeRefusedError extends Error {
-  constructor(readonly reason: IntegrationProbeUndeterminedReason) {
-    super(UNDETERMINED_MESSAGES[reason])
-    this.name = 'IntegrationProbeRefusedError'
-  }
-}
-
-/** Probe an address before it is stored; an undetermined answer refuses the write. */
-async function probeForWrite(url: string) {
-  const probe = await probeMcpServer(url)
-  if (probe.outcome === 'undetermined') throw new IntegrationProbeRefusedError(probe.reason)
-  return probe
-}
+const log = createLogger('integrations', 'integration-handlers.ts')
 
 /**
  * The auth after the owner's OAuth client change: `clientId` and
@@ -111,7 +89,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
 
   server.register('integrationCatalogList', (args) => catalog.list(integrationCatalogListRequestSchema.parse(args[0] ?? {})))
 
-  server.register('integrationProbe', (args) => probeMcpServer(integrationProbeRequestSchema.parse(args[0]).url))
+  server.register('integrationProbe', (args) => probeAddress(integrationProbeRequestSchema.parse(args[0]).url))
 
   server.register('integrationList', (_args, ctx) => store.list(recordScopeOf(ctx.principal), ownerKeyOf(ctx.actor)).map((integration) => forReader(ctx.actor, integration)))
 
@@ -125,15 +103,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     // A server is its creator's own, on every host (D3); the host's own work adds none.
     const owner = ownerKeyOf(ctx.actor)
     if (owner === null) throw new Error('An integration belongs to a person, and this connection acts for none.')
-    const probe = await probeForWrite(request.url)
-    const integration = store.create(
-      { name: request.name, url: request.url, slug: integrationSlug(request.slug ?? request.name), auth: probe.auth },
-      organizationForNew(ctx.principal),
-      owner,
-    )
-    void events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
-    void deps.profile?.saved(ctx.principal, integration)
-    return forReader(ctx.actor, integration)
+    return forReader(ctx.actor, await createIntegration({ store, events, profile: deps.profile }, ctx.principal, owner, request))
   })
 
   server.register('integrationUpdate', async (args, ctx) => {
@@ -185,18 +155,45 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     return personKey === null ? [] : connectionStore.list(personKey)
   })
 
+  /**
+   * The probe saw a registration endpoint, but the sign-in found the server
+   * will not register Solus. The record says so now, so every client shows the
+   * client form and "Set up with an agent" instead of a sign-in that cannot work.
+   */
+  function needsOwnerClient(integration: Integration): void {
+    if (integration.auth.kind !== 'oauth' || integration.auth.registration === 'client-required') return
+    store.update(integration.id, { auth: { ...integration.auth, registration: 'client-required' } }, integration.organizationId)
+    log.info('integration_registration_refused', { integrationId: integration.id })
+    void events.broadcast('integration.changed', { integrationId: integration.id, change: 'updated' })
+  }
+
   server.register('integrationConnectStart', async (args, ctx) => {
     const request = integrationConnectStartRequestSchema.parse(args[0])
     const integration = requireIntegration(request.id, ctx.actor)
     const user = requirePersonKey()
+    // One more account gets a name of its own, or the one its waiting sign-in has; it lives on this host (§13.3).
+    const accountId = request.newAccount
+      ? oauth.pendingAddedAccount(integration.id, user) ?? randomUUID().slice(0, 12)
+      : request.accountId ?? DEFAULT_INTEGRATION_ACCOUNT
     switch (integration.auth.kind) {
       case 'none':
         return { kind: 'connected' as const, connection: connections.connectAnonymous(integration, user) }
       case 'bearer':
-        return { kind: 'token' as const, integrationId: integration.id }
+        return { kind: 'token' as const, integrationId: integration.id, accountId }
       case 'oauth': {
+        // The person's Solus GitHub connection is the credential: no sign-in here (§13.1).
+        if (new IntegrationSignIn(integration).usesSolusGithub) {
+          // That connection is one GitHub account, so there is no other to add.
+          if (accountId !== DEFAULT_INTEGRATION_ACCOUNT) throw new Error(`${integration.name} uses your Solus GitHub connection, which is one GitHub account.`)
+          return { kind: 'connected' as const, connection: await connections.connectFirstParty(integration, user) }
+        }
         const { host, port } = deps.getServerInfo()
-        return oauth.start(integration, { callbackBaseUrl: request.callbackBaseUrl, fallbackHost: host, fallbackPort: port })
+        try {
+          return await oauth.start(integration, { callbackBaseUrl: request.callbackBaseUrl, fallbackHost: host, fallbackPort: port }, accountId)
+        } catch (error) {
+          if (error instanceof OAuthClientRequiredError) needsOwnerClient(integration)
+          throw error
+        }
       }
     }
   })
@@ -206,7 +203,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     if (request.flowId !== undefined) {
       await oauth.submitRedirect(request.flowId, request.value)
     } else if (request.id !== undefined) {
-      await connections.submitKey(requireIntegration(request.id, ctx.actor), requirePersonKey(), request.value)
+      await connections.submitKey(requireIntegration(request.id, ctx.actor), requirePersonKey(), request.value, request.accountId)
     }
     return { submitted: true as const }
   })
@@ -214,7 +211,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   server.register('integrationConnectCancel', (args) => ({ cancelled: oauth.cancel(integrationConnectCancelRequestSchema.parse(args[0]).flowId) }))
 
   server.register('integrationDisconnect', async (args, ctx) => {
-    const { id } = integrationIdRequestSchema.parse(args[0])
-    return { disconnected: await connections.disconnect(requireIntegration(id, ctx.actor), requirePersonKey()) }
+    const { id, accountId } = integrationAccountRequestSchema.parse(args[0])
+    return { disconnected: await connections.disconnect(requireIntegration(id, ctx.actor), requirePersonKey(), accountId) }
   })
 }

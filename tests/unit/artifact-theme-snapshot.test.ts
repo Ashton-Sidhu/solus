@@ -57,4 +57,16 @@ describe('the server preview wears the theme the reader sees', () => {
     }
     expect(SOLUS_THEME_SNAPSHOT.light['--solus-render-accent']).not.toBe(SOLUS_THEME_SNAPSHOT.light['--solus-accent'])
   })
+
+  test('a mock-up of Solus can still wear the app accent', () => {
+    // WHY: a render's --primary is the calm render accent, so a mock-up of a
+    // Solus card drew blue buttons the real app never shows. --brand is the
+    // app's own accent and its button text, in both modes.
+    for (const appearance of ['light', 'dark'] as const) {
+      const values = SOLUS_THEME_SNAPSHOT[appearance]
+      const css = sandboxThemeCss(appearance === 'dark', (variable) => values[variable])
+      expect(css).toContain(`--brand:${values['--solus-accent']};`)
+      expect(css).toContain(`--brand-foreground:${values['--solus-text-on-accent']};`)
+    }
+  })
 })

@@ -12,8 +12,8 @@ import { installTestIdentities } from './helpers/acting-identities'
 // user is the one person every surface names; its seat and its credential user
 // follow from the principal that admitted it, so no handler converts a principal.
 
-const LOCAL_OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
-const REMOTE_OWNER: Principal = { kind: 'remote-owner', userId: 'acct-ashton', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud', displayName: 'Ashton Sidhu' }
+const LOCAL_OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
+const REMOTE_OWNER: Principal = { kind: 'owner', via: 'grant', userId: 'acct-ashton', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud', displayName: 'Ashton Sidhu' }
 const BOB = memberPrincipal('bob', 'Bob', { email: 'bob@example.com', avatarUrl: 'https://x/bob.png' })
 const guestOf = (sharedByUserId: string, accountUserId?: string): Principal => ({
   kind: 'guest', guestId: accountUserId ?? 'g1', displayName: 'Maya', deviceId: 'g1', expiresAt: 0, deviceLabel: 'Guest link',

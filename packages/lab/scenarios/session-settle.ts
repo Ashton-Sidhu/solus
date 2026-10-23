@@ -89,16 +89,14 @@ async function linkedVm(ctx: ScenarioContext, clients: LabClient[]): Promise<Lab
   const paired = async () => {
     // The token `/pair` answers a device that brings the VM's code: the VM's own `auth session create`.
     const token = await vm.localOwnerToken()
-    const client = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: vm.localUrl, hostId: vm.hostId, hostKind: 'personal', accessToken: async () => token })
+    const client = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: vm.localUrl, hostId: vm.hostId, hostKind: 'personal', sessionToken: async () => token })
     clients.push(client)
     return client
   }
   const laptop = await paired()
   const phone = await paired()
-  const ticket = await laptop.fetchTicket()
-  ctx.check(`${tag} the paired token buys a socket ticket`, 'ticket' in ticket, JSON.stringify(ticket))
-  ctx.check(`${tag} the laptop dials with its ticket`, (await laptop.connect()).ok)
-  ctx.check(`${tag} the phone dials with its ticket`, (await phone.connect()).ok)
+  ctx.check(`${tag} the laptop dials with its paired token`, (await laptop.connect()).ok)
+  ctx.check(`${tag} the phone dials with its paired token`, (await phone.connect()).ok)
   const sessionId = await startSession(ctx, tag, laptop, laptop, null)
   await proveSettle(ctx, tag, laptop, phone, sessionId)
   return vm

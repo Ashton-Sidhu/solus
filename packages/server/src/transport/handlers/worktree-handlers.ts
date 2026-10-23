@@ -11,8 +11,7 @@ import { TextGenerator } from '../../execution/agents/text-generator'
 import { createLogger } from '../../logger'
 import { linkSessionPullRequest } from '../../data/sessions/session-pull-requests'
 import { workspaceToolContext } from '../../data/workspace/tool-context'
-import { recordOutboxOp } from '../../sync/outbox/outbox-store'
-import type { Attribution } from '@solus/contracts/user'
+import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
 import { providerForRepo } from '../../providers/registry'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
@@ -225,7 +224,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       // the link; its task, when it has one, reads it from there.
       const by = attributionOf(handlerCtx.actor, { sessionId, provider: ctx.session.provider ?? undefined })
       await linkSessionPullRequest(sessionId, { url: pullRequest.url, source: 'created', by })
-        .then(() => queueLinkForHome(sessionId, pullRequest.url!, by))
+        .then(() => linkOnHome(sessionId, pullRequest.url!))
         .catch((error) => {
         log.warn('session_pr_link_failed', {
           sessionId,
@@ -362,14 +361,12 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
 
 /**
  * An organization session's home is its Solus API (docs/plans/session-archive.md):
- * the link Solus made on this machine travels there in the delivery queue, as an
- * agent's link does. Any other session's home is this machine, which holds it already.
+ * the link Solus made on this machine is written there too, as the person the run
+ * acts for. Any other session's home is this machine, which holds it already.
  */
-async function queueLinkForHome(sessionId: string, url: string, actor: Attribution): Promise<void> {
+async function linkOnHome(sessionId: string, url: string): Promise<void> {
   const home = await workspaceToolContext(sessionId).catch(() => null)
-  if (!home?.remote || home.context.home.kind !== 'organization') return
-  recordOutboxOp({
-    domain: 'sessions', resourceId: sessionId, name: 'link-pull-request', payload: { url, actor, source: 'created' }, sessionId,
-    destination: 'cloud', organizationId: home.context.home.organizationId, actorUserId: home.deliveryActor ?? '',
-  })
+  const identity = pullRequestIdentityOf(url)
+  if (!home?.remote || home.context.home.kind !== 'organization' || !identity) return
+  await home.operations.putLink(home.context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url } })
 }

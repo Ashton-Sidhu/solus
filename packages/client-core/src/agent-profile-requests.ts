@@ -5,8 +5,8 @@ import {
   type AccountAgentProfilePatchRequest,
 } from '@solus/contracts/agent-profile'
 import {
-  ACCOUNT_VAULT_CONNECT_PATH,
-  ACCOUNT_VAULT_PATH,
+  VAULT_CONNECT_PATH,
+  VAULT_PATH,
   vaultConnectResultSchema,
   vaultConnectionListSchema,
   type VaultSaveKeyRequest,
@@ -14,7 +14,7 @@ import {
   type VaultDisconnectRequest,
 } from '@solus/contracts/vault'
 import type { AccountAgentProfileResult, AccountVaultConnectResult, AccountVaultResult, NativeSolusAPI, SettingsRequestFailure } from '@solus/contracts/host-api'
-import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
+import { SOLUS_PROTOCOL, SOLUS_PROTOCOL_HEADER, uplinkErrorBodySchema } from '@solus/contracts/uplink'
 import type { OAuthSession } from './oauth-session'
 
 /**
@@ -57,7 +57,7 @@ export function agentProfileCloudRequests(send: (request: AgentProfileHttpReques
     return result
   }
   const vault = async (): Promise<AccountVaultResult> => {
-    const response = await send({ method: 'GET', path: ACCOUNT_VAULT_PATH })
+    const response = await send({ method: 'GET', path: VAULT_PATH })
     if (response === 'signed-out') return { kind: 'signed-out' }
     if (!response) return { kind: 'offline' }
     const body: unknown = await response.json().catch(() => null)
@@ -81,7 +81,7 @@ export function agentProfileCloudRequests(send: (request: AgentProfileHttpReques
     accountAgentProfileDelete: () => document({ method: 'DELETE', path: AGENT_PROFILE_PATH }),
     accountVault: vault,
     accountVaultConnect: async (body): Promise<AccountVaultConnectResult> => {
-      const response = await send({ method: 'POST', path: ACCOUNT_VAULT_CONNECT_PATH, body })
+      const response = await send({ method: 'POST', path: VAULT_CONNECT_PATH, body })
       if (response === 'signed-out') return { kind: 'signed-out' }
       if (!response) return { kind: 'offline' }
       const answer: unknown = await response.json().catch(() => null)
@@ -94,8 +94,8 @@ export function agentProfileCloudRequests(send: (request: AgentProfileHttpReques
       const parsed = vaultConnectResultSchema.safeParse(answer)
       return parsed.success ? { kind: 'ok', start: parsed.data } : { kind: 'error', code: 'invalid_response', message: null }
     },
-    accountVaultSaveKey: (body) => write({ method: 'PUT', path: ACCOUNT_VAULT_PATH, body }),
-    accountVaultDisconnect: (body) => write({ method: 'DELETE', path: ACCOUNT_VAULT_PATH, body }),
+    accountVaultSaveKey: (body) => write({ method: 'PUT', path: VAULT_PATH, body }),
+    accountVaultDisconnect: (body) => write({ method: 'DELETE', path: VAULT_PATH, body }),
   }
 }
 
@@ -123,7 +123,7 @@ export function webAgentProfileRequests(origin: string, session: Pick<OAuthSessi
   return agentProfileCloudRequests(async (request) => {
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return 'signed-out'
-    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
+    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}`, [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL) })
     if (request.body) headers.set('content-type', 'application/json')
     try {
       return await fetchImpl(`${origin}${request.path}`, {

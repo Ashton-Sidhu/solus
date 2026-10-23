@@ -29,7 +29,7 @@ export function withActor<T extends { principal: Principal }>(ctx: T): T & { act
  */
 export function notificationReader(recipientKey: string, scope: RecordScope = 'org1'): NotificationReader {
   const principal: Principal = isAnyOrganization(scope)
-    ? { kind: 'remote-owner', userId: recipientKey, deviceId: 'd', expiresAt: 0, deviceLabel: 'test' }
+    ? { kind: 'owner', via: 'grant', userId: recipientKey, deviceId: 'd', expiresAt: 0, deviceLabel: 'test' }
     : memberPrincipal(recipientKey, recipientKey, { organizationId: scope })
   return { actor: { principal, user: { id: parseUserKey(recipientKey), displayName: recipientKey } } }
 }

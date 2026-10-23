@@ -1,14 +1,15 @@
-import { workspaceTaskQuerySchema, workspaceCreateTaskSchema, workspaceUpdateTaskSchema } from '@solus/contracts/solus-api'
+import { workspaceTaskQuerySchema, workspaceCreateTaskSchema, workspaceCreateTaskCommentSchema, workspaceUpdateTaskSchema } from '@solus/contracts/solus-api'
+import { ulid } from '@solus/contracts/ulid'
 import { sql } from 'drizzle-orm'
 import type { Task as TaskRecord } from '@solus/contracts/task-types'
-import type { WorkspaceCreateTask, WorkspaceTask, WorkspaceTaskPage, WorkspaceTaskQuery, WorkspaceUpdateTask } from '@solus/contracts/solus-api'
+import type { WorkspaceCreateTask, WorkspaceCreateTaskComment, WorkspaceTaskComment, WorkspaceTask, WorkspaceTaskPage, WorkspaceTaskQuery, WorkspaceUpdateTask } from '@solus/contracts/solus-api'
 import { requestAttribution, workspaceAuthorityKey, type WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { getDatabase } from '../../db/database'
 import type { ShareManager } from '../../sharing/share-manager'
 import { scopeClause } from '../scope'
-import { apiOrganization, apiScope, projectIdsForKeys, projectKeyForId, requireResource, requireScope } from '../workspace/context'
+import { apiOrganization, apiScope, projectIdsForKeys, projectKeyForId, requireResource, requireScope, writerAttribution } from '../workspace/context'
 import { pageOf, readCursor, seekClause } from '../workspace/page'
 import { canonicalRequest, createWithReceipt } from '../workspace/receipts'
 import { createTask, loadTaskRecord, readTaskMetadataPage } from './task-store'
@@ -93,6 +94,24 @@ export class TaskApiOperations {
       await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'edit')
       return this.read(context, taskId)
     })
+  }
+
+  /** Comment as the caller, or as the agent of `originSessionId` acting for them. The same key again answers the same comment. */
+  async comment(context: WorkspaceRequestContext, taskId: string, input: WorkspaceCreateTaskComment, key: string): Promise<WorkspaceTaskComment> {
+    input = workspaceCreateTaskCommentSchema.parse(input)
+    requireScope(context, 'tasks:write')
+    await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'edit')
+    if (input.originSessionId) await requireResource(this.shares, context, { kind: 'session', id: input.originSessionId }, 'edit')
+    const read = async (commentId: string): Promise<WorkspaceTaskComment> => {
+      const comment = (await (await Task.byId(apiScope(context), taskId)).details()).comments.find(candidate => candidate.id === commentId)
+      if (!comment) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+      return { id: comment.id, taskId, body: comment.body, author: comment.author ?? null, originSessionId: comment.originSessionId ?? null, createdAt: new Date(comment.createdAt).toISOString() }
+    }
+    return createWithReceipt(workspaceAuthorityKey(context), 'comment', key, canonicalRequest({ taskId, ...input }), async () => {
+      const id = ulid()
+      await (await Task.byId(apiScope(context), taskId)).comment(input.body, { id, by: writerAttribution(context, input.originSessionId), originSessionId: input.originSessionId })
+      return read(id)
+    }, read)
   }
 
   /** Holds the row for the transaction and refuses a write against a version the caller has not seen. */

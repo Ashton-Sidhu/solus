@@ -101,3 +101,40 @@ export function changeBreakdown(files: readonly Pick<ChangedFileStat, 'path' | '
 export function changeBreakdownText(parts: readonly ChangeBreakdownPart[]): string {
   return parts.map((part) => `${part.label} +${part.additions.toLocaleString()} −${part.deletions.toLocaleString()}`).join(' · ')
 }
+
+/** Filter whole files without changing their contents or comment anchors. */
+export function filterChangedFiles<T>(files: T[], kinds: readonly ChangeKind[] | null, pathOf: (file: T) => string): T[] {
+  return kinds === null ? files : files.filter((file) => kinds.includes(changedFileKind(pathOf(file))))
+}
+
+/** Null selects all classes; an empty list selects none. Accept old single-class choices. */
+export function parseChangeKinds(value: string | null): ChangeKind[] | null {
+  if (KINDS.some(({ kind }) => kind === value)) return KINDS.filter(({ kind }) => kind === value).map(({ kind }) => kind)
+  try {
+    const parsed: unknown = JSON.parse(value ?? 'null')
+    if (!Array.isArray(parsed) || !parsed.every((value) => KINDS.some(({ kind }) => kind === value))) return null
+    return KINDS.filter(({ kind }) => parsed.includes(kind)).map(({ kind }) => kind)
+  } catch {
+    return null
+  }
+}
+
+export function toggleChangeKind(selected: readonly ChangeKind[] | null, kind: ChangeKind): ChangeKind[] | null {
+  const next = KINDS.filter((option) => option.kind === kind ? !isChangeKindSelected(selected, kind) : isChangeKindSelected(selected, option.kind)).map((option) => option.kind)
+  return next.length === KINDS.length ? null : next
+}
+
+export function isChangeKindSelected(selected: readonly ChangeKind[] | null, kind: ChangeKind): boolean {
+  return selected === null || selected.includes(kind)
+}
+
+/** All classes remain available, including binary files and classes with no changes. */
+export function changeFilterOptions(files: readonly Pick<ChangedFileStat, 'path' | 'additions' | 'deletions'>[]): ChangeBreakdownPart[] {
+  const parts = KINDS.map(({ kind, label }) => ({ kind, label, additions: 0, deletions: 0 }))
+  for (const file of files) {
+    const part = parts.find((part) => part.kind === changedFileKind(file.path))!
+    part.additions += file.additions
+    part.deletions += file.deletions
+  }
+  return parts
+}

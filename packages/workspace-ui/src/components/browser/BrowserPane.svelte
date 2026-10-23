@@ -944,7 +944,7 @@
           commentingMark.rect,
           scale,
           { width: vp.width * scale, height: vp.height * scale },
-          { width: 240, height: 72 },
+          { width: 384, height: 96 },
         )}
         <div
           class="pointer-events-auto absolute z-10"

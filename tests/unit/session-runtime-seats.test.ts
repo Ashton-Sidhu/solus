@@ -107,7 +107,7 @@ describe('seats at dispatch', () => {
 
   test('the host owner runs on the host login; a connected member\'s seat rides the run request', async () => {
     const { plane, seats, started } = harness()
-    await plane.dispatch.submitPrompt(ctx('s-owner'), { prompt: 'hello' }, { clientId: 'c1', actor: actorFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }) })
+    await plane.dispatch.submitPrompt(ctx('s-owner'), { prompt: 'hello' }, { clientId: 'c1', actor: actorFor({ kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }) })
     expect(started[0]?.seat).toMatchObject({ seat: { kind: 'host-login' } })
     expect(started[0]?.seat?.envToken).toBeUndefined()
 
@@ -145,7 +145,7 @@ describe('seats at dispatch', () => {
     // clients counted `msg-1`, `msg-2`… from zero on each reload. Matching the id
     // alone against past turns dropped a new session's first prompt as a replay.
     const { plane, started } = harness()
-    const owner = { clientId: 'c1', actor: actorFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }) }
+    const owner = { clientId: 'c1', actor: actorFor({ kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }) }
     expect(await plane.dispatch.submitPrompt(ctx('s-first'), { prompt: 'first', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })
 
     expect(await plane.dispatch.submitPrompt(ctx('s-second'), { prompt: 'second', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })

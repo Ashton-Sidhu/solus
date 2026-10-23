@@ -71,7 +71,7 @@ describe('organization records', () => {
     const sent: string[] = []
     // SAFETY: the forwarding operations call only `request`.
     const client = { request: async (operation: string) => { sent.push(operation); return { state: 'in_review', reviewers: [] } } } as unknown as SolusApiClient
-    const forwarding = remote.remoteWorkspaceOperations(client, async () => true)
+    const forwarding = remote.remoteWorkspaceOperations(client)
     await forwarding.requestWorkReview(alice, work.id, { reviewerIds: ['bob'], expectedContentVersion: work.contentVersion, requestId: 'req-1' })
     expect(sent).toEqual(['requestWorkReview'])
     expect(await rows()).toBe(0)

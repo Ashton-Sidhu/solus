@@ -1,4 +1,5 @@
-import type { SessionCtx } from '@solus/contracts/types'
+import { encodePathAsFolder, type AgentId, type SessionCtx } from '@solus/contracts/types'
+import type { WorkspaceSessionAdmissionRequest } from '@solus/contracts/solus-api'
 import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../../admission/principal'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { assignSessionOrganization, claimSessionOwner, getSessionRecord, isOrganizationWork, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
@@ -48,8 +49,11 @@ const delegationRefusalSchema = z.object({
 
 /** How this host acts for a person in an organization (sync/delegations.ts; plans/010-standard-oauth.md). */
 export interface DelegationPort {
-  actFor(input: { sessionId: string; userId: string; organizationId: string; admit: boolean }): Promise<void>
+  actFor(input: { sessionId: string; userId: string; organizationId: string; admit: boolean; record?: AdmittedRecord }): Promise<void>
 }
+
+/** The first facts of a new organization session, which the Solus API writes its record from when it admits it. */
+type AdmittedRecord = NonNullable<WorkspaceSessionAdmissionRequest['record']>
 
 export interface TurnOrganizationDeps {
   hostOrganizations: HostOrganizations
@@ -67,7 +71,7 @@ export interface TurnOrganizationDeps {
  * request (`PromptDispatch.createSession`), so every turn passes the same admission.
  */
 export interface TurnAdmissionContext {
-  session: Pick<SessionCtx, 'sessionId' | 'agentSessionId' | 'forked' | 'organizationId' | 'workingDirectory'>
+  session: Pick<SessionCtx, 'sessionId' | 'agentSessionId' | 'forked' | 'organizationId' | 'workingDirectory'> & { provider?: AgentId | null }
   /** The session that starts this one on this host (`start_session`): a child follows its record, as a fork follows its source. */
   parentSessionId?: string
 }
@@ -119,9 +123,15 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
   if (!organizationId) {
     throw new TurnRefusedError('ORGANIZATION_REQUIRED', 'This machine runs new work for an organization. Choose an organization in Solus, then send again.')
   }
-  const userId = await actForPerson(principal, deps, { sessionId, organizationId, admit: true })
   // A chat is still organization work, but only its owner sees it until they share it (plan 004 D14).
-  await deps.adoptSession?.(sessionId, organizationId, userId, { shareWithOrganization: !isChat(ctx.session.workingDirectory) })
+  const isPrivate = isChat(ctx.session.workingDirectory)
+  // The API writes the session's record when it admits it, so the agent's first write that names the session finds it there.
+  const provider = ctx.session.provider
+  const firstFacts: AdmittedRecord | undefined = provider
+    ? { provider, projectPath: encodePathAsFolder(ctx.session.workingDirectory), cwd: ctx.session.workingDirectory || null, privateToOwner: isPrivate }
+    : undefined
+  const userId = await actForPerson(principal, deps, { sessionId, organizationId, admit: true, record: firstFacts })
+  await deps.adoptSession?.(sessionId, organizationId, userId, { shareWithOrganization: !isPrivate })
   const birth: SessionBirth = { organizationId, published: true, ownerKey: userId, admissionId: sessionId }
   pendingAssignments.set(sessionId, birth)
   rememberSessionBirth(sessionId, birth)
@@ -132,7 +142,7 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
 function windowOrganization(ctx: TurnAdmissionContext, principal: Principal): string | null {
   const selected = ctx.session.organizationId
   if (principal.kind === 'org-member') return !selected || selected === principal.organizationId ? principal.organizationId : null
-  if (principal.kind !== 'remote-owner') return null
+  if (principal.kind !== 'owner' || principal.via !== 'grant') return null
   return selected && selected !== LOCAL_ORGANIZATION_ID ? selected : null
 }
 
@@ -143,7 +153,7 @@ function windowOrganization(ctx: TurnAdmissionContext, principal: Principal): st
  * it needs their authority. A guest never starts organization work.
  */
 function accountActedFor(principal: Principal, deps: TurnOrganizationDeps, admit: boolean): string | null {
-  if (principal.kind === 'org-member' || principal.kind === 'remote-owner') return principal.userId
+  if (principal.kind === 'org-member' || (principal.kind === 'owner' && principal.via === 'grant')) return principal.userId
   if (principal.kind !== 'guest' || admit) return null
   const sharer = principal.share.sharedByUserId
   if (isHostUserKey(sharer)) return deps.hostOrganizations.owner()?.userId ?? null
@@ -155,7 +165,7 @@ function accountActedFor(principal: Principal, deps: TurnOrganizationDeps, admit
  * This host acting for the person behind the turn. A pairing connection, a guest, or
  * the host itself has no account to act as, so it cannot start organization work.
  */
-async function actForPerson(principal: Principal, deps: TurnOrganizationDeps, input: { sessionId: string; organizationId: string; admit: boolean }): Promise<string> {
+async function actForPerson(principal: Principal, deps: TurnOrganizationDeps, input: { sessionId: string; organizationId: string; admit: boolean; record?: AdmittedRecord }): Promise<string> {
   const userId = accountActedFor(principal, deps, input.admit)
   if (!userId) {
     if (principal.kind === 'system' && !input.admit) return ''

@@ -11,18 +11,29 @@ export interface OfferedHost {
   name: string
 }
 
-export async function probeServingOrigin(origin: string): Promise<OfferedHost | null> {
+/** The Solus host serving this page, as one `/health` read tells it. */
+export interface ServingOrigin {
+  /** What to offer the user when this browser does not keep the host yet. */
+  offered: OfferedHost
+  /** The host's entry when it admits this browser with no pairing (loopback, a proxied bind). */
+  entry: SavedServer | null
+  /** This browser already keeps the host. */
+  isSaved: boolean
+}
+
+export async function probeServingOrigin(origin: string): Promise<ServingOrigin | null> {
   const health = await probeServer(origin)
   if (!health.ok) return null
-
   const normalizedOrigin = normalizeServerUrl(origin)
-  const alreadySaved = loadServers().some((server) =>
+  const isSaved = loadServers().some((server) =>
     (!!health.installationId && server.installationId === health.installationId)
     || normalizeServerUrl(server.url) === normalizedOrigin,
   )
-  if (alreadySaved) return null
-
-  return { url: origin, name: health.name || urlHost(origin) }
+  const name = health.name || urlHost(origin)
+  const entry: SavedServer | null = health.requireAuth === false && health.installationId
+    ? { id: health.installationId, url: origin, sessionToken: '', installationId: health.installationId, label: health.name || 'This computer', os: health.os, lastConnected: Date.now() }
+    : null
+  return { offered: { url: origin, name }, entry, isSaved }
 }
 
 function unreachableMessage(url: string): string {

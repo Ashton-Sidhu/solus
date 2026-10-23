@@ -1,4 +1,6 @@
 import type { CatalogCategoryId, CatalogEntry, Integration } from '@solus/contracts/integration-types'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import type { IntegrationSetupNeed } from '@solus/contracts/integrations/setup-handoff'
 import { SvelteMap } from 'svelte/reactivity'
 import { integrationsStore } from '../integrations.store.svelte'
 import { probeRefusal, urlHost } from './integration-labels'
@@ -7,7 +9,8 @@ import { probeRefusal, urlHost } from './integration-labels'
 export type InstallState =
   | { kind: 'checking' }
   | { kind: 'adding' }
-  | { kind: 'failed'; message: string }
+  /** `setupNeed`: the probe refused for a cause an agent can look up (§13.4). */
+  | { kind: 'failed'; message: string; setupNeed?: IntegrationSetupNeed }
 
 export const CATALOG_PAGE_SIZE = 24
 const SEARCH_DELAY_MS = 250
@@ -106,7 +109,8 @@ export class McpCatalog {
     const attempt = await integrationsStore.probe(this.serverId, url)
     const refusal = 'error' in attempt ? attempt.error : probeRefusal(attempt.result)
     if (refusal) {
-      this.installs.set(url, { kind: 'failed', message: refusal })
+      const setupNeed = 'result' in attempt ? IntegrationSignIn.setupNeedOfProbe(attempt.result, url) : null
+      this.installs.set(url, setupNeed ? { kind: 'failed', message: refusal, setupNeed } : { kind: 'failed', message: refusal })
       return null
     }
     this.installs.set(url, { kind: 'adding' })

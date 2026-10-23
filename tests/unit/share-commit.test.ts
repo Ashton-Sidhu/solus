@@ -20,7 +20,7 @@ afterAll(async () => {
   ;(await import('@solus/server/db')).closeDb()
   rmSync(dataDir, { recursive: true, force: true })
 })
-const principal: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Test' }
+const principal: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Test' }
 
 test('share notifications cannot escape an outer rollback', async () => {
   const shares = new sharing.ShareManager({ db: database.getDatabase() })

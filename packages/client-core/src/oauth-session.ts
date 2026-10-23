@@ -7,19 +7,22 @@ import {
   type AccountIdentity,
   type TokenResource,
 } from '@solus/contracts/auth/clients'
+import { ACCESS_TOKEN_TYPE, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, TOKEN_EXCHANGE_GRANT_TYPE } from '@solus/contracts/uplink'
 
 /**
  * One sign-in of one Solus client to the account plane
  * (docs/adr/0001-standard-authentication.md §3.2): the authorization code with PKCE
- * through the system browser, OIDC identity, and five-minute access tokens for one
- * resource each, got with the refresh token. Desktop main, mobile, web, and the CLI
- * use this one implementation; each gives its platform parts (`BrowserAuthorizer`,
- * `TokenStore`) and its `fetch` and clock.
+ * through the system browser, OIDC identity, and access tokens. Desktop main, mobile,
+ * web, and the CLI use this one implementation; each gives its platform parts
+ * (`BrowserAuthorizer`, `TokenStore`) and its `fetch` and clock.
  *
- * The refresh token rotates at each refresh, and the account plane ends the whole
- * client grant when a used token comes again (§5, replay). So this class is the only
- * refresher of its grant: refreshes run one at a time, and each one saves the new
- * refresh token before it gives out the new access token.
+ * A client holds one grant (docs/plans/simplify-auth-and-sync.md §3 rules 1 and 2):
+ * - the servers token, for the account plane and the Solus API together, comes from a
+ *   refresh. The refresh token rotates at each refresh, and the account plane ends the
+ *   whole grant when a used token comes again (§5, replay). So refreshes run one at a
+ *   time, and each one saves the new refresh token before it gives out the new token.
+ * - a host's token comes from a token exchange of the servers token. It rotates
+ *   nothing, so exchanges for several hosts run at the same time.
  */
 
 /** What a client keeps of its sign-in. */
@@ -109,6 +112,8 @@ export interface OAuthSessionDeps {
 
 /** An access token is given out until this long before its end. */
 export const ACCESS_TOKEN_RENEW_LEAD_MS = 60_000
+/** The cache key of the token for both our servers (`aud: [account, api]`). */
+const SERVERS_TOKEN_KEY = `${ACCOUNT_AUDIENCE} ${SOLUS_API_AUDIENCE}`
 /** How long a call to the account plane may take. */
 const REQUEST_TIMEOUT_MS = 15_000
 
@@ -182,7 +187,8 @@ export interface TokenCache {
  * the web's tabs share the sign-in in `localStorage`. The refresh token rotates and a
  * replay ends the grant (ADR 0001 §5), so a refresh runs only while no other instance
  * refreshes, and starts from the grant as stored, which another may have rotated. The
- * access tokens any instance mints are shared too, so a new tab dials at once.
+ * servers token any instance mints is shared too. Host tokens are exchanges, which
+ * rotate nothing: each instance makes its own, with no lock.
  */
 export interface GrantSharing {
   /** Runs `refresh` while no other instance runs one. */
@@ -197,6 +203,9 @@ export class OAuthSession {
   private readonly inFlight = new Map<string, Promise<string | null>>()
   /** The last refusal for each resource, until a token for it is issued or the grant changes. */
   private readonly refusals = new Map<string, ResourceRefusal>()
+  /** Host tokens by resource URI: an exchange, never shared with other instances (`GrantSharing`). */
+  private readonly hostTokens = new Map<string, CachedToken>()
+  private readonly hostExchanges = new Map<string, Promise<string | null>>()
   /** Every refresh runs after the one before it: the rotated refresh token is the next one's input. */
   private refreshChain: Promise<void> = Promise.resolve()
   private discoveryRead: Promise<Discovery> | null = null
@@ -246,11 +255,15 @@ export class OAuthSession {
     if (!stored) {
       this.grant = null
       this.refusals.clear()
+      this.hostTokens.clear()
       this.setState({ kind: 'signed-out' })
       return
     }
     // A sign-in as another person drops this instance's tokens; a rotation keeps the shared ones.
-    if (stored.identity.sub !== this.grant?.identity.sub) this.refusals.clear()
+    if (stored.identity.sub !== this.grant?.identity.sub) {
+      this.refusals.clear()
+      this.hostTokens.clear()
+    }
     this.grant = stored
     this.setState(this.signedIn(stored, false))
   }
@@ -382,6 +395,7 @@ export class OAuthSession {
       const grant = this.grant
       this.grant = null
       this.cache.clear()
+      this.hostTokens.clear()
       this.refusals.clear()
       if (grant) {
         try {
@@ -405,35 +419,65 @@ export class OAuthSession {
   }
 
   /**
-   * A valid access token for one resource. Kept until a minute before its end; `fresh`
-   * asks for a new one (the resource refused the kept one). Null when signed out, when
-   * the account plane refuses this resource, or when it does not answer.
+   * A valid access token for one resource, kept until a minute before its end. The
+   * account plane and the Solus API share the servers token; a host's token is an
+   * exchange of it. `refused` names a kept token its server refused (a host linked
+   * again since, a grant revoked elsewhere): it is not given out again. Null when
+   * signed out, when the account plane refuses this resource, or when it does not answer.
    */
-  accessToken(resource: TokenResource, options: { fresh?: boolean } = {}): Promise<string | null> {
+  accessToken(resource: TokenResource, options: { refused?: string } = {}): Promise<string | null> {
     if (!this.grant || this.isEnding) return Promise.resolve(null)
-    const uri = tokenResourceUri(resource)
-    const cached = this.cache.get(uri)
-    if (!options.fresh && cached && cached.expiresAt - ACCESS_TOKEN_RENEW_LEAD_MS > this.deps.now()) {
-      return Promise.resolve(cached.token)
+    if (resource.kind === 'account' || resource.kind === 'api') {
+      if (options.refused && this.cache.get(SERVERS_TOKEN_KEY)?.token === options.refused) this.cache.delete(SERVERS_TOKEN_KEY)
+      return this.serversToken()
     }
-    const running = this.inFlight.get(uri)
+    const uri = tokenResourceUri(resource)
+    if (options.refused && this.hostTokens.get(uri)?.token === options.refused) this.hostTokens.delete(uri)
+    return this.hostToken(uri)
+  }
+
+  /** The token for both our servers: one refresh, under the grant's lock, for every caller. */
+  private serversToken(): Promise<string | null> {
+    const cached = this.cache.get(SERVERS_TOKEN_KEY)
+    if (cached && this.isFresh(cached)) return Promise.resolve(cached.token)
+    const running = this.inFlight.get(SERVERS_TOKEN_KEY)
     if (running) return running
-    this.cache.delete(uri)
-    const turn = this.refreshChain.then(() => this.refresh(uri))
+    const turn = this.refreshChain.then(() => this.refresh())
     this.refreshChain = turn.then(() => undefined, () => undefined)
     const answer: Promise<string | null> = turn.catch((error) => {
       this.log('warn', 'oauth_refresh_failed', { reason: String(error) })
       return null
     }).finally(() => {
-      if (this.inFlight.get(uri) === answer) this.inFlight.delete(uri)
+      if (this.inFlight.get(SERVERS_TOKEN_KEY) === answer) this.inFlight.delete(SERVERS_TOKEN_KEY)
     })
-    this.inFlight.set(uri, answer)
+    this.inFlight.set(SERVERS_TOKEN_KEY, answer)
     return answer
+  }
+
+  /** One host's token: an exchange of the servers token. Asks for one host share one exchange; hosts do not wait on each other. */
+  private hostToken(uri: string): Promise<string | null> {
+    const cached = this.hostTokens.get(uri)
+    if (cached && this.isFresh(cached)) return Promise.resolve(cached.token)
+    const running = this.hostExchanges.get(uri)
+    if (running) return running
+    const answer: Promise<string | null> = this.exchange(uri).catch((error) => {
+      this.log('warn', 'oauth_exchange_failed', { resource: uri, reason: String(error) })
+      return null
+    }).finally(() => {
+      if (this.hostExchanges.get(uri) === answer) this.hostExchanges.delete(uri)
+    })
+    this.hostExchanges.set(uri, answer)
+    return answer
+  }
+
+  private isFresh(token: CachedToken): boolean {
+    return token.expiresAt - ACCESS_TOKEN_RENEW_LEAD_MS > this.deps.now()
   }
 
   /** Why the last request for this resource got no token; null when it got one, or none was refused. */
   refusal(resource: TokenResource): ResourceRefusal | null {
-    return this.refusals.get(tokenResourceUri(resource)) ?? null
+    if (resource.kind === 'account' || resource.kind === 'api') return this.refusals.get(SERVERS_TOKEN_KEY) ?? null
+    return this.refusals.get(tokenResourceUri(resource)) ?? this.refusals.get(SERVERS_TOKEN_KEY) ?? null
   }
 
   /** Reads `/userinfo` again with an account-plane token; the ID token was the first source. */
@@ -465,33 +509,34 @@ export class OAuthSession {
     this.setState(this.signedIn(this.grant, false))
   }
 
-  private refresh(uri: string): Promise<string | null> {
+  private refresh(): Promise<string | null> {
     const sharing = this.deps.sharing
-    if (!sharing) return this.refreshWith(uri)
+    if (!sharing) return this.refreshWith()
     return sharing.exclusive(async () => {
       // Another instance may have refreshed while this one waited: its grant is the one
       // to present, and the token it minted may be the one asked for.
       this.syncWithStore()
-      const minted = this.cache.get(uri)
-      if (minted && minted.expiresAt - ACCESS_TOKEN_RENEW_LEAD_MS > this.deps.now()) return minted.token
-      return this.refreshWith(uri)
+      const minted = this.cache.get(SERVERS_TOKEN_KEY)
+      if (minted && this.isFresh(minted)) return minted.token
+      return this.refreshWith()
     })
   }
 
-  private async refreshWith(uri: string): Promise<string | null> {
+  private async refreshWith(): Promise<string | null> {
     const grant = this.grant
     if (!grant || this.isEnding) return null
     let response: Response
     try {
       const discovery = await this.discovery()
-      response = await this.post(discovery.token_endpoint, {
-        grant_type: 'refresh_token',
-        refresh_token: grant.refreshToken,
-        client_id: this.deps.clientId,
-        resource: uri,
-      })
+      response = await this.post(discovery.token_endpoint, [
+        ['grant_type', 'refresh_token'],
+        ['refresh_token', grant.refreshToken],
+        ['client_id', this.deps.clientId],
+        ['resource', ACCOUNT_AUDIENCE],
+        ['resource', SOLUS_API_AUDIENCE],
+      ])
     } catch (error) {
-      this.log('warn', 'oauth_refresh_unreachable', { resource: uri, reason: String(error) })
+      this.log('warn', 'oauth_refresh_unreachable', { reason: String(error) })
       this.markStale(true)
       return null
     }
@@ -499,19 +544,18 @@ export class OAuthSession {
       const { code, description, rule } = await tokenErrorOf(response)
       if (code === 'invalid_grant') {
         // The grant was revoked (sign-out elsewhere, the Devices page) or replayed.
-        this.log('info', 'oauth_grant_ended', { resource: uri })
+        this.log('info', 'oauth_grant_ended')
         this.endGrant(grant)
         return null
       }
-      // A refusal for this resource rotates nothing (ADR §5): the grant stays.
-      this.refusals.set(uri, { status: response.status, code, description, rule })
-      this.log('info', 'oauth_resource_refused', { resource: uri, status: response.status, code, description, rule })
+      this.refusals.set(SERVERS_TOKEN_KEY, { status: response.status, code, description, rule })
+      this.log('info', 'oauth_resource_refused', { resource: SERVERS_TOKEN_KEY, status: response.status, code, description, rule })
       if (response.status >= 500) this.markStale(true)
       return null
     }
     const tokens = oauthTokenResponseSchema.safeParse(await response.json().catch(() => null))
     if (!tokens.success) {
-      this.log('warn', 'oauth_refresh_malformed', { resource: uri })
+      this.log('warn', 'oauth_refresh_malformed')
       return null
     }
     // Save the rotated refresh token before the access token is used: the old one is spent.
@@ -519,11 +563,60 @@ export class OAuthSession {
       this.grant = { ...this.grant, refreshToken: tokens.data.refresh_token }
       this.saveStore(this.grant)
     }
-    const expiresAt = this.deps.now() + (tokens.data.expires_in ?? 300) * 1000
-    this.cache.set(uri, { token: tokens.data.access_token, expiresAt })
-    this.refusals.delete(uri)
+    this.cache.set(SERVERS_TOKEN_KEY, { token: tokens.data.access_token, expiresAt: this.expiresAt(tokens.data) })
+    this.refusals.delete(SERVERS_TOKEN_KEY)
     this.markStale(false)
     return this.isEnding ? null : tokens.data.access_token
+  }
+
+  /**
+   * A host's token (RFC 8693): the servers token, presented for one host. A servers
+   * token the account plane no longer takes is dropped and the exchange runs once more
+   * with a new one: a sign-out elsewhere then ends the grant at that refresh.
+   */
+  private async exchange(uri: string, isRetry = false): Promise<string | null> {
+    const subjectToken = await this.serversToken()
+    if (!subjectToken || !this.grant || this.isEnding) return null
+    let response: Response
+    try {
+      const discovery = await this.discovery()
+      response = await this.post(discovery.token_endpoint, [
+        ['grant_type', TOKEN_EXCHANGE_GRANT_TYPE],
+        ['client_id', this.deps.clientId],
+        ['subject_token', subjectToken],
+        ['subject_token_type', ACCESS_TOKEN_TYPE],
+        ['resource', uri],
+      ])
+    } catch (error) {
+      this.log('warn', 'oauth_exchange_unreachable', { resource: uri, reason: String(error) })
+      this.markStale(true)
+      return null
+    }
+    if (!response.ok) {
+      const refusal = await tokenErrorOf(response)
+      if (!isRetry && (response.status === 401 || refusal.code === 'invalid_token' || refusal.code === 'invalid_grant')) {
+        if (this.cache.get(SERVERS_TOKEN_KEY)?.token === subjectToken) this.cache.delete(SERVERS_TOKEN_KEY)
+        return this.exchange(uri, true)
+      }
+      this.refusals.set(uri, { status: response.status, ...refusal })
+      this.log('info', 'oauth_resource_refused', { resource: uri, status: response.status, code: refusal.code, description: refusal.description, rule: refusal.rule })
+      if (response.status >= 500) this.markStale(true)
+      return null
+    }
+    const tokens = oauthTokenResponseSchema.safeParse(await response.json().catch(() => null))
+    if (!tokens.success) {
+      this.log('warn', 'oauth_exchange_malformed', { resource: uri })
+      return null
+    }
+    if (this.isEnding || !this.grant) return null
+    this.hostTokens.set(uri, { token: tokens.data.access_token, expiresAt: this.expiresAt(tokens.data) })
+    this.refusals.delete(uri)
+    this.markStale(false)
+    return tokens.data.access_token
+  }
+
+  private expiresAt(tokens: OAuthTokenResponse): number {
+    return this.deps.now() + (tokens.expires_in ?? 300) * 1000
   }
 
   private async adopt(tokens: OAuthTokenResponse, discovery: Discovery, nonce: string | null): Promise<SignInEnd> {
@@ -544,6 +637,7 @@ export class OAuthSession {
     }
     this.grant = grant
     this.cache.clear()
+    this.hostTokens.clear()
     this.refusals.clear()
     this.setState(this.signedIn(grant, false))
     this.log('info', 'oauth_sign_in_ended', { end: 'approved' })
@@ -570,6 +664,7 @@ export class OAuthSession {
     if (this.grant?.refreshToken !== grant.refreshToken) return
     this.grant = null
     this.cache.clear()
+    this.hostTokens.clear()
     this.refusals.clear()
     this.clearStore()
     this.setState({ kind: 'invalid', reason: 'revoked' })
@@ -642,7 +737,7 @@ export class OAuthSession {
     return discovery
   }
 
-  private post(url: string, form: { [name: string]: string }): Promise<Response> {
+  private post(url: string, form: { [name: string]: string } | Array<[string, string]>): Promise<Response> {
     return this.deps.fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },

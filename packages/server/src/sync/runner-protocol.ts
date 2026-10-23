@@ -1,62 +1,33 @@
 import { z } from 'zod'
 import { shareResourceSchema, shareRoleSchema } from '@solus/contracts/sharing'
-import type { OutboxOp } from '@solus/contracts/outbox-types'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
 import { activitySchema } from '@solus/contracts/activity'
 
 /**
- * What a runner sends its organization's workspace service, and what comes
- * back (docs/plans/cloud-service-model.md §16, §6, §5). HTTP routes on the
- * service, all `POST`, all under `Authorization: Bearer <runner grant>`:
+ * What a host sends its organization's Solus API, and what comes back
+ * (docs/plans/simplify-auth-and-sync.md §4.5). One route, `POST /runner/deliver`,
+ * under `Authorization: Bearer <the person's delegated token>` and the
+ * `SOLUS_PROTOCOL_HEADER` header:
  *
- * - `/runner/outbox` — outbox ops of the `tasks` and `works` domains.
- * - `/runner/session-records` — session-record reports.
- * - `/runner/mirror` — mirrored domains (§6): transcript rows, session activity and insights.
+ *   { hostId, items: [{ seq, kind, payload }] }  →  { lastSeq, failed: [{ seq, error }] }
  *
- * Every delivered item carries the `seq` the runner numbered it with, in one
- * sequence across every stream; a batch is in ascending order. The service
- * applies in order, skips what it has already applied (`seq` at or below its
- * cursor for that runner and stream), and answers with the last `seq` it
- * applied. A permanent failure is skipped and named so the runner can
- * dead-letter it; a transient one stops the batch there, and the runner sends
- * the rest again.
+ * Every item carries the `seq` the host numbered it with, in one sequence for
+ * the host; a batch is in ascending order. The API applies a batch in one
+ * transaction with one cursor write for the (host, person): it skips what is at
+ * or below the cursor, skips and names an item that can never apply (`failed`),
+ * and stops at an item that may apply later. `lastSeq` is the cursor after the
+ * batch; the host drops everything at or below it.
  */
 
-export const RUNNER_OUTBOX_PATH = '/runner/outbox'
-export const RUNNER_SESSION_RECORDS_PATH = '/runner/session-records'
-export const RUNNER_MIRROR_PATH = '/runner/mirror'
+export const RUNNER_DELIVER_PATH = '/runner/deliver'
 
-/** How many items a runner sends per request. */
+/** How many items a host sends per request. */
 export const RUNNER_BATCH_LIMIT = 100
 
 const seqSchema = z.number().int().positive()
 
-export const outboxOpWireSchema: z.ZodType<OutboxOp> = z.object({
-  id: z.string().min(1),
-  domain: z.enum(['tasks', 'works', 'sessions']),
-  resourceId: z.string().min(1),
-  name: z.string().min(1),
-  payload: z.unknown(),
-  sessionId: z.string().optional(),
-  recordedAt: z.number(),
-  state: z.enum(['pending', 'failed']),
-  error: z.string().optional(),
-})
-
-export const runnerOutboxRequestSchema = z.object({
-  hostId: z.string().min(1),
-  ops: z.array(z.object({ seq: seqSchema, op: outboxOpWireSchema })).max(RUNNER_BATCH_LIMIT),
-})
-export type RunnerOutboxRequest = z.infer<typeof runnerOutboxRequestSchema>
-
-export const runnerOutboxResponseSchema = z.object({
-  /** The highest `seq` applied or skipped so far for this runner's outbox stream. */
-  lastSeq: z.number().int().nonnegative(),
-  failed: z.array(z.object({ seq: seqSchema, error: z.string(), permanent: z.boolean() })),
-})
-export type RunnerOutboxResponse = z.infer<typeof runnerOutboxResponseSchema>
-
-const sessionRecordUpsertSchema: z.ZodType<SessionRecordUpsert> = z.object({
+/** The facts of one session record, as a `session` item carries them. */
+export const sessionRecordUpsertWireSchema: z.ZodType<SessionRecordUpsert> = z.object({
   sessionId: z.string().min(1),
   provider: z.enum(['claude-code', 'codex', 'opencode']),
   projectPath: z.string(),
@@ -87,46 +58,37 @@ const sessionRecordUpsertSchema: z.ZodType<SessionRecordUpsert> = z.object({
   privateToOwner: z.boolean().optional(),
 })
 
-export const runnerSessionRecordsRequestSchema = z.object({
-  hostId: z.string().min(1),
-  reports: z.array(z.object({ seq: seqSchema, record: sessionRecordUpsertSchema })).max(RUNNER_BATCH_LIMIT),
-})
-export type RunnerSessionRecordsRequest = z.infer<typeof runnerSessionRecordsRequestSchema>
-
-export const runnerSessionRecordsResponseSchema = z.object({
-  lastSeq: z.number().int().nonnegative(),
-})
-export type RunnerSessionRecordsResponse = z.infer<typeof runnerSessionRecordsResponseSchema>
-
-// ── Mirror (§6) ──────────────────────────────────────────────────────────────
-
-export const mirrorDomainWireSchema = z.enum(['transcripts', 'insights', 'activity', 'shares'])
-export type MirrorDomainWire = z.infer<typeof mirrorDomainWireSchema>
-
 /**
- * One mirrored item. The sink for each domain reads the payload:
- * - `transcripts`: `{ sessionId, position, message }`, one history row at its position;
- *   `{ sessionId, truncateFrom }` when the transcript got shorter (a lineage change).
- * - `insights`: `{ span, events }`, one finished span and the log events it owns.
- * - `activity`: `{ activity }`, one activity row of a mirrored session (plans/012 §5),
- *   its subject named by the id the session's transcript is mirrored under.
- * - `shares`: `{ resource, rows }`, the share list of a mirrored session as its host
- *   holds it, every row but the owner's, replaced whole (host-sharing.md §2).
+ * What an item is, and the payload its kind reads:
+ * - `session`: the facts of one session record (`SessionRecordUpsert`), coalesced on the host per session.
+ * - `transcript`: `{ sessionId, position, message }`, one history row; `{ sessionId, truncateFrom }` when the transcript got shorter.
+ * - `activity`: `{ activity }`, one activity row of a mirrored session (plans/012 §5).
+ * - `shares`: `{ resource, rows }`, a mirrored session's share list but the owner's row, replaced whole (host-sharing.md §2); sent when it changes.
+ * - `insights`: `{ spans: [{ span, events }] }`, every span of one turn, sent once when the turn's root span ends.
+ *
+ * A write an agent makes (a task, a work, a comment, a link) is not an item: it calls the Solus API directly.
  */
-export const runnerMirrorItemSchema = z.object({ seq: seqSchema, domain: mirrorDomainWireSchema, key: z.string().min(1), payload: z.unknown() })
-/** One item as it arrives; the sink for its domain parses the payload and refuses one that does not read. */
-export type RunnerMirrorItem = z.infer<typeof runnerMirrorItemSchema>
+export const DELIVERY_KINDS = ['session', 'transcript', 'activity', 'shares', 'insights'] as const
+export const deliveryKindSchema = z.enum(DELIVERY_KINDS)
+export type DeliveryKind = z.infer<typeof deliveryKindSchema>
 
-export const runnerMirrorRequestSchema = z.object({
+export const runnerDeliverItemSchema = z.object({ seq: seqSchema, kind: deliveryKindSchema, payload: z.unknown() })
+/** One item as it arrives; the sink for its kind parses the payload and refuses one that does not read. */
+export type RunnerDeliverItem = z.infer<typeof runnerDeliverItemSchema>
+
+export const runnerDeliverRequestSchema = z.object({
   hostId: z.string().min(1),
-  items: z.array(runnerMirrorItemSchema).max(RUNNER_BATCH_LIMIT),
+  items: z.array(runnerDeliverItemSchema).max(RUNNER_BATCH_LIMIT),
 })
-export type RunnerMirrorRequest = z.infer<typeof runnerMirrorRequestSchema>
+export type RunnerDeliverRequest = z.infer<typeof runnerDeliverRequestSchema>
 
-export const runnerMirrorResponseSchema = z.object({
+export const runnerDeliverResponseSchema = z.object({
+  /** The cursor after this batch: every item at or below it is applied or skipped for good. */
   lastSeq: z.number().int().nonnegative(),
+  /** The items skipped for good, each with why. */
+  failed: z.array(z.object({ seq: seqSchema, error: z.string() })),
 })
-export type RunnerMirrorResponse = z.infer<typeof runnerMirrorResponseSchema>
+export type RunnerDeliverResponse = z.infer<typeof runnerDeliverResponseSchema>
 
 export const transcriptMirrorPayloadSchema = z.union([
   z.object({ sessionId: z.string().min(1), position: z.number().int().nonnegative(), message: z.unknown() }),
@@ -182,11 +144,5 @@ const logEventWireSchema = z.object({
   file: z.string(),
   attrs: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
 })
-export const insightsMirrorPayloadSchema = z.object({ span: spanWireSchema, events: z.array(logEventWireSchema) })
+export const insightsMirrorPayloadSchema = z.object({ spans: z.array(z.object({ span: spanWireSchema, events: z.array(logEventWireSchema) })).min(1) })
 export type InsightsMirrorPayload = z.infer<typeof insightsMirrorPayloadSchema>
-
-/** Every body a runner posts to the service; the delivery's one authenticated door takes nothing else. */
-export type RunnerRequestBody =
-  | RunnerOutboxRequest
-  | RunnerSessionRecordsRequest
-  | RunnerMirrorRequest

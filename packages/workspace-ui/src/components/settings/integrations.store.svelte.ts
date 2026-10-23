@@ -1,3 +1,4 @@
+import { isFirstIntegrationAccount } from '@solus/contracts/integration-types'
 import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -5,6 +6,9 @@ import { localApi } from '@solus/client-core/local-api'
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import type { VaultSaveKeyRequest } from '@solus/contracts/vault'
 import { oauthRedirectUrl } from './lib/integration-labels'
+import { IntegrationAccounts } from './lib/integration-accounts.svelte'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import type { SetupHandoff } from '@solus/contracts/integrations/setup-handoff'
 
 /**
  * The caller's sign-in to one integration while it runs (§4.3). Absent when no
@@ -125,6 +129,8 @@ const MAX_TIMER_MS = 2_147_483_647
  */
 class IntegrationsStore {
   states = new SvelteMap<string, IntegrationsState>()
+  /** The caller's accounts after the first (§13.3); `connections` keeps the first. */
+  readonly accounts = new IntegrationAccounts()
   private watches = new Map<string, { count: number; stop: () => void }>()
   /** Per host and integration: bumped by every event, so an older read for that id does not land. */
   private eventSequence = new Map<string, number>()
@@ -152,7 +158,7 @@ class IntegrationsStore {
   private cloudFor(integration: Integration | undefined): CloudSignInPort | null {
     const cloud = this.cloud
     if (!cloud || !integration || cloud.accountUserId() === null) return null
-    return integration.auth.kind === 'oauth' && integration.auth.registration === 'client-required' ? null : cloud
+    return integration.auth.kind === 'oauth' && (integration.auth.registration === 'client-required' || !!integration.auth.clientId) ? null : cloud
   }
 
   watch(serverId: string): () => void {
@@ -164,7 +170,7 @@ class IntegrationsStore {
       const events = serverConnections.eventsFor(serverId)
       const stopConnection = events.subscribe('integration.connectionChanged', (event) => this.applyConnectionChange(serverId, event))
       const stopAuth = events.subscribe('host.integrationAuthFinished', (event) => this.applyAuthFinished(serverId, event))
-      const stopStatus = serverConnections.onStatusChange((hostId, status) => {
+      const stopStatus = serverConnections.onPhaseChange((hostId, status) => {
         if (hostId !== serverId) return
         if (status === 'connected') void this.load(serverId)
         else {
@@ -205,7 +211,7 @@ class IntegrationsStore {
       const current = this.states.get(serverId)
       if (current?.revision !== revision) return
       const isUnsupported = isUnsupportedHostError(cause)
-      const isDisconnected = serverConnections.statusFor(serverId) !== 'connected'
+      const isDisconnected = serverConnections.phaseFor(serverId) !== 'connected'
       this.states.set(serverId, { ...current, loading: false, isUnsupported, isDisconnected, error: isUnsupported ? '' : 'Could not load integrations.' })
     }
   }
@@ -239,12 +245,13 @@ class IntegrationsStore {
   }
 
   /**
-   * Saves or, with null, removes the administrator's OAuth client of a server
-   * with no dynamic registration (§4.3). The secret goes to the host in this one
+   * Saves or, with null, removes the owner's custom OAuth client. A custom
+   * client selects host sign-in. The secret goes to the host in this one
    * call and is not kept: the record that comes back says only whether it has one.
    */
   async setOAuthClient(serverId: string, integrationId: string, oauthClient: IntegrationOAuthClientInput | null): Promise<Integration | null> {
     return this.write(serverId, oauthClient ? 'Could not save the OAuth client.' : 'Could not remove the OAuth client.', async () => {
+      await this.cancel(serverId, integrationId)
       const integration = await serverConnections.apiFor(serverId).integrationUpdate({ id: integrationId, oauthClient })
       this.upsert(serverId, integration)
       return integration
@@ -287,6 +294,23 @@ class IntegrationsStore {
     return this.states.get(serverId)?.connections.get(integrationId) ?? null
   }
 
+  /**
+   * The caller's own integration that cannot start a sign-in until its owner
+   * enters an OAuth client (§13.2), or null. Integrations are personal, so only
+   * the owner's list holds it and only the owner gets the form.
+   */
+  /** What the caller must set up at the vendor before their own integration can connect (§13.4), as its hand-off; null when nothing. */
+  setupHandoff(serverId: string, integrationId: string): SetupHandoff | null {
+    const integration = this.states.get(serverId)?.integrations?.find((item) => item.id === integrationId)
+    if (!integration) return null
+    return new IntegrationSignIn(integration).setupHandoffFor(this.connection(serverId, integrationId), { name: integration.name, callbackUrl: this.oauthRedirectUrl(serverId) })
+  }
+
+  integrationNeedingClient(serverId: string, integrationId: string): Integration | null {
+    const integration = this.states.get(serverId)?.integrations?.find((item) => item.id === integrationId)
+    return integration && new IntegrationSignIn(integration).needsOwnerClient ? integration : null
+  }
+
   /** The sign-in that runs for one integration, or null when none runs. */
   connectFlow(serverId: string, integrationId: string): IntegrationConnectFlow | null {
     return this.states.get(serverId)?.connectFlows.get(integrationId) ?? null
@@ -301,9 +325,11 @@ class IntegrationsStore {
     this.connectionEventsDuringLoad.set(serverId, changed)
     if (state.connectionsStatus !== 'loaded') this.states.set(serverId, { ...state, connectionsStatus: 'loading' })
     try {
-      const list = await serverConnections.apiFor(serverId).integrationConnectionList()
+      const all = await serverConnections.apiFor(serverId).integrationConnectionList()
       const current = this.states.get(serverId)
       if (!current || this.connectionRevisions.get(serverId) !== revision) return
+      this.accounts.load(serverId, all)
+      const list = all.filter(isFirstIntegrationAccount)
       for (const id of current.connections.keys()) {
         if (!changed.has(id) && !list.some((connection) => connection.integrationId === id)) current.connections.delete(id)
       }
@@ -352,7 +378,7 @@ class IntegrationsStore {
       } else {
         this.setFlow(serverId, integrationId, { kind: 'waiting', flowId: result.flowId, url: result.url, input: result.input, expiresAt: result.expiresAt })
         this.scheduleExpiry(serverId, integrationId, result.flowId, result.expiresAt)
-        void this.openSignIn(result.url)
+        void this.openInBrowser(result.url)
       }
     } catch (cause) {
       if (!this.isCurrent(serverId, integrationId, attempt)) return
@@ -452,7 +478,7 @@ class IntegrationsStore {
       const expiresAt = new Date(Date.now() + CLOUD_SIGN_IN_TIMEOUT_MS).toISOString()
       this.setFlow(serverId, integrationId, { kind: 'waiting', flowId: `cloud:${integration.url}`, url: start.url, input: 'callback', expiresAt, through: 'cloud' })
       this.pollCloudSignIn(serverId, integration, cloud, attempt)
-      void this.openSignIn(start.url)
+      void this.openInBrowser(start.url)
     }
   }
 
@@ -509,8 +535,8 @@ class IntegrationsStore {
     if (this.isCurrent(serverId, integrationId, attempt)) this.clearFlow(serverId, integrationId)
   }
 
-  /** Opens a sign-in page on this device, never on the host, as the Google sign-in does. */
-  async openSignIn(url: string): Promise<void> {
+  /** Opens a page, such as a sign-in or a vendor setup guide, on this device, never on the host, as the Google sign-in does. */
+  async openInBrowser(url: string): Promise<void> {
     const opened = await localApi.openExternal?.(url).catch(() => false)
     if (!opened) globalThis.window?.open(url, '_blank', 'noopener,noreferrer')
   }
@@ -565,15 +591,18 @@ class IntegrationsStore {
     }
   }
 
-  private applyConnectionChange(serverId: string, { integrationId, connection }: IntegrationConnectionChangedEvent): void {
+  private applyConnectionChange(serverId: string, event: IntegrationConnectionChangedEvent): void {
     const state = this.states.get(serverId)
     if (!state) return
+    if (this.accounts.apply(serverId, event)) return
+    const { integrationId, connection } = event
     this.connectionEventsDuringLoad.get(serverId)?.add(integrationId)
     if (connection) state.connections.set(integrationId, connection)
     else state.connections.delete(integrationId)
   }
 
   private applyAuthFinished(serverId: string, event: IntegrationAuthFinishedEvent): void {
+    if (this.accounts.finished(serverId, event)) return
     const flowId = hostFlowId(this.states.get(serverId)?.connectFlows.get(event.integrationId))
     if (!flowId || flowId !== event.flowId) return
     const attempt = this.nextAttempt(serverId, event.integrationId)

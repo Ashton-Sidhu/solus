@@ -94,6 +94,25 @@ Keep the name **agent profile**. Do not coin "user agent profile".
    precedent. It is one `PUT`, over the person's delegated token, and it is
    named here so the exception is visible.
 
+Decisions of 2026-10-22:
+
+- **`disabledTools` is part of the integration entry.** The tools a person
+  turned off follow them to every host. This reverses `mcp-integrations.md`
+  §6.1.
+- **The owner's OAuth client is synced.** A client a person enters for a
+  `client-required` server is a credential, so it goes to the account vault
+  with the person's other credentials, never into the document (decision 4
+  holds). Signed in with sync on, the cloud runs the sign-in with that client,
+  and every host uses it. Not signed in, it stays in the host secret store as
+  today (`integration-client-<id>`). The reconcile (§5.4) uploads a host's
+  saved owner client even when no token exists yet. Status on 2026-10-23: not
+  built; it needs solus-cloud to store the client and run the sign-in with it.
+  `disabledTools` in the entry is built.
+- **A Solus MCP server is an entry too** (`docs/plans/mcp-integrations.md`
+  §13.6). Its entry names the server's id in place of a URL, and it is matched
+  across hosts by owner and that id. A host whose build lacks the server keeps
+  the entry and reports it in `skipped`; it never removes it.
+
 ## 1. The document
 
 In `@solus/contracts/agent-profile`, replacing `AgentProfileBundle`:
@@ -102,7 +121,7 @@ In `@solus/contracts/agent-profile`, replacing `AgentProfileBundle`:
 type AgentProfileEntry =
   | { kind: 'file'; provider: SeatProvider; path: string; contentBase64: string; executable?: boolean; hash: string }
   | { kind: 'skill'; name: string; source: string; skillId: string; version?: string }
-  | { kind: 'integration'; slug: string; name: string; url: string; auth: IntegrationAuth }
+  | { kind: 'integration'; slug: string; name: string; url: string; auth: IntegrationAuth; disabledTools: string[] }
 
 type AgentProfile = Record<AgentProfileKey, AgentProfileEntry>   // the key is derived from the entry
 ```

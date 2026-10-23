@@ -1,18 +1,16 @@
 import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { withActorScope } from '../../execution/seats/acting-identity'
 import { createLogger } from '../../logger'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
 import { solusApiOperations as routes, workspaceIdSchema, workspaceVersionSchema, type WorkspaceCapabilities } from '@solus/contracts/solus-api'
 import { SolusApiError } from '../../admission/workspace-error'
-import { parseSessionPullRequestId } from '@solus/contracts/session-pull-requests'
-import { solusApiRequestHeaders, solusApiRequestSchema, solusApiResponseOf, type SolusApiRequest, type SolusApiResponse } from '@solus/contracts/solus-api/request'
+import { SOLUS_API_ORGANIZATION_HEADER, solusApiRequestHeaders, solusApiRequestSchema, solusApiResponseOf, type SolusApiRequest, type SolusApiResponse } from '@solus/contracts/solus-api/request'
 import type { Principal } from '../../admission/principal'
-import type { WorkspaceCredentials, WorkspaceRequestContext } from '../../admission/workspace-credentials'
+import type { WorkspaceAdmission, WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import type { WorkspaceOperations } from '../../data/workspace/operations'
-import { createTokenBucketRateLimiter } from '../rate-limit'
 import { WorkspaceRequestBudgets } from './limits'
 
 const log = createLogger('server', 'solus-api')
@@ -22,7 +20,7 @@ interface ApiEnvironment { Bindings: { socketPrincipal?: Principal }; Variables:
 export type SolusApiRouter = Hono<ApiEnvironment>
 type ApiContext = Context<ApiEnvironment>
 interface SolusApiRouterOptions {
-  credentials: WorkspaceCredentials
+  admission: WorkspaceAdmission
   operations: WorkspaceOperations
   capabilities: WorkspaceCapabilities
   openApi: () => string
@@ -47,12 +45,6 @@ function version(c: ApiContext): string {
 function idempotencyKey(c: ApiContext): string { return z.string().min(16).max(128).parse(c.req.header('Idempotency-Key')) }
 function id(c: ApiContext, name: string): string { return workspaceIdSchema.parse(c.req.param(name)) }
 function etag(c: ApiContext, value: string): void { c.header('ETag', JSON.stringify(value)) }
-/** A session's link id, `host/owner/repo#number`, which the path carries URL-encoded. */
-function pullRequestId(c: ApiContext): { repository: string; number: number } {
-  const parsed = parseSessionPullRequestId(c.req.param('pullRequestId') ?? '')
-  if (!parsed) throw new SolusApiError(400, 'INVALID_REQUEST', 'A pull request id is `host/owner/repo#number`, URL-encoded.')
-  return parsed
-}
 const limitBody = (maxSize: number) => bodyLimit({ maxSize, onError: () => { throw new SolusApiError(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large.') } })
 
 async function body<T extends z.ZodType>(c: ApiContext, schema: T): Promise<z.output<T>> {
@@ -68,7 +60,6 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRo
   const app = new Hono<ApiEnvironment>()
   const { operations } = options
   const budgets = new WorkspaceRequestBudgets()
-  const exchanges = createTokenBucketRateLimiter(60, 60_000)
 
   app.use('*', async (c, next) => {
     c.set('requestId', randomUUID())
@@ -87,23 +78,16 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRo
   })
   app.notFound(c => c.json({ error: { code: 'NOT_FOUND', message: 'Resource not found.', requestId: c.get('requestId') } }, 404))
 
-  // The two doors that take no API credential are registered before the check below.
+  // The one route that takes no credential is registered before the check below.
   app.get(routes.openApi.path, c => c.body(options.openApi(), 200, { 'Content-Type': 'application/json' }))
-  app.post(routes.exchangeCredential.path, limitBody(16 * 1024), async c => {
-    query(c, routes.exchangeCredential.query)
-    const input = await body(c, routes.exchangeCredential.body)
-    const source = bearer(c)
-    // A link guest has no bearer: its secret is what it presents.
-    if (!exchanges.allow(createHash('sha256').update(source || 'share:' + (input.shareSecret ?? '')).digest('hex'))) throw new SolusApiError(429, 'RATE_LIMITED', 'Too many credential exchanges. Try again shortly.', 1)
-    const session = await options.credentials.exchange(source, input)
-    if (!session) throw new SolusApiError(401, 'UNAUTHENTICATED', 'The source credential was refused.')
-    return c.json(session)
-  })
 
   app.use('*', async (c, next) => {
-    // A socket request's authority is its socket's principal; an HTTP request's is its bearer.
+    // A socket request's authority is its socket's principal; an HTTP request's is its
+    // bearer, in the organization the request names (plan simplify-auth-and-sync §4.2).
     const socketPrincipal = c.env?.socketPrincipal
-    const authority = socketPrincipal ? await options.credentials.admitSocket(socketPrincipal) : await options.credentials.verify(bearer(c))
+    const authority = socketPrincipal
+      ? await options.admission.socket(socketPrincipal)
+      : await options.admission.bearer(bearer(c), c.req.header(SOLUS_API_ORGANIZATION_HEADER) || undefined)
     if (!authority) throw new SolusApiError(401, 'UNAUTHENTICATED', 'A valid API credential is required.')
     c.set('authority', authority)
     const actor = actorFor(authority.principal)
@@ -132,6 +116,18 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRo
   })
   app.get(routes.listTaskActivity.path, async c => c.json(await operations.listTaskActivity(authority(c), id(c, 'taskId'), query(c, routes.listTaskActivity.query))))
   app.delete(routes.deleteTask.path, async c => { query(c, routes.deleteTask.query); await operations.deleteTask(authority(c), id(c, 'taskId'), version(c)); return c.body(null, 204) })
+  app.post(routes.createTaskComment.path, limitBody(TASK_BODY_BYTES), async c => {
+    query(c, routes.createTaskComment.query)
+    return c.json(await operations.createTaskComment(authority(c), id(c, 'taskId'), await body(c, routes.createTaskComment.body), idempotencyKey(c)), 201)
+  })
+  app.put(routes.putLink.path, limitBody(16 * 1024), async c => {
+    query(c, routes.putLink.query)
+    await operations.putLink(authority(c), await body(c, routes.putLink.body)); return c.body(null, 204)
+  })
+  app.delete(routes.deleteLink.path, limitBody(16 * 1024), async c => {
+    query(c, routes.deleteLink.query)
+    await operations.deleteLink(authority(c), await body(c, routes.deleteLink.body)); return c.body(null, 204)
+  })
 
   app.get(routes.listWorks.path, async c => c.json(await operations.listWorks(authority(c), query(c, routes.listWorks.query))))
   app.post(routes.importWork.path, limitBody(16 * 1024), async c => {
@@ -196,14 +192,6 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): SolusApiRo
   app.get(routes.listSessionPullRequests.path, async c => {
     query(c, routes.listSessionPullRequests.query)
     return c.json(await operations.listSessionPullRequests(authority(c), id(c, 'sessionId')))
-  })
-  app.put(routes.putSessionPullRequest.path, limitBody(4 * 1024), async c => {
-    query(c, routes.putSessionPullRequest.query)
-    return c.json(await operations.putSessionPullRequest(authority(c), id(c, 'sessionId'), pullRequestId(c), await body(c, routes.putSessionPullRequest.body)))
-  })
-  app.delete(routes.deleteSessionPullRequest.path, async c => {
-    query(c, routes.deleteSessionPullRequest.query)
-    await operations.deleteSessionPullRequest(authority(c), id(c, 'sessionId'), pullRequestId(c)); return c.body(null, 204)
   })
   app.get(routes.listSessionMessages.path, async c => c.json(await operations.listSessionMessages(authority(c), id(c, 'sessionId'), query(c, routes.listSessionMessages.query))))
   app.get(routes.listSessionActivity.path, async c => c.json(await operations.listSessionActivity(authority(c), id(c, 'sessionId'), query(c, routes.listSessionActivity.query))))

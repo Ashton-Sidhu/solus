@@ -37,7 +37,7 @@
     onSelect: (checkout: ProjectRef) => void;
     /** Open the full project browser: remote hosts and folders not in the catalog. */
     onBrowse: () => void;
-    /** Open the project dialog, which also offers project creation. */
+    /** Open the project creation form. */
     onNewProject: () => void;
     /** Return focus to the composer once the menu closes. */
     onDismiss: () => void;

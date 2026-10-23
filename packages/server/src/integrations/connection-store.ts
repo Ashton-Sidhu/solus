@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { z } from 'zod'
-import type { IntegrationConnection, IntegrationConnectionStatus } from '@solus/contracts/integration-types'
+import { DEFAULT_INTEGRATION_ACCOUNT, type IntegrationConnection, type IntegrationConnectionStatus } from '@solus/contracts/integration-types'
 import { oauthClientSchema, type OAuthClient } from '@solus/contracts/integrations/oauth-protocol'
 import { getDb } from '../db'
 import { createLogger } from '../logger'
@@ -30,6 +30,7 @@ type ConnectionInfo = z.infer<typeof connectionInfoSchema>
 const connectionRowSchema = z.object({
   integration_id: z.string(),
   user_id: z.string(),
+  account_id: z.string(),
   status: z.enum(['connected', 'needs-sign-in', 'error', 'cloud-unreachable', 'needs-solus-sign-in']),
   source: z.enum(['host', 'cloud']),
   label: z.string().nullable(),
@@ -39,7 +40,7 @@ const connectionRowSchema = z.object({
 })
 type ConnectionRow = z.infer<typeof connectionRowSchema>
 
-const COLUMNS = 'integration_id, user_id, status, source, label, info, error, updated_at'
+const COLUMNS = 'integration_id, user_id, account_id, status, source, label, info, error, updated_at'
 
 export interface ConnectionWrite {
   status: IntegrationConnectionStatus
@@ -54,6 +55,7 @@ function connectionFromRow(row: ConnectionRow): IntegrationConnection {
   const info = row.info ? connectionInfoSchema.safeParse(JSON.parse(row.info)) : null
   return {
     integrationId: row.integration_id,
+    accountId: row.account_id,
     status: row.status,
     source: row.source,
     label: row.label,
@@ -64,44 +66,49 @@ function connectionFromRow(row: ConnectionRow): IntegrationConnection {
 }
 
 export class IntegrationConnectionStore {
+  /** Every connection of the person, every account of each integration, the first account first. */
   list(personKey: string): IntegrationConnection[] {
-    const rows = getDb().prepare(`SELECT ${COLUMNS} FROM integration_connection WHERE user_id = ? ORDER BY integration_id`).all(personKey)
+    const rows = getDb().prepare(`SELECT ${COLUMNS} FROM integration_connection WHERE user_id = ? ORDER BY integration_id, account_id = 'default' DESC, account_id`).all(personKey)
     return connectionRowSchema.array().parse(rows).map(connectionFromRow)
   }
 
-  get(integrationId: string, personKey: string): IntegrationConnection | null {
-    const row = getDb().prepare(`SELECT ${COLUMNS} FROM integration_connection WHERE integration_id = ? AND user_id = ?`).get(integrationId, personKey)
+  /** The person's accounts on one integration (§13.3), the first account first. */
+  accounts(integrationId: string, personKey: string): IntegrationConnection[] {
+    return this.list(personKey).filter((connection) => connection.integrationId === integrationId)
+  }
+
+  get(integrationId: string, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): IntegrationConnection | null {
+    const row = getDb().prepare(`SELECT ${COLUMNS} FROM integration_connection WHERE integration_id = ? AND user_id = ? AND account_id = ?`).get(integrationId, personKey, accountId)
     return row ? connectionFromRow(connectionRowSchema.parse(row)) : null
   }
 
   /** Writes the status; a field left out keeps its stored value. Returns the row as the person reads it. */
-  upsert(integrationId: string, personKey: string, write: ConnectionWrite): IntegrationConnection {
-    const existing = this.get(integrationId, personKey)
+  upsert(integrationId: string, personKey: string, write: ConnectionWrite, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): IntegrationConnection {
+    const existing = this.get(integrationId, personKey, accountId)
     const source = write.source ?? existing?.source ?? 'host'
     const label = write.label === undefined ? existing?.label ?? null : write.label
     const info = write.info === undefined ? existing?.info ?? null : write.info
     const error = write.error === undefined ? existing?.error ?? null : write.error
     getDb().prepare(`
-      INSERT INTO integration_connection (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (integration_id, user_id) DO UPDATE SET status = excluded.status, source = excluded.source, label = excluded.label,
+      INSERT INTO integration_connection (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (integration_id, user_id, account_id) DO UPDATE SET status = excluded.status, source = excluded.source, label = excluded.label,
         info = excluded.info, error = excluded.error, updated_at = excluded.updated_at
-    `).run(integrationId, personKey, write.status, source, label, info ? JSON.stringify(info) : null, error, new Date().toISOString())
-    const saved = this.get(integrationId, personKey)
+    `).run(integrationId, personKey, accountId, write.status, source, label, info ? JSON.stringify(info) : null, error, new Date().toISOString())
+    const saved = this.get(integrationId, personKey, accountId)
     if (!saved) throw new Error('The connection could not be saved.')
     return saved
   }
 
-  remove(integrationId: string, personKey: string): boolean {
-    return Number(getDb().prepare('DELETE FROM integration_connection WHERE integration_id = ? AND user_id = ?').run(integrationId, personKey).changes) > 0
+  remove(integrationId: string, personKey: string, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): boolean {
+    return Number(getDb().prepare('DELETE FROM integration_connection WHERE integration_id = ? AND user_id = ? AND account_id = ?').run(integrationId, personKey, accountId).changes) > 0
   }
 
-  /** Removes every person's row for an integration; returns whose rows they were, so their credentials can go too. */
-  removeAllFor(integrationId: string): string[] {
-    const users = z.object({ user_id: z.string() }).array()
-      .parse(getDb().prepare('SELECT user_id FROM integration_connection WHERE integration_id = ?').all(integrationId))
-      .map((row) => row.user_id)
+  /** Removes every person's rows for an integration; returns whose accounts they were, so their credentials can go too. */
+  removeAllFor(integrationId: string): Array<{ personKey: string; accountId: string }> {
+    const rows = z.object({ user_id: z.string(), account_id: z.string() }).array()
+      .parse(getDb().prepare('SELECT user_id, account_id FROM integration_connection WHERE integration_id = ?').all(integrationId))
     getDb().prepare('DELETE FROM integration_connection WHERE integration_id = ?').run(integrationId)
-    return users
+    return rows.map((row) => ({ personKey: row.user_id, accountId: row.account_id }))
   }
 }
 

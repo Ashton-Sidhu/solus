@@ -7,14 +7,15 @@ import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// docs/plans/organization-scope.md §6, §6.1: a finished span of a session's turn
-// tree is mirrored with its log events, named by the ids the runner's own table
-// assigned, to the organization the session's record names — and only when that
-// organization's Insights leave this machine. A host-internal span names no
+// docs/plans/organization-scope.md §6, §6.1; simplify-auth-and-sync.md §4.5: the
+// finished spans of a session's turn are mirrored once, as one item, when the
+// turn's root span ends, with their log events named by the ids the host's own
+// table assigned, to the organization the session's record names — and only when
+// that organization's Insights leave this machine. A host-internal span names no
 // session and stays local; so does every span of a Local session.
 
 let insightMirror: typeof import('@solus/server/sync/mirror/insight-mirror')
-let mirrorLog: typeof import('@solus/server/sync/mirror/mirror-log')
+let queue: typeof import('@solus/server/sync/delivery-queue')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let spanTable: typeof import('@solus/server/data/insights/span-table')
 let metricsDb: typeof import('@solus/server/data/insights/metrics-db')
@@ -28,7 +29,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-insight-mirror-'))
   process.env.SOLUS_DATA_DIR = dataDir
   insightMirror = await import('@solus/server/sync/mirror/insight-mirror')
-  mirrorLog = await import('@solus/server/sync/mirror/mirror-log')
+  queue = await import('@solus/server/sync/delivery-queue')
   records = await import('@solus/server/data/sessions/session-records')
   spanTable = await import('@solus/server/data/insights/span-table')
   metricsDb = await import('@solus/server/data/insights/metrics-db')
@@ -60,10 +61,11 @@ function turnSpan(spanId: string, sessionId?: string, organizationId?: string) {
 const bobIn = (organizationId: string) => ({ organizationId, actorUserId: 'bob' })
 
 describe('insight mirror', () => {
-  test('a span of an organization\'s session is appended to that organization with its events under the ids the table assigned; a host-internal span stays local', async () => {
+  test('a turn\'s spans go as one item when its root ends, with their events under the ids the table assigned; a host-internal span stays local', async () => {
     insightMirror.useInsightsPolicy({ syncAllInsights: (organizationId) => (organizationId === 'org1' ? true : null), optedIn: () => false, attached: () => false })
     await sessionIn('session-1', 'org1')
     const span = turnSpan('trace-1', 'session-1', 'org1')
+    const tool = { ...span, spanId: 'tool-1', parentSpanId: 'trace-1', name: 'tool', endedAt: 50 }
     const events = [
       { traceId: 'trace-1', spanId: 'trace-1', occurredAt: 20, level: 'info' as const, name: 'tool_started', tag: 'SessionRuntime', file: 'session-runtime.ts', attrs: { tool: 'Bash' } },
       { traceId: 'trace-1', spanId: 'trace-1', occurredAt: 30, level: 'info' as const, name: 'tool_finished', tag: 'SessionRuntime', file: 'session-runtime.ts' },
@@ -72,35 +74,43 @@ describe('insight mirror', () => {
     expect(eventIds).toHaveLength(2)
     expect(eventIds[1]).toBe(eventIds[0] + 1)
 
+    // WHY: one item per turn, not one per span: a turn has tens of spans.
+    expect(await insightMirror.mirrorInsightSpan(tool, [], [])).toBe(0)
+    expect(queue.deliveryDestinations()).toEqual([])
     expect(await insightMirror.mirrorInsightSpan(span, events, eventIds)).toBe(1)
     expect(await insightMirror.mirrorInsightSpan(turnSpan('boot-1'), [], [])).toBe(0)
 
-    const queued = mirrorLog.listMirror(bobIn('org1'), 10)
+    const queued = queue.listDelivery(bobIn('org1'), 10)
     expect(queued).toHaveLength(1)
-    expect(queued[0]).toMatchObject({ domain: 'insights', key: 'trace-1' })
-    // The payload's span names the organization it was mirrored to: the record's, never a guess of the service's.
+    expect(queued[0].kind).toBe('insights')
+    // The payload's spans name the organization they were mirrored to: the record's, never a guess of the service's.
     expect(queued[0].payload).toEqual({
-      span: { ...span, organizationId: 'org1' },
-      events: [{ ...events[0], eventId: eventIds[0] }, { ...events[1], eventId: eventIds[1] }],
+      spans: [
+        { span: tool, events: [] },
+        { span: { ...span, organizationId: 'org1' }, events: [{ ...events[0], eventId: eventIds[0] }, { ...events[1], eventId: eventIds[1] }] },
+      ],
     })
-    expect(mirrorLog.mirrorDestinations()).toEqual([bobIn('org1')])
+    expect(queue.deliveryDestinations()).toEqual([bobIn('org1')])
+
+    // A span that ends after its root goes on its own.
+    expect(await insightMirror.mirrorInsightSpan({ ...tool, spanId: 'late-1' }, [], [])).toBe(1)
   })
 
   test('a Local session, a session with no record, and a session whose organization sends no Insights append nothing', async () => {
     insightMirror.useInsightsPolicy({ syncAllInsights: () => false, optedIn: () => false, attached: () => false })
-    mirrorLog.ackMirrorThrough(bobIn('org1'), Number.MAX_SAFE_INTEGER)
+    queue.ackDelivery(bobIn('org1'), Number.MAX_SAFE_INTEGER, [])
     await sessionIn('session-local', null)
     await sessionIn('session-org2', 'org2')
     expect(await insightMirror.mirrorInsightSpan(turnSpan('trace-local', 'session-local'), [], [])).toBe(0)
     expect(await insightMirror.mirrorInsightSpan(turnSpan('trace-unknown', 'session-unknown'), [], [])).toBe(0)
     expect(await insightMirror.mirrorInsightSpan(turnSpan('trace-org2', 'session-org2', 'org2'), [], [])).toBe(0)
-    expect(mirrorLog.mirrorDestinations()).toEqual([])
+    expect(queue.deliveryDestinations()).toEqual([])
 
     // The person at this host opts the machine in for org2: its sessions send from now on.
     insightMirror.useInsightsPolicy({ syncAllInsights: () => false, optedIn: (organizationId) => organizationId === 'org2', attached: () => false })
     expect(await insightMirror.mirrorInsightSpan(turnSpan('trace-org2', 'session-org2', 'org2'), [], [])).toBe(1)
-    expect(mirrorLog.listMirror(bobIn('org2'), 10).map((item) => item.key)).toEqual(['trace-org2'])
-    expect(mirrorLog.listMirror(bobIn('org1'), 10)).toEqual([])
+    expect(queue.listDelivery(bobIn('org2'), 10).map((item) => item.kind)).toEqual(['insights'])
+    expect(queue.listDelivery(bobIn('org1'), 10)).toEqual([])
   })
 })
 
@@ -110,7 +120,7 @@ test('captured organization routes setup spans before the record exists and neve
   expect(await records.getSessionRecord('org-setup', 'no-record-yet')).toBeNull()
   const setup = turnSpan('setup-before-record', 'no-record-yet', 'org-setup')
   expect(await insightMirror.mirrorInsightSpan(setup, [], [])).toBe(1)
-  expect(mirrorLog.listMirror(bobIn('org-setup'), 10)[0]?.payload).toMatchObject({ span: setup })
+  expect(queue.listDelivery(bobIn('org-setup'), 10)[0]?.payload).toMatchObject({ spans: [{ span: setup }] })
   await sessionIn('assigned-later', 'org-setup')
   expect(await insightMirror.mirrorInsightSpan(turnSpan('old-local-span', 'assigned-later', 'local'), [], [])).toBe(0)
   expect(await insightMirror.mirrorInsightSpan(turnSpan('unassigned-span', 'assigned-later'), [], [])).toBe(0)

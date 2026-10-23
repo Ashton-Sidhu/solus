@@ -92,7 +92,7 @@ trips in a row. Four changes take most of them out of the path.
 | A probe (`GET /v1/hosts` → 401) to tell the account origin from a host, then the OpenID discovery read | The account origin's shell names itself and carries the metadata (solus-cloud `withAccountOrigin`; `accountOriginShell`; `OAuthSession` `knownDiscovery`). A host page sends nothing to find out. |
 | A silent sign-in (authorize, then the code) in every new tab | One sign-in for all tabs in `localStorage`, refreshed under one Web Lock from the stored grant, with the access tokens shared (`GrantSharing`, `webGrantSharing`; ADR 0001 "Web storage"). |
 | The directory read before any host was dialed | A catalog the browser keeps is dialed at once; the directory refreshes it when it answers (`bootFromCatalog`). The server the page opens at is dialed first and its token asked for first (`BootIntent`, `addressedBootIntent`). |
-| A CORS preflight and a ticket request before each socket | The account token goes in the socket handshake, admitted as the ticket door admits it (`exchangeCredential`; ADR 0001 §2). A host that predates it is asked for tickets. The preflight is cached for two hours. |
+| A CORS preflight and a ticket request before each socket | The account token goes in the socket handshake, admitted as the ticket door admits it (`exchangeCredential`; ADR 0001 §2). A host that predates it is blocked until it is updated. The preflight is cached for two hours. |
 
 ### 4.3 The account plane's own wait (2026-10-22)
 
@@ -107,6 +107,46 @@ workspaces side by side. The provider is not patched further: with the tokens sh
 by every tab (§4.2), a refresh runs about once an hour per resource and browser, and
 it is off the path of opening a link. The application asks to run beside the
 database (solus-cloud `docs/deploy-cloudflare.md`, "Placement").
+
+### 4.4 One wait per read (2026-10-22)
+
+The waits came from how the code read the tables, not from the tables. All of them
+are in one Postgres database with indexes for each lookup, so each read is now one
+statement, or reads that run side by side.
+
+| Read | Was | Now |
+|---|---|---|
+| Share-link resolve | The link, then its role and runner, then the runner's routes: 3 waits | `ShareManager.openLink` reads the link, every ACL entry of its resource, its own row, and its runner in one statement; `roleOf` answers from that read as `roleFor` does. The routes come from a copy kept for a minute (solus-cloud `cachedHostRoutes`): 1 wait |
+| `GET /v1/hosts` with a token | The grant check, then the memberships, the hosts, and their organizations: 4 waits | The hosts with their organizations in one query, the workspaces with their policies in one query, and the grant check, side by side: 1 wait |
+| Any account read with a token | The grant check, then the route | The grant check beside the route (`answerWithLiveGrant`); its answer is dropped when the grant is gone. A write still waits for the check |
+| A dial after a token's life | A refresh first | A token still in use (asked for within its life) is renewed at three quarters of its life (`OAuthSessionDeps.renewalTimers`; web, desktop, and mobile; not the CLI) |
+
+**One relation for host reach.** An organization reached a host in two ways: a
+share (`host_organization`) or as the managed host's own organization
+(`managed_host.organization_id`). Every reach read looked in both. Now a managed
+host's organization has its `host_organization` row too (`via = 'managed'`), written
+with the host and kept for its life, so reach is one join (solus-cloud migration
+`0011_host_reach`). `managed_host.organization_id` stays: it is the organization the
+machine was provisioned for, and a registration's end clears only `shared` rows.
+
+### 4.5 One round trip per query (2026-10-23)
+
+The production logs showed about 60 ms for each database wait, but PlanetScale ran
+each query in 0.05–0.3 ms. The container runs in Chicago (`ord06`) and the database
+is in AWS us-east-1, one round trip (about 20 ms) apart. The account site's pool had
+`prepare: false`, left over from Hyperdrive: postgres.js then asks for a statement's
+parameter types before every query with parameters, so each query was two round trips
+and paid the network twice. Measured from Toronto: 44 ms with it, 22 ms without. The
+pool now prepares statements (solus-cloud `openSharedDatabase`); the record service's
+pool always did. Every token, directory, and account read waits half as long.
+
+### 4.6 Replaced by the simplification (2026-10-23)
+
+`simplify-auth-and-sync.md` replaces parts of §4.2–4.4: the refresh for each resource
+and the cross-tab queue for host tokens (a host token is now an exchange), the
+background renewal timers, the ticket fallback for older hosts (no ws-ticket exists),
+and the one-minute copy of host routes (`cachedHostRoutes`). The prepared statements
+(§4.5), the edge files, and the one-statement resolve stay.
 
 ## 5. Removed
 
@@ -136,6 +176,8 @@ database (solus-cloud `docs/deploy-cloudflare.md`, "Placement").
 `guest-link.test.ts`, `web-sign-in.test.ts`,
 `session-record-runner-state.test.ts`, `account-origin-shell.test.ts`,
 `boot-intent.test.ts`, `handshake-credential.test.ts`, the shared-grant cases in
-`web-sign-in.test.ts`, and solus-cloud
-`sign-in-clients.test.ts` ("the web page signs in with one fetch") and
+`web-sign-in.test.ts`, the "background renewal" cases in `oauth-session.test.ts`, the
+one-read link case in `share-manager.test.ts`, and solus-cloud
+`sign-in-clients.test.ts` ("the web page signs in with one fetch", and the grant check
+beside a read), `host-reach-migration.test.ts`, and
 `scripts/asset-rules.test.ts`.

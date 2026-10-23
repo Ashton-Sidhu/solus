@@ -1,26 +1,19 @@
 import { scenario } from '../src/scenario'
 
 /**
- * Phase 0 exit (plan §9): the admission path the tunnel takes. One grant per dial,
- * one ticket per socket, and a grant-admitted socket ends at the grant's expiry.
+ * Phase 0 exit (plan §9): the admission path the tunnel takes. The credential rides
+ * the socket handshake, a grant admits every socket while it lives, and a
+ * grant-admitted socket ends at the grant's expiry.
  */
-export default scenario('uplink admission: grant per dial, ticket one-use, expiry disconnect', async (ctx) => {
-  ctx.step('a fresh grant earns a ticket; the same grant cannot earn a second one')
+export default scenario('uplink admission: credential in the handshake, expiry disconnect', async (ctx) => {
+  ctx.step('a grant in the handshake admits the socket, and admits another while it lives')
   const bob = ctx.client('bob')
-  const first = await bob.fetchTicket()
-  ctx.check('the ticket door accepts a fresh grant', 'ticket' in first)
+  const credential = await bob.credential()
+  const admitted = await bob.dial(credential)
+  ctx.check('the first socket is admitted', admitted.ok, JSON.stringify(admitted))
   const replayed = ctx.client('bob')
-  const again = await replayed.fetchTicket()
-  ctx.check('a second dial mints a second grant and is accepted too', 'ticket' in again)
-
-  ctx.step('a ticket admits exactly one socket')
-  if ('ticket' in first) {
-    const admitted = await bob.dial(first.ticket)
-    ctx.check('the first socket is admitted', admitted.ok)
-    const second = ctx.client('bob')
-    const refused = await second.dial(first.ticket)
-    ctx.check('the same ticket is refused for a second socket', !refused.ok && refused.stage === 'socket' && refused.code === 'UNAUTHORIZED', JSON.stringify(refused))
-  }
+  const again = await replayed.dial(credential)
+  ctx.check('the same grant admits a second socket', again.ok, JSON.stringify(again))
 
   ctx.step('no credential is not admitted on the proxied listener')
   const bare = ctx.client('bob')

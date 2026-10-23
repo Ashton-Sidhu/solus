@@ -24,7 +24,8 @@ import type { DraftReview, PrConversationItem, ReviewComment, ReviewThread } fro
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { reviewGuideKeyFor, type ReviewContext, type ReviewGuideStatusEvent, type ReviewState } from '@solus/contracts/review'
 import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } from '@solus/contracts/task-types'
-import type { ChangedFileStat, DiffRequest, TurnSnapshot } from '@solus/contracts/git-types'
+import type { ChangedFileStat, DiffRequest, GitState, TurnSnapshot } from '@solus/contracts/git-types'
+import type { CheckItem } from '@solus/contracts/checks-types'
 import { applyWorkCommand, type WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { DEMO_PROJECT, DEMO_VIEWER, type DemoFixtures } from './fixtures/types'
 
@@ -134,8 +135,22 @@ export class DemoStore {
     return this.fixtures.startInfo
   }
 
-  gitStatus() {
-    return this.fixtures.gitStatus
+  /** The captured status belongs to the main project. Every other fixture
+   *  project is a clean checkout of the branch its tab or session names, so a
+   *  session there never claims the main project's repository, changes, or
+   *  pull request. */
+  gitStatus(cwd: string): GitState {
+    const status = this.fixtures.gitStatus
+    if (cwd === status.repoRoot || cwd.startsWith(`${status.repoRoot}/`)) return status
+    const repoRoot = cwd.split('/').slice(0, 4).join('/')
+    const branch = this.fixtures.persistedTabs.tabs.find((tab) => tab.gitContext?.repoRoot === repoRoot)?.gitContext?.branch
+      ?? this.fixtures.sessions.find(({ meta }) => meta.projectPath === repoRoot && meta.branch)?.meta.branch
+      ?? 'main'
+    return {
+      repoRoot, headSha: status.headSha, branch, targetBranch: 'main',
+      uncommittedChanges: { files: [], hasMoreFiles: false, fileCount: 0, mergeInProgress: false },
+      upstreamRef: `origin/${branch}`, aheadCount: 0, behindCount: 0,
+    }
   }
 
   listSessions() {
@@ -422,6 +437,10 @@ export class DemoStore {
     return this.fixtures.pr.guide
   }
 
+  prChecks(): CheckItem[] {
+    return this.fixtures.pr.checks ?? []
+  }
+
   prComments(): PrConversationItem[] {
     return this.prConversation
   }
@@ -510,7 +529,7 @@ export class DemoStore {
     return {
       host: 'github.com',
       owner: 'acme',
-      repo: 'acme',
+      repo: 'api-gateway',
       number,
       title: detail.title,
       baseRef: detail.baseRef,

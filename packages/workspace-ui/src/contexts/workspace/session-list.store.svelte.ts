@@ -8,6 +8,7 @@ import { isSolusApiId } from '@solus/contracts/uplink'
 import { keepEqual } from '@solus/client-core/keep-equal'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { rememberRoles } from '../sharing/resource-roles'
+import { visibleInWindow } from '@solus/client-core/organization-filter'
 
 /** A session in a person's list, as a row without a conversation draws it. */
 export interface ListedSession {
@@ -22,6 +23,7 @@ export interface ListedSession {
    *  the Solus API, read-only (docs/plans/cloud-service-model.md, R8). */
   runnerOffline: boolean
   sessionId: string
+  organizationId?: string
   title: string | null
   /** The project the session belongs to, as its host names it. */
   projectPath: string | null
@@ -118,6 +120,7 @@ export class SessionListStore {
         homeServerId: serverId,
         runnerOffline: isCloud && !runner,
         sessionId: record.sessionId,
+        organizationId: record.organizationId,
         title: record.customTitle ?? record.title ?? record.slug,
         projectPath: record.projectRoot ?? record.projectPath,
         createdAt: record.createdAt,
@@ -185,6 +188,11 @@ export class SessionListStore {
 
   get sessions(): ListedSession[] {
     return [...this.listedBySession.values()]
+  }
+
+  /** Local sessions and the selected organization's, including cached homes. */
+  sessionsInOrganization(organizationId: string | null): ListedSession[] {
+    return this.sessions.filter((session) => visibleInWindow(session.organizationId, organizationId))
   }
 
   /** This person's snoozes, for the clock that wakes their rows. */

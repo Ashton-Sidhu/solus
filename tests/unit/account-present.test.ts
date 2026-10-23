@@ -9,14 +9,18 @@ import type { TokenVerdict } from '@solus/server/admission/access-tokens'
 import { WsTransport, GRANT_RENEWAL_LEAD_MS } from '@solus/client-core/ws-transport'
 import { hostAudience, tokenEndpoint, type AccessTokenClaims } from '@solus/contracts/uplink'
 import { clientCredential, generateHostKey } from '@solus/server/host/host-credential'
-import { Delegations, establishWith } from '@solus/server/sync/delegations'
+import { Delegations } from '@solus/server/sync/delegations'
 import { LocalClientDoor } from '@solus/server/transport/local-client'
 import { AccountReads } from '@solus/server/vault/account-reads'
+import { VAULT_PATH } from '@solus/contracts/vault'
+import type { HandshakeCredential } from '@solus/contracts/uplink'
+import { handshake } from './helpers/socket-handshake'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-const { issueGrantWsTicket, issueSessionToken, issueWsTicket, resetAuthStateForTests } = await import('@solus/server/admission/auth')
+const { issueSessionToken, resetAuthStateForTests } = await import('@solus/server/admission/auth')
+const { createDoors } = await import('@solus/server/admission/doors')
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
 const { attachWebSocketTransport } = await import('@solus/server/transport/websocket')
@@ -99,20 +103,13 @@ function accountPlane() {
 
 async function host(plane: ReturnType<typeof accountPlane>, options: { requireAuth?: boolean } = {}) {
   const verified: string[] = []
-  const http = createServer((request, response) => {
-    // The ticket door for a pairing session token.
-    const bearer = request.headers.authorization?.slice('Bearer '.length) ?? ''
-    const ticket = request.url === '/auth/ws-ticket' ? issueWsTicket(bearer) : null
-    response.statusCode = ticket ? 200 : 401
-    response.setHeader('content-type', 'application/json')
-    response.end(JSON.stringify(ticket ? { ticket } : {}))
-  })
+  const http = createServer((_request, response) => { response.writeHead(404).end() })
   const server = new SolusServer()
   registerAuthHandlers(server, {
     verify: (token) => { verified.push(token); return verify(token) },
-    establish: establishWith(plane.delegations, false),
+    establish: (token, scope) => plane.delegations.establish(token, scope),
   })
-  const transport = attachWebSocketTransport(http, server, { clientEvents: new ClientEventRegistry(), requireAuth: options.requireAuth ?? true, verifyAccessToken: verify })
+  const transport = attachWebSocketTransport(http, server, { clientEvents: new ClientEventRegistry(), requireAuth: options.requireAuth ?? true, verifyAccessToken: verify, doors: createDoors({ place: 'host', verifyAccessToken: verify }) })
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
   cleanups.push(() => transport.close())
   const address = http.address()
@@ -120,8 +117,8 @@ async function host(plane: ReturnType<typeof accountPlane>, options: { requireAu
   return { url: `http://127.0.0.1:${address.port}`, transport, verified }
 }
 
-function connect(url: string, ticket: string): Socket {
-  const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { ticket } })
+function connect(url: string, credential: HandshakeCredential): Socket {
+  const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: handshake(credential) })
   cleanups.push(() => socket.disconnect())
   return socket
 }
@@ -138,13 +135,13 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
   }
 }
 
-const pairedTicket = () => issueWsTicket(issueSessionToken('Phone').token)!
+const paired = (): HandshakeCredential => ({ kind: 'session-token', token: issueSessionToken('Phone').token })
 
 describe('accountPresent on the host', () => {
   test("on a paired socket, the owner's token makes their personal delegation when none is held, and nothing again when it is; the socket stays local", async () => {
     const plane = accountPlane()
     const { url, transport } = await host(plane)
-    const socket = connect(url, pairedTicket())
+    const socket = connect(url, paired())
     await waitFor(() => socket.connected)
 
     const token = jwt({})
@@ -153,13 +150,13 @@ describe('accountPresent on the host', () => {
     expect(await call(socket, 'accountPresent', [{ accessToken: jwt({}) }])).toEqual({ result: { delegated: true } })
     expect(plane.exchanged).toEqual([token])
     // Local access stays as it was admitted (ADR 0001 rule 10).
-    expect([...transport.sessions.values()].map((session) => session.principal.kind)).toEqual(['local-owner'])
+    expect([...transport.sessions.values()].map((session) => session.principal.kind)).toEqual(['owner'])
   })
 
   test("a token for another host, a host's delegated token, and a token that names no scope here make no delegation", async () => {
     const plane = accountPlane()
     const { url } = await host(plane)
-    const socket = connect(url, pairedTicket())
+    const socket = connect(url, paired())
     await waitFor(() => socket.connected)
 
     const refused = [
@@ -183,7 +180,7 @@ describe('accountPresent on the host', () => {
     expect(plane.delegations.holders()).toEqual([])
 
     // The web client is connected with its own account token.
-    const socket = connect(url, issueGrantWsTicket({ userId: 'alice', deviceId: 'grant_web', expiresAt: Date.now() + 60_000 }))
+    const socket = connect(url, { kind: 'access-token', token: jwt({ grant_id: 'grant_web' }) })
     await waitFor(() => socket.connected)
     const next = jwt({ grant_id: 'grant_web' })
     expect((await call<{ expiresAt: number }>(socket, 'authRenew', [{ accessToken: next }])).result?.expiresAt).toBeGreaterThan(Date.now())
@@ -256,12 +253,12 @@ describe('the real sequence: a phone keeps the account reads alive after the des
     desktop.signedOut()
     expect(plane.delegations.holders()).toEqual([])
     const reads = new AccountReads({ origin: () => ORIGIN, delegations: () => plane.delegations, fetchImpl: plane.fetchImpl })
-    expect(await reads.fetch('alice', null, '/v1/vault/read', { method: 'POST' })).toMatchObject({ refused: 'NO_DELEGATION' })
+    expect(await reads.fetch('alice', null, VAULT_PATH, { method: 'POST' })).toMatchObject({ refused: 'NO_DELEGATION' })
 
     // The phone's next presentation makes it again, from the phone's grant.
     await waitFor(() => plane.delegations.has('alice', 'personal'))
     expect(plane.exchanged).toEqual([desktopToken, phoneTokens[1]])
-    expect(await reads.fetch('alice', null, '/v1/vault/read', { method: 'POST' })).toBeInstanceOf(Response)
+    expect(await reads.fetch('alice', null, VAULT_PATH, { method: 'POST' })).toBeInstanceOf(Response)
     expect(plane.reads.at(-1)).toMatch(/^Bearer delegated-grant_phone-/)
   })
 })

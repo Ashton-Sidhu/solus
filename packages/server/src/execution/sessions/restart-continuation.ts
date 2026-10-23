@@ -11,7 +11,7 @@ export function restartRecoveryEnabled(): boolean {
 
 export function restartAuthority(actor?: Actor): RestartRun['authority'] | null {
   if (!actor || actor.principal.kind === 'system') return 'host'
-  if (actor.principal.kind === 'local-owner' || actor.principal.kind === 'remote-owner') return 'owner'
+  if (actor.principal.kind === 'owner') return 'owner'
   return null
 }
 

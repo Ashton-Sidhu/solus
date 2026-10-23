@@ -1,12 +1,12 @@
 import { DEMO_PROJECT } from './types'
 
-// A plausible source tree for the fixture "acme" project shown throughout the
+// A plausible source tree for the fixture "api-gateway" project shown throughout the
 // demo (git status, diffs, PR, and session transcripts all reference these
 // same paths) so opening a file in the Files pane looks continuous with the
 // rest of the scripted demo.
 const contents = {
   'package.json': `{
-  "name": "acme",
+  "name": "api-gateway",
   "private": true,
   "type": "module",
   "scripts": {
@@ -36,7 +36,7 @@ const contents = {
 }
 `,
 
-  'README.md': `# acme
+  'README.md': `# api-gateway
 
 Public API for acme links: authenticated routing, per-key rate limiting, and Stripe-backed usage billing.
 

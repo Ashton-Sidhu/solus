@@ -748,12 +748,3 @@ export interface TaskTransferSession {
    *  client of that host knows it by. */
   hostInstallationId: string
 }
-
-/** Client monotonic timings, measured from sidebar activation. Frame marks are
- * paint opportunities, not proof that the browser displayed pixels. */
-export interface TaskOpenTiming {
-  activationId: string
-  taskId: string | null
-  outcome: 'completed' | 'cancelled' | 'failed'
-  marks: { stage: string; elapsedMs: number }[]
-}

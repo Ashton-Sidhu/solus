@@ -5,7 +5,6 @@ import { Server, type Socket } from 'socket.io'
 import type { CallerCtx, RpcInvocationArgs, RpcInvocationResult, SolusServer } from './server'
 import type { ClientEventRegistry } from './events/client-event-registry'
 import type { BrowserFrameChannel } from '../browser/browser-frame-channel'
-import { consumeWsTicket } from '../admission/auth'
 import { RpcAccessError } from '../admission/access-policy'
 import { PlaneDisabledError } from '../host/roles'
 import { GithubConnectionRequiredError } from '../providers/github/connection-required'
@@ -15,7 +14,9 @@ import { ShareAccessError } from '../sharing/share-manager'
 import { SeatRequiredError } from '../execution/seats/seat-manager'
 import { TurnRefusedError } from '../execution/sessions/turn-refusal'
 import { WorkspacePreparingError } from '../host/member-users'
-import { principalExpiresAt, principalFor, principalSchema, renewalExpiry, type AdmissionEvidence, type Principal } from '../admission/principal'
+import { CREDENTIAL_FREE_PRINCIPAL, principalExpiresAt, principalSchema, renewalExpiry, type Principal } from '../admission/principal'
+import type { Doors } from '../admission/doors'
+import { SOLUS_PROTOCOL, UPDATE_REQUIRED, socketHandshakeSchema } from '@solus/contracts/uplink'
 import type { TokenVerdict } from '../admission/access-tokens'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
@@ -55,20 +56,6 @@ interface WebSocketTransport {
 
 /** Set by the engine middleware from the listener the request arrived on; never by a client. */
 const VIA_TUNNEL_HEADER = 'x-solus-via-tunnel'
-
-const socketAuthSchema = z.object({
-  /** Short-lived single-purpose handshake ticket (dispatch-client step 4). */
-  ticket: z.string().optional(),
-  /**
-   * The bearer credential itself, admitted as the ticket door admits it, so a dial
-   * needs no ticket request first (docs/plans/instant-share-open.md). The handshake
-   * is the socket's first message, never a URL or a header.
-   */
-  accessToken: z.string().min(1).max(16_384).optional(),
-  /** The organization the connection works in, as the ticket request names it. */
-  organizationId: z.string().min(1).max(256).optional(),
-  clientInstanceId: z.string().regex(/^[a-zA-Z0-9_-]{16,128}$/).optional(),
-})
 
 const clientDataSchema = z.object({
   clientId: z.string(),
@@ -115,8 +102,8 @@ export function attachWebSocketTransport(
     responseBudget?: ResponseReceiptBudget
     /** Verifies the next access token a token-admitted socket sends (`authRenew`). Absent: a socket ends at its token's expiry. */
     verifyAccessToken?: (token: string) => Promise<TokenVerdict>
-    /** The ticket door's admission (`BuiltHttpServer.exchangeCredential`), for a credential presented in the handshake. Absent: only a ticket admits one. */
-    exchangeCredential?: (bearer: string, organizationId: string | undefined) => Promise<string | null>
+    /** Admits the one credential a handshake presents (`admission/doors.ts`). Absent: no credential admits a socket. */
+    doors?: Doors
     onClientConnected?: (client: { clientId: string; deviceId: string | null }) => void
     onClientDisconnected?: (client: { clientId: string; deviceId: string | null }) => void
     onClientExpired?: (client: { clientId: string; deviceId: string | null }) => void
@@ -172,29 +159,19 @@ export function attachWebSocketTransport(
   let closing = false
 
   io.use(async (socket, next) => {
-    const parsedAuth = socketAuthSchema.safeParse(socket.handshake.auth)
-    const auth: z.infer<typeof socketAuthSchema> = parsedAuth.success ? parsedAuth.data : {}
-    // A credential presented in the handshake goes through the ticket door's own
-    // admission. Its refusal is named, so a client tells it from a host that predates
-    // this and wants a ticket.
-    if (!auth.ticket && auth.accessToken && opts.exchangeCredential) {
-      const ticket = await opts.exchangeCredential(auth.accessToken, auth.organizationId).catch(() => null)
-      if (!ticket) {
-        next(Object.assign(new Error('unauthorized'), { data: { code: 'CREDENTIAL_REFUSED' } }))
-        return
-      }
-      auth.ticket = ticket
+    const refuse = (message: string): void => next(Object.assign(new Error(message), { data: { code: message === UPDATE_REQUIRED ? UPDATE_REQUIRED : 'UNAUTHORIZED' } }))
+    // A client that does not speak this protocol is told to update (plan §4.6), before anything else is read.
+    const parsed = socketHandshakeSchema.safeParse(socket.handshake.auth)
+    if (!parsed.success || parsed.data.protocol !== SOLUS_PROTOCOL) {
+      refuse(UPDATE_REQUIRED)
+      return
     }
-    // One ticket admits one socket: a replayed handshake is refused even inside the TTL.
-    const verified = auth.ticket ? consumeWsTicket(auth.ticket) : null
-    const viaTunnel = socket.handshake.headers[VIA_TUNNEL_HEADER] === '1'
-    const admit = (evidence: AdmissionEvidence): void => {
-      const instanceId = auth.clientInstanceId ?? randomBytes(16).toString('hex')
-      const principal = principalFor(evidence)
-      // A host's delegated token opens the runner HTTP routes, never a socket; a guest is
-      // admitted by the host that holds the resource (docs/plans/host-sharing.md §4.1).
+    const handshake = parsed.data
+    const admit = (principal: Principal): void => {
+      const instanceId = handshake.clientInstanceId ?? randomBytes(16).toString('hex')
+      // A host's delegated token opens the runner HTTP routes, never a socket.
       if (principal.kind === 'runner') {
-        next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
+        refuse('unauthorized')
         return
       }
       const deviceId = principal.kind === 'system' ? null : principal.deviceId
@@ -207,30 +184,33 @@ export function attachWebSocketTransport(
       Object.assign(socket.data, data)
       next()
     }
-    const reject = (): void => next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
-    if (verified) {
-      admit({ kind: 'ticket', ticket: verified })
+    // The one credential the handshake presents is the whole admission (plan §3 rule 4).
+    if (handshake.credential) {
+      const admission = opts.doors ? await opts.doors.admitCredential(handshake.credential).catch(() => null) : null
+      if (admission?.ok) {
+        admit(admission.principal)
+        return
+      }
+      log.info('ws_credential_refused', { credential: handshake.credential.kind, reason: admission ? admission.reason : 'no-door' })
+      refuse('unauthorized')
       return
     }
     // Tunnel traffic is loopback on the wire and the bind policy may be open on
-    // loopback; neither may admit it. Only a ticket does (the proxied-listener rule).
-    if (viaTunnel) {
-      reject()
+    // loopback; neither may admit it. Only a credential does (the proxied-listener rule).
+    if (socket.handshake.headers[VIA_TUNNEL_HEADER] === '1') {
+      refuse('unauthorized')
       return
     }
     if (!requireAuth()) {
-      admit({ kind: 'credential-free' })
+      admit(CREDENTIAL_FREE_PRINCIPAL)
       return
     }
     // The bind policy relaxes for trusted requesters — the same relaxation
     // /health advertises to them, so a client told it may connect tokenless
     // must actually be admitted here.
-    void Promise.resolve(opts.isTrustedRequester?.(socket.handshake.address) ?? false)
-      .catch(() => false)
-      .then((trusted) => {
-        if (trusted) admit({ kind: 'credential-free' })
-        else reject()
-      })
+    const trusted = await Promise.resolve(opts.isTrustedRequester?.(socket.handshake.address) ?? false).catch(() => false)
+    if (trusted) admit(CREDENTIAL_FREE_PRINCIPAL)
+    else refuse('unauthorized')
   })
 
   io.on('connection', (socket) => {
@@ -290,7 +270,7 @@ export function attachWebSocketTransport(
       socket.once('disconnect', () => { if (grantTimer) clearTimeout(grantTimer) })
     }
     const verifyAccessToken = opts.verifyAccessToken
-    const renewAccess = expiresAt !== null && verifyAccessToken && (principal.kind === 'remote-owner' || principal.kind === 'org-member')
+    const renewAccess = expiresAt !== null && verifyAccessToken && ((principal.kind === 'owner' && principal.via === 'grant') || principal.kind === 'org-member')
       ? async (accessToken: string): Promise<number> => {
         const verdict = await verifyAccessToken(accessToken)
         const renewedAt = verdict.ok ? renewalExpiry(principal, verdict.claims) : null

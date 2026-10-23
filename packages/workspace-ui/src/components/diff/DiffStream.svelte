@@ -634,7 +634,7 @@
 
       void setDiffWorkerPoolTheme(isDark).then(() => {
         if (disposed || !rootEl || codeView) return;
-        // Pass the shared, initialized worker pool so Shiki tokenization runs off
+        // Pass the shared, initialized worker pool so tokenization runs off
         // the main thread (with an LRU AST cache) instead of blocking scroll frames.
         codeView = new CodeView<AnnotationMeta>(buildOptions(), workerPool);
         codeView.setup(rootEl);

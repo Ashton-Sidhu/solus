@@ -38,7 +38,7 @@ describe('Codex background command wake', () => {
     const backend = new CodexBackend()
     const internals = backend as unknown as BackendInternals
     const wakes: Array<[string, string]> = []
-    backend.on('background-command-completed', (sessionId: string, prompt: string) => wakes.push([sessionId, prompt]))
+    backend.on('background-task-completed', (sessionId: string, prompt: string) => wakes.push([sessionId, prompt]))
     internals.runningCommands.set('item-1', backgroundCommand())
 
     internals.onNotification(completed('item-1'), {})
@@ -55,7 +55,7 @@ describe('Codex background command wake', () => {
     const backend = new CodexBackend()
     const internals = backend as unknown as BackendInternals
     const wakes: string[] = []
-    backend.on('background-command-completed', (sessionId: string) => wakes.push(sessionId))
+    backend.on('background-task-completed', (sessionId: string) => wakes.push(sessionId))
     internals.runningCommands.set('item-2', { ...backgroundCommand(), isBackground: false })
     internals.activeRuns.set('thread-1', { normalizer: { push: () => [], summary: { toolCallCount: 0 } }, threadId: 'thread-1' })
     backend.on('normalized', () => {})
@@ -91,7 +91,7 @@ describe('Codex background command wake', () => {
     backend.on('normalized', (_sessionId: string, event: NormalizedEvent) => {
       if (event.type === 'background_task_settled') order.push(`settled:${event.status}`)
     })
-    backend.on('background-command-completed', () => order.push('wake'))
+    backend.on('background-task-completed', () => order.push('wake'))
     internals.runningCommands.set('item-1', backgroundCommand())
 
     internals.onNotification(completed('item-1'), {})
@@ -112,7 +112,7 @@ describe('Codex background command wake', () => {
     backend.on('normalized', (_sessionId: string, event: NormalizedEvent) => {
       if (event.type === 'background_task_settled') settled.push(event.status)
     })
-    backend.on('background-command-completed', (sessionId: string) => wakes.push(sessionId))
+    backend.on('background-task-completed', (sessionId: string) => wakes.push(sessionId))
     internals.runningCommands.set('item-1', backgroundCommand(client))
 
     expect(await backend.stopBackgroundTask('thread-1', 'item-1')).toBe(true)

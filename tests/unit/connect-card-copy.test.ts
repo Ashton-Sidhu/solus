@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { connectCardCopy } from '@solus/workspace-ui/components/connections/lib/connect-card-copy'
+import { connectCardCopy, integrationConnectCardCopy } from '@solus/workspace-ui/components/connections/lib/connect-card-copy'
 
 /**
  * The connect card's type word says what the account is for, in the user's
@@ -17,5 +17,12 @@ describe('connect card copy', () => {
   test('the reason is a lowercase phrase, never a kicker', () => {
     expect(connectCardCopy('google', 'drive').reason).toBe('for Google Docs')
     expect(connectCardCopy('github', 'pull-requests').reason).toBe('for pull requests')
+  })
+
+  test('an integration card says what it is for once, in the type word', () => {
+    const copy = integrationConnectCardCopy('GitHub')
+    expect(copy.title).toBe('Connect GitHub')
+    expect(copy.reason).toBe('to use its tools')
+    expect(copy.purpose).toBeUndefined()
   })
 })

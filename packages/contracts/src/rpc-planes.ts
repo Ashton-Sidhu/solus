@@ -455,7 +455,6 @@ export const RPC_PLANES = {
   tasksPublish: 'collaboration',
   tasksSyncNow: 'collaboration',
   tasksSidebarSnapshot: 'collaboration',
-  tasksLogOpenTiming: 'collaboration',
   tasksSearchComments: 'collaboration',
   tasksReadExtras: 'collaboration',
   tasksMarkRead: 'collaboration',

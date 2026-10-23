@@ -21,8 +21,10 @@
     title: string;
     /** The caller's own action geometry, so the control reads as one of its header's. */
     class?: string;
+    /** Render the word beside the glyph. Off, the control is a glyph alone. */
+    labelled?: boolean;
   }
-  let { serverId, resource, title, class: className = "" }: Props = $props();
+  let { serverId, resource, title, class: className = "", labelled = false }: Props = $props();
 
   $effect(() => {
     if (!serverId || !resource) return;
@@ -51,5 +53,6 @@
     onclick={() => sharesStore.open({ serverId, resource, title })}
   >
     <ShareIcon size={14} />
+    {#if labelled}<span>Share</span>{/if}
   </button>
 {/if}

@@ -1,107 +1,137 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { createServer } from 'http'
-import { Database } from 'bun:sqlite'
-import { WsTransport } from '@solus/client-core/ws-transport'
+import { Server, type Socket } from 'socket.io'
+import { SOLUS_PROTOCOL, UPDATE_REQUIRED, socketHandshakeSchema, type HandshakeCredential } from '@solus/contracts/uplink'
+import { WsTransport, type GrantSource } from '@solus/client-core/ws-transport'
+import type { DialOutcome } from '@solus/client-core/host-supervisor'
 
-// bun has no node:sqlite; the server modules' import chain reaches the db even though
-// these tests never open it, so everything that reaches it loads after the seam.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-const { issueGrantWsTicket, resetAuthStateForTests } = await import('@solus/server/admission/auth')
-const { SolusServer } = await import('@solus/server/transport/server')
-const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
-const { attachWebSocketTransport } = await import('@solus/server/transport/websocket')
-
-// docs/plans/instant-share-open.md: a dial presents its account token in the socket
-// handshake, so it needs no ticket request (and no CORS preflight) first. The host
-// admits it as its ticket door would, in the organization the dial names, and names
-// its refusal; a host that predates this refuses it as plain `UNAUTHORIZED`, and the
-// client asks that one for tickets.
+// docs/plans/simplify-auth-and-sync.md §3 rule 4: a socket has one credential, in its
+// handshake — an access token, a paired device's session token, or a guest's share
+// secret with its id and name — beside the protocol the client speaks. No ticket
+// request comes first, for anyone. A host that speaks another protocol answers
+// `update_required`, and the client stops dialing it: "Update Solus".
 
 const cleanups: Array<() => void> = []
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0).reverse()) cleanup()
-  resetAuthStateForTests()
-})
+afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
 
-/** A host. `admits` is its handshake admission; null for a host that predates it. Its ticket door admits any bearer. */
-async function host(admits: ((bearer: string) => boolean) | null) {
-  const exchanged: Array<[string, string | undefined]> = []
-  const ticketRequests: string[] = []
+/** A host that admits a handshake as `admits` says, and records every handshake and HTTP request. */
+async function host(admits: (credential: HandshakeCredential | undefined) => boolean = () => true, protocol = SOLUS_PROTOCOL) {
+  const handshakes: unknown[] = []
+  const httpRequests: string[] = []
   const http = createServer((request, response) => {
-    if (request.url === '/auth/ws-ticket') ticketRequests.push(request.headers.authorization ?? '')
-    const ticket = request.url === '/auth/ws-ticket' ? issueGrantWsTicket({ userId: 'user_1', deviceId: 'grant_1', expiresAt: Date.now() + 60_000 }) : null
-    response.writeHead(ticket ? 200 : 404, { 'content-type': 'application/json' }).end(JSON.stringify(ticket ? { ticket } : {}))
+    httpRequests.push(request.url ?? '')
+    response.writeHead(404).end()
   })
-  const transport = attachWebSocketTransport(http, new SolusServer(), {
-    clientEvents: new ClientEventRegistry(),
-    requireAuth: true,
-    exchangeCredential: admits
-      ? async (bearer, organizationId) => {
-        exchanged.push([bearer, organizationId])
-        return admits(bearer) ? issueGrantWsTicket({ userId: 'user_1', deviceId: 'grant_1', expiresAt: Date.now() + 60_000 }) : null
-      }
-      : undefined,
+  const io = new Server(http, { path: '/ws', transports: ['websocket'] })
+  io.use((socket: Socket, next) => {
+    handshakes.push(socket.handshake.auth)
+    const handshake = socketHandshakeSchema.safeParse(socket.handshake.auth)
+    if (!handshake.success || handshake.data.protocol !== protocol) return next(new Error(UPDATE_REQUIRED))
+    if (admits(handshake.data.credential)) return next()
+    next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
   })
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
-  cleanups.push(() => transport.close())
+  cleanups.push(() => { io.close(); http.close() })
   const address = http.address()
   if (!address || typeof address === 'string') throw new Error('expected TCP address')
-  return { url: `http://127.0.0.1:${address.port}`, exchanged, ticketRequests }
+  return { url: `http://127.0.0.1:${address.port}`, handshakes, httpRequests }
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error('timed out waiting for condition')
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await new Promise((resolve) => setTimeout(resolve, 5))
   }
 }
 
-function dial(url: string, grants: { kept: string; fresh: string }, onAuthFailed = () => {}) {
+function dial(url: string, credential: { sessionToken?: string; grants?: GrantSource; guest?: { shareSecret: string; guestId: string; displayName: string } }) {
+  const outcomes: DialOutcome['kind'][] = []
   const statuses: string[] = []
   const transport = new WsTransport({
     serverUrl: url,
-    sessionToken: '',
-    acquireGrant: async (options) => (options?.fresh ? grants.fresh : grants.kept),
-    dialOrganizationId: () => 'org_acme',
+    sessionToken: credential.sessionToken ?? '',
+    grants: credential.grants,
+    guest: credential.guest,
+    dialOrganizationId: credential.grants ? () => 'org_acme' : undefined,
     onStatusChange: (status) => statuses.push(status),
-    onAuthFailed,
+    onDialOutcome: (outcome) => outcomes.push(outcome.kind),
   })
   cleanups.push(() => transport.destroy())
+  spyOn(console, 'info').mockImplementation(() => {})
   transport.start()
-  return { transport, statuses }
+  return { transport, outcomes, statuses }
 }
 
-describe('the account token in the socket handshake', () => {
-  test('a host that takes it admits the dial in the organization it names, with no ticket request', async () => {
-    const server = await host(() => true)
-    const { statuses } = dial(server.url, { kept: 'good', fresh: 'good' })
-    await waitFor(() => statuses.includes('connected'))
-    expect(server.exchanged).toEqual([['good', 'org_acme']])
-    expect(server.ticketRequests).toEqual([])
+describe('the one credential in the socket handshake', () => {
+  test('an access token rides the handshake with the organization the dial names, and nothing else is asked first', async () => {
+    const server = await host()
+    const { outcomes } = dial(server.url, { grants: { acquire: async () => 'token-1', isSignedOut: () => false } })
+    await waitFor(() => outcomes.includes('accepted'))
+    expect(server.handshakes).toEqual([expect.objectContaining({ protocol: SOLUS_PROTOCOL, credential: { kind: 'access-token', token: 'token-1', organizationId: 'org_acme' } })])
+    expect(server.httpRequests).toEqual([])
   })
 
-  test('a host that predates it is asked for a ticket, and the dial still opens', async () => {
-    const server = await host(null)
-    const { statuses } = dial(server.url, { kept: 'good', fresh: 'good' })
-    await waitFor(() => statuses.includes('connected'))
-    expect(server.ticketRequests).toEqual(['Bearer good'])
+  test('a paired device presents its session token', async () => {
+    const server = await host()
+    const { outcomes } = dial(server.url, { sessionToken: 'paired-1' })
+    await waitFor(() => outcomes.includes('accepted'))
+    expect(server.handshakes).toEqual([expect.objectContaining({ credential: { kind: 'session-token', token: 'paired-1' } })])
   })
 
-  test('a kept token the host refuses is followed at once by a new one', async () => {
-    const server = await host((bearer) => bearer === 'fresh')
-    const { statuses } = dial(server.url, { kept: 'stale', fresh: 'fresh' })
-    await waitFor(() => statuses.includes('connected'))
-    expect(server.exchanged.map(([bearer]) => bearer)).toEqual(['stale', 'fresh'])
-    expect(server.ticketRequests).toEqual([])
+  test('a guest presents the share secret with its id and name', async () => {
+    const server = await host()
+    const guest = { shareSecret: 'secret-1', guestId: 'guest_0123456789abcdef', displayName: 'Maya' }
+    const { outcomes } = dial(server.url, { guest })
+    await waitFor(() => outcomes.includes('accepted'))
+    expect(server.handshakes).toEqual([expect.objectContaining({ credential: { kind: 'share-secret', secret: 'secret-1', guestId: guest.guestId, displayName: 'Maya' } })])
   })
 
-  test('a new token the host also refuses blocks the host, as at the ticket door', async () => {
+  test('a refused share secret blocks the guest: the link was turned off', async () => {
     const server = await host(() => false)
-    let blocked = false
-    const { statuses } = dial(server.url, { kept: 'stale', fresh: 'also-refused' }, () => { blocked = true })
-    await waitFor(() => blocked)
-    expect(statuses.at(-1)).toBe('blocked')
-    expect(server.exchanged.map(([bearer]) => bearer)).toEqual(['stale', 'also-refused'])
+    const { outcomes } = dial(server.url, { guest: { shareSecret: 'old', guestId: 'guest_0123456789abcdef', displayName: 'Maya' } })
+    await waitFor(() => outcomes.includes('auth-blocked'))
+    expect(server.handshakes).toHaveLength(1)
+  })
+
+  test('a token the host refuses blocks the host, and a retry asks the account for another one', async () => {
+    // WHY: a kept host token can outlive the host's trust in it (the host was linked
+    // again). The retry must not present the same token again.
+    const server = await host((credential) => credential?.kind === 'access-token' && credential.token === 'fresh')
+    const asked: Array<{ refused?: string } | undefined> = []
+    let next = 'stale'
+    const grants: GrantSource = { acquire: async (options) => { asked.push(options); return next }, isSignedOut: () => false }
+    const { transport, outcomes } = dial(server.url, { grants })
+    await waitFor(() => outcomes.includes('auth-blocked'))
+    next = 'fresh'
+    transport.start()
+    await waitFor(() => outcomes.includes('accepted'))
+    expect(asked).toEqual([undefined, { refused: 'stale' }])
+  })
+})
+
+describe('a host that speaks another protocol', () => {
+  test('ends the dial with update_required: the host is blocked as needing an update, not retried', async () => {
+    const server = await host(() => true, SOLUS_PROTOCOL + 1)
+    const { outcomes, statuses } = dial(server.url, { sessionToken: 'paired-1' })
+    await waitFor(() => outcomes.includes('update-required'))
+    expect(outcomes).toEqual(['update-required'])
+    expect(statuses.at(-1)).toBe('update-required')
+  })
+})
+
+// A tab open for a long time outlives its sign-in. While the account holds none, the
+// host is blocked as needing sign-in; the next sign-in dials it again.
+describe('a host blocked while the account held no sign-in', () => {
+  test('opens no socket, and connects when the person signs in again', async () => {
+    const server = await host()
+    let token: string | null = null
+    const { transport, outcomes } = dial(server.url, { grants: { acquire: async () => token, isSignedOut: () => token === null } })
+    await waitFor(() => outcomes.includes('auth-blocked'))
+    expect(server.handshakes).toEqual([])
+    token = 'good'
+    transport.start()
+    await waitFor(() => outcomes.includes('accepted'))
+    expect(server.handshakes).toHaveLength(1)
   })
 })

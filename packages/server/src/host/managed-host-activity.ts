@@ -5,6 +5,7 @@ import type { FetchLike } from '../admission/access-tokens'
 import type { HostCredential } from './host-credential'
 import { createLogger } from '../logger'
 import { hostCategory } from './host-category'
+import { fetchAccountPlane } from './account-plane'
 
 const log = createLogger('main', 'managed-host-activity')
 
@@ -147,10 +148,9 @@ export class ManagedHostActivity {
     const registration = this.deps.registration()
     const credential = registration ? this.deps.credential() : null
     if (!registration || !credential) return
-    const fetchImpl: FetchLike = this.deps.fetchImpl ?? fetch
     try {
       const token = await credential.hostAccessToken()
-      const response = await fetchImpl(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/activity`, {
+      const response = await fetchAccountPlane(this.deps.fetchImpl, `${registration.directoryUrl}/v1/hosts/${registration.hostId}/activity`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         body: JSON.stringify(next),

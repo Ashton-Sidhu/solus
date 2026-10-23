@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { OAuthSession } from '@solus/client-core/oauth-session'
-import { fetchAuthorize, resumeWebSignIn, webGrantSharing, webTokenStore, type KeyValueStorage, type RefreshLocks } from '@solus/client-core/web-sign-in'
+import { fetchAuthorize, keepWebSignIn, resumeWebSignIn, webGrantSharing, webTokenStore, type KeyValueStorage, type RefreshLocks } from '@solus/client-core/web-sign-in'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 
 // The web client signs in on the account origin with one same-origin fetch: the
@@ -50,7 +50,7 @@ describe('one sign-in for every tab', () => {
   test('two tabs that refresh at the same time keep the grant alive and share one token', async () => {
     const { plane, open, first } = await tabs()
     const second = open()
-    const [a, b] = await Promise.all([first.accessToken({ kind: 'host', hostId: 'h1' }), second.accessToken({ kind: 'host', hostId: 'h1' })])
+    const [a, b] = await Promise.all([first.accessToken({ kind: 'api' }), second.accessToken({ kind: 'api' })])
     expect(a).not.toBeNull()
     expect(a).toBe(b)
     expect(refreshes(plane)).toBe(1)
@@ -68,12 +68,15 @@ describe('one sign-in for every tab', () => {
     expect([first.state().kind, second.state().kind]).toEqual(['signed-in', 'signed-in'])
   })
 
-  test('a new tab dials with the token another tab minted, with no request', async () => {
+  test('a new tab takes the servers token another tab minted, and exchanges it for a host with no refresh', async () => {
     const { plane, open, first } = await tabs()
-    const token = await first.accessToken({ kind: 'host', hostId: 'h1' })
+    const token = await first.accessToken({ kind: 'api' })
     const before = plane.calls.length
-    expect(await open().accessToken({ kind: 'host', hostId: 'h1' })).toBe(token)
+    const second = open()
+    expect(await second.accessToken({ kind: 'account' })).toBe(token)
     expect(plane.calls.length).toBe(before)
+    expect(await second.accessToken({ kind: 'host', hostId: 'h1' })).toBeTruthy()
+    expect(refreshes(plane)).toBe(1)
   })
 
   test('a sign-out in one tab signs the others out', async () => {
@@ -103,7 +106,58 @@ function world(path: string, answer: 'approve' | 'login_required' | 'none' = 'ap
       return answer === 'approve' ? plane.approve(authorizeUrl) : new URL(`${ISSUER}/auth/callback?error=login_required&state=${authorizeUrl.searchParams.get('state')}`)
     },
   }
-  return { session, deps, navigations, authorized }
+  /** The website's answer from now on: its cookie session ended, or it stopped answering. */
+  const setAnswer = (next: typeof answer) => { answer = next }
+  return { plane, session, deps, navigations, authorized, setAnswer }
+}
+
+/** The account plane ends the grant (the refresh token expired or was revoked); the next refresh finds out. */
+async function endGrant(w: ReturnType<typeof world>): Promise<void> {
+  for (const token of w.plane.liveTokens()) {
+    await w.plane.fetch(`${ISSUER}/api/auth/oauth2/revoke`, { method: 'POST', body: new URLSearchParams({ token }).toString() })
+  }
+  expect(await w.session.accessToken({ kind: 'host', hostId: 'h1' })).toBeNull()
+}
+
+// A tab open for a long time outlives its grant. It used to keep the ended sign-in and
+// redial every host forever ("Reconnecting"); it now signs in again the way boot does.
+describe('keepWebSignIn', () => {
+  test('a grant that ends is made again silently, and hosts dial again', async () => {
+    const w = world('/tasks/42')
+    await resumeWebSignIn(w.deps)
+    let redials = 0
+    const signedInAgain = new Promise<void>((resolve) => keepWebSignIn(w.deps, () => { redials += 1; resolve() }))
+    await endGrant(w)
+    await signedInAgain
+    expect(w.session.state()).toMatchObject({ kind: 'signed-in', identity: { sub: 'user-1' } })
+    expect(await w.session.accessToken({ kind: 'host', hostId: 'h1' })).not.toBeNull()
+    expect(redials).toBe(1)
+    expect(w.navigations).toEqual([])
+  })
+
+  test('with no website session either, the page goes to the website sign-in and back', async () => {
+    const w = world('/tasks/42')
+    await resumeWebSignIn(w.deps)
+    keepWebSignIn(w.deps, () => { throw new Error('no silent sign-in was made') })
+    w.setAnswer('login_required')
+    await endGrant(w)
+    await until(() => w.navigations.length > 0)
+    expect(w.navigations).toEqual([`${ISSUER}/sign-in?next=${encodeURIComponent('/tasks/42')}`])
+  })
+
+  test('a sign-out stays signed out', async () => {
+    const w = world('/tasks/42')
+    await resumeWebSignIn(w.deps)
+    keepWebSignIn(w.deps, () => {})
+    await w.session.signOut()
+    await Promise.resolve()
+    expect(w.session.state().kind).toBe('signed-out')
+    expect(w.authorized).toHaveLength(1)
+  })
+})
+
+async function until(check: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200 && !check(); attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
 }
 
 describe('resumeWebSignIn', () => {

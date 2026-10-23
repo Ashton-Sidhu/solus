@@ -25,7 +25,8 @@
 
   const mode = $derived(
     connectionOverlayMode({
-      status: serversStore.connectionStatus,
+      phase: serversStore.connectionPhase,
+      blockedReason: serversStore.blockedReason,
       offlineSince: serversStore.offlineSince,
       now,
       isRemote,
@@ -59,7 +60,13 @@
     return () => clearTimeout(timer);
   });
   const cardCopy = $derived(
-    mode === "identity-mismatch"
+    mode === "update-required"
+      ? {
+          title: "Update Solus",
+          body: `${host?.label} speaks another version of Solus. Update Solus here and on that host, then retry.`,
+          primary: "Retry now",
+        }
+      : mode === "identity-mismatch"
       ? {
           title: "Different server than expected",
           body: `The address saved for ${host?.label} answered as another Solus server. Pair again only if you intend to replace the saved host.`,
@@ -106,7 +113,7 @@
       Retry now
     </button>
   </div>
-{:else if mode === "escalated" || mode === "blocked" || mode === "identity-mismatch"}
+{:else if mode === "escalated" || mode === "blocked" || mode === "identity-mismatch" || mode === "update-required"}
   <div
     class="text-xs pointer-events-auto fixed left-1/2 top-3 z-[10018] w-[19rem] -translate-x-1/2 rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-3.5 font-secondary shadow-(--solus-popover-shadow) backdrop-blur-xl"
     role="alert"

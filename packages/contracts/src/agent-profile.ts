@@ -77,6 +77,12 @@ export const agentProfileEntrySchema = z.discriminatedUnion('kind', [
     name: z.string().trim().min(1).max(200),
     url: z.string().min(1).max(4096),
     auth: integrationAuthSchema,
+    /**
+     * The tools the person turned off (docs/plans/mcp-integrations.md §6.1),
+     * so the switches follow them to every host. A profile written before this
+     * field has none.
+     */
+    disabledTools: z.array(z.string().min(1).max(200)).max(500).default([]),
   }).strict(),
 ])
 /** An entry is in the profile, and on every host the person has a seat on; removing it takes it off every host. */
@@ -179,9 +185,16 @@ export const EMPTY_AGENT_PROFILE_STATUS: AgentProfileStatus = Object.freeze({ sy
 
 // ─── The account document (the cloud half: solus-cloud/docs/plans/agent-profile.md) ───
 
-export const AGENT_PROFILE_PATH = '/v1/account/agent-profile'
+/**
+ * The person's agent profile, one route for every caller: the website with its cookie,
+ * a Solus client or the Solus API with the person's own token, and a host with its
+ * delegated token. `GET` reads it (any caller), `PATCH` and `DELETE` are the person's
+ * (not a host's), and `POST` merges a host's own change (`agentProfileEntriesWriteSchema`;
+ * a bearer token only, never a cookie).
+ */
+export const AGENT_PROFILE_PATH = '/v1/agent-profile'
 
-/** `GET /v1/account/agent-profile`: the person's synced profile. `revision` is null before the first write of a generation. */
+/** `GET /v1/agent-profile`: the person's synced profile. `revision` is null before the first write of a generation. */
 export const accountAgentProfileResponseSchema = z.object({
   schemaVersion: z.literal(AGENT_PROFILE_SCHEMA_VERSION),
   generation: z.number().int().nonnegative(),
@@ -192,7 +205,7 @@ export const accountAgentProfileResponseSchema = z.object({
 export type AccountAgentProfileResponse = z.infer<typeof accountAgentProfileResponseSchema>
 
 /**
- * `PATCH /v1/account/agent-profile`. `set` replaces each key it carries; `reset`
+ * `PATCH /v1/agent-profile`. `set` replaces each key it carries; `reset`
  * removes keys. The conflict unit is one key. `expectedRevision: null` creates the
  * document and fails when one already exists.
  */
@@ -205,13 +218,12 @@ export const accountAgentProfilePatchRequestSchema = z.object({
 export type AccountAgentProfilePatchRequest = z.input<typeof accountAgentProfilePatchRequestSchema>
 
 /**
- * `POST /v1/agent-profile/entries`, from a host acting for the person with their
- * delegated token: the host's own change to the person's MCP servers (one added,
+ * `POST /v1/agent-profile`, from a host acting for the person with their delegated
+ * token (or the person's own token): the host's own change to the person's MCP servers (one added,
  * renamed, or removed in Settings → MCP, or one the host held before the profile
  * named it), merged into the current revision. A host never sees a conflict: the
  * keys it names are the ones it changed. Answers the document after the merge.
  */
-export const AGENT_PROFILE_ENTRIES_PATH = '/v1/agent-profile/entries'
 export const agentProfileEntriesWriteSchema = z.object({
   set: agentProfileSchema,
   reset: z.array(agentProfileKeySchema).max(AGENT_PROFILE_MAX_ENTRIES).default([]),

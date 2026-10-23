@@ -1,5 +1,5 @@
 {
-  "repoRoot": "/home/demo/acme",
+  "repoRoot": "/home/demo/api-gateway",
   "headSha": "9b4c2e7d1a5f8c3b6e0d4a7f2c9b1e5d8a3f6c0b",
   "branch": "feat/rate-limiting",
   "targetBranch": "main",
@@ -31,5 +31,5 @@
   "aheadCount": 0,
   "behindCount": 0,
   "targetAheadCount": 2,
-  "prUrl": "https://github.com/acme/acme/pull/142"
+  "prUrl": "https://github.com/acme/api-gateway/pull/142"
 }

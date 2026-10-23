@@ -24,7 +24,7 @@ function harness() {
     random: () => 0.5,
   })
   const runNextTimer = () => pendingTimers.shift()?.()
-  return { supervisor, dials, phases, runNextTimer }
+  return { supervisor, dials, phases, runNextTimer, pendingTimers: () => pendingTimers.length }
 }
 
 describe('host supervisor', () => {
@@ -58,30 +58,20 @@ describe('host supervisor', () => {
     expect(supervisor.phase).toBe('connected')
   })
 
-  test('a failed dial goes out again at once on a route not yet tried, and waits on a tried one', () => {
-    // WHY: a host away from its LAN fails on the direct route. The tunnel is a
-    // different route, not a retry, so the client must not sit out the ladder first.
-    const dials: number[] = []
-    const pendingTimers: Array<() => void> = []
-    const routes = 2
-    const supervisor = new HostSupervisor({
-      transport: { start: () => dials.push(dials.length + 1), probe: async () => {} },
-      onDialFailed: (attempt) => attempt < routes,
-      setTimeoutFn: ((handler: () => void) => {
-        pendingTimers.push(handler)
-        return pendingTimers.length as unknown as ReturnType<typeof setTimeout>
-      }) as typeof setTimeout,
-      clearTimeoutFn: (() => {}) as typeof clearTimeout,
-      random: () => 0.5,
-    })
+  test('a host that speaks another protocol is blocked as needing an update, and no dial is scheduled', () => {
+    // WHY (simplify-auth-and-sync §4.6): an old install can never be admitted; retrying on
+    // the ladder would read as "Reconnecting" forever instead of "Update Solus".
+    const { supervisor, dials, pendingTimers } = harness()
     supervisor.start()
-    supervisor.report({ kind: 'dial-failed' })
+    supervisor.report({ kind: 'update-required' })
+    expect(supervisor.phase).toBe('blocked')
+    expect(supervisor.blockedReason).toBe('update-required')
+    expect(pendingTimers()).toBe(0)
+    expect(dials.length).toBe(1)
+    // A user retry (after updating) dials again.
+    supervisor.dialNow()
     expect(dials.length).toBe(2)
-    expect(pendingTimers.length).toBe(0)
-
-    supervisor.report({ kind: 'dial-failed' })
-    expect(dials.length).toBe(2)
-    expect(pendingTimers.length).toBe(1)
+    expect(supervisor.blockedReason).toBeNull()
   })
 
   test('offline is a presentation of the running ladder, never a stop', () => {

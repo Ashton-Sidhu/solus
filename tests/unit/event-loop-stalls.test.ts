@@ -101,7 +101,7 @@ describe('event loop stall monitor', () => {
 })
 
 describe('connectionsGetServerInfo', () => {
-  const OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
+  const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 
   async function serverInfo(): Promise<ConnectionsServerInfo> {
     const { SolusServer } = await import('@solus/server/transport/server')

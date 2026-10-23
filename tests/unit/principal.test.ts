@@ -3,10 +3,11 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { INTERNAL_HANDLER_CTX, SolusServer, type HandlerCtx } from '@solus/server/transport/server'
-import { principalFor, type Principal } from '@solus/server/admission/principal'
+import { CREDENTIAL_FREE_PRINCIPAL, type Principal } from '@solus/server/admission/principal'
+import { pairedPrincipalFor, principalForClaims } from '@solus/server/admission/doors'
 import { RpcAccessError } from '@solus/server/admission/access-policy'
 import { permissionOf } from '@solus/contracts/permissions'
-import { issueGrantWsTicket, issueSessionToken, issueWsTicket, resetAuthStateForTests, verifyWsTicket } from '@solus/server/admission/auth'
+import { issueSessionToken, resetAuthStateForTests } from '@solus/server/admission/auth'
 
 // docs/plans/personal-uplink.md P1/P2: every call names who is calling, and the
 // handful of methods that change how the host is reached take a local owner only.
@@ -29,35 +30,27 @@ describe('principals at admission', () => {
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
 
-  test('a pairing ticket admits a local owner carrying its device', () => {
+  test('a pairing session token admits a local owner carrying its device', () => {
     const { token, deviceId } = issueSessionToken('Phone')
-    const ticket = verifyWsTicket(issueWsTicket(token)!)!
-    const principal = principalFor({ kind: 'ticket', ticket })
-    expect(principal).toEqual({ kind: 'local-owner', deviceId, deviceLabel: 'Phone' })
+    expect(pairedPrincipalFor(token)).toEqual({ ok: true, principal: { kind: 'owner', via: 'local', expiresAt: null, deviceId, deviceLabel: 'Phone' } })
   })
 
-  test('a grant ticket admits the remote owner with the grant it came from', () => {
-    const expiresAt = Date.now() + 60_000
-    const ticket = verifyWsTicket(issueGrantWsTicket({ userId: 'user_1', deviceId: 'session_1', expiresAt }))!
-    const principal = principalFor({ kind: 'ticket', ticket })
-    expect(principal.kind).toBe('remote-owner')
-    if (principal.kind === 'remote-owner') {
-      expect(principal.userId).toBe('user_1')
-      expect(principal.deviceId).toBe('session_1')
-      expect(principal.expiresAt).toBe(expiresAt)
-    }
+  test("an owner's access token admits the owner by grant, with the grant it came from", () => {
+    const exp = Math.floor(Date.now() / 1000) + 60
+    const admission = principalForClaims({ iss: 'i', aud: 'urn:solus:host:h', sub: 'user_1', grant_id: 'session_1', jti: 'j', iat: exp - 60, exp, access: 'owner' }, undefined, 'host')
+    expect(admission).toEqual({ ok: true, principal: { kind: 'owner', via: 'grant', userId: 'user_1', deviceId: 'session_1', expiresAt: exp * 1000, deviceLabel: 'Solus cloud' } })
   })
 
   test('a credential-free admission is the local owner without a device', () => {
-    expect(principalFor({ kind: 'credential-free' })).toEqual({ kind: 'local-owner', deviceId: null, deviceLabel: 'Web' })
+    expect(CREDENTIAL_FREE_PRINCIPAL).toEqual({ kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Web' })
   })
 })
 
 describe('the local-only guard', () => {
-  const localOwner: HandlerCtx = { clientId: 'ws:local:1', principal: { kind: 'local-owner', deviceId: null, deviceLabel: 'Web' } }
+  const localOwner: HandlerCtx = { clientId: 'ws:local:1', principal: { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Web' } }
   const remoteOwner: HandlerCtx = {
     clientId: 'ws:session_1:1',
-    principal: { kind: 'remote-owner', userId: 'u', deviceId: 'session_1', expiresAt: 0, deviceLabel: 'Solus cloud' },
+    principal: { kind: 'owner', via: 'grant', userId: 'u', deviceId: 'session_1', expiresAt: 0, deviceLabel: 'Solus cloud' },
   }
 
   function serverWith(): SolusServer {

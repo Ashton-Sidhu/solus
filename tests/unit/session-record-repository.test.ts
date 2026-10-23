@@ -39,7 +39,7 @@ afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true })
 })
 
-const LOCAL = { principal: { kind: 'local-owner' as const, deviceId: null, deviceLabel: 'Mac' }, home: { kind: 'local' as const, hostId: 'this-mac' }, scopes: ['sessions:read' as const] }
+const LOCAL = { principal: { kind: 'owner' as const, via: 'local' as const, expiresAt: null, deviceId: null, deviceLabel: 'Mac' }, home: { kind: 'local' as const, hostId: 'this-mac' }, scopes: ['sessions:read' as const] }
 
 test('a session\'s record names the repository of its project', async () => {
   const { getSessionRecord } = await import('@solus/server/data/sessions/session-records')

@@ -488,12 +488,12 @@ async function capturePr(workspace: string): Promise<DemoFixtures['pr']> {
   const emptyGuide: ReviewGuide = guide ?? { version: 1, key: 'demo-review', headSha: '', baseSha: '', title: 'Demo review', summary: 'No captured review guide.', sections: [] }
   return {
     list: [], overview: { pullRequest: {
-      number: 0, url: 'https://github.com/acme/acme/pull/0',
-      baseRepo: { host: 'github.com', owner: 'acme', repo: 'acme' },
+      number: 0, url: 'https://github.com/acme/api-gateway/pull/0',
+      baseRepo: { host: 'github.com', owner: 'acme', repo: 'api-gateway' },
       title: 'Captured workspace', author: 'demo', authorAvatarUrl: '', state: 'open', createdAt: timestamp,
       updatedAt: timestamp, draft: false, labels: [], additions: 0, deletions: 0, body: '', baseRef: 'main',
       headRef: 'demo', baseSha: emptyGuide.baseSha, headSha: emptyGuide.headSha, changedFiles: 0,
-      mergeable: null, mergeStateStatus: null, headRepo: { owner: 'acme', repo: 'acme', isFork: false },
+      mergeable: null, mergeStateStatus: null, headRepo: { owner: 'acme', repo: 'api-gateway', isFork: false },
       capabilities: {
         diff: true, diffFileContents: true, inlineComments: true, threadReplies: true, threadResolution: true,
         reviewVerdicts: ['comment', 'approve', 'request-changes'], actions: ['merge'],
@@ -517,8 +517,8 @@ function sanitizeString(value: string, workspace: string): string {
     .replaceAll(encodePathAsFolder(workspace), encodePathAsFolder(DEMO_PROJECT))
     .replace(usernamePattern, 'demo')
     .replaceAll(EMAIL_RE, '[redacted-email]')
-    .replace(/(?:https?:\/\/|git@)github\.com[/:][^\s/'"]+\/[^\s/'"#]+/gi, 'https://github.com/acme/acme')
-    .replace(/github\.com\/[\w.-]+\/[\w.-]+/gi, 'github.com/acme/acme')
+    .replace(/(?:https?:\/\/|git@)github\.com[/:][^\s/'"]+\/[^\s/'"#]+/gi, 'https://github.com/acme/api-gateway')
+    .replace(/github\.com\/[\w.-]+\/[\w.-]+/gi, 'github.com/acme/api-gateway')
 }
 
 const TIME_KEYS = /(?:timestamp|(?:created|updated|started|finished|fetched|linked|bookmarked|nextRun|lastRun|committed|pinned)At)$/i

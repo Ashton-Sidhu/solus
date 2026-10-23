@@ -39,7 +39,7 @@ const PULL_REQUEST_CHECK_INSTRUCTION = 'Before you finish pull request work, cal
  *  of polling must be here (docs/plans/pr-watch.md §2). */
 const PULL_REQUEST_WATCH_INSTRUCTIONS = `## Waiting on a pull request
 
-To wait for CI checks or review on a pull request, call watch_pull_request and end your turn. Solus wakes you with a message when a check fails, the required checks pass, someone comments or reviews, the branch conflicts, or the pull request closes. Do not poll with gh, sleep, or a watch loop. Before you hand the work back, call watch_pull_request with watching=false.`
+To wait for CI checks or review on a pull request, call watch_pull_request and end your turn. Solus wakes you with a message when a check fails, the required checks pass, the other checks finish, no check reports, someone comments or reviews, the branch conflicts, or the pull request closes. Do not poll with gh, sleep, or a watch loop. Before you hand the work back, call watch_pull_request with watching=false.`
 
 const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
 
@@ -87,7 +87,7 @@ This session is a chat with no project. The person did not choose a folder or a 
 
 const VISUALS_INSTRUCTIONS = `## Showing visuals
 
-When a chart, table, diagram, image collage, or mockup would say more than prose, show it as an HTML page in your reply, as the render_artifact tool describes.`
+When a chart, table, diagram, image collage, or mockup would say more than prose, show it as an HTML page in your reply, as the render_artifact tool describes. Check the page with render_artifact preview: true, then write it in a \`\`\`html fence in your reply. A preview shows the page to you only; its screenshot is not the result.`
 
 export interface AgentRuntime {
   harness: 'Claude Code' | 'Codex'

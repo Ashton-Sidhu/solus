@@ -138,9 +138,15 @@
   // the pin the agent's reply names back, and it is the way to the page it was
   // made on.
   const sentMarks = $derived(
-    annotationAttachments.flatMap((a) =>
-      browserMarkChips(a).map((chip) => ({ chip, attachmentId: a.id })),
-    ),
+    annotationAttachments.flatMap((a) => {
+      const marks = a.designData?.browserMarks ?? [];
+      return browserMarkChips(a).map((chip, i) => ({
+        chip,
+        mark: marks[i]!,
+        attachmentId: a.id,
+        pageURL: a.designData?.pageURL,
+      }));
+    }),
   );
   /** A long row of chips buries the words it belongs to, so past three the row
    *  shows two and says how many more — and expands in place. */
@@ -151,14 +157,19 @@
   const hiddenMarkCount = $derived(sentMarks.length - visibleMarks.length);
 
   /** The page a sent mark points at, when it is still open. A mark outlives its
-   *  page, and the way back only exists while there is something to go back to. */
-  function openMarkPage(attachmentId: string) {
-    const page = parseAnnotationAttachmentId(attachmentId);
+   *  page, and the way back only exists while there is something to go back to.
+   *  The page goes back to where the mark was made and draws it there. */
+  function openMarkPage(sent: (typeof sentMarks)[number]) {
+    const page = parseAnnotationAttachmentId(sent.attachmentId);
     if (!page) return;
     session?.openRoute(
       { name: "browser", params: { browserPageId: page.browserPageId, serverId: page.serverId } },
       { via: "click" },
     );
+    // The page is open either way; a reveal that fails leaves the reader on it.
+    void browserStore
+      .revealMark(browserStore.keyOf(page.serverId, page.browserPageId), sent.pageURL, sent.mark)
+      .catch(() => {});
   }
   function markPageIsOpen(attachmentId: string): boolean {
     const page = parseAnnotationAttachmentId(attachmentId);
@@ -248,6 +259,31 @@
 </script>
 
 {#snippet bubbleBody()}
+  {#if sentMarks.length > 0}
+    <!-- Above the prose with the other attachments, never inside it: the marks
+         are what the whole message is about, not one clause of it. -->
+    <div class="flex flex-wrap justify-end gap-1.5" style="max-width:85%">
+      {#each visibleMarks as mark (mark.chip.id)}
+        <MarkChip
+          chip={mark.chip}
+          sent
+          onOpen={markPageIsOpen(mark.attachmentId)
+            ? () => openMarkPage(mark)
+            : undefined}
+        />
+      {/each}
+      {#if hiddenMarkCount > 0}
+        <button
+          type="button"
+          onclick={() => (marksExpanded = true)}
+          class="text-chrome-shelf inline-flex h-6 shrink-0 items-center rounded-md border border-[color-mix(in_oklch,var(--foreground)_11%,transparent)] bg-card px-1.5 text-(--solus-text-tertiary) transition-colors hover:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] hover:text-(--solus-text-primary) focus-visible:outline-none"
+        >
+          +{hiddenMarkCount} mark{hiddenMarkCount === 1 ? "" : "s"}
+        </button>
+      {/if}
+    </div>
+  {/if}
+
   {#if imageAttachments.length > 0}
     <div class="flex gap-1.5 flex-wrap justify-end" style="max-width:85%">
       {#each imageAttachments as a, i (i)}
@@ -481,31 +517,6 @@
         {waitedLabel}
       </div>
     {/if}
-  {/if}
-
-  {#if sentMarks.length > 0}
-    <!-- Below the prose, never inside it: the marks are what the whole message
-         is about, not one clause of it. -->
-    <div class="flex flex-wrap justify-end gap-1.5" style="max-width:85%">
-      {#each visibleMarks as mark (mark.chip.id)}
-        <MarkChip
-          chip={mark.chip}
-          sent
-          onOpen={markPageIsOpen(mark.attachmentId)
-            ? () => openMarkPage(mark.attachmentId)
-            : undefined}
-        />
-      {/each}
-      {#if hiddenMarkCount > 0}
-        <button
-          type="button"
-          onclick={() => (marksExpanded = true)}
-          class="text-chrome-shelf inline-flex h-6 shrink-0 items-center rounded-md border border-[color-mix(in_oklch,var(--foreground)_11%,transparent)] bg-card px-1.5 text-(--solus-text-tertiary) transition-colors hover:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] hover:text-(--solus-text-primary) focus-visible:outline-none"
-        >
-          +{hiddenMarkCount} mark{hiddenMarkCount === 1 ? "" : "s"}
-        </button>
-      {/if}
-    </div>
   {/if}
 
   {#if browserSrc}

@@ -6,14 +6,14 @@ import { solusApiOperations } from './operations'
  * application dispatches on this before any handler reads the request body.
  *
  * Under `/v1` the record service owns the first segment of every operation in the
- * registry. Outside it, it owns the live transport, the ticket and token doors, the
+ * registry. Outside it, it owns the live transport, the share-link and pairing doors, the
  * runner delivery routes, signed assets and uploads, and its health probe. Matching
  * is by whole segment: `/wsx` and `/runners` are not record paths.
  */
 const RECORD_V1_SEGMENTS: ReadonlySet<string> = new Set(
   Object.values(solusApiOperations).map(operation => operation.path.split('/')[1]),
 )
-const RECORD_PATHS: ReadonlySet<string> = new Set(['/health', '/auth/ws-ticket', '/auth/share-link', '/auth/refresh', '/auth/revoke'])
+const RECORD_PATHS: ReadonlySet<string> = new Set(['/health', '/auth/share-link', '/auth/refresh', '/auth/revoke'])
 const RECORD_PATH_ROOTS = ['/ws', '/runner', '/api/assets', '/api/uploads'] as const
 
 export function isRecordServicePath(pathname: string): boolean {

@@ -6,21 +6,27 @@
    * flow lives in `integrationsStore`, and only the typed value lives here.
    *
    * A pasted API key stays in this field for one call and is cleared after it.
+   *
+   * `compact` is the connect card's form: the card's own buttons, and no
+   * "Not connected" line under a card titled "Connect …". Text stays left and
+   * every action sits at the right end of its row, the main action last.
    */
   import { tick, untrack } from "svelte";
   import { ExternalLink, LoaderCircle } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
+  import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
-  import { connectionStatusText, oauthClientText } from "./lib/integration-labels";
+  import { connectionStatusText, IntegrationLabels } from "./lib/integration-labels";
 
   interface Props {
     serverId: string;
     integrationId: string;
     integrationName: string;
+    compact?: boolean;
   }
 
-  let { serverId, integrationId, integrationName }: Props = $props();
+  let { serverId, integrationId, integrationName, compact = false }: Props = $props();
 
   let value = $state("");
   let rootEl = $state<HTMLDivElement | null>(null);
@@ -31,7 +37,7 @@
   const status = $derived(connectionStatusText(connection));
   const isOffline = $derived(!!hostState?.isDisconnected);
   const integration = $derived(hostState?.integrations?.find((item) => item.id === integrationId) ?? null);
-  const clientText = $derived(integration ? oauthClientText(integration.auth) : null);
+  const clientText = $derived(integration ? new IntegrationLabels(integration).clientText : null);
   /** A server with no dynamic registration cannot start a sign-in until an administrator enters its client. */
   const connectHint = $derived(status.action !== "Disconnect" && clientText?.state === "missing" ? clientText.connectHint : null);
   const showAction = $derived(hostState?.connectionsStatus === "loaded" && status.action !== null && (!flow || flow.kind === "failed"));
@@ -82,14 +88,27 @@
   </p>
 {/snippet}
 
+{#snippet ghostAction(label: string, onclick: () => void)}
+  {#if compact}
+    <TranscriptCardAction kind="ghost" {onclick}>{label}</TranscriptCardAction>
+  {:else}
+    <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" {onclick}>{label}</Button>
+  {/if}
+{/snippet}
+
 {#snippet fieldForm(label: string, fieldId: string, type: "text" | "password", error: string | undefined)}
   <form class="flex flex-col gap-1.5" onsubmit={submit}>
     <label for={fieldId} class="text-workspace-chrome font-medium text-foreground">{label}</label>
     <div class="flex flex-wrap items-center gap-2">
       <Input id={fieldId} {type} bind:value class="h-8 min-w-0 flex-1 text-workspace-chrome" autocomplete="off" spellcheck={false} dictation={false}
         disabled={isOffline} aria-invalid={error ? true : undefined} aria-describedby={error ? `${fieldId}-error` : undefined} onkeydown={onFieldKeydown} />
-      <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !value.trim()}>Submit</Button>
-      <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={cancel}>Cancel</Button>
+      {#if compact}
+        {@render ghostAction("Cancel", cancel)}
+        <TranscriptCardAction kind="filled" type="submit" disabled={isOffline || !value.trim()}>Submit</TranscriptCardAction>
+      {:else}
+        <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !value.trim()}>Submit</Button>
+        {@render ghostAction("Cancel", cancel)}
+      {/if}
     </div>
     {#if error}
       <p id="{fieldId}-error" role="alert" class="break-words text-chrome-dense text-(--solus-status-error)">{error}</p>
@@ -104,19 +123,27 @@
         {@render pending("Checking your connection…")}
       {:else if hostState.connectionsStatus === "unsupported"}
         <p class="text-workspace-chrome text-muted-foreground">Update this host to sign in to {integrationName}.</p>
+      {:else if hostState.connectionsStatus === "error" && compact}
+        <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">Could not read your connection.</p>
       {:else if hostState.connectionsStatus === "error"}
         <div class="flex flex-wrap items-center gap-2">
           <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">Could not read your connection.</p>
           <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.loadConnections(serverId)} disabled={isOffline}>Retry</Button>
         </div>
-      {:else}
+      {:else if compact && flow?.kind === "failed"}
+        <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{flow.message}</p>
+      {:else if !compact || connection}
         <p class="truncate text-workspace-chrome {connection && connection.status !== 'connected' ? 'text-(--solus-status-error)' : 'text-foreground'}" title={status.text}>{status.text}</p>
         {#if status.detail}
           <p class="break-words text-chrome-dense text-(--solus-text-secondary)">{status.detail}</p>
         {/if}
       {/if}
     </div>
-    {#if showAction}
+    {#if compact && hostState?.connectionsStatus === "error"}
+      <TranscriptCardAction disabled={isOffline} onclick={() => integrationsStore.loadConnections(serverId)}>Retry</TranscriptCardAction>
+    {:else if showAction && compact && status.action !== "Disconnect"}
+      <TranscriptCardAction kind="filled" disabled={isOffline || !!connectHint} onclick={runAction}>{status.action}</TranscriptCardAction>
+    {:else if showAction}
       <Button variant={status.action === "Disconnect" ? "ghost" : "outline"} size="sm"
         class="text-workspace-chrome pointer-coarse:min-h-11 {status.action === 'Disconnect' ? 'text-muted-foreground hover:text-destructive' : ''}"
         aria-label="{status.action} {integrationName}" aria-describedby={connectHint ? `integration-connect-hint-${integrationId}` : undefined}
@@ -132,11 +159,14 @@
   {:else if flow?.kind === "waiting"}
     <div class="flex flex-wrap items-center gap-2">
       <p class="min-w-0 flex-1 text-workspace-chrome text-muted-foreground">{flow.through === "cloud" ? "Finish signing in in your browser. Solus Cloud keeps the connection for every host." : "Finish signing in in your browser"}</p>
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.openSignIn(flow.url)}>
-        Open sign-in<ExternalLink size={14} />
-      </Button>
-      {#if flow.input === "callback"}
-        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={cancel}>Cancel</Button>
+      {#if compact}
+        {#if flow.input === "callback"}{@render ghostAction("Cancel", cancel)}{/if}
+        <TranscriptCardAction kind="filled" onclick={() => integrationsStore.openInBrowser(flow.url)}>Open sign-in<ExternalLink size={14} aria-hidden="true" /></TranscriptCardAction>
+      {:else}
+        <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.openInBrowser(flow.url)}>
+          Open sign-in<ExternalLink size={14} />
+        </Button>
+        {#if flow.input === "callback"}{@render ghostAction("Cancel", cancel)}{/if}
       {/if}
     </div>
     {#if flow.input === "redirect-url"}
@@ -147,13 +177,11 @@
   {:else if flow?.kind === "submitting"}
     <div class="flex flex-wrap items-center gap-2">
       <div class="min-w-0 flex-1">{@render pending("Finishing sign-in…")}</div>
-      {#if flow.flowId}
-        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={cancel}>Cancel</Button>
-      {/if}
+      {#if flow.flowId}{@render ghostAction("Cancel", cancel)}{/if}
     </div>
   {:else if flow?.kind === "disconnecting"}
     {@render pending("Disconnecting…")}
-  {:else if flow?.kind === "failed"}
+  {:else if flow?.kind === "failed" && !compact}
     <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{flow.message}</p>
   {/if}
 </div>

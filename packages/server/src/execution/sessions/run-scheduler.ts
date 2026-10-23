@@ -183,7 +183,7 @@ export class RunScheduler {
       const resumable = entries.filter((entry) => {
         if (!entry.held) return false
         const author = entry.run.actor?.user ?? entry.author
-        return author ? !!actor.user && sameUser(author.id, actor.user.id) : ['local-owner', 'remote-owner', 'system'].includes(actor.principal.kind)
+        return author ? !!actor.user && sameUser(author.id, actor.user.id) : ['owner', 'system'].includes(actor.principal.kind)
       })
       if (!resumable.length && entries.some((entry) => entry.held)) throw new Error('Each author must resume their own queued work.')
       for (const entry of resumable) {

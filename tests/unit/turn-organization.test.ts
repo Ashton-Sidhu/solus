@@ -82,7 +82,7 @@ afterAll(async () => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-const OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
+const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 const memberOf = (organizationId: string): Principal => ({
   kind: 'org-member', userId: 'bob', organizationId, organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', deviceId: 'd-bob', expiresAt: 0, deviceLabel: 'Solus cloud', email: 'bob@example.test',
 })

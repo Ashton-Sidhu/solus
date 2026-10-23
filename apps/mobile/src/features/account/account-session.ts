@@ -19,7 +19,7 @@ import { KeychainTokenStore } from './keychain-token-store'
  * The Solus account on this device (docs/adr/0001-standard-authentication.md): one
  * `OAuthSession` as client `solus-mobile`, signed in through the system browser with
  * the authorization code and PKCE. The refresh token lives in the keychain; every
- * cloud call and every host dial uses a five-minute access token for one resource.
+ * cloud call uses the token for our servers, and every host dial that host's token.
  * A directory result is checked against the account generation it started under: a
  * sign-out or a new sign-in makes an older answer stale, and a stale answer is dropped
  * instead of applied. The directory does not depend on the selected organization: a
@@ -194,10 +194,15 @@ export class AccountSession {
     this.organizations.set(organizationId)
   }
 
-  /** A five-minute access token for one directory host; `fresh` after the host refused the kept one. */
-  hostAccessToken(host: NativeHost, options?: { fresh?: boolean }): Promise<string | null> {
+  /** An access token for one directory host; `refused` names a kept one the host refused. */
+  hostAccessToken(host: NativeHost, options?: { refused?: string }): Promise<string | null> {
     if (!this.identity || !host.uplink) return Promise.resolve(null)
     return this.oauth.accessToken({ kind: 'host', hostId: host.uplink.hostId }, options)
+  }
+
+  /** True when the phone holds no sign-in: it ended or was never made. */
+  isSignedOut(): boolean {
+    return !this.identity
   }
 
   /**
@@ -256,9 +261,11 @@ export class AccountSession {
     await this.oauth.signOut()
   }
 
-  /** The account plane refused a token: a refresh tells whether the grant still lives. */
+  /** The account plane refused its token: a refresh tells whether the grant still lives. */
   private recheckGrant(): void {
-    void this.oauth.accessToken({ kind: 'account' }, { fresh: true })
+    void this.oauth.accessToken({ kind: 'account' }).then((refused) => {
+      if (refused) void this.oauth.accessToken({ kind: 'account' }, { refused })
+    })
   }
 
   private follow(state: AccountState): void {

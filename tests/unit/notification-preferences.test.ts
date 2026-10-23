@@ -10,6 +10,7 @@ import {
   shouldDeliverNotification,
   type NotificationSoundTrigger,
 } from '@solus/contracts/notification-types'
+import { PERSONAL_SETTING_SCHEMAS } from '@solus/contracts/settings'
 import {
   DELIVERY_SITUATIONS,
   NOTIFICATION_CHANNEL_ROWS,
@@ -51,8 +52,21 @@ describe('notification preferences', () => {
       expect(DEFAULT_NOTIFICATION_PREFERENCES.events[event]).toBe(true)
     }
     expect(APP_NOTICE_EVENTS).toEqual([
-      'review_guide_ready', 'review_lens_ready', 'update_available', 'host_discovered', 'teammate_presence', 'share_revoked', 'work_review',
+      'review_guide_ready', 'review_lens_ready', 'update_available', 'teammate_presence', 'share_revoked', 'work_review',
     ])
+  })
+
+  test('a stored value with the retired host-found switch keeps its other choices', () => {
+    // Every value saved before the host-found toast was removed carries the
+    // switch. A strict refusal would reset the whole key to its defaults.
+    const parsed = PERSONAL_SETTING_SCHEMAS.notifications.safeParse({
+      channels: { sound: false, toast: true, system: true },
+      events: { ...DEFAULT_NOTIFICATION_PREFERENCES.events, question: false, host_discovered: false },
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.channels.sound).toBe(false)
+    expect(parsed.data?.events.question).toBe(false)
+    expect(parsed.data?.events).not.toHaveProperty('host_discovered')
   })
 
   test('merge does not alias the defaults', () => {

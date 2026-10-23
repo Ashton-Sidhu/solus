@@ -87,7 +87,7 @@ export class RestartRecovery {
     // automatically. The queue itself has its own durable start receipt.
     const prompt = restartContinuationPrompt(saved)
     const actor: Actor = saved.author === null ? HOST_ACTOR : {
-      principal: { kind: 'local-owner', deviceId: null, deviceLabel: 'Host restart recovery' }, user: saved.author,
+      principal: { kind: 'owner', via: 'local', deviceId: null, deviceLabel: 'Host restart recovery', expiresAt: null }, user: saved.author,
     }
     const input: SessionRunInput = { ...saved.input, forked: false,
       agentSessionId: saved.input.agentSessionId, permissionMode: this.rt.sessionPermissionModes.get(saved.sessionId) ?? saved.input.permissionMode }

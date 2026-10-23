@@ -819,6 +819,16 @@ export interface BrowserMark {
   selector?: string
   /** The user's words about this mark; the chip's label when nothing resolved. */
   note?: string
+  /** Where the mark was drawn, in the page's viewport at `scroll`. With `path`
+   *  and `scroll`, this is what lets a sent chip draw the mark on the page
+   *  again. Absent on marks sent before they were carried. */
+  rect?: { x: number; y: number; width: number; height: number }
+  path?: { x: number; y: number }[]
+  scroll?: { x: number; y: number }
+  /** How to find a picked element again: the guest's ref while the page has not
+   *  reloaded, then its `data-testid` or `id`. */
+  ref?: string
+  identifier?: string
 }
 
 /**

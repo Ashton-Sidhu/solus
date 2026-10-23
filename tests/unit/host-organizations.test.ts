@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
-import { DEFAULT_ORGANIZATION_POLICY } from '@solus/contracts/uplink'
+import { DEFAULT_ORGANIZATION_POLICY, SOLUS_PROTOCOL } from '@solus/contracts/uplink'
 import { HostCredentialError } from '@solus/server/host/host-credential'
 
 // docs/plans/organization-scope.md §3, §3.1, §6.1: the host's standing — who
@@ -39,7 +39,7 @@ type Answer = { status: number; body: unknown } | 'unreachable'
 
 /** The control plane, one answer at a time, and the timers the registry set. */
 function registry(answers: Answer[], linked = true, key: { refused: boolean } = { refused: false }) {
-  const requests: Array<{ url: string; authorization: string | null }> = []
+  const requests: Array<{ url: string; authorization: string | null; protocol: string | null }> = []
   const timers: number[] = []
   const changes: Array<HostStanding | null> = []
   const refusals: number[] = []
@@ -53,8 +53,8 @@ function registry(answers: Answer[], linked = true, key: { refused: boolean } = 
       },
     }),
     fetchImpl: async (url, init) => {
-      const headers = init?.headers as Record<string, string> | undefined
-      requests.push({ url: String(url), authorization: headers?.authorization ?? null })
+      const headers = new Headers(init?.headers)
+      requests.push({ url: String(url), authorization: headers.get('authorization'), protocol: headers.get('solus-protocol') })
       const answer = answers.shift()
       if (!answer) throw new Error('The test gave no answer for this request.')
       if (answer === 'unreachable') throw new Error('connect ECONNREFUSED')
@@ -73,7 +73,8 @@ describe('the host\'s standing', () => {
     expect(instance.current()).toBeNull()
     expect(instance.organizations()).toEqual([])
     await instance.refresh()
-    expect(requests).toEqual([{ url: 'https://cloud.invalid/v1/hosts/H/organizations', authorization: 'Bearer control-token' }])
+    // Every account-plane request names the protocol this host speaks (simplify-auth-and-sync §4.6).
+    expect(requests).toEqual([{ url: 'https://cloud.invalid/v1/hosts/H/organizations', authorization: 'Bearer control-token', protocol: String(SOLUS_PROTOCOL) }])
     expect(instance.current()).toMatchObject({ hostId: 'H', category: 'personal', owner: { userId: 'alice' } })
     expect(instance.organizations().map((entry) => entry.organizationId)).toEqual(['A', 'B'])
     expect(instance.organization('A')).toMatchObject({ name: 'Acme', shared: true })

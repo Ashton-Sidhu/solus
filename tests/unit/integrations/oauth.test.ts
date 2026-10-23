@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { OAUTH_CLIENT_REQUIRED_MESSAGE } from '@solus/contracts/integrations/oauth-protocol'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -141,6 +142,19 @@ describe('integration OAuth', () => {
     expect(exchange?.get('resource')).toBe(integration.url)
   })
 
+  test('adding another account that signs in as an account already connected is refused', async () => {
+    const { oauth, store, finished } = setup()
+    await oauth.complete(approve((await startAs(ALICE, oauth)).url))
+    const second = await withActingScope(ALICE, () => oauth.start(integration, START, 'acct-2'))
+    if (second.kind !== 'waiting') throw new Error(`expected waiting, got ${second.kind}`)
+    // The fake server reports one identity for every token, as a browser that skipped the chooser would.
+    const page = await oauth.complete(approve(second.url))
+    // WHY (§13.3): one mailbox as two accounts would run every read twice and make "which account" meaningless.
+    expect(page.status).toBe(400)
+    expect(store.accounts(integration.id, ALICE.personKey).map((account) => account.accountId)).toEqual(['default'])
+    expect(finished.at(-1)?.event).toMatchObject({ outcome: 'failed', message: expect.stringContaining('already connected') })
+  })
+
   test('a pasted redirect address completes the same as a callback, for its own person only', async () => {
     const { oauth, connections } = setup()
     const flow = await startAs(ALICE, oauth, { fallbackHost: '127.0.0.1', fallbackPort: 4100 })
@@ -190,7 +204,7 @@ describe('integration OAuth', () => {
     fake.options.registration = false
     const { oauth } = setup()
     const other: Integration = { ...integration, id: 'int-no-client', auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required' } }
-    await expect(withActingScope(ALICE, () => oauth.start(other, START))).rejects.toThrow('This server needs an OAuth client. Its owner adds one in the server settings.')
+    await expect(withActingScope(ALICE, () => oauth.start(other, START))).rejects.toThrow(OAUTH_CLIENT_REQUIRED_MESSAGE)
   })
 
   test('disconnect removes the token and revokes it at the server', async () => {

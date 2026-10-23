@@ -2,12 +2,13 @@
 	import { onMount } from "svelte";
 	import { afterNavigate } from "$app/navigation";
 	import SolusMark from "./SolusMark.svelte";
-	import { downloadApp } from "./download";
+	import DownloadButton from "./DownloadButton.svelte";
 
 	const links = [
 		{ href: "/#cloud", label: "Cloud" },
 		{ href: "/#data", label: "Data" },
-		{ href: "/#sync", label: "Sync" },
+		{ href: "/#workflow", label: "Workflow" },
+		{ href: "/#observability", label: "Observability" },
 		{ href: "/demo", label: "Demo" },
 		{ href: "/docs", label: "Docs" },
 	];
@@ -50,7 +51,7 @@
 
 		<div class="ml-auto hidden items-center gap-2 md:flex">
 			<a href="https://app.solus.sh/sign-in" class="btn btn-sm btn-ghost">Sign in</a>
-			<button type="button" onclick={downloadApp} class="btn btn-sm btn-primary">Download</button>
+			<DownloadButton size="sm" compact />
 		</div>
 
 		<button
@@ -94,16 +95,7 @@
 				>
 					Sign in
 				</a>
-				<button
-					type="button"
-					class="btn btn-primary mt-2 mb-1"
-					onclick={(event) => {
-						menuOpen = false;
-						downloadApp(event);
-					}}
-				>
-					Download for macOS
-				</button>
+				<div class="mt-2 mb-1"><DownloadButton /></div>
 			</nav>
 		</div>
 	{/if}

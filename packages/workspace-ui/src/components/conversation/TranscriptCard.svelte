@@ -58,6 +58,8 @@
     rail?: Snippet;
     /** Actions follow a prose or rows body; otherwise they sit at the right edge of the card line. */
     actions?: Snippet;
+    /** Keep the actions on the card line above a body: the body is a form with its own buttons. */
+    actionsOnCardLine?: boolean;
     /** Everything else, behind ⋯. */
     menu?: Snippet;
     body?: Snippet;
@@ -87,6 +89,7 @@
     glyph,
     rail,
     actions,
+    actionsOnCardLine = false,
     menu,
     body,
   }: Props = $props();
@@ -98,7 +101,7 @@
   /** A picture is not something to act "after": under media the actions stay on
    *  the card line, so they never float alone below the image. */
   const actionsInHeader = $derived(
-    !showBody || bodyLayout === "media" || bodyLayout === "player",
+    !showBody || actionsOnCardLine || bodyLayout === "media" || bodyLayout === "player",
   );
   /** Beside the split icon, a quiet Open is an icon too, so the line reads as
    *  one row of icons. A filled action waits on the user and keeps its word. */

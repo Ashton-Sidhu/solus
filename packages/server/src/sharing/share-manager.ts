@@ -73,6 +73,12 @@ const entryRowSchema = z.object({
 type EntryRow = z.infer<typeof entryRowSchema>
 
 const homeRowSchema = z.object({ owner_key: z.string(), organization_id: z.string() })
+/** One ACL entry of a link's resource, with that resource's own row and runner beside it. */
+const openedLinkRowSchema = entryRowSchema.extend({
+  home_owner_key: z.string().nullable(),
+  home_organization_id: z.string().nullable(),
+  runner_host_id: z.string().nullable(),
+})
 const accessRowSchema = z.object({ id: z.string(), owner_key: z.string(), organization_id: z.string() })
 const idRowSchema = z.object({ id: z.string() })
 
@@ -129,6 +135,15 @@ export class ShareAccessError extends Error {
  */
 function assertShareable(resource: ShareResource): void {
   if (resource.kind === 'task') throw new ShareAccessError('FORBIDDEN', 'A task is not shared. Everyone in its organization can open it; copy its link instead.')
+}
+
+/** A link and what it opens, from one read (`ShareManager.openLink`). */
+export interface OpenedLink {
+  share: ResolvedLinkShare
+  /** The host that runs the session, as its record names it; null for a work, or a session no host runs. */
+  runnerHostId: string | null
+  /** The role a principal holds on the resource, from the same read. */
+  roleOf(principal: Principal): ResourceRole
 }
 
 export interface ResolvedLinkShare {
@@ -211,6 +226,11 @@ export class ShareManager {
     const row = homeRowSchema.nullish().parse(await this.deps.db.get(sql`
       SELECT owner_key, organization_id FROM ${table} WHERE ${id} = ${resource.id}
     `))
+    return this.homeFrom(resource, row ?? null)
+  }
+
+  /** The home a resource's own row gives, or, for a session with none, the one it is being started with. */
+  private homeFrom(resource: ShareResource, row: z.infer<typeof homeRowSchema> | null): SessionHome | null {
     if (row) return { ownerKey: row.owner_key, organizationId: row.organization_id }
     if (resource.kind !== 'session') return null
     return pendingSessionHome(resource.id) ?? (this.deps.sessionExists?.(resource.id) ? machineSessionHome() : null)
@@ -696,6 +716,42 @@ export class ShareManager {
       role: row.role,
       sharedByUserId: row.granted_by_user_id,
       linkSecretHash: hash,
+    }
+  }
+
+  /**
+   * A link and what it opens, read in one statement (docs/plans/instant-share-open.md
+   * §4.4): the link, every ACL entry of its resource, the resource's own row, and the
+   * host its session record names. `roleOf` answers from that one read, as `roleFor`
+   * would, so a resolve waits on the database once.
+   */
+  async openLink(secret: string): Promise<OpenedLink | null> {
+    const hash = hashLinkSecret(secret)
+    const rows = openedLinkRowSchema.array().parse(await this.deps.db.all(sql`
+      SELECT e.*,
+        COALESCE(s.owner_key, w.owner_key) AS home_owner_key,
+        COALESCE(s.organization_id, w.organization_id) AS home_organization_id,
+        s.runner_host_id AS runner_host_id
+      FROM ${aclEntry} l
+      JOIN ${aclEntry} e ON e.resource_kind = l.resource_kind AND e.resource_id = l.resource_id
+      LEFT JOIN ${sessionRecords} s ON l.resource_kind = 'session' AND s.session_id = l.resource_id
+      LEFT JOIN ${works} w ON l.resource_kind = 'work' AND w.id = l.resource_id
+      WHERE l.subject_kind = 'everyone' AND l.link_secret_hash = ${hash}
+      ORDER BY e.created_at, e.id
+    `))
+    const link = rows.find((row) => row.subject_kind === 'everyone' && row.link_secret_hash === hash)
+    // A task link made before tasks stopped being shared opens nothing.
+    if (!link || link.resource_kind === 'task') return null
+    const resource: ShareResource = { kind: link.resource_kind, id: link.resource_id }
+    const homeRow = link.home_owner_key !== null && link.home_organization_id !== null
+      ? { owner_key: link.home_owner_key, organization_id: link.home_organization_id }
+      : null
+    const access: ResourceAccess = { resource, home: this.homeFrom(resource, homeRow), entries: rows }
+    return {
+      share: { organizationId: link.organization_id, resource, role: link.role, sharedByUserId: link.granted_by_user_id, linkSecretHash: hash },
+      // As `getSessionRecord` scopes it: a record of another organization names no runner here.
+      runnerHostId: link.home_organization_id === link.organization_id ? link.runner_host_id : null,
+      roleOf: (principal) => this.roleIn(principal, access),
     }
   }
 

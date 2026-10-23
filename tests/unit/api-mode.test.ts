@@ -28,8 +28,7 @@ type HandlerCtx = import('@solus/server/transport/server').HandlerCtx
 
 let principalModule: typeof import('@solus/server/admission/principal')
 let apiMode: typeof import('@solus/server/host/api-mode')
-let http: typeof import('@solus/server/transport/http')
-let auth: typeof import('@solus/server/admission/auth')
+let doors: typeof import('@solus/server/admission/doors')
 let accessPolicy: typeof import('@solus/server/admission/access-policy')
 let serverModule: typeof import('@solus/server/transport/server')
 let shareManager: typeof import('@solus/server/sharing/share-manager')
@@ -52,8 +51,7 @@ beforeAll(async () => {
   process.env.SOLUS_CLOUD_JWKS_URL = `${ISSUER}/api/auth/jwks`
   principalModule = await import('@solus/server/admission/principal')
   apiMode = await import('@solus/server/host/api-mode')
-  http = await import('@solus/server/transport/http')
-  auth = await import('@solus/server/admission/auth')
+  doors = await import('@solus/server/admission/doors')
   accessPolicy = await import('@solus/server/admission/access-policy')
   serverModule = await import('@solus/server/transport/server')
   shareManager = await import('@solus/server/sharing/share-manager')
@@ -118,21 +116,20 @@ describe('booting in API mode', () => {
     // WHY: the service is reached through a cloud proxy; loopback there is the proxy, not a person.
     expect(await trustedRequesters.isTrustedRequesterAddress('127.0.0.1')).toBe(false)
     expect(lanDiscovery.isLanDiscoveryDisabled({ SOLUS_API: '1' })).toBe(true)
-    const owner: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
+    const owner: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
     await expect(accessPolicy.assertRpcAccess('uplinkLink', owner, [{}])).rejects.toMatchObject({ code: 'MANAGED_HOST' })
     await expect(accessPolicy.assertRpcAccess('connectionsGeneratePairToken', owner, [])).rejects.toMatchObject({ code: 'MANAGED_HOST' })
   })
 })
 
-describe('the ticket door of the workspace service', () => {
-  test('only a member grant admits a person, as a member of the grant\'s organization', async () => {
-    // WHY: an owner grant names a machine's owner; the service is nobody's machine. A
-    // guest holds no token (host-sharing.md §4.1): the secret alone admits them, at the other door.
-    expect(await http.ticketForGrant(claims({ access: 'owner' }), { workspace: true })).toEqual({ ok: false, reason: 'member-required' })
-    const admitted = await http.ticketForGrant(claims({ sub: 'alice', access: 'org-member', organizations: [{ id: 'org1', role: 'owner', teamIds: [] }], displayName: 'Alice' }), { workspace: true, organizationId: 'org1' })
-    expect(admitted.ok).toBe(true)
-    if (!admitted.ok) return
-    const principal = principalModule.principalFor({ kind: 'ticket', ticket: auth.consumeWsTicket(admitted.ticket)! })
+describe('admission to the workspace service', () => {
+  test('only a member token admits a person, as a member of the organization it names', () => {
+    // WHY: an owner token names a machine's owner; the service is nobody's machine. A
+    // guest holds no token (host-sharing.md §4.1): the secret alone admits them.
+    expect(doors.principalForClaims(claims({ access: 'owner' }), undefined, 'api')).toEqual({ ok: false, reason: 'member-required' })
+    const admitted = doors.principalForClaims(claims({ sub: 'alice', access: 'org-member', organizations: [{ id: 'org1', role: 'owner', teamIds: [] }], displayName: 'Alice' }), 'org1', 'api')
+    if (!admitted.ok) throw new Error(admitted.reason)
+    const principal = admitted.principal
     expect(principal).toMatchObject({ kind: 'org-member', userId: 'alice', organizationId: 'org1', hostKind: 'cloud' })
     expect(principalModule.recordScopeOf(principal)).toBe('org1')
     expect(principalModule.organizationForNew(principal)).toBe('org1')
@@ -141,15 +138,13 @@ describe('the ticket door of the workspace service', () => {
     expect(principalModule.isHostAdmin(member('bob', 'org1'))).toBe(false)
   })
 
-  test("a host's delegated token opens only the runner's socket on the API; it is the host acting for a person", async () => {
+  test("a host's delegated token admits its person over HTTP and no socket on the API; the runner writes in its organization", async () => {
     // WHY: plans/010-standard-oauth.md — there is no machine identity that writes organization records.
-    // The socket is how the API reaches the runner with shared prompts; a host admits none.
     const delegated = delegatedClaims({ access: 'org-member', organizationId: 'org1', organizationRole: 'member', act: { sub: 'host_runner-1', host_id: 'runner-1' } })
-    expect(await http.ticketForGrant(delegated, { workspace: false })).toEqual({ ok: false, reason: 'delegated-token' })
-    const admitted = await http.ticketForGrant(delegated, { workspace: true })
-    if (!admitted.ok) throw new Error('Expected a runner ticket')
-    const { consumeWsTicket } = await import('@solus/server/admission/auth')
-    expect(principalModule.principalFor({ kind: 'ticket', ticket: consumeWsTicket(admitted.ticket)! })).toMatchObject({ kind: 'runner', hostId: 'runner-1', organizationId: 'org1' })
+    const verifyAccessToken = async () => ({ ok: true as const, claims: delegated })
+    const api = doors.createDoors({ place: 'api', pairingDisabled: true, verifyAccessToken })
+    expect(await api.admitCredential({ kind: 'access-token', token: 'delegated' })).toEqual({ ok: false, reason: 'not-accepted' })
+    expect(await api.admitBearer('delegated', undefined)).toMatchObject({ ok: true, actingHostId: 'runner-1', principal: { kind: 'org-member', userId: delegated.sub, organizationId: 'org1', deviceId: 'runner-1' } })
     const runner = principalModule.runnerPrincipalFor({ hostId: 'runner-1', organizationId: 'org1', ownerUserId: 'bob', expiresAt: Date.now() + 60_000 })
     expect(principalModule.recordScopeOf(runner)).toBe('org1')
     expect(principalModule.organizationForNew(runner)).toBe('org1')

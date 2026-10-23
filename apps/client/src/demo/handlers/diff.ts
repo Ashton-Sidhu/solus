@@ -8,6 +8,6 @@ export function registerDiffHandlers(backend: DemoServer, store: DemoStore): voi
   backend.register('diff', (args) => store.diff(arg<IpcContext>(args, 0), arg<DiffRequest>(args, 1)))
   backend.register('diffStats', (args) => store.diffStats(arg<IpcContext>(args, 0), arg<DiffRequest>(args, 1)))
   backend.register('listTurnSnapshots', (args) => store.turnSnapshots(arg<IpcContext>(args, 0)))
-  backend.register('gitRefreshState', () => store.gitStatus())
+  backend.register('gitRefreshState', (args) => store.gitStatus(arg<string>(args, 0)))
   backend.register('worktreeListProject', () => store.worktrees())
 }

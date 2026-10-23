@@ -1,6 +1,76 @@
 {
   "list": [
     {
+      "id": "demo-automation-weekly-report",
+      "name": "Weekly work report",
+      "enabled": true,
+      "favorite": true,
+      "action": {
+        "prompt": "Read the past seven days of sessions across every project and draft a short update for the team: what shipped, what is in review, what is blocked, and what needs a decision. Link each item to its pull request or task.",
+        "agentProvider": "claude-code",
+        "modelId": "claude-sonnet-5",
+        "reasoningEffort": "high",
+        "cwd": "/home/demo/api-gateway",
+        "useWorktree": false
+      },
+      "trigger": {
+        "type": "cron",
+        "expr": "0 12 * * 5",
+        "timezone": "America/Toronto"
+      },
+      "nextRunAt": "2026-10-30T16:00:00.000Z",
+      "createdAt": "2026-09-03T16:00:00.000Z",
+      "updatedAt": "2026-10-23T16:00:00.000Z",
+      "createdBy": {
+        "kind": "user",
+        "user": {
+          "id": {
+            "kind": "local",
+            "localId": "demo"
+          },
+          "displayName": "Demo user"
+        }
+      },
+      "lastRunId": "demo-automation-weekly-report-run-1",
+      "lastRunStatus": "succeeded",
+      "lastRunAt": "2026-10-23T16:00:00.000Z"
+    },
+    {
+      "id": "demo-automation-docs-sync",
+      "name": "Docs sync from yesterday's commits",
+      "enabled": true,
+      "favorite": true,
+      "action": {
+        "prompt": "Read yesterday's merged commits, find user-facing changes, and update the docs pages that describe them. Open one pull request with the edits; never change code.",
+        "agentProvider": "claude-code",
+        "modelId": "claude-sonnet-5",
+        "reasoningEffort": "medium",
+        "cwd": "/home/demo/marketing-site",
+        "useWorktree": true
+      },
+      "trigger": {
+        "type": "cron",
+        "expr": "0 7 * * *",
+        "timezone": "America/Toronto"
+      },
+      "nextRunAt": "2026-10-24T11:00:00.000Z",
+      "createdAt": "2026-10-15T11:00:00.000Z",
+      "updatedAt": "2026-10-23T11:00:00.000Z",
+      "createdBy": {
+        "kind": "user",
+        "user": {
+          "id": {
+            "kind": "local",
+            "localId": "demo"
+          },
+          "displayName": "Demo user"
+        }
+      },
+      "lastRunId": "demo-automation-docs-sync-run-1",
+      "lastRunStatus": "succeeded",
+      "lastRunAt": "2026-10-23T11:00:00.000Z"
+    },
+    {
       "id": "demo-automation-dependency-audit",
       "name": "Nightly dependency audit",
       "enabled": true,
@@ -10,17 +80,166 @@
         "agentProvider": "claude-code",
         "modelId": "claude-sonnet-5",
         "reasoningEffort": "high",
-        "cwd": "/home/demo/acme",
+        "cwd": "/home/demo/billing-service",
         "useWorktree": true
       },
-      "trigger": { "type": "cron", "expr": "0 2 * * *", "timezone": "America/Toronto" },
-      "nextRunAt": "2026-07-16T06:00:00.000Z",
-      "createdAt": "2026-07-02T13:00:00.000Z",
-      "updatedAt": "2026-07-14T06:04:00.000Z",
-      "createdBy": { "kind": "user", "user": { "id": { "kind": "local", "localId": "demo" }, "displayName": "Demo user" } },
+      "trigger": {
+        "type": "cron",
+        "expr": "0 2 * * *",
+        "timezone": "America/Toronto"
+      },
+      "nextRunAt": "2026-10-25T06:00:00.000Z",
+      "createdAt": "2026-10-11T13:00:00.000Z",
+      "updatedAt": "2026-10-23T06:04:00.000Z",
+      "createdBy": {
+        "kind": "user",
+        "user": {
+          "id": {
+            "kind": "local",
+            "localId": "demo"
+          },
+          "displayName": "Demo user"
+        }
+      },
       "lastRunId": "demo-automation-run-audit-success",
       "lastRunStatus": "succeeded",
-      "lastRunAt": "2026-07-14T06:00:00.000Z"
+      "lastRunAt": "2026-10-23T06:00:00.000Z"
+    },
+    {
+      "id": "demo-automation-sentry-triage",
+      "name": "Triage new Sentry issues",
+      "enabled": true,
+      "favorite": false,
+      "action": {
+        "prompt": "Read new Sentry issues from the last hour. Group duplicates, find the commit that most likely caused each, and create a task with the stack trace and a suggested owner. Do not fix anything.",
+        "agentProvider": "claude-code",
+        "modelId": "claude-sonnet-5",
+        "reasoningEffort": "high",
+        "cwd": "/home/demo/ios-app",
+        "useWorktree": false
+      },
+      "trigger": {
+        "type": "interval",
+        "everyMinutes": 60
+      },
+      "nextRunAt": "2026-10-23T17:00:00.000Z",
+      "createdAt": "2026-10-22T09:00:00.000Z",
+      "updatedAt": "2026-10-23T16:00:00.000Z",
+      "createdBy": {
+        "kind": "user",
+        "user": {
+          "id": {
+            "kind": "local",
+            "localId": "demo"
+          },
+          "displayName": "Demo user"
+        }
+      },
+      "lastRunId": "demo-automation-sentry-triage-run-1",
+      "lastRunStatus": "succeeded",
+      "lastRunAt": "2026-10-23T16:00:00.000Z"
+    },
+    {
+      "id": "demo-automation-dependency-upkeep",
+      "name": "Dependency upkeep",
+      "enabled": true,
+      "favorite": false,
+      "action": {
+        "prompt": "Bump outdated and vulnerable packages one small pull request at a time. Run the test suite before each, and stop at the first major version that needs a code change.",
+        "agentProvider": "codex",
+        "modelId": "gpt-5.5",
+        "reasoningEffort": "medium",
+        "cwd": "/home/demo/ios-app",
+        "useWorktree": true
+      },
+      "trigger": {
+        "type": "cron",
+        "expr": "0 9 * * 1",
+        "timezone": "America/Toronto"
+      },
+      "nextRunAt": "2026-10-26T13:00:00.000Z",
+      "createdAt": "2026-08-30T13:00:00.000Z",
+      "updatedAt": "2026-10-19T13:00:00.000Z",
+      "createdBy": {
+        "kind": "user",
+        "user": {
+          "id": {
+            "kind": "local",
+            "localId": "demo"
+          },
+          "displayName": "Demo user"
+        }
+      },
+      "lastRunId": "demo-automation-dependency-upkeep-run-1",
+      "lastRunStatus": "failed",
+      "lastRunAt": "2026-10-19T13:00:00.000Z"
+    },
+    {
+      "id": "demo-automation-terraform-drift",
+      "name": "Terraform drift check",
+      "enabled": true,
+      "favorite": false,
+      "action": {
+        "prompt": "Run terraform plan against every workspace and report any drift from main. Never apply.",
+        "agentProvider": "codex",
+        "modelId": "gpt-5.5",
+        "reasoningEffort": "low",
+        "cwd": "/home/demo/infra",
+        "useWorktree": false
+      },
+      "trigger": {
+        "type": "cron",
+        "expr": "0 6 * * *",
+        "timezone": "America/Toronto"
+      },
+      "nextRunAt": "2026-10-24T10:00:00.000Z",
+      "createdAt": "2026-10-15T10:00:00.000Z",
+      "updatedAt": "2026-10-23T10:00:00.000Z",
+      "createdBy": {
+        "kind": "user",
+        "user": {
+          "id": {
+            "kind": "local",
+            "localId": "demo"
+          },
+          "displayName": "Demo user"
+        }
+      },
+      "lastRunId": "demo-automation-terraform-drift-run-1",
+      "lastRunStatus": "succeeded",
+      "lastRunAt": "2026-10-23T10:00:00.000Z"
+    },
+    {
+      "id": "demo-automation-release-notes",
+      "name": "Release notes draft",
+      "enabled": true,
+      "favorite": false,
+      "action": {
+        "prompt": "Collect everything merged since the last tag and draft release notes grouped by feature, fix, and internal change. Save them as a work for review.",
+        "agentProvider": "claude-code",
+        "modelId": "claude-sonnet-5",
+        "reasoningEffort": "medium",
+        "cwd": "/home/demo/web-dashboard",
+        "useWorktree": true
+      },
+      "trigger": {
+        "type": "manual"
+      },
+      "createdAt": "2026-09-22T17:45:00.000Z",
+      "updatedAt": "2026-10-21T19:30:00.000Z",
+      "createdBy": {
+        "kind": "user",
+        "user": {
+          "id": {
+            "kind": "local",
+            "localId": "demo"
+          },
+          "displayName": "Demo user"
+        }
+      },
+      "lastRunId": "demo-automation-release-notes-run-1",
+      "lastRunStatus": "succeeded",
+      "lastRunAt": "2026-10-21T19:30:00.000Z"
     },
     {
       "id": "demo-automation-pr-triage",
@@ -32,50 +251,554 @@
         "agentProvider": "claude-code",
         "modelId": "claude-sonnet-5",
         "reasoningEffort": "medium",
-        "cwd": "/home/demo/acme",
+        "cwd": "/home/demo/api-gateway",
         "useWorktree": false
       },
-      "trigger": { "type": "cron", "expr": "*/30 * * * *", "timezone": "America/Toronto" },
-      "createdAt": "2026-07-05T16:45:00.000Z",
-      "updatedAt": "2026-07-12T18:32:00.000Z",
-      "createdBy": { "kind": "agent", "sessionId": "demo-session-webhooks", "provider": "claude-code", "for": { "id": { "kind": "local", "localId": "demo" }, "displayName": "Demo user" } },
+      "trigger": {
+        "type": "cron",
+        "expr": "*/30 * * * *",
+        "timezone": "America/Toronto"
+      },
+      "createdAt": "2026-10-02T16:45:00.000Z",
+      "updatedAt": "2026-10-09T18:32:00.000Z",
+      "createdBy": {
+        "kind": "agent",
+        "sessionId": "demo-session-webhooks",
+        "provider": "claude-code",
+        "for": {
+          "id": {
+            "kind": "local",
+            "localId": "demo"
+          },
+          "displayName": "Demo user"
+        }
+      },
       "lastRunId": "demo-automation-run-triage",
       "lastRunStatus": "succeeded",
-      "lastRunAt": "2026-07-12T18:30:00.000Z"
+      "lastRunAt": "2026-10-09T18:30:00.000Z"
     }
   ],
   "runs": {
+    "demo-automation-weekly-report": [
+      {
+        "id": "demo-automation-weekly-report-run-1",
+        "automationId": "demo-automation-weekly-report",
+        "startedAt": "2026-10-23T16:00:00.000Z",
+        "finishedAt": "2026-10-23T16:04:00.000Z",
+        "status": "succeeded",
+        "output": "Drafted the week's update as a work: usage billing migration staffed with seven workers (4 done), rate limiting in review as #142, Redis failover planned for Tuesday. One decision needed: the first metered cohort.",
+        "agentSessionId": "demo-automation-weekly-report-session-1"
+      },
+      {
+        "id": "demo-automation-weekly-report-run-2",
+        "automationId": "demo-automation-weekly-report",
+        "startedAt": "2026-10-16T16:00:00.000Z",
+        "finishedAt": "2026-10-16T16:05:17.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-weekly-report-session-2"
+      },
+      {
+        "id": "demo-automation-weekly-report-run-3",
+        "automationId": "demo-automation-weekly-report",
+        "startedAt": "2026-10-09T16:00:00.000Z",
+        "finishedAt": "2026-10-09T16:04:34.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-weekly-report-session-3"
+      },
+      {
+        "id": "demo-automation-weekly-report-run-4",
+        "automationId": "demo-automation-weekly-report",
+        "startedAt": "2026-10-02T16:00:00.000Z",
+        "finishedAt": "2026-10-02T16:06:01.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-weekly-report-session-4"
+      },
+      {
+        "id": "demo-automation-weekly-report-run-5",
+        "automationId": "demo-automation-weekly-report",
+        "startedAt": "2026-09-25T16:00:00.000Z",
+        "finishedAt": "2026-09-25T16:03:18.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-weekly-report-session-5"
+      },
+      {
+        "id": "demo-automation-weekly-report-run-6",
+        "automationId": "demo-automation-weekly-report",
+        "startedAt": "2026-09-18T16:00:00.000Z",
+        "finishedAt": "2026-09-18T16:05:35.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-weekly-report-session-6"
+      },
+      {
+        "id": "demo-automation-weekly-report-run-7",
+        "automationId": "demo-automation-weekly-report",
+        "startedAt": "2026-09-11T16:00:00.000Z",
+        "finishedAt": "2026-09-11T16:04:02.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-weekly-report-session-7"
+      },
+      {
+        "id": "demo-automation-weekly-report-run-8",
+        "automationId": "demo-automation-weekly-report",
+        "startedAt": "2026-09-04T16:00:00.000Z",
+        "finishedAt": "2026-09-04T16:04:19.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-weekly-report-session-8"
+      }
+    ],
+    "demo-automation-docs-sync": [
+      {
+        "id": "demo-automation-docs-sync-run-1",
+        "automationId": "demo-automation-docs-sync",
+        "startedAt": "2026-10-23T11:00:00.000Z",
+        "finishedAt": "2026-10-23T11:03:00.000Z",
+        "status": "succeeded",
+        "output": "Updated 3 pages for yesterday's changes: rate-limit headers, the usage endpoint, and the webhook retry schedule. Opened #151.",
+        "agentSessionId": "demo-automation-docs-sync-session-1"
+      },
+      {
+        "id": "demo-automation-docs-sync-run-2",
+        "automationId": "demo-automation-docs-sync",
+        "startedAt": "2026-10-22T11:00:00.000Z",
+        "finishedAt": "2026-10-22T11:02:17.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-docs-sync-session-2"
+      },
+      {
+        "id": "demo-automation-docs-sync-run-3",
+        "automationId": "demo-automation-docs-sync",
+        "startedAt": "2026-10-21T11:00:00.000Z",
+        "finishedAt": "2026-10-21T11:04:34.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-docs-sync-session-3"
+      },
+      {
+        "id": "demo-automation-docs-sync-run-4",
+        "automationId": "demo-automation-docs-sync",
+        "startedAt": "2026-10-20T11:00:00.000Z",
+        "finishedAt": "2026-10-20T11:02:01.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-docs-sync-session-4"
+      },
+      {
+        "id": "demo-automation-docs-sync-run-5",
+        "automationId": "demo-automation-docs-sync",
+        "startedAt": "2026-10-19T11:00:00.000Z",
+        "finishedAt": "2026-10-19T11:03:18.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-docs-sync-session-5"
+      },
+      {
+        "id": "demo-automation-docs-sync-run-6",
+        "automationId": "demo-automation-docs-sync",
+        "startedAt": "2026-10-18T11:00:00.000Z",
+        "finishedAt": "2026-10-18T11:05:35.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-docs-sync-session-6"
+      },
+      {
+        "id": "demo-automation-docs-sync-run-7",
+        "automationId": "demo-automation-docs-sync",
+        "startedAt": "2026-10-17T11:00:00.000Z",
+        "finishedAt": "2026-10-17T11:02:02.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-docs-sync-session-7"
+      },
+      {
+        "id": "demo-automation-docs-sync-run-8",
+        "automationId": "demo-automation-docs-sync",
+        "startedAt": "2026-10-16T11:00:00.000Z",
+        "finishedAt": "2026-10-16T11:03:19.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-docs-sync-session-8"
+      }
+    ],
+    "demo-automation-sentry-triage": [
+      {
+        "id": "demo-automation-sentry-triage-run-1",
+        "automationId": "demo-automation-sentry-triage",
+        "startedAt": "2026-10-23T16:00:00.000Z",
+        "finishedAt": "2026-10-23T16:01:00.000Z",
+        "status": "succeeded",
+        "output": "2 new issues, 1 duplicate. Created a task for the push-receipt crash on Android 15 and linked it to the sign-out fix.",
+        "agentSessionId": "demo-automation-sentry-triage-session-1"
+      },
+      {
+        "id": "demo-automation-sentry-triage-run-2",
+        "automationId": "demo-automation-sentry-triage",
+        "startedAt": "2026-10-23T15:00:00.000Z",
+        "finishedAt": "2026-10-23T15:02:17.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-sentry-triage-session-2"
+      },
+      {
+        "id": "demo-automation-sentry-triage-run-3",
+        "automationId": "demo-automation-sentry-triage",
+        "startedAt": "2026-10-23T14:00:00.000Z",
+        "finishedAt": "2026-10-23T14:01:34.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-sentry-triage-session-3"
+      },
+      {
+        "id": "demo-automation-sentry-triage-run-4",
+        "automationId": "demo-automation-sentry-triage",
+        "startedAt": "2026-10-23T13:00:00.000Z",
+        "finishedAt": "2026-10-23T13:01:01.000Z",
+        "status": "failed",
+        "error": "Sentry API answered 429 for 4 minutes; the next run picked up the same window.",
+        "agentSessionId": "demo-automation-sentry-triage-session-4"
+      },
+      {
+        "id": "demo-automation-sentry-triage-run-5",
+        "automationId": "demo-automation-sentry-triage",
+        "startedAt": "2026-10-23T12:00:00.000Z",
+        "finishedAt": "2026-10-23T12:03:18.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-sentry-triage-session-5"
+      },
+      {
+        "id": "demo-automation-sentry-triage-run-6",
+        "automationId": "demo-automation-sentry-triage",
+        "startedAt": "2026-10-23T11:00:00.000Z",
+        "finishedAt": "2026-10-23T11:01:35.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-sentry-triage-session-6"
+      },
+      {
+        "id": "demo-automation-sentry-triage-run-7",
+        "automationId": "demo-automation-sentry-triage",
+        "startedAt": "2026-10-23T10:00:00.000Z",
+        "finishedAt": "2026-10-23T10:02:02.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-sentry-triage-session-7"
+      },
+      {
+        "id": "demo-automation-sentry-triage-run-8",
+        "automationId": "demo-automation-sentry-triage",
+        "startedAt": "2026-10-23T09:00:00.000Z",
+        "finishedAt": "2026-10-23T09:01:19.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-sentry-triage-session-8"
+      }
+    ],
+    "demo-automation-dependency-upkeep": [
+      {
+        "id": "demo-automation-dependency-upkeep-run-1",
+        "automationId": "demo-automation-dependency-upkeep",
+        "startedAt": "2026-10-19T13:00:00.000Z",
+        "finishedAt": "2026-10-19T13:12:00.000Z",
+        "status": "failed",
+        "error": "React Native 0.82 needs a native module change in the push library; stopped before opening a pull request and created a task.",
+        "agentSessionId": "demo-automation-dependency-upkeep-session-1"
+      },
+      {
+        "id": "demo-automation-dependency-upkeep-run-2",
+        "automationId": "demo-automation-dependency-upkeep",
+        "startedAt": "2026-10-12T13:00:00.000Z",
+        "finishedAt": "2026-10-12T13:09:17.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-upkeep-session-2"
+      },
+      {
+        "id": "demo-automation-dependency-upkeep-run-3",
+        "automationId": "demo-automation-dependency-upkeep",
+        "startedAt": "2026-10-05T13:00:00.000Z",
+        "finishedAt": "2026-10-05T13:15:34.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-upkeep-session-3"
+      },
+      {
+        "id": "demo-automation-dependency-upkeep-run-4",
+        "automationId": "demo-automation-dependency-upkeep",
+        "startedAt": "2026-09-28T13:00:00.000Z",
+        "finishedAt": "2026-09-28T13:11:01.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-upkeep-session-4"
+      },
+      {
+        "id": "demo-automation-dependency-upkeep-run-5",
+        "automationId": "demo-automation-dependency-upkeep",
+        "startedAt": "2026-09-21T13:00:00.000Z",
+        "finishedAt": "2026-09-21T13:08:18.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-upkeep-session-5"
+      },
+      {
+        "id": "demo-automation-dependency-upkeep-run-6",
+        "automationId": "demo-automation-dependency-upkeep",
+        "startedAt": "2026-09-14T13:00:00.000Z",
+        "finishedAt": "2026-09-14T13:14:35.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-upkeep-session-6"
+      },
+      {
+        "id": "demo-automation-dependency-upkeep-run-7",
+        "automationId": "demo-automation-dependency-upkeep",
+        "startedAt": "2026-09-07T13:00:00.000Z",
+        "finishedAt": "2026-09-07T13:10:02.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-upkeep-session-7"
+      },
+      {
+        "id": "demo-automation-dependency-upkeep-run-8",
+        "automationId": "demo-automation-dependency-upkeep",
+        "startedAt": "2026-08-31T13:00:00.000Z",
+        "finishedAt": "2026-08-31T13:09:19.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-upkeep-session-8"
+      }
+    ],
+    "demo-automation-terraform-drift": [
+      {
+        "id": "demo-automation-terraform-drift-run-1",
+        "automationId": "demo-automation-terraform-drift",
+        "startedAt": "2026-10-23T10:00:00.000Z",
+        "finishedAt": "2026-10-23T10:02:00.000Z",
+        "status": "succeeded",
+        "output": "No drift in 6 workspaces.",
+        "agentSessionId": "demo-automation-terraform-drift-session-1"
+      },
+      {
+        "id": "demo-automation-terraform-drift-run-2",
+        "automationId": "demo-automation-terraform-drift",
+        "startedAt": "2026-10-22T10:00:00.000Z",
+        "finishedAt": "2026-10-22T10:02:17.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-terraform-drift-session-2"
+      },
+      {
+        "id": "demo-automation-terraform-drift-run-3",
+        "automationId": "demo-automation-terraform-drift",
+        "startedAt": "2026-10-21T10:00:00.000Z",
+        "finishedAt": "2026-10-21T10:03:34.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-terraform-drift-session-3"
+      },
+      {
+        "id": "demo-automation-terraform-drift-run-4",
+        "automationId": "demo-automation-terraform-drift",
+        "startedAt": "2026-10-20T10:00:00.000Z",
+        "finishedAt": "2026-10-20T10:02:01.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-terraform-drift-session-4"
+      },
+      {
+        "id": "demo-automation-terraform-drift-run-5",
+        "automationId": "demo-automation-terraform-drift",
+        "startedAt": "2026-10-19T10:00:00.000Z",
+        "finishedAt": "2026-10-19T10:02:18.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-terraform-drift-session-5"
+      },
+      {
+        "id": "demo-automation-terraform-drift-run-6",
+        "automationId": "demo-automation-terraform-drift",
+        "startedAt": "2026-10-18T10:00:00.000Z",
+        "finishedAt": "2026-10-18T10:04:35.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-terraform-drift-session-6"
+      },
+      {
+        "id": "demo-automation-terraform-drift-run-7",
+        "automationId": "demo-automation-terraform-drift",
+        "startedAt": "2026-10-17T10:00:00.000Z",
+        "finishedAt": "2026-10-17T10:02:02.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-terraform-drift-session-7"
+      },
+      {
+        "id": "demo-automation-terraform-drift-run-8",
+        "automationId": "demo-automation-terraform-drift",
+        "startedAt": "2026-10-16T10:00:00.000Z",
+        "finishedAt": "2026-10-16T10:02:19.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-terraform-drift-session-8"
+      }
+    ],
+    "demo-automation-release-notes": [
+      {
+        "id": "demo-automation-release-notes-run-1",
+        "automationId": "demo-automation-release-notes",
+        "startedAt": "2026-10-21T19:30:00.000Z",
+        "finishedAt": "2026-10-21T19:33:00.000Z",
+        "status": "succeeded",
+        "output": "Drafted notes for v2.14.0: 6 features, 11 fixes, 4 internal changes. Saved as a work.",
+        "agentSessionId": "demo-automation-release-notes-session-1"
+      },
+      {
+        "id": "demo-automation-release-notes-run-2",
+        "automationId": "demo-automation-release-notes",
+        "startedAt": "2026-10-07T18:00:00.000Z",
+        "finishedAt": "2026-10-07T18:04:17.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-release-notes-session-2"
+      },
+      {
+        "id": "demo-automation-release-notes-run-3",
+        "automationId": "demo-automation-release-notes",
+        "startedAt": "2026-09-23T17:45:00.000Z",
+        "finishedAt": "2026-09-23T17:48:34.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-release-notes-session-3"
+      }
+    ],
     "demo-automation-dependency-audit": [
       {
         "id": "demo-automation-run-audit-success",
         "automationId": "demo-automation-dependency-audit",
-        "startedAt": "2026-07-14T06:00:00.000Z",
-        "finishedAt": "2026-07-14T06:04:00.000Z",
+        "startedAt": "2026-10-23T06:00:00.000Z",
+        "finishedAt": "2026-10-23T06:04:00.000Z",
         "status": "succeeded",
         "output": "Audited 428 packages. No critical or high advisories. One moderate advisory in a development-only glob dependency has a compatible patch available; created a maintenance task for the next dependency window.",
         "agentSessionId": "demo-automation-session-audit-success",
-        "branch": "automation/dependency-audit-2026-07-14"
+        "branch": "automation/dependency-audit-2026-10-23"
       },
       {
         "id": "demo-automation-run-audit-failed",
         "automationId": "demo-automation-dependency-audit",
-        "startedAt": "2026-07-13T06:00:00.000Z",
-        "finishedAt": "2026-07-13T06:00:42.000Z",
+        "startedAt": "2026-10-22T06:00:00.000Z",
+        "finishedAt": "2026-10-22T06:00:42.000Z",
         "status": "failed",
         "error": "Registry audit endpoint returned 503 after three retries; no dependency state was changed.",
         "agentSessionId": "demo-automation-session-audit-failed",
-        "branch": "automation/dependency-audit-2026-07-13"
+        "branch": "automation/dependency-audit-2026-10-22"
+      },
+      {
+        "id": "demo-automation-dependency-audit-run-3",
+        "automationId": "demo-automation-dependency-audit",
+        "startedAt": "2026-10-21T06:00:00.000Z",
+        "finishedAt": "2026-10-21T06:04:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-audit-session-3"
+      },
+      {
+        "id": "demo-automation-dependency-audit-run-4",
+        "automationId": "demo-automation-dependency-audit",
+        "startedAt": "2026-10-20T06:00:00.000Z",
+        "finishedAt": "2026-10-20T06:03:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-audit-session-4"
+      },
+      {
+        "id": "demo-automation-dependency-audit-run-5",
+        "automationId": "demo-automation-dependency-audit",
+        "startedAt": "2026-10-19T06:00:00.000Z",
+        "finishedAt": "2026-10-19T06:05:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-audit-session-5"
+      },
+      {
+        "id": "demo-automation-dependency-audit-run-6",
+        "automationId": "demo-automation-dependency-audit",
+        "startedAt": "2026-10-18T06:00:00.000Z",
+        "finishedAt": "2026-10-18T06:04:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-audit-session-6"
+      },
+      {
+        "id": "demo-automation-dependency-audit-run-7",
+        "automationId": "demo-automation-dependency-audit",
+        "startedAt": "2026-10-17T06:00:00.000Z",
+        "finishedAt": "2026-10-17T06:03:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-audit-session-7"
+      },
+      {
+        "id": "demo-automation-dependency-audit-run-8",
+        "automationId": "demo-automation-dependency-audit",
+        "startedAt": "2026-10-16T06:00:00.000Z",
+        "finishedAt": "2026-10-16T06:04:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-dependency-audit-session-8"
       }
     ],
     "demo-automation-pr-triage": [
       {
         "id": "demo-automation-run-triage",
         "automationId": "demo-automation-pr-triage",
-        "startedAt": "2026-07-12T18:30:00.000Z",
-        "finishedAt": "2026-07-12T18:32:00.000Z",
+        "startedAt": "2026-10-09T18:30:00.000Z",
+        "finishedAt": "2026-10-09T18:32:00.000Z",
         "status": "succeeded",
         "output": "Triaged PR #142 and suggested API Platform plus Infrastructure reviewers. Posted a risk summary covering Redis availability, per-key isolation, and response-header compatibility.",
         "agentSessionId": "demo-automation-session-triage"
+      },
+      {
+        "id": "demo-automation-pr-triage-run-3",
+        "automationId": "demo-automation-pr-triage",
+        "startedAt": "2026-10-09T18:00:00.000Z",
+        "finishedAt": "2026-10-09T18:02:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-pr-triage-session-3"
+      },
+      {
+        "id": "demo-automation-pr-triage-run-4",
+        "automationId": "demo-automation-pr-triage",
+        "startedAt": "2026-10-09T17:30:00.000Z",
+        "finishedAt": "2026-10-09T17:31:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-pr-triage-session-4"
+      },
+      {
+        "id": "demo-automation-pr-triage-run-5",
+        "automationId": "demo-automation-pr-triage",
+        "startedAt": "2026-10-09T17:00:00.000Z",
+        "finishedAt": "2026-10-09T17:02:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-pr-triage-session-5"
+      },
+      {
+        "id": "demo-automation-pr-triage-run-6",
+        "automationId": "demo-automation-pr-triage",
+        "startedAt": "2026-10-09T16:30:00.000Z",
+        "finishedAt": "2026-10-09T16:32:00.000Z",
+        "status": "succeeded",
+        "output": "Completed with no changes needed.",
+        "agentSessionId": "demo-automation-pr-triage-session-6"
       }
     ]
   }

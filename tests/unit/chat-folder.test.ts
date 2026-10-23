@@ -31,7 +31,7 @@ const { registerSessionHandlers } = await import('@solus/server/transport/handle
 // `SolusServer.handle()` resolves the actor before a handler runs (plans/012 §4).
 const { withActor } = await import('./helpers/actors')
 
-const OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
+const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 const member = (userId: string, hostKind: 'personal' | 'managed' = 'managed'): Principal => ({
   kind: 'org-member', userId, organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind, displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })

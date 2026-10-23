@@ -37,8 +37,14 @@ and its decisions are in [`plans/mcp-integrations.md`](plans/mcp-integrations.md
   one dialog with two steps. *Sign in*: the dialog first adds a new server
   (the host checks it without credentials; when it cannot decide how the
   server works, nothing is added and the dialog says why), then asks for the
-  OAuth client when the server needs one, then Sign in opens the server's
-  page in your browser, or the dialog asks for the API key. While it waits,
+  OAuth client when the initial server check says one is required. Use
+  a client ID supplied by the service, or one from your own OAuth app; the
+  secret is optional. **Use your own OAuth app** is also available for servers
+  with automatic setup, including while a sign-in is waiting or has failed.
+  The form shows the full callback URL to register. Saving a custom client
+  selects sign-in through that host; removing it restores automatic setup
+  when the server supports it. Then Sign
+  in opens the server's page in your browser, or the dialog asks for the API key. While it waits,
   Reopen it opens the page again; when the browser cannot reach the host,
   you paste the address of the page you landed on. A server with no sign-in
   skips this step. *Tools*: switch off the tools agents should not use, then
@@ -83,6 +89,82 @@ credential. A call on an integration you have not connected fails with
 can ask `connection_status` for an integration to check first. A request for
 input from the server during a call shows as a question card.
 
+When you ask the agent to use a service that has no tools in the session, it
+can call `connect_integration` with the service's name. The tool uses your
+server for that service if you have one. Otherwise it adds the one catalog
+entry whose name matches exactly, as your own server, the same way Settings
+adds it. If the name matches more than one entry, the agent asks you which one.
+Then the connect card opens in the conversation. If the server needs an OAuth
+client, the card shows the client form first. The agent never asks for a key
+or a password in the conversation. The tool requires approval, because it can
+add a server. The new server's tools are available from your next message.
+
+## Set up with an agent
+
+Some servers need something from you before Solus can connect: an API key, an
+OAuth client you create at the vendor, or the right address. Then the connect
+dialog, the connect card, and the server's row offer **Set up with an agent**.
+It opens a new chat on the same host with a prompt ready to send: the server,
+its address, the callback URL to register for an OAuth client, and what to
+find. The agent looks it up in the vendor's documentation. It never asks you
+for a key, a token, or a password; you enter them in Settings → MCP or in the
+card. A server you were adding stays in Settings, waiting for the key or the
+client. A server can say it registers apps and then refuse Solus at sign-in;
+Solus then records that it needs your OAuth client, so the dialog shows the
+client form and this button. A server that is down or slow offers Retry instead. On mobile, the
+prompt goes into the new-chat draft, after any text you already wrote.
+
+## Servers Solus adds to the catalog
+
+The catalog lists the integrations.sh feed and Solus's own list, first, with a
+**Solus** mark:
+
+- **Servers the feed misses**, such as Cloudflare's whole-API server and
+  Salesforce. Solus publishes the list from `main`
+  (`packages/contracts/src/integration-catalog.json`), and each host reads it
+  when the catalog opens, keeping the copy its build shipped with for when it
+  cannot. An entry may link to the vendor's **setup guide** for the OAuth
+  client or the key; the connect dialog and the mobile row show it.
+- **Servers Solus writes itself**, for services with no usable MCP server:
+  the Google suite, one server per product (Gmail, Calendar, Drive, Docs,
+  Sheets, Slides, Forms, Tasks, Contacts, Meet, and Search Console), so each
+  sign-in asks only for that product's access. They run inside the host and
+  show as "Built by Solus". Every Google account is labelled by its email. They sign in with the vendor's OAuth, through Solus's own app when
+  the build has it, or the client you enter.
+
+## Several accounts
+
+Beside a connected OAuth server, **Add another account** signs in one more
+account, such as a personal and a work one. Each account is listed with its
+own Disconnect. Tools that only read run for every account and name the
+account in their answer; a tool that may write asks the agent to name one.
+If the sign-in returns an account that is already connected, Solus refuses
+it and asks you to choose another account. Google always shows its account
+chooser for this reason.
+An added account stays on the host it was connected on: it does not follow
+you through your Solus account, and a server that takes an API key keeps one
+key per person.
+
+## Signing in with Solus's app
+
+Some vendors do not let an unknown app register. For those Solus registered
+its own app, and you enter no client:
+
+- **GitHub's MCP server** uses your Solus GitHub connection (Settings →
+  Source Control), so it needs no second sign-in. Without a GitHub connection,
+  Connect says to make one first.
+- **Google** servers, such as Google Calendar, sign in with Solus's Google
+  app. The app may hold the Google scopes of Executor v2's Google app (Gmail,
+  Calendar, Meet, Drive, Docs, Sheets, Slides, Forms, Tasks, Contacts, Photos,
+  and Search Console); a server asks only for the scopes it uses. Disconnect
+  removes the token from Solus but does not revoke it at Google: Google ends
+  every grant you gave the app at once, which would also end your other Google
+  servers and Solus's Google connection. To end the grant itself, remove Solus
+  at myaccount.google.com/connections.
+
+You can still enter your own OAuth app; it wins. A development build that
+has none of Solus's apps asks for your client, as before.
+
 ## Your own servers
 
 A server you add is yours (plans/020-agent-profile.md; docs/plans/access-model.md,
@@ -125,7 +207,7 @@ the host owner and an organization owner included (docs/plans/access-model.md
 
 ## Not in this release
 
-A per-tool ask rule (only on and off exist), OpenAPI documents, several
-accounts per person, and stdio servers are later phases of the plan. The
-tools that are off are not part of the agent profile, so they do not follow a
-personal server to another host.
+A per-tool ask rule (only on and off exist), OpenAPI documents, renaming an
+account, several API keys for one server, and stdio servers are later phases
+of the plan. The tools you turned off are part of your agent profile, so they
+follow a personal server to every host.

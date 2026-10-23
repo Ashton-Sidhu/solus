@@ -63,15 +63,16 @@ check for a finished turn. System alerts keep the platform's own icon.
 |---|---|
 | Review guide ready | `reviewGuideStore.onReady` in `app-core.ts` (PR and session guides); the PR row in the project panel when the guide finishes after the row is gone |
 | Review lens ready | `reviewLensStore.onReady` in `app-core.ts`, for a lens run this client saw start or run. A PR lens toast has **Open lens** |
-| Software updates | Desktop: the download and restart prompts for the app itself (`desktop-updates.svelte.ts`). Any client: one notice for every Solus, Claude Code, and Codex release on every connected host, with **Update all** (`host-update-notices.svelte.ts`). See "Host updates" below |
-| Host found nearby | LAN discovery in `servers.store` |
+| Software updates | Desktop: the download and restart prompts for the app itself (`desktop-updates.svelte.ts`). Any client: one notice for every Solus release on every connected host, with **Update all** (`host-update-notices.svelte.ts`). Claude Code and Codex releases are not announced; Settings, the header update button, and the palette offer them. See "Host updates" below |
 | Teammates | "X joined" and "X left" in `presence.store` |
 | Sharing | "Access removed by X" in `shares.store` |
 
-A notice held back by its switch is not marked as shown: an update prompt or a
-discovered host appears once the switch is turned on. A switched-off notice is
-still visible where it lives — the Connections page lists updates and nearby
-hosts, and the PR keeps its guide.
+A notice held back by its switch is not marked as shown: an update prompt
+appears once the switch is turned on. A switched-off notice is still visible
+where it lives — the Connections page lists updates, and the PR keeps its guide.
+
+A host found on the local network has no toast. The Nearby list in the
+Connections page shows it.
 
 Toasts that answer an action the user just took — "Copied", "Saved", "Task
 created", "Started generating the review guide", a manual update check's
@@ -100,13 +101,15 @@ are not affected by these switches. Errors are never suppressed.
 
 ## Host updates
 
-Host updates use one toast, however many hosts and releases are pending. One
-release reads "Claude Code 1.2.0 on Mac is available" with **Update**; more read
+Host updates use one toast, however many hosts and Solus releases are pending.
+One release reads "Solus 2.0.0 on Mac is available" with **Update**; more read
 "3 updates available", list each one, and offer **Update all**. The toast shows
 again only when a release the user has not seen appears.
 
 The notice leaves out:
 
+- a Claude Code or Codex release, which Settings, the header update button, and
+  the palette offer;
 - a host with a busy session, until it is idle;
 - a host whose Solus update is already running;
 - a Solus release this client cannot install on the host;

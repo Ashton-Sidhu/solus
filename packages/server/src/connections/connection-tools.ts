@@ -7,6 +7,8 @@ import {
   isConnectionProvider,
 } from '@solus/contracts/connections'
 import type { ConnectionConnectNeeded, ConnectionProvider, ConnectionReason } from '@solus/contracts/connections'
+import type { Integration } from '@solus/contracts/integration-types'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { loadCredential as loadAtlassianCredential } from '../atlassian/token-store'
 import { isOAuthConfigured as isAtlassianOAuthConfigured } from '../atlassian/oauth'
 import { githubCredentials } from '../providers/github/credentials'
@@ -102,25 +104,39 @@ const connectionStatusArgsSchema = z.object({
  * and the connect card when they have none. Another person's connection is never read.
  */
 async function integrationStatus(slug: string, sessionId: string | undefined): Promise<AgentToolResult> {
+  const integration = integrationGateway()?.store.list(ANY_ORGANIZATION, currentPersonKey()).find((candidate) => candidate.slug === slug)
+  if (!integration) return { ok: false, text: `No integration named '${slug}'. Use the slug before \`__\` in its tool names.` }
+  return reportIntegrationConnection(integration, sessionId)
+}
+
+/**
+ * The acting person's connection to one integration they can reach, and the
+ * connect card when they have none. `connect_integration` (§13.2) answers with
+ * the same report; `facts` adds what that tool did first.
+ */
+export async function reportIntegrationConnection(
+  integration: Pick<Integration, 'id' | 'slug' | 'name' | 'url' | 'auth'>,
+  sessionId: string | undefined,
+  facts: { added?: boolean } = {},
+): Promise<AgentToolResult> {
   const gateway = integrationGateway()
-  const integration = gateway?.store.list(ANY_ORGANIZATION, currentPersonKey()).find((candidate) => candidate.slug === slug)
-  if (!gateway || !integration) return { ok: false, text: `No integration named '${slug}'. Use the slug before \`__\` in its tool names.` }
+  if (!gateway) return { ok: false, text: 'Integrations are not available on this host.' }
   const report = await gateway.connectionStatus(integration.id)
-  const base = { integration: integration.slug, name: integration.name, status: report.status }
+  const base = { integration: integration.slug, name: integration.name, ...facts, status: report.status }
   if (report.status === 'connected') {
     return { ok: true, text: JSON.stringify(report.signInRequired ? { ...base, label: report.label } : { ...base, note: `${integration.name} needs no sign-in.` }) }
   }
   if (sessionId) gateway.askToConnect(integration, sessionId)
-  return {
-    ok: true,
-    text: JSON.stringify({
-      ...base,
-      askedUser: !!sessionId,
-      note: sessionId
-        ? `Asked the user to sign in to ${integration.name}. Wait for them; do not request a credential in the conversation.`
-        : `The user is not signed in to ${integration.name}, and there is no conversation to ask in.`,
-    }),
+  // A server the person cannot sign in to yet: the agent can find what to set up (§13.4).
+  const handoff = new IntegrationSignIn(integration).setupHandoffFor(null, { name: integration.name })
+  const asked = {
+    ...base,
+    askedUser: !!sessionId,
+    note: sessionId
+      ? `Asked the user to sign in to ${integration.name}. Wait for them; do not request a credential in the conversation.`
+      : `The user is not signed in to ${integration.name}, and there is no conversation to ask in.`,
   }
+  return { ok: true, text: JSON.stringify(handoff ? { ...asked, setup: handoff.steps } : asked) }
 }
 
 function isConnectionReason(value: string): value is ConnectionReason {

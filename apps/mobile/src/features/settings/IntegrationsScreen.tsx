@@ -23,7 +23,6 @@ import { SettingsNote } from "./components/SettingsNote";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import {
-  afterCreate,
   catalogCandidate,
   catalogCountText,
   isNearEnd,
@@ -31,18 +30,18 @@ import {
   errorMessage,
   filterInstalled,
   firstLine,
-  installedStatus,
   isInstalled,
   isIntegrationUrl,
   looksLikeUrl,
-  mayLoadTools,
-  needsOAuthClient,
   UNSUPPORTED_NOTE,
   urlHost,
   type IntegrationCandidate,
   type IntegrationToolsState,
+  InstalledIntegration,
 } from "./integrations";
 import { useIntegrations } from "./use-integrations";
+import { SetupGuideRow, SetupHandoffRow } from "./components/SetupHandoffRow";
+import { IntegrationExtraAccounts } from "./components/IntegrationExtraAccounts";
 
 type IntegrationsModel = ReturnType<typeof useIntegrations>;
 
@@ -77,8 +76,8 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
   const add = (candidate: IntegrationCandidate) => {
     void integrations.add(candidate).then((integration) => {
       if (!integration) return;
-      const next = afterCreate(integration);
-      if (next !== "none") integrations.expand(integration.id);
+      const next = new InstalledIntegration(integration).afterAdd;
+      if (next !== "ready") integrations.expand(integration.id);
       if (next === "connect") void integrations.flows.connect(integration);
     });
   };
@@ -218,7 +217,8 @@ function InstalledRow(props: {
   const { integration, integrations } = props;
   const { busy, connections, flows } = integrations;
   const expanded = integrations.expanded.has(integration.id);
-  const status = installedStatus(integration, connections);
+  const installed = new InstalledIntegration(integration);
+  const status = installed.status(connections);
   const connection = connections.kind === "loaded" ? connections.byIntegration.get(integration.id) : undefined;
   const flow = flows.flows.get(integration.id);
   const host = urlHost(integration.url);
@@ -277,17 +277,18 @@ function InstalledRow(props: {
               <Text className="text-sm text-foreground-muted" selectable>{connection.error}</Text>
             </View>
           ) : null}
-          {needsOAuthClient(integration) ? (
+          {installed.takesOAuthClient ? (
             <View className="px-4 pb-4 pl-[58px]">
               <IntegrationOAuthClientPanel
                 integration={integration}
+                redirectUrl={integrations.oauthRedirectUrl}
                 saving={busy === `oauth-client:${integration.id}`}
                 enabled={integrations.connected && editable}
                 onSave={(client) => integrations.setOAuthClient(integration.id, client)}
               />
             </View>
           ) : null}
-          {mayLoadTools(integration, connections) ? (
+          {installed.mayLoadTools(connections) ? (
             <IntegrationTools
               integration={integration}
               tools={integrations.tools.get(integration.id)}
@@ -301,7 +302,24 @@ function InstalledRow(props: {
               <SettingsNote>Connect to see its tools.</SettingsNote>
             </View>
           )}
+          <IntegrationExtraAccounts
+            integration={integration}
+            first={connection}
+            accounts={integrations.extraAccounts.get(integration.id)}
+            adding={integrations.addingAccount.get(integration.id)}
+            enabled={integrations.connected}
+            onAdd={() => integrations.addAccount(integration.id)}
+            onCancelAdd={() => integrations.cancelAddAccount(integration.id)}
+            onReopen={() => integrations.reopenAddAccount(integration.id)}
+            onDisconnect={(accountId) => { void integrations.disconnectAccount(integration.id, accountId) }}
+          />
           <OwnerOnlyNote hidden={canEdit} />
+          <SetupHandoffRow
+            hostId={integrations.hostId}
+            need={installed.setupNeedFor(connection)}
+            target={{ name: integration.name, url: integration.url, callbackUrl: integrations.oauthRedirectUrl }}
+            enabled={integrations.connected}
+          />
           <SettingsActionRow icon="pencil" label="Rename" loading={busy === `rename:${integration.id}`} disabled={!editable} onPress={props.onRename} />
           {connection ? (
             <SettingsActionRow
@@ -480,6 +498,8 @@ function CatalogSection(props: {
               added={isInstalled(props.installed, entry.url)}
               first={index === 0}
               onAdd={props.onAdd}
+              listedBySolus={entry.source === "solus"}
+              authHelp={entry.authHelp}
             />
           ))}
           </View>
@@ -509,6 +529,10 @@ function AddRow(props: {
   readonly added: boolean;
   readonly first: boolean;
   readonly onAdd: (candidate: IntegrationCandidate) => void;
+  /** Listed by the Solus catalog, not the integrations.sh feed (§13.5). */
+  readonly listedBySolus?: boolean;
+  /** The vendor's setup page for the client or the key (§13.5). */
+  readonly authHelp?: string;
 }) {
   const { integrations, candidate } = props;
   const { adding } = integrations;
@@ -522,7 +546,10 @@ function AddRow(props: {
       <View className="flex-row items-center gap-3 p-4">
         <ServerIcon icon={props.icon ?? undefined} url={candidate.url} name={candidate.name} />
         <View className="min-w-0 flex-1 gap-0.5">
-          <Text className="text-lg text-foreground" numberOfLines={1} ellipsizeMode="middle">{props.title}</Text>
+          <View className="min-w-0 flex-row items-center gap-1.5">
+            <Text className="shrink text-lg text-foreground" numberOfLines={1} ellipsizeMode="middle">{props.title}</Text>
+            <SolusMark shown={props.listedBySolus} />
+          </View>
           {failed ? (
             <Text className="text-sm text-danger-foreground" numberOfLines={2} accessibilityRole="alert">{failed.message}</Text>
           ) : props.detail ? (
@@ -540,8 +567,21 @@ function AddRow(props: {
           <PillButton label={failed ? "Retry" : "Add"} accessibilityLabel={`${failed ? "Retry adding" : "Add"} ${candidate.name}`} disabled={!canAdd} onPress={() => props.onAdd(candidate)} />
         )}
       </View>
+      <SetupHandoffRow
+        hostId={integrations.hostId}
+        need={failed?.setupNeed}
+        target={{ name: candidate.name, url: candidate.url, guideUrl: props.authHelp }}
+        enabled={integrations.connected}
+      />
+      <SetupGuideRow name={candidate.name} url={props.authHelp} />
     </View>
   );
+}
+
+/** Marks an entry the Solus catalog lists, not the integrations.sh feed (§13.5). */
+function SolusMark(props: { readonly shown?: boolean }) {
+  if (!props.shown) return null
+  return <Text className="rounded-full border border-border-subtle px-1.5 text-xs text-foreground-muted">Solus</Text>
 }
 
 function PillButton(props: { readonly label: string; readonly accessibilityLabel?: string; readonly disabled?: boolean; readonly onPress: () => void }) {

@@ -62,7 +62,7 @@ const guestFor = (kind: 'session' | 'work', id: string): Principal => ({
 
 /** The host roles of §1, and the people around them. */
 const PEOPLE = {
-  hostOwner: { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' } as Principal,
+  hostOwner: { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' } as Principal,
   admin: member('adam', { role: 'owner' }),
   owner: member('alice'),
   member: member('bob'),

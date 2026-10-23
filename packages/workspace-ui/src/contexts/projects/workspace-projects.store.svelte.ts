@@ -68,7 +68,7 @@ export class WorkspaceProjectsStore {
     for (const serverId of serverConnections.connectedServerIds()) {
       if (isSolusApi(serverId)) void this.load(serverId)
     }
-    const unsubStatus = serverConnections.onStatusChange((serverId, status) => {
+    const unsubStatus = serverConnections.onPhaseChange((serverId, status) => {
       const resolved = serverConnections.resolveId(serverId)
       if (status === 'connected' && isSolusApi(resolved)) void this.load(resolved, { force: true })
     })

@@ -110,7 +110,7 @@ describe('the host user rows', () => {
 
   /** The key a record the local owner makes is owned under. */
   function localOwnerKey(): string | null {
-    return actors.ownerKeyOf(actors.actorFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }))
+    return actors.ownerKeyOf(actors.actorFor({ kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }))
   }
 
   /** The owner on the resource's own row (docs/plans/access-model.md §2.2). */

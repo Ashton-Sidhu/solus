@@ -115,7 +115,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     // Reactive: a runner coming back or a cloud row appearing re-merges the rows.
     isSolusApi: isSolusApiId,
     isConnected: (serverId) => !!serverId && serversStore.statusFor(serverId) === 'online',
-  })
+  }, () => serversStore.activeOrganizationId)
   session.trackVisibleConversations()
   trackSessionReviewGuides(session)
   trackBranchReviewGuides(session, sessionEnvironmentStore)

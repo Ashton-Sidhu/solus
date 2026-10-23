@@ -27,8 +27,6 @@ export interface LabSolusApiOptions {
   tempRoot?: string
   /** The listener's port; defaults to a free one. Cloud mode names it first, so the cloud's `SOLUS_API_URL` can name it. */
   port?: number
-  /** `SOLUS_API_CLIENT_KEY`: the private JWK of the cloud's `solus-api` client, with which the service reads a person's account. */
-  clientKey?: string
   /** Start the server in its own process group and do not wait for it at exit: `bun lab up` leaves it running. */
   longLived?: boolean
 }
@@ -82,7 +80,6 @@ export async function bootLabSolusApi(options: LabSolusApiOptions): Promise<LabS
     // One service, one run: a fresh key is the replicas' shared one.
     SOLUS_API_SIGNING_KEY: randomBytes(32).toString('base64'),
     DATABASE_URL: options.engine === 'postgres' ? options.databaseUrl : '',
-    SOLUS_API_CLIENT_KEY: options.clientKey ?? '',
   }
   // No managed link, no host token: a workspace service is nobody's machine.
   delete env.SOLUS_HOST_LINK

@@ -26,6 +26,8 @@
     /** At most one primary and one ghost button, plus icons. Also shows when
      *  resolved, so the caller decides the resolved line's Done. */
     actions?: Snippet
+    /** Keep the actions on the card line when the body is a form with its own buttons. */
+    actionsOnCardLine?: boolean
     /** The body, indented to the title. Hidden once resolved. */
     children?: Snippet
   }
@@ -39,6 +41,7 @@
     icon,
     rail,
     actions,
+    actionsOnCardLine = false,
     children,
   }: Props = $props()
 </script>
@@ -52,6 +55,7 @@
   data-testid={testId}
   rail={resolved ? undefined : rail}
   {actions}
+  {actionsOnCardLine}
   body={resolved || !children ? undefined : cardBody}
 >
   {#snippet glyph()}

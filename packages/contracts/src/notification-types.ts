@@ -32,7 +32,6 @@ export const APP_NOTICE_EVENTS = [
   'review_guide_ready',
   'review_lens_ready',
   'update_available',
-  'host_discovered',
   'teammate_presence',
   'share_revoked',
   'work_review',
@@ -64,7 +63,6 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
     review_guide_ready: true,
     review_lens_ready: true,
     update_available: true,
-    host_discovered: true,
     teammate_presence: true,
     share_revoked: true,
     work_review: true,
@@ -91,11 +89,13 @@ export const notificationPreferencesPatchSchema = z.object({
     review_guide_ready: z.boolean().optional(),
     review_lens_ready: z.boolean().optional(),
     update_available: z.boolean().optional(),
+    /** Retired with the host-found toast. Stored and synced settings still
+     *  carry it, so it is read and dropped rather than refused. */
     host_discovered: z.boolean().optional(),
     teammate_presence: z.boolean().optional(),
     share_revoked: z.boolean().optional(),
     work_review: z.boolean().optional(),
-  }).strict().optional(),
+  }).strict().transform(({ host_discovered: _retired, ...events }) => events).optional(),
 }).strict()
 
 export type NotificationPreferencesPatch = z.infer<typeof notificationPreferencesPatchSchema>

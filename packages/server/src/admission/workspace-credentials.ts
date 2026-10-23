@@ -1,110 +1,29 @@
-import { randomBytes } from 'node:crypto'
-import { z } from 'zod'
-import {
-  CLIENT_SOLUS_API_SCOPES, solusApiScopeSchema, workspaceRecordHomeSchema, WORKSPACE_TOKEN_TTL_MS,
-  type WorkspaceAuthSession, type WorkspaceAuthSessionRequest, type WorkspaceRecordHome,
-} from '@solus/contracts/solus-api'
-import { principalSchema, principalExpiresAt, type Principal } from './principal'
+import type { SolusApiScope, WorkspaceRecordHome } from '@solus/contracts/solus-api'
+import type { Principal } from './principal'
 import type { Attribution } from '@solus/contracts/user'
 import { actorFor, attributionOf, ownerKeyOf } from './actor'
-import { readSignedToken, signToken } from './signed-token'
 
-/** The host acting for the person, when the source was its delegated token (plans/010-standard-oauth.md). */
-const delegationSchema = z.strictObject({ hostId: z.string().min(1) })
-export type WorkspaceDelegation = z.infer<typeof delegationSchema>
+/** The host acting for the person, when the request came with its delegated token (plans/010-standard-oauth.md). */
+export interface WorkspaceDelegation { hostId: string }
 
-const apiClaimsSchema = z.strictObject({
-  purpose: z.literal('solus-api'),
-  audience: z.string(),
-  issuedAt: z.number().int(),
-  expiresAt: z.number().int(),
-  principal: principalSchema,
-  home: workspaceRecordHomeSchema,
-  scopes: z.array(solusApiScopeSchema).min(1).max(solusApiScopeSchema.options.length),
-  delegation: delegationSchema.optional(),
-})
-export type WorkspaceRequestContext = Pick<z.infer<typeof apiClaimsSchema>, 'principal' | 'home' | 'scopes' | 'delegation'> & {
-  /** In-process agent provenance, supplied by the admitted turn. Never accepted in HTTP input or credentials. */
+/** The authority of one Solus API request: who, where their records live, and what they may do. */
+export interface WorkspaceRequestContext {
+  principal: Principal
+  home: WorkspaceRecordHome
+  scopes: SolusApiScope[]
+  delegation?: WorkspaceDelegation
+  /** In-process agent provenance, supplied by the admitted turn or a host's delegated token. Never accepted in HTTP input. */
   actingAgent?: { sessionId?: string; organizationId: string; linkWorkToTask?: boolean }
 }
 
-export interface WorkspaceCredentialOptions {
-  audience: string
-  /** Process-bound credentials stop working after restart; source authority can exchange again. */
-  secret?: Buffer
-  now?: () => number
-  /**
-   * A host's delegated token also names the host acting for the person; its credential then speaks for that host's agent work.
-   * `request.organizationId` is the organization the request names: a token that lists organizations admits only one it lists.
-   * An empty bearer is a link guest: `request.shareSecret` is then the whole credential (docs/plans/host-sharing.md §9.8).
-   */
-  authenticateSource(bearer: string, request: WorkspaceAuthSessionRequest): Promise<{ principal: Principal; expiresAt: number; delegation?: WorkspaceDelegation } | null>
-  isRevoked(principal: Principal): Promise<boolean>
-  homeFor(principal: Principal): WorkspaceRecordHome | null
-}
-
-/** One credential verifier for HTTP, independent of sockets and domain stores. */
-export class WorkspaceCredentials {
-  private readonly secret: Buffer
-  private readonly now: () => number
-  constructor(private readonly options: WorkspaceCredentialOptions) {
-    this.secret = options.secret ?? randomBytes(32)
-    this.now = options.now ?? Date.now
-  }
-
-  async exchange(bearer: string, request: WorkspaceAuthSessionRequest): Promise<WorkspaceAuthSession | null> {
-    // No bearer: a link guest, whose share secret is the whole credential.
-    if ((!bearer && !request.shareSecret) || bearer.length > 16_384) return null
-    const source = await this.options.authenticateSource(bearer, request)
-    const home = source && await this.homeOf(source.principal)
-    if (!source || !home) return null
-    const issuedAt = this.now()
-    const expiresAt = Math.min(issuedAt + WORKSPACE_TOKEN_TTL_MS, source.expiresAt, principalExpiresAt(source.principal) ?? Infinity)
-    if (expiresAt <= issuedAt) return null
-    const scopes = [...request.scopes]
-    const actor = actorFor(source.principal)
-    const claims: z.infer<typeof apiClaimsSchema> = { purpose: 'solus-api', audience: this.options.audience, issuedAt, expiresAt, principal: source.principal, home, scopes }
-    if (source.delegation) claims.delegation = source.delegation
-    return {
-      accessToken: signToken(apiClaimsSchema.parse(claims), this.secret), tokenType: 'Bearer',
-      expiresAt: new Date(expiresAt).toISOString(), scopes, home,
-      subject: { kind: 'user', userId: ownerKeyOf(actor), displayName: actor.user?.displayName ?? 'Solus', sessionId: null },
-    }
-  }
-
-  /**
-   * The authority of a request over a client's socket: the socket's principal, with a
-   * client's scopes. The socket admitted it already, so nothing is exchanged; it is
-   * held to the same rules as an exchange and a verify.
-   */
-  async admitSocket(principal: Principal): Promise<WorkspaceRequestContext | null> {
-    const expiresAt = principalExpiresAt(principal)
-    if (expiresAt !== null && expiresAt <= this.now()) return null
-    const home = await this.homeOf(principal)
-    return home ? { principal, home, scopes: [...CLIENT_SOLUS_API_SCOPES] } : null
-  }
-
-  /** Where a principal's records live, when the API admits it: never the host itself or a runner, never a revoked device. */
-  private async homeOf(principal: Principal): Promise<WorkspaceRecordHome | null> {
-    if (principal.kind === 'system' || principal.kind === 'runner') return null
-    if (await this.options.isRevoked(principal)) return null
-    return this.options.homeFor(principal)
-  }
-
-  async verify(bearer: string): Promise<WorkspaceRequestContext | null> {
-    if (!bearer || bearer.length > 16_384) return null
-    const claims = readSignedToken(bearer, this.secret, apiClaimsSchema)
-    const now = this.now()
-    if (!claims || claims.audience !== this.options.audience || claims.expiresAt <= now || claims.issuedAt > now
-      || claims.expiresAt - claims.issuedAt > WORKSPACE_TOKEN_TTL_MS) return null
-    if (claims.principal.kind === 'system' || claims.principal.kind === 'runner') return null
-    if (await this.options.isRevoked(claims.principal)) return null
-    if (!claims.delegation) return { principal: claims.principal, home: claims.home, scopes: claims.scopes }
-    // A host's agent acting for the person: its writes are the agent's, in the delegation's organization.
-    const organizationId = claims.home.kind === 'organization' ? claims.home.organizationId : null
-    if (!organizationId) return null
-    return { principal: claims.principal, home: claims.home, scopes: claims.scopes, delegation: claims.delegation, actingAgent: { organizationId } }
-  }
+/**
+ * How a `/v1` request is admitted (`transport/solus-api/admission.ts`): over a socket,
+ * by the socket's principal; over HTTP, by its bearer, in the organization it names.
+ * Null: refused.
+ */
+export interface WorkspaceAdmission {
+  socket(principal: Principal): Promise<WorkspaceRequestContext | null>
+  bearer(bearer: string, organizationId: string | undefined): Promise<WorkspaceRequestContext | null>
 }
 
 /** Who a request is, as the doer of what it writes: its admitted agent turn and the person that turn is for, else its person. */

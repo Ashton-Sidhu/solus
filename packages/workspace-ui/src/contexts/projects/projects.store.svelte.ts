@@ -77,7 +77,7 @@ export interface UntrackHosts {
 }
 
 const liveUntrackHosts: UntrackHosts = {
-  isConnected: (serverId) => serverConnections.statusFor(serverId) === 'connected',
+  isConnected: (serverId) => serverConnections.phaseFor(serverId) === 'connected',
   untrackProject: (serverId, path) => serverConnections.apiFor(serverId).untrackProject(path),
 }
 
@@ -159,7 +159,7 @@ export class ProjectsStore {
   checkoutFor(projectKey: string): ProjectRef | null {
     const listed = representativeCheckout(
       { checkouts: this.checkoutsOf(projectKey) },
-      (serverId) => serverConnections.statusFor(serverId) === 'connected',
+      (serverId) => serverConnections.phaseFor(serverId) === 'connected',
     )
     if (listed) return listed
     const local = localProjectParts(projectKey)
@@ -183,7 +183,7 @@ export class ProjectsStore {
       void this.loadProjectsFor(serverId, serverConnections.apiFor(serverId), { force: true })
     }
     for (const serverId of serverConnections.connectedServerIds()) load(serverId)
-    const unsubStatus = serverConnections.onStatusChange((serverId, status) => {
+    const unsubStatus = serverConnections.onPhaseChange((serverId, status) => {
       if (status === 'connected') load(serverConnections.resolveId(serverId))
     })
     const unsubChanged = subscribeAllHosts('projects.changed', (serverId) => load(serverId))

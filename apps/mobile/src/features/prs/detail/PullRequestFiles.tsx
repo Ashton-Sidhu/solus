@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useApp, useListened } from '../../../app/app-context'
-import { SymbolView } from '../../../components/AppSymbol'
 import { AppText as Text } from '../../../components/AppText'
+import { changeFilterOptions, toggleChangeKind, isChangeKindSelected, type ChangeKind } from '@solus/client-core/change-breakdown'
 import { ControlPillMenu } from '../../../components/ControlPillMenu'
 import { EmptyState } from '../../../components/EmptyState'
 import { MaterialButton } from '../../../components/MaterialButton'
@@ -22,7 +22,7 @@ import { useAppearanceCodeSurface } from '../../settings/appearance/useAppearanc
 import { useAppearancePreferences } from '../../settings/appearance/AppearancePreferencesProvider'
 import { annotatePullRequestDiff, draftAnchor } from '../lib/pull-request-diff-comments'
 import { diffIsTruncated, pullRequestDiffPatch, type PullRequestDiffPage } from '../lib/pull-request-diff-pages'
-import { filterPullRequestTestFiles, hiddenTestFileCount, pullRequestFilesSummary } from '../lib/pull-request-file-filters'
+import { filterPullRequestFileKinds, hiddenFileCount, pullRequestFilesSummary } from '../lib/pull-request-file-filters'
 import { guideFocusedRows, type GuideDiffFocus } from '../lib/pull-request-guide-tour'
 import { currentReviewComments } from '../lib/pull-request-review-draft'
 import type { PullRequestDiffRef } from '../pull-request-diffs'
@@ -45,7 +45,7 @@ export interface FilesJump {
 
 /**
  * The Files tab: the whole pull request, or one commit, on the native diff
- * surface. Files can be hidden (tests), collapsed, and marked viewed. A tap
+ * surface. Files can be filtered by classification, collapsed, and marked viewed. A tap
  * on a line writes a review comment on it; a long press starts a range.
  * Review threads and draft comments show under their lines.
  */
@@ -76,9 +76,15 @@ export function PullRequestFiles(props: {
   const stale = !commitSha && diff !== null && diff.revision.headSha !== pr.headSha
   const patch = useMemo(() => (diff ? pullRequestDiffPatch(diff.pages) : ''), [diff])
   const parsed = useMemo(() => buildReviewParsedDiff(patch, `pr:${view.ref.hostId}:${view.ref.projectPath}:${view.ref.number}:${commitSha ?? 'all'}`), [patch, view.ref, commitSha])
-  const [hideTests, setHideTests] = useState(false)
-  const visible = useMemo(() => filterPullRequestTestFiles(parsed, hideTests, jump?.path), [parsed, hideTests, jump?.path])
-  const hiddenCount = hiddenTestFileCount(parsed, visible)
+  const [showAllFiles, setShowAllFiles] = useState(false)
+  const selectedKinds = useListened(app.diffFilter.changes, () => showAllFiles ? null : app.diffFilter.current())
+  const setSelectedKinds = useCallback((kinds: ChangeKind[] | null) => {
+    setShowAllFiles(false)
+    app.diffFilter.set(kinds)
+  }, [app])
+  const visible = useMemo(() => filterPullRequestFileKinds(parsed, selectedKinds), [parsed, selectedKinds])
+  useEffect(() => { setShowAllFiles(Boolean(jump)) }, [jump?.id])
+  const hiddenCount = hiddenFileCount(parsed, visible)
   const draft = useListened(app.reviewDrafts.changes, () => app.reviewDrafts.draftOf(view.ref))
   const baseData = useMemo(() => buildNativeReviewDiffData(visible), [visible])
   const data = useMemo(() => annotatePullRequestDiff(
@@ -221,8 +227,9 @@ export function PullRequestFiles(props: {
         isCommit={commitSha !== null}
         onShowAllChanges={props.onShowAllChanges}
         visible={visible}
-        hideTests={hideTests}
-        onToggleHideTests={() => setHideTests(!hideTests)}
+        selectedKinds={selectedKinds}
+        onSelectKinds={setSelectedKinds}
+        parsed={parsed}
       />
       {stale ? (
         <View className="flex-row items-center gap-2 px-4 pb-2">
@@ -243,7 +250,8 @@ export function PullRequestFiles(props: {
         rowCount={data.rows.length}
         diffView={diffView}
         hiddenCount={hiddenCount}
-        onShowTests={() => setHideTests(false)}
+        onShowAllFiles={() => setSelectedKinds(null)}
+        onLoadMore={loadMore}
         canLoadMore={canLoadMore}
         bottomInset={insets.bottom}
       />
@@ -262,36 +270,48 @@ interface PressLineProps {
   onPressLine?: NativeReviewDiffViewProps['onPressLine']
 }
 
-/** The summary, the stats of the visible files, and the menu that hides test files. */
+/** The summary, the stats of the visible files, and the classification filters. */
 function FilesHeader(props: {
   readonly summary: string
   readonly isCommit: boolean
   readonly onShowAllChanges: () => void
   readonly visible: ReviewParsedDiff
-  readonly hideTests: boolean
-  readonly onToggleHideTests: () => void
+  readonly selectedKinds: ChangeKind[] | null
+  readonly onSelectKinds: (kinds: ChangeKind[] | null) => void
+  readonly parsed: ReviewParsedDiff
 }) {
-  const { visible, hideTests } = props
+  const { visible } = props
+  const options = changeFilterOptions(props.parsed.kind === 'files' ? props.parsed.files : [])
   return (
-    <View className="flex-row items-center gap-2 px-4 py-2">
-      <View className="min-w-0 flex-1">
-        <Text className="text-2xs text-foreground-muted" numberOfLines={1}>{props.summary}</Text>
-        {props.isCommit ? (
-          <Pressable accessibilityRole="button" onPress={props.onShowAllChanges} hitSlop={8} className="active:opacity-60">
-            <Text className="text-xs font-t3-medium text-primary-text">Show all changes</Text>
+    <View>
+      <View className="flex-row items-center gap-2 px-4 py-2">
+        <View className="min-w-0 flex-1">
+          <Text className="text-2xs text-foreground-muted" numberOfLines={1}>{props.summary}</Text>
+          {props.isCommit ? (
+            <Pressable accessibilityRole="button" onPress={props.onShowAllChanges} hitSlop={8} className="active:opacity-60">
+              <Text className="text-xs font-t3-medium text-primary-text">Show all changes</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <ControlPillMenu
+          title="Changed files"
+          actions={options.map((option) => ({
+            id: option.kind,
+            keepsMenuPresented: true,
+            title: `${option.label}  +${option.additions} −${option.deletions}`,
+            state: isChangeKindSelected(props.selectedKinds, option.kind) ? 'on' as const : 'off' as const,
+          }))}
+          onPressAction={({ nativeEvent }) => {
+            const option = options.find((option) => option.kind === nativeEvent.event)
+            if (option) props.onSelectKinds(toggleChangeKind(props.selectedKinds, option.kind))
+          }}
+        >
+          <Pressable accessibilityRole="button" accessibilityLabel="Changed files, filter by class" className="min-h-11 flex-row items-center gap-2 active:opacity-60">
+            <Text className="text-sm text-foreground">Changed files</Text>
+            {visible.kind === 'files' ? <PullRequestDiffStats additions={visible.additions} deletions={visible.deletions} compact /> : null}
           </Pressable>
-        ) : null}
+        </ControlPillMenu>
       </View>
-      {visible.kind === 'files' ? <PullRequestDiffStats additions={visible.additions} deletions={visible.deletions} compact /> : null}
-      <ControlPillMenu
-        title="Files"
-        actions={[{ id: 'hide-tests', title: 'Hide test files', image: 'line.3.horizontal.decrease', state: hideTests ? 'on' : 'off' }]}
-        onPressAction={props.onToggleHideTests}
-      >
-        <Pressable accessibilityRole="button" accessibilityLabel="Filter files" className="size-11 items-center justify-center active:opacity-60">
-          <SymbolView name={hideTests ? 'line.3.horizontal.decrease.circle.fill' : 'line.3.horizontal.decrease'} size={18} tintColorClassName="accent-icon-muted" />
-        </Pressable>
-      </ControlPillMenu>
     </View>
   )
 }
@@ -362,7 +382,8 @@ function FilesBody(props: {
   readonly rowCount: number
   readonly diffView: ReactNode
   readonly hiddenCount: number
-  readonly onShowTests: () => void
+  readonly onShowAllFiles: () => void
+  readonly onLoadMore: () => void
   readonly canLoadMore: boolean
   readonly bottomInset: number
 }) {
@@ -378,7 +399,12 @@ function FilesBody(props: {
       ) : hasNativeView && props.rowCount > 0 ? (
         props.diffView
       ) : hasDiff && props.hiddenCount > 0 ? (
-        <EmptyState title="Only test files changed" detail="Test files are hidden from this review." variant="plain" action={<MaterialButton label="Show test files" tone="primary" onPress={props.onShowTests} />} />
+        <EmptyState title="No files match this filter" detail="Choose All to see every changed file." variant="plain" action={(
+          <View className="gap-2">
+            <MaterialButton label="Show all files" tone="primary" onPress={props.onShowAllFiles} />
+            {props.canLoadMore ? <MaterialButton label="Load more files" onPress={props.onLoadMore} /> : null}
+          </View>
+        )} />
       ) : hasDiff && !isLoading ? (
         <EmptyState title="No text changes" detail="This diff has no text changes to show. Open the pull request on GitHub to see the rest." variant="plain" />
       ) : null}

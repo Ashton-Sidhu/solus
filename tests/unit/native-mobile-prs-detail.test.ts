@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { isBotBadgeImage } from '../../apps/mobile/src/features/prs/lib/bot-badge-images'
-import { filterPullRequestTestFiles, pullRequestTabOffset } from '../../apps/mobile/src/features/prs/lib/pull-request-file-filters'
+import { filterPullRequestFileKinds, pullRequestTabOffset } from '../../apps/mobile/src/features/prs/lib/pull-request-file-filters'
 import { pullRequestAttachments, splitPullRequestBody } from '../../apps/mobile/src/features/prs/lib/pull-request-markdown'
 import { buildNativeReviewDiffData } from '../../apps/mobile/src/features/review/nativeReviewDiffAdapter'
 import { buildReviewParsedDiff } from '../../apps/mobile/src/features/review/reviewModel'
@@ -89,7 +89,7 @@ const patch = (path: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n
 describe('pull request test file filter (ported from T3)', () => {
   test('removes whole test files and keeps the source files and their line anchors', () => {
     const parsed = buildReviewParsedDiff(['src/first.test.ts', 'src/first.ts', 'src/__tests__/second.ts', 'src/second.ts'].map(patch).join('\n'), 'pr-filter-1')
-    const visible = filterPullRequestTestFiles(parsed, true)
+    const visible = filterPullRequestFileKinds(parsed, ['code'])
     if (parsed.kind !== 'files' || visible.kind !== 'files') throw new Error('Expected files')
     expect(visible.files.map((file) => file.path)).toEqual(['src/first.ts', 'src/second.ts'])
     expect([visible.fileCount, visible.additions, visible.deletions]).toEqual([2, 2, 2])
@@ -97,21 +97,21 @@ describe('pull request test file filter (ported from T3)', () => {
     const allRows = buildNativeReviewDiffData(parsed).rows
     const visibleIds = new Set(visible.files.map((file) => file.id))
     expect(buildNativeReviewDiffData(visible).rows).toEqual(allRows.filter((row) => visibleIds.has(row.fileId ?? '')))
-    expect(filterPullRequestTestFiles(parsed, false)).toBe(parsed)
+    expect(filterPullRequestFileKinds(parsed, null)).toBe(parsed)
   })
 
   test('a guide target that is a test stays visible; other tests stay hidden', () => {
     const parsed = buildReviewParsedDiff(['src/first.test.ts', 'src/app.ts', 'src/second.test.ts'].map(patch).join('\n'), 'pr-filter-2')
-    const visible = filterPullRequestTestFiles(parsed, true, 'src/second.test.ts')
+    const visible = filterPullRequestFileKinds(parsed, ['code'], 'src/second.test.ts')
     if (visible.kind !== 'files') throw new Error('Expected files')
     expect(visible.files.map((file) => file.path)).toEqual(['src/app.ts', 'src/second.test.ts'])
   })
 
   test('an all-test diff is empty files, not a missing diff', () => {
     const parsed = buildReviewParsedDiff(patch('src/app.test.ts'), 'pr-filter-3')
-    expect(filterPullRequestTestFiles(parsed, true)).toMatchObject({ kind: 'files', files: [], fileCount: 0 })
+    expect(filterPullRequestFileKinds(parsed, ['code'])).toMatchObject({ kind: 'files', files: [], fileCount: 0 })
     const empty = { kind: 'empty' as const }
-    expect(filterPullRequestTestFiles(empty, true)).toBe(empty)
+    expect(filterPullRequestFileKinds(empty, ['code'])).toBe(empty)
   })
 })
 

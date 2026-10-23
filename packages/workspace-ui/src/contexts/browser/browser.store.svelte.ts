@@ -32,6 +32,7 @@ import type {
   BrowserViewport,
   BrowserViewportRequest,
 } from '@solus/contracts/browser-types'
+import type { BrowserMark } from '@solus/contracts/types'
 import type { BrowserFrameListener } from '@solus/client-core/browser-frame-subscriber'
 import { hostKey, splitHostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
@@ -116,8 +117,8 @@ export class BrowserStore {
 
   /** Set by the shell: a page asked for a surface, so open the browser pane on
    *  it. Explicitly invoked by whoever called `browserOpen` — never a
-   *  background auto-open. */
-  onSurfaceRequested: ((key: string) => void) | null = null
+   *  background auto-open. `sessionId` names the session that asked. */
+  onSurfaceRequested: ((key: string, sessionId: string | undefined) => void) | null = null
 
   get entries(): BrowserPageEntry[] {
     return [...this.pages.values()].map((entry) => this.projectEntry(entry)).sort((a, b) => a.page.createdAt - b.page.createdAt)
@@ -153,10 +154,8 @@ export class BrowserStore {
         // Closing the page ends its recording, and the host keeps the file.
         this.collectEndedRecording(serverId, browserPageId)
       }),
-      subscribeAllHosts('browser.surfaceRequested', (serverId, { browserPageId }) => {
-        const key = hostKey(serverId, browserPageId)
-        this.activeKey = key
-        this.onSurfaceRequested?.(key)
+      subscribeAllHosts('browser.surfaceRequested', (serverId, { browserPageId, sessionId }) => {
+        this.onSurfaceRequested?.(hostKey(serverId, browserPageId), sessionId)
       }),
       // Whole set rather than a delta: two mounted clients offering different
       // identities for one project is the failure this prevents.
@@ -164,7 +163,7 @@ export class BrowserStore {
       subscribeAllHosts('browser.profilesChanged', (serverId, { profiles }) => {
         this.adopt(serverId, profiles)
       }),
-      serverConnections.onStatusChange((serverId, status) => {
+      serverConnections.onPhaseChange((serverId, status) => {
         if (status !== 'connected') return
         void this.loadPages(serverId).catch(() => {})
         this.restoreFrameSubscriptions(serverId)
@@ -688,6 +687,29 @@ export class BrowserStore {
   async annotate(key: string, op: BrowserAnnotateOp): Promise<void> {
     const { serverId, path } = splitHostKey(key)
     this.annotations.set(key, await serverConnections.apiFor(serverId).browserAnnotate(path, op))
+  }
+
+  /**
+   * Take a page back to a mark that was sent from it: the address it was made
+   * on, then the mark itself, drawn until the user next touches the page. A
+   * mark sent before its geometry was carried can only bring back the address.
+   */
+  async revealMark(key: string, pageURL: string | undefined, mark: BrowserMark): Promise<void> {
+    const entry = this.pages.get(key)
+    if (pageURL && entry && entry.page.url !== pageURL) {
+      await this.navigate(key, { kind: 'goto', url: pageURL })
+    }
+    if (!mark.rect) return
+    await this.annotate(key, {
+      kind: 'reveal',
+      tool: mark.tool,
+      pin: mark.pin,
+      rect: mark.rect,
+      path: mark.path,
+      scroll: mark.scroll,
+      ref: mark.ref,
+      identifier: mark.identifier,
+    })
   }
 
   /** Paint transient box-selection feedback in the guest without rebuilding

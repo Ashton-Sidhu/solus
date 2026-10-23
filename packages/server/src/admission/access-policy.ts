@@ -262,8 +262,9 @@ export function permissionsFor(principal: Principal, managed = hostCategory() ==
     case 'system': return ['host']
     case 'runner': return ['host.system']
     case 'guest': return [...GUEST_PERMISSIONS]
-    case 'local-owner': return [managed ? 'host.local.window' : 'host.local', 'host.admin', ...PERSON_PERMISSIONS]
-    case 'remote-owner': return ['host.admin', ...PERSON_PERMISSIONS]
+    case 'owner': return principal.via === 'local'
+      ? [managed ? 'host.local.window' : 'host.local', 'host.admin', ...PERSON_PERMISSIONS]
+      : ['host.admin', ...PERSON_PERMISSIONS]
     case 'org-member': {
       const permissions: Permission[] = [...PERSON_PERMISSIONS]
       if (isHostAdmin(principal)) permissions.push('host.admin')

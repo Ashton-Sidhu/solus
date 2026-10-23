@@ -38,7 +38,7 @@ let automations: typeof import('@solus/server/data/automations/automations-store
 let storedComments: typeof import('@solus/server/annotations/stored-comments')
 let handlers: Map<string, (args: unknown[], ctx: HandlerCtx) => unknown>
 
-const OWNER = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' } as const
+const OWNER = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' } as const
 const action: AutomationAction = { prompt: 'Check CI.', agentProvider: 'codex', modelId: null, reasoningEffort: 'medium', cwd: '/repo' }
 
 beforeAll(async () => {

@@ -214,6 +214,9 @@ describe('runtime instructions', () => {
     for (const prompt of [codex, claude]) {
       expect(prompt).toContain('## Showing visuals')
       expect(prompt).toContain('would say more than prose')
+      // A preview shows nothing. An agent that stopped after it pasted the
+      // screenshot, and the user got no live page.
+      expect(prompt).toContain('then write it in a ```html fence')
     }
     expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [])).not.toContain('## Showing visuals')
   })

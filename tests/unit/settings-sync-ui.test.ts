@@ -25,7 +25,7 @@ mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
     ...singleHostServerConnections(),
     connectedServerIds: () => [...hostConfigs.keys()],
-    onStatusChange: () => () => {},
+    onPhaseChange: () => () => {},
     apiFor: (serverId: string) => ({
       configGet: async () => hostConfigs.get(serverId),
       configUpdate: async (patch: unknown) => {

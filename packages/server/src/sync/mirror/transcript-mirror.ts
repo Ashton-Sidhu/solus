@@ -13,8 +13,7 @@ import type { SharesMirrorPayload, ActivityMirrorPayload, TranscriptMirrorPayloa
 import type { Activity } from '@solus/contracts/activity'
 import { activityFor } from '../../data/activity/activity'
 import { sessionRecords } from '../../data/sessions/schema'
-import { appendMirror } from './mirror-log'
-import { deliveryActorOf, type DeliveryDestination } from '../outbox/outbox-store'
+import { appendDelivery, deliveryActorOf, type DeliveryDestination } from '../delivery-queue'
 
 const log = createLogger('main', 'transcript-mirror')
 
@@ -50,7 +49,7 @@ export interface TranscriptSource {
 }
 
 export interface TranscriptMirrorDeps {
-  /** The session's share rows but the owner's (`ShareManager.mirroredRows`); absent on a host that mirrors no rows. */
+  /** The session's share rows but the owner's (`ShareManager.mirroredRows`), sent with its first rows; absent on a host that mirrors no rows. */
   shareRows?: (sessionId: string) => Promise<SharesMirrorPayload['rows']>
   /** The lineage-aware reader: every row of the session's history, every thread, in order. */
   loadSession: (provider: AgentId, sessionId: string, projectPath?: string) => Promise<SessionLoadMessage[]>
@@ -82,8 +81,6 @@ export async function transcriptDestination(sessionId: string): Promise<Delivery
 
 export class TranscriptMirror {
   private readonly pending = new Map<string, PendingSync>()
-  /** The share rows last sent per session, serialized; in memory, so a restart sends them again once. */
-  private readonly sentShareHashes = new Map<string, string>()
   /** One sync per session at a time; a later flush waits for the earlier one and reads again. */
   private readonly running = new Map<string, Promise<void>>()
   private disposed = false
@@ -134,15 +131,15 @@ export class TranscriptMirror {
     if (this.disposed) return 0
     const destination = await transcriptDestination(sessionId)
     if (!destination) return 0
-    // The session's share rows ride with its transcript (host-sharing.md §2): sent when
-    // they differ from what this process last sent, so a restart sends them once more.
-    const shareRows = this.deps.shareRows ? await this.deps.shareRows(sessionId) : null
-    const shareHash = shareRows ? JSON.stringify(shareRows) : null
     const messages = projectSessionHistory(await this.deps.loadSession(source.provider, sessionId, source.projectPath))
     // Whatever organization a row was recorded in: a session published from Local brings the activity it had.
     const activity = await activityFor(ANY_ORGANIZATION, { kind: 'session', id: sessionId })
     const hashes = messages.map(hashOf)
     let lastSeq = 0
+    // A session's share rows go when they change (`onShareChanged`), and with its first
+    // rows, so the Solus API holds them from the start (host-sharing.md §2).
+    const firstSync = !getDb().prepare('SELECT 1 FROM transcript_mirror_rows WHERE session_id = ? LIMIT 1').get(sessionId)
+    const shareRows = firstSync && this.deps.shareRows ? await this.deps.shareRows(sessionId) : null
     withTx(() => {
       const known = hashRowSchema.array().parse(getDb().prepare('SELECT position, hash FROM transcript_mirror_rows WHERE session_id = ?').all(sessionId))
       const knownHashByPosition = new Map(known.map((row) => [row.position, row.hash]))
@@ -158,16 +155,16 @@ export class TranscriptMirror {
           payload: { sessionId, position, message: messages[position] },
         }))
         if (truncated) items.push({ key: `${sessionId}:truncate`, payload: { sessionId, truncateFrom: messages.length } })
-        lastSeq = appendMirror(destination, 'transcripts', items).lastSeq
+        lastSeq = appendDelivery(destination, 'transcript', items).lastSeq
         const remember = getDb().prepare('INSERT INTO transcript_mirror_rows(session_id, position, hash) VALUES (?, ?, ?) ON CONFLICT(session_id, position) DO UPDATE SET hash = excluded.hash')
         for (const position of changedPositions) remember.run(sessionId, position, hashes[position])
         if (truncated) getDb().prepare('DELETE FROM transcript_mirror_rows WHERE session_id = ? AND position >= ?').run(sessionId, messages.length)
         log.info('transcript_mirrored', { sessionId, organizationId: destination.organizationId, provider: source.provider, changed: changedPositions.length, total: messages.length, truncated })
       }
       lastSeq = Math.max(lastSeq, this.appendNewActivity(sessionId, destination, activity))
-      if (shareRows && shareHash !== this.sentShareHashes.get(sessionId)) {
-        lastSeq = Math.max(lastSeq, appendMirror(destination, 'shares', [{ key: `session:${sessionId}`, payload: { resource: { kind: 'session', id: sessionId }, rows: shareRows } }]).lastSeq)
-        this.sentShareHashes.set(sessionId, shareHash!)
+      if (shareRows) {
+        const payload: SharesMirrorPayload = { resource: { kind: 'session', id: sessionId }, rows: shareRows }
+        lastSeq = Math.max(lastSeq, appendDelivery(destination, 'shares', [{ key: `session:${sessionId}`, payload }]).lastSeq)
       }
     })
     return lastSeq
@@ -185,7 +182,7 @@ export class TranscriptMirror {
       key: entry.id,
       payload: { activity: { ...entry, subject: { kind: 'session', id: sessionId } } },
     }))
-    const { lastSeq } = appendMirror(destination, 'activity', items)
+    const { lastSeq } = appendDelivery(destination, 'activity', items)
     const remember = getDb().prepare('INSERT INTO activity_mirror_rows(session_id, activity_id) VALUES (?, ?) ON CONFLICT DO NOTHING')
     for (const entry of unsent) remember.run(sessionId, entry.id)
     log.info('session_activity_mirrored', { sessionId, organizationId: destination.organizationId, count: unsent.length })

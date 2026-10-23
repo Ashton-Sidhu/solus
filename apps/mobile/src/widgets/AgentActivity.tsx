@@ -1,13 +1,16 @@
 // Adapted from T3 Code apps/mobile/src/widgets/AgentActivity.tsx (MIT, see UPSTREAM.md).
-import { HStack, Image, Spacer, Text, VStack, ZStack } from "@expo/ui/swift-ui";
+import { Circle, HStack, Image, Spacer, Text, VStack, ZStack } from "@expo/ui/swift-ui";
 import type { ComponentProps } from "react";
 import {
+  accessibilityElement,
+  accessibilityLabel,
   activityBackgroundTint,
   font,
   foregroundStyle,
   frame,
   layoutPriority,
   lineLimit,
+  minimumScaleFactor,
   padding,
   resizable,
   widgetURL,
@@ -49,7 +52,7 @@ export function AgentActivity(
   const cardMutedForeground: Foreground = "#9a978f";
 
   // Status tints are the app thread list's dark ones (thread-list-v2-items.tsx,
-  // the dark palette in theme-colors.ts): amber for approval and limits, the
+  // generated-uniwind-theme.css): amber for approval and limits, the
   // accent for input, red for failures, blue for working, and the workspace's
   // complete green for done.
   const phaseTint = (phase: AgentActivityPhase | undefined): Foreground => {
@@ -74,7 +77,7 @@ export function AgentActivity(
       case "starting":
       case "running":
       default:
-        return "#346bf1"; // dark blue
+        return "#83a2ec"; // dark --color-adaptive-sky-600-400 (Working)
     }
   };
 
@@ -146,6 +149,11 @@ export function AgentActivity(
     : environment.isStale
       ? "Out of date"
       : `${props.activeCount} active`;
+  // The compact slot is narrow when another Live Activity shares the island:
+  // show the count as digits in a circle, capped at 99+. The accessibility
+  // label keeps the full count.
+  const showCompactCount = !attentionRow && !allDone && !environment.isStale;
+  const compactCountLabel = props.activeCount > 99 ? "99+" : `${props.activeCount}`;
   const summary = attentionSuffix || activeLabel;
 
   // Taps open the app's `solus://` scheme at the session that needs the
@@ -170,7 +178,7 @@ export function AgentActivity(
       case "completed":
         return "checkmark.circle.fill";
       case "limited":
-        return "hourglass";
+        return "clock";
       case "starting":
         return "circle.dotted";
       case "stale":
@@ -335,8 +343,36 @@ export function AgentActivity(
       </VStack>
     ),
     compactLeading: renderLogo(14),
-    compactTrailing: (
-      <Text modifiers={[font({ weight: "semibold", size: 11 }), foregroundStyle(tint)]}>
+    compactTrailing: showCompactCount ? (
+      <ZStack
+        modifiers={[
+          frame({ width: 28, height: 28 }),
+          accessibilityElement("ignore"),
+          accessibilityLabel(agentsLabel),
+        ]}
+      >
+        <Circle modifiers={[foregroundStyle(tint)]} />
+        <Text
+          modifiers={[
+            font({ weight: "bold", size: 14 }),
+            foregroundStyle("#000000"),
+            lineLimit(1),
+            minimumScaleFactor(0.75),
+            frame({ width: 24, height: 28 }),
+          ]}
+        >
+          {compactCountLabel}
+        </Text>
+      </ZStack>
+    ) : (
+      <Text
+        modifiers={[
+          font({ weight: "semibold", size: 11 }),
+          foregroundStyle(tint),
+          lineLimit(1),
+          minimumScaleFactor(0.5),
+        ]}
+      >
         {attentionRow
           ? attentionRow.phase === "waiting_for_approval"
             ? "Approval"

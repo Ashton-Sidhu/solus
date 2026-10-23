@@ -5,12 +5,11 @@ import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { sql } from 'drizzle-orm'
 import type { Activity } from '@solus/contracts/activity'
-import type { OutboxOp } from '@solus/contracts/outbox-types'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import type { Attribution, User } from '@solus/contracts/user'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
-import type { RunnerMirrorItem } from '@solus/server/sync/runner-protocol'
+import type { RunnerDeliverItem } from '@solus/server/sync/runner-protocol'
 import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -43,7 +42,6 @@ beforeAll(async () => {
   const { ShareManager } = await import('@solus/server/sharing/share-manager')
   shares = new ShareManager({ db: database.getDatabase() })
   operations = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(shares)
-  ;(await import('@solus/server/data/tasks/task-applier')).registerTaskOutboxApplier()
 })
 
 afterAll(async () => {
@@ -72,12 +70,12 @@ async function activityRows(subjectId: string): Promise<number> {
 }
 
 /** A session activity as the runner's transcript mirror queues it. */
-function activityItem(seq: number, activity: Activity): RunnerMirrorItem {
-  return { seq, domain: 'activity', key: activity.id, payload: { activity } }
+function activityItem(seq: number, activity: Activity): RunnerDeliverItem {
+  return { seq, kind: 'activity', payload: { activity } }
 }
 
-function transcriptItem(seq: number, position: number, message: WireSessionLoadMessage): RunnerMirrorItem {
-  return { seq, domain: 'transcripts', key: `thread-1:${position}`, payload: { sessionId: 'thread-1', position, message } }
+function transcriptItem(seq: number, position: number, message: WireSessionLoadMessage): RunnerDeliverItem {
+  return { seq, kind: 'transcript', payload: { sessionId: 'thread-1', position, message } }
 }
 
 /** The service's history handlers, called the way its RPC layer calls them. */
@@ -105,8 +103,8 @@ describe('activity on the Solus API', () => {
   const renamed = () => ({ id: '01RENAMED0000000000000000A', subject: { kind: 'session' as const, id: 'thread-1' }, at: 2_500, by: byAlice, kind: 'renamed' as const, title: 'Spec' })
 
   test('a mirrored session activity is stored once; a redelivery and a second copy of it add nothing', async () => {
-    const report = { seq: 1, record: { sessionId: 'thread-1', provider: 'claude-code' as const, projectPath: '-repo', lastActivityAt: 1, privateToOwner: true } }
-    await intake.applyRunnerSessionRecords(runner(), { hostId: 'runner-1', reports: [report] }, shares)
+    const facts: RunnerDeliverItem = { seq: 1, kind: 'session', payload: { sessionId: 'thread-1', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1, privateToOwner: true } }
+    await intake.applyRunnerDelivery(runner(), { hostId: 'runner-1', items: [facts] }, { shares })
     const rows: WireSessionLoadMessage[] = [
       { messageId: 'u1', role: 'user', content: 'one', timestamp: 1_000 },
       { messageId: 'a1', role: 'assistant', content: 'done', timestamp: 1_100 },
@@ -114,16 +112,16 @@ describe('activity on the Solus API', () => {
       { messageId: 'a2', role: 'assistant', content: 'done', timestamp: 2_100 },
       { messageId: 'u3', role: 'user', content: 'three', timestamp: 3_000 },
     ]
-    const batch = { hostId: 'runner-1', items: [...rows.map((message, position) => transcriptItem(position + 1, position, message)), activityItem(6, stopped()), activityItem(7, renamed())] }
+    const batch = { hostId: 'runner-1', items: [...rows.map((message, position) => transcriptItem(position + 2, position, message)), activityItem(7, stopped()), activityItem(8, renamed())] }
     const changed: string[] = []
-    expect((await intake.applyRunnerMirror(runner(), batch, (sessionId) => changed.push(sessionId))).lastSeq).toBe(7)
+    expect((await intake.applyRunnerDelivery(runner(), batch, { onTranscriptChanged: (sessionId) => changed.push(sessionId) })).lastSeq).toBe(8)
     expect(await activityRows('thread-1')).toBe(2)
     expect(changed).toEqual(['thread-1'])
 
     // The acknowledgement was lost: the same items again apply nothing twice.
-    await intake.applyRunnerMirror(runner(), batch)
+    await intake.applyRunnerDelivery(runner(), batch)
     // The host queued the row again under a new sequence (its log was re-read): still one row.
-    await intake.applyRunnerMirror(runner(), { hostId: 'runner-1', items: [activityItem(8, stopped())] })
+    await intake.applyRunnerDelivery(runner(), { hostId: 'runner-1', items: [activityItem(9, stopped())] })
     expect(await activityRows('thread-1')).toBe(2)
     const stored = await activityModule.activityFor('org1', { kind: 'session', id: 'thread-1' })
     expect(stored.map((row) => [row.kind, row.by.kind === 'user' && row.by.user.displayName])).toEqual([['stopped', 'Alice'], ['renamed', 'Alice']])
@@ -153,18 +151,13 @@ describe('activity on the Solus API', () => {
     await expect(operations.listSessionActivity(bob, 'thread-1', {})).rejects.toMatchObject({ status: 404 })
   })
 
-  test('a task change from a runner\'s outbox is recorded once on the API, and read back to a reader who may open the task', async () => {
-    let opCounter = 0
-    const op = (name: string, payload: unknown): OutboxOp => ({ id: `op-${++opCounter}`, domain: 'tasks', resourceId: 'task-1', name, payload, sessionId: 'thread-1', recordedAt: opCounter, state: 'pending' })
-    const create = op('create', { title: 'Ship it', projectKey: null, body: '', priority: null, labels: [], dueDate: null, status: 'todo', originSessionId: null, createdAt: 1_700_000_000_000 })
-    const status = op('set-status', { status: 'in_progress', actor: { kind: 'agent', sessionId: 'thread-1', provider: 'claude-code', for: aliceUser } })
-    const batch = { hostId: 'runner-1', ops: [{ seq: 1, op: create }, { seq: 2, op: status }] }
-    await intake.applyRunnerOutbox(runner(), batch, shares)
-    const once = (await operations.listTaskActivity(alice, 'task-1', {})).items
-    expect(once.map((row) => row.kind === 'task_changed' && row.change)).toEqual(['created', 'status_changed'])
-    // The same batch again: the cursor holds, nothing is applied twice.
-    await intake.applyRunnerOutbox(runner(), batch, shares)
-    expect((await operations.listTaskActivity(alice, 'task-1', {})).items.map((row) => row.id)).toEqual(once.map((row) => row.id))
+  test("a host's agent writes a task's changes on the API directly, and a reader who may open the task reads them", async () => {
+    // A host's agent acting for Alice: its writes are the agent's (docs/plans/simplify-auth-and-sync.md §4.5).
+    const agent: WorkspaceRequestContext = { ...alice, actingAgent: { organizationId: 'org1' } }
+    const task = await operations.createTask(agent, { title: 'Ship it', status: 'todo' }, 'activity-api-task-0001')
+    await operations.updateTask(agent, task.id, { status: 'in_progress' }, task.version)
+    const changes = (await operations.listTaskActivity(alice, task.id, {})).items
+    expect(changes.map((row) => row.kind === 'task_changed' && row.change)).toEqual(['created', 'status_changed'])
   })
 
   test('a work\'s activity is answered to its readers only; "activity naming me" answers only the caller\'s own, on records they may open', async () => {

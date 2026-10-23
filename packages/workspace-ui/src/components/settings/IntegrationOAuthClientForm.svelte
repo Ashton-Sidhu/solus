@@ -1,25 +1,29 @@
 <script lang="ts">
   /**
-   * The administrator's OAuth client of a server with no dynamic registration
-   * (docs/plans/mcp-integrations.md §4.3). It renders nothing for any other
-   * server. The secret stays in this field for one call and is cleared after
-   * it; the host never sends it back.
+   * The owner's optional OAuth client (docs/plans/mcp-integrations.md §4.3).
+   * The secret stays in this field for one call and is cleared after it;
+   * the host never sends it back.
+   *
+   * `compact` is the connect card's form: one line of direction and the
+   * card's own buttons.
    */
   import { tick } from "svelte";
   import { Check, Copy, LoaderCircle } from "@lucide/svelte";
   import type { Integration } from "@solus/contracts/integration-types";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
+  import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import { copyText } from "../../lib/toasts";
   import { integrationsStore } from "./integrations.store.svelte";
-  import { oauthClientText } from "./lib/integration-labels";
+  import { IntegrationLabels } from "./lib/integration-labels";
 
   interface Props {
     serverId: string;
     integration: Integration;
+    compact?: boolean;
   }
 
-  let { serverId, integration }: Props = $props();
+  let { serverId, integration, compact = false }: Props = $props();
 
   let isEditing = $state(false);
   let isConfirmingRemove = $state(false);
@@ -30,7 +34,7 @@
   let rootEl = $state<HTMLDivElement | null>(null);
 
   const hostState = $derived(integrationsStore.states.get(serverId));
-  const text = $derived(oauthClientText(integration.auth));
+  const text = $derived(new IntegrationLabels(integration).clientText);
   const isBusy = $derived(!!hostState?.saving);
   const isOffline = $derived(!!hostState?.isDisconnected);
   const showForm = $derived(text?.state === "missing" || isEditing);
@@ -71,10 +75,10 @@
   }
 
   function startChange() {
-    if (text?.state !== "set") return;
+    if (!text) return;
     isConfirmingRemove = false;
     error = "";
-    clientIdDraft = text.clientId;
+    clientIdDraft = text.state === "set" ? text.clientId : "";
     secretDraft = "";
     isEditing = true;
     void focusFirstControl();
@@ -104,19 +108,31 @@
 {#if text}
   <div bind:this={rootEl} class="flex flex-col gap-2.5" data-testid="integration-oauth-client">
     {#if showForm}
-      {#if text.state === "missing"}
-        <p class="text-pretty text-workspace-chrome text-foreground">{text.message}</p>
+      {#if compact}
+        <p class="text-pretty text-workspace-chrome text-muted-foreground">Create an OAuth app at {integration.name} with this redirect URL, then enter its client.</p>
+      {:else}
+        <p class="text-pretty text-workspace-chrome text-(--solus-text-secondary)">Create an OAuth app at {integration.name} with this redirect URL, then enter its client ID.</p>
       {/if}
       <div class="flex flex-col gap-1.5">
         <label for="{fieldPrefix}-redirect" class="text-workspace-chrome font-medium text-foreground">Redirect URL</label>
-        <div class="flex flex-wrap items-center gap-2">
-          <Input id="{fieldPrefix}-redirect" value={redirectUrl} readonly class="h-8 min-w-0 flex-1 text-workspace-chrome" dictation={false}
-            aria-describedby="{fieldPrefix}-redirect-hint" onfocus={(event) => event.currentTarget.select()} />
-          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={copyRedirectUrl} aria-label="Copy the redirect URL">
-            {#if isCopied}<Check size={14} />Copied{:else}<Copy size={14} />Copy{/if}
-          </Button>
-        </div>
-        <p id="{fieldPrefix}-redirect-hint" class="text-chrome-dense text-(--solus-text-secondary)">List this address in the OAuth app at the service.</p>
+        {#if compact}
+          <!-- The copy icon sits inside the field, so the row has no button of its own. -->
+          <div class="relative">
+            <Input id="{fieldPrefix}-redirect" value={redirectUrl} readonly class="h-8 w-full min-w-0 pr-9 text-workspace-chrome" dictation={false}
+              onfocus={(event) => event.currentTarget.select()} />
+            <TranscriptCardAction kind="icon" class="absolute inset-y-0 right-1 my-auto" label={isCopied ? "Copied" : "Copy the redirect URL"} onclick={copyRedirectUrl}>
+              {#if isCopied}<Check size={14} aria-hidden="true" />{:else}<Copy size={14} aria-hidden="true" />{/if}
+            </TranscriptCardAction>
+          </div>
+        {:else}
+          <div class="flex flex-wrap items-center gap-2">
+            <Input id="{fieldPrefix}-redirect" value={redirectUrl} readonly class="h-8 min-w-0 flex-1 text-workspace-chrome" dictation={false}
+              onfocus={(event) => event.currentTarget.select()} />
+            <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={copyRedirectUrl} aria-label="Copy the redirect URL">
+              {#if isCopied}<Check size={14} />Copied{:else}<Copy size={14} />Copy{/if}
+            </Button>
+          </div>
+        {/if}
       </div>
       <form class="flex flex-col gap-2.5" onsubmit={save}>
         <div class="flex flex-col gap-1.5">
@@ -132,15 +148,23 @@
             <p id="{fieldPrefix}-secret-hint" class="text-chrome-dense text-(--solus-text-secondary)">{text.changeHint}</p>
           {/if}
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isBusy || isOffline || !clientIdDraft.trim()}>
-            {#if isBusy}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Saving…{:else}Save{/if}
-          </Button>
+        <div class="flex flex-wrap items-center gap-2 {compact ? 'justify-end' : ''}">
+          {#if compact}
+            <TranscriptCardAction kind="filled" type="submit" disabled={isBusy || isOffline || !clientIdDraft.trim()}>
+              {#if isBusy}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />Saving…{:else}Save{/if}
+            </TranscriptCardAction>
+          {:else}
+            <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isBusy || isOffline || !clientIdDraft.trim()}>
+              {#if isBusy}<LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Saving…{:else}Save{/if}
+            </Button>
+          {/if}
           {#if isEditing}
             <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={cancelChange} disabled={isBusy}>Cancel</Button>
           {/if}
         </div>
       </form>
+    {:else if text.state === "automatic"}
+      <div><Button variant="link" size="sm" class="h-auto p-0 text-chrome-dense text-muted-foreground hover:text-foreground pointer-coarse:min-h-11" onclick={startChange} disabled={isBusy || isOffline}>{text.message}</Button></div>
     {:else if text.state === "set"}
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="min-w-0 flex-1">
@@ -156,7 +180,7 @@
         </div>
       </div>
       {#if isConfirmingRemove}
-        <p class="text-pretty text-workspace-chrome">Remove the OAuth client? Nobody can connect to {integration.name} until you enter one again.</p>
+        <p class="text-pretty text-workspace-chrome">Remove the OAuth client? {integration.auth.kind === "oauth" && integration.auth.registration !== "client-required" ? "New sign-ins will use automatic setup again." : "Enter another client before you sign in again."}</p>
         <div class="flex flex-wrap gap-2">
           <Button variant="destructive" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={remove} disabled={isBusy}>{isBusy ? "Removing…" : "Remove client"}</Button>
           <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => { isConfirmingRemove = false; void focusFirstControl(); }} disabled={isBusy}>Cancel</Button>

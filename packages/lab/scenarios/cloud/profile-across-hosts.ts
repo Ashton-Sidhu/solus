@@ -26,7 +26,7 @@ import { recordedRuns } from '../../src/oracle'
  * his run gets none of her tools, and he cannot list or read her server.
  */
 
-const PROFILE_PATH = '/v1/account/agent-profile'
+const PROFILE_PATH = '/v1/agent-profile'
 
 /** The renderer's prompt context for a new conversation; `organizationId` is the window's organization, if any. */
 function promptContext(sessionId: string, cwd: string, organizationId: string | undefined): IpcContext {

@@ -2,6 +2,7 @@ import type {
   MetricsQueryResult,
   MetricsSessionSummary,
   MetricsSpan,
+  MetricsSpanAttrs,
   MetricsTurnFilter,
   MetricsTurnPageRequest,
   MetricsTurnPageResult,
@@ -42,6 +43,27 @@ interface DemoTurn {
   outputTokens: number
   /** Tool calls in the turn, as `[name, duration]` — the waterfall's bars. */
   tools: Array<[string, number]>
+  /** The span tree as the emitter recorded it, for a turn the demo shows in
+   *  full. A turn without one gets the plain shape `demoTurnTrace` builds. */
+  recorded?: RecordedTrace
+}
+
+/** One child span, placed by its offset from the turn's start. */
+interface RecordedSpan {
+  atMs: number
+  durationMs: number
+  kind: string
+  name: string
+  status?: 'ok' | 'error'
+  attrs?: MetricsSpanAttrs
+  /** Spans nested under this one, such as a tool call's permission wait. */
+  children?: RecordedSpan[]
+}
+
+interface RecordedTrace {
+  /** Root attributes beyond the ones every turn carries. */
+  rootAttrs: MetricsSpanAttrs
+  spans: RecordedSpan[]
 }
 
 const RATELIMIT = 'demo-session-ratelimit'
@@ -68,9 +90,61 @@ const DEMO_TASK_TITLE_BY_SESSION = new Map<string, string>([
 const SONNET = 'claude-sonnet-5'
 const OPUS = 'claude-opus-4-8'
 
+const TEST_COMMAND = 'bun test src/ratelimit src/middleware'
+const toolInput = (fields: { command?: string; file_path?: string; pattern?: string; path?: string }): string => JSON.stringify(fields)
+
+/**
+ * The turn the demo opens in full: the agent reads the limiter, finds the app
+ * clock in the refill, moves the clock into Redis, runs the suite (after the
+ * person approves the command), sees one assertion still on the app clock,
+ * fixes it, and runs the suite and the typecheck green. Its prompt prefix was
+ * cached by the turns before it, so nearly all of its input is cache reads.
+ */
+const FLAKY_BUCKET_TRACE: RecordedTrace = {
+  rootAttrs: {
+    cacheReadTokens: 1_284_000,
+    cacheCreationTokens: 18_400,
+    contextUsedTokens: 96_300,
+    contextWindow: 1_000_000,
+    reasoningEffort: 'high',
+    hasThinking: true,
+    isResume: true,
+    projectName: 'api-gateway',
+    branch: 'feat/rate-limiting',
+    taskId: 'ACME-214',
+    taskTitle: 'Add per-key rate limiting to the public API',
+    requestedModel: 'claude-sonnet-5',
+    timeToFirstProviderEventMs: 1_150,
+    timeToFirstActivityMs: 1_200,
+    timeToFirstTextMs: 108_900,
+    response: 'The flake came from the refill reading the app clock. Two workers in the same test saw different `Date.now()` values, so one bucket refilled a token early under load.\n\nThe Lua script now reads `redis.call(\'TIME\')`, so every replica refills against one clock, and `consumeTokenBucket` no longer takes `nowMs`. The concurrency test injects the clock through the Redis fake instead of stubbing `Date.now`.\n\n`bun test src/ratelimit src/middleware` passes (42 tests), five runs in a row, and `bun run typecheck` is clean.',
+  },
+  spans: [
+    { atMs: 0, durationMs: 1_200, kind: 'setup', name: 'provider startup' },
+    { atMs: 1_200, durationMs: 6_600, kind: 'thinking', name: 'thinking', attrs: { thought: 'A flaky concurrency test on a token bucket usually means time is read in two places. Read the bucket and its test before changing anything.' } },
+    { atMs: 7_800, durationMs: 1_600, kind: 'tool_call', name: 'Read', attrs: { input: toolInput({ file_path: 'src/ratelimit/tokenBucket.ts' }) } },
+    { atMs: 9_400, durationMs: 1_200, kind: 'tool_call', name: 'Read', attrs: { input: toolInput({ file_path: 'src/ratelimit/tokenBucket.test.ts' }) } },
+    { atMs: 10_600, durationMs: 900, kind: 'tool_call', name: 'Grep', attrs: { input: toolInput({ pattern: 'Date.now', path: 'src' }) } },
+    { atMs: 11_500, durationMs: 6_300, kind: 'thinking', name: 'thinking', attrs: { thought: 'The refill takes nowMs from the caller, and each replica passes its own Date.now(). Read the time from Redis TIME inside the script so every replica refills against one clock.' } },
+    { atMs: 17_800, durationMs: 2_600, kind: 'tool_call', name: 'Edit', attrs: { input: toolInput({ file_path: 'src/ratelimit/tokenBucket.ts' }) } },
+    { atMs: 20_400, durationMs: 2_700, kind: 'tool_call', name: 'Edit', attrs: { input: toolInput({ file_path: 'src/middleware/rateLimit.ts' }) } },
+    {
+      atMs: 23_100, durationMs: 45_500, kind: 'tool_call', name: 'Bash', status: 'error',
+      attrs: { input: toolInput({ command: TEST_COMMAND }), exitCode: 1, outcomeStatus: 'error', error: '1 fail: tokenBucket > refills at most capacity under 50 concurrent requests (expected 50, received 51)' },
+      children: [{ atMs: 23_100, durationMs: 26_000, kind: 'permission_wait', name: 'Bash', attrs: { decision: 'granted' } }],
+    },
+    { atMs: 68_600, durationMs: 4_600, kind: 'thinking', name: 'thinking', attrs: { thought: 'One assertion still stubs Date.now, so the test clock and the Redis clock disagree. Move the test onto the Redis fake’s clock.' } },
+    { atMs: 73_200, durationMs: 2_200, kind: 'tool_call', name: 'Edit', attrs: { input: toolInput({ file_path: 'src/ratelimit/tokenBucket.test.ts' }) } },
+    { atMs: 75_400, durationMs: 22_700, kind: 'tool_call', name: 'Bash', attrs: { input: toolInput({ command: TEST_COMMAND }), exitCode: 0, outcomeStatus: 'completed' } },
+    { atMs: 98_100, durationMs: 10_800, kind: 'tool_call', name: 'Bash', attrs: { input: toolInput({ command: 'bun run typecheck' }), exitCode: 0, outcomeStatus: 'completed' } },
+    { atMs: 108_900, durationMs: 12_000, kind: 'response_stream', name: 'response' },
+    { atMs: 120_900, durationMs: 900, kind: 'turn_settlement', name: 'settlement' },
+  ],
+}
+
 const DEMO_TURNS: DemoTurn[] = [
   { minutesAgo: 3, sessionId: RATELIMIT, model: SONNET, prompt: 'Return the standard rate-limit headers on every 429, not just the enforced ones.', promptSource: 'user', origin: 'chat', status: 'ok', durationMs: 74_200, costUsd: 0.41, inputTokens: 61_400, outputTokens: 3_120, tools: [['Read', 1_900], ['Edit', 2_400], ['Bash', 18_700], ['Read', 1_100]] },
-  { minutesAgo: 9, sessionId: RATELIMIT, model: SONNET, prompt: 'The concurrency test is flaky under load. Make the bucket refill deterministic.', promptSource: 'user', origin: 'chat', status: 'ok', durationMs: 121_800, costUsd: 0.68, inputTokens: 74_900, outputTokens: 5_640, tools: [['Read', 2_200], ['Grep', 900], ['Edit', 3_100], ['Bash', 41_300], ['Bash', 22_800]] },
+  { minutesAgo: 9, sessionId: RATELIMIT, model: SONNET, prompt: 'The concurrency test is flaky under load. Make the bucket refill deterministic.', promptSource: 'user', origin: 'chat', status: 'ok', durationMs: 121_800, costUsd: 0.56, inputTokens: 6_200, outputTokens: 5_640, tools: [['Read', 1_600], ['Read', 1_200], ['Grep', 900], ['Edit', 2_600], ['Edit', 2_700], ['Bash', 45_500], ['Edit', 2_200], ['Bash', 22_700], ['Bash', 10_800]], recorded: FLAKY_BUCKET_TRACE },
   { minutesAgo: 21, sessionId: RATELIMIT, model: SONNET, prompt: 'Wire the middleware into the public router and keep local development unlimited.', promptSource: 'user', origin: 'chat', status: 'ok', durationMs: 58_400, costUsd: 0.29, inputTokens: 48_200, outputTokens: 2_480, tools: [['Read', 1_500], ['Edit', 2_900], ['Bash', 12_600]] },
   { minutesAgo: 34, sessionId: RATELIMIT, model: SONNET, prompt: 'Run the rate-limit suite.', promptSource: 'user', origin: 'chat', status: 'error', durationMs: 26_900, costUsd: 0.08, inputTokens: 21_700, outputTokens: 640, tools: [['Bash', 19_400]] },
   { minutesAgo: 47, sessionId: RATELIMIT, model: SONNET, prompt: 'Add per-key rate limiting to the public API. Use Redis, return standard headers, and keep local development usable.', promptSource: 'user', origin: 'chat', status: 'ok', durationMs: 214_600, costUsd: 1.12, inputTokens: 96_300, outputTokens: 9_870, tools: [['Read', 3_400], ['Read', 2_100], ['Grep', 1_200], ['Write', 4_600], ['Edit', 3_300], ['Bash', 54_900], ['Bash', 31_200]] },
@@ -290,9 +364,10 @@ export function demoTurnTrace(turn: DemoTurnRecord): MetricsTurnTrace {
     name: string,
     startedAt: number,
     durationMs: number,
+    extra: { status?: string; attrs?: MetricsSpanAttrs; parentSpanId?: string } = {},
   ): MetricsSpan => ({
     spanId: `${turn.spanId}-${index}`,
-    parentSpanId: turn.spanId,
+    parentSpanId: extra.parentSpanId ?? turn.spanId,
     traceId: turn.traceId,
     kind,
     name,
@@ -305,8 +380,8 @@ export function demoTurnTrace(turn: DemoTurnRecord): MetricsTurnTrace {
     startedAt,
     endedAt: startedAt + durationMs,
     durationMs,
-    status: 'ok',
-    attrs: {},
+    status: extra.status ?? 'ok',
+    attrs: extra.attrs ?? {},
   })
 
   const root: MetricsSpan = {
@@ -336,7 +411,25 @@ export function demoTurnTrace(turn: DemoTurnRecord): MetricsTurnTrace {
       inputTokens: turn.inputTokens,
       outputTokens: turn.outputTokens,
       toolCallCount: turn.toolCallCount,
+      ...turn.recorded?.rootAttrs,
     },
+  }
+
+  if (turn.recorded) {
+    const spans = [root]
+    const place = (seeds: RecordedSpan[], parentSpanId: string): void => {
+      for (const seed of seeds) {
+        const placed = span(spans.length, seed.kind, seed.name, turn.startedAt + seed.atMs, seed.durationMs, {
+          status: seed.status,
+          attrs: seed.attrs,
+          parentSpanId,
+        })
+        spans.push(placed)
+        if (seed.children) place(seed.children, placed.spanId)
+      }
+    }
+    place(turn.recorded.spans, turn.spanId)
+    return { traceId: turn.traceId, spans, logEvents: [], providerWaitMs: 0, gapSegments: [] }
   }
 
   const setupMs = 1_400

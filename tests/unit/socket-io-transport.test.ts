@@ -1,27 +1,35 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { createServer, type Server as HttpServer } from 'http'
 import { createServer as createNetServer } from 'node:net'
-import { issueGrantWsTicket, issueSessionToken, issueWsTicket, resetAuthStateForTests, revokeDevice, verifySessionToken } from '@solus/server/admission/auth'
+import { Database } from 'bun:sqlite'
 import { io } from 'socket.io-client'
-import { SolusServer } from '@solus/server/transport/server'
-import { ClientEventRegistry } from '@solus/server/transport/events/client-event-registry'
-import { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
-import { attachWebSocketTransport, isLoopbackAddress } from '@solus/server/transport/websocket'
-import { WsTransport, type ConnectionStatus } from '@solus/client-core/ws-transport'
+import type { Doors } from '@solus/server/admission/doors'
+import { handshake } from './helpers/socket-handshake'
+import { SOCKET_CONNECT_TIMEOUT_MS, WsTransport, type ConnectionStatus, type GrantSource } from '@solus/client-core/ws-transport'
 import { withBrowserCapabilities } from '@solus/client-core/ws-browser-api'
 import { HostSupervisor } from '@solus/client-core/host-supervisor'
-import { PresenceManager } from '@solus/server/presence/presence-manager'
-import { useHostUser } from '@solus/server/host/host-user'
 import type { SolusAPI } from '../../src/preload'
 import type { IpcContext } from '@solus/contracts/types'
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 import { readWav } from '@solus/server/transcription/wav'
 
+// bun has no node:sqlite; the server modules' import chain reaches the db even though
+// these tests never open it, so everything that reaches it loads after the seam.
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+const { issueSessionToken, resetAuthStateForTests, revokeDevice, verifySessionToken } = await import('@solus/server/admission/auth')
+const { pairedPrincipalFor } = await import('@solus/server/admission/doors')
+const { SolusServer } = await import('@solus/server/transport/server')
+const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
+const { HostEventPublisher } = await import('@solus/server/transport/events/host-event-publisher')
+const { attachWebSocketTransport, isLoopbackAddress } = await import('@solus/server/transport/websocket')
+const { PresenceManager } = await import('@solus/server/presence/presence-manager')
+const { useHostUser } = await import('@solus/server/host/host-user')
+
 interface Harness {
-  server: SolusServer
+  server: InstanceType<typeof SolusServer>
   http: HttpServer
   url: string
-  events: HostEventPublisher
+  events: InstanceType<typeof HostEventPublisher>
   transport: ReturnType<typeof attachWebSocketTransport>
 }
 
@@ -51,7 +59,7 @@ describe('Socket.IO transport', () => {
       hostPath: '/host/uploads/recording.mp4',
       expiresAt: Date.now() + 60_000,
     }))
-    const client = createClient(harness.url, { acquireGrant: async () => 'grant:video' })
+    const client = createClient(harness.url, { acquire: async () => 'grant:video' })
     client.start()
     await waitForStatus(client, 'connected')
     const api = withBrowserCapabilities(client.buildSolusApi(), client) as SolusAPI
@@ -89,7 +97,7 @@ describe('Socket.IO transport', () => {
       return { error: null, transcript: 'Cloud dictation works.' }
     })
     const client = createClient(harness.url, {
-      acquireGrant: async () => `grant:${++grants}`,
+      acquire: async () => `grant:${++grants}`,
     })
     client.start()
     await waitForStatus(client, 'connected')
@@ -111,7 +119,7 @@ describe('Socket.IO transport', () => {
   })
 
   test('cloud dictation rejects recordings over the duration limit before upload', async () => {
-    const client = createClient('http://localhost:1', { acquireGrant: async () => 'grant:1' })
+    const client = createClient('http://localhost:1', { acquire: async () => 'grant:1' })
     // SAFETY: buildSolusApi installs the declared RPC methods.
     const api = client.buildSolusApi() as SolusAPI
     const samples = new Float32Array(MAX_VOICE_SAMPLES + 1)
@@ -128,7 +136,7 @@ describe('Socket.IO transport', () => {
     const disconnected: string[] = []
     const harness = await createHarness(false, '127.0.0.1', '127.0.0.1', {
       onClientConnected: ({ clientId }) => {
-        presence.join(clientId, { kind: 'local-owner', deviceId: null, deviceLabel: 'Test' }, 'Test')
+        presence.join(clientId, { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Test' }, 'Test')
       },
       onClientDisconnected: ({ clientId }) => {
         disconnected.push(clientId)
@@ -138,7 +146,7 @@ describe('Socket.IO transport', () => {
     for (const clientInstanceId of ['same_client_12345', 'same_client_12345', 'other_client_1234']) {
       const socket = io(harness.url, {
         path: '/ws', transports: ['websocket'], reconnection: false,
-        forceNew: true, auth: { clientInstanceId },
+        forceNew: true, auth: handshake(undefined, clientInstanceId),
       })
       cleanups.push(() => socket.disconnect())
       await new Promise<void>((resolve, reject) => {
@@ -173,17 +181,16 @@ describe('Socket.IO transport', () => {
     expect(isLoopbackAddress('192.168.1.10')).toBe(false)
   })
 
-  test('rejects a long-lived session token in the socket handshake', async () => {
-    // WHY: the session token may travel only in the HTTP Authorization header.
-    // Accepting it in Socket.IO auth would preserve the dispatch migration's
-    // retired credential path and defeat the short-lived ticket boundary.
+  test('rejects a session token anywhere but the handshake credential', async () => {
+    // WHY: a socket has one credential, in its handshake's `credential` field
+    // (docs/plans/simplify-auth-and-sync.md §3 rule 4); any other field is no credential.
     const harness = await createHarness(true)
     const sessionToken = issueSessionToken('Legacy browser').token
     const socket = io(harness.url, {
       path: '/ws',
       transports: ['websocket'],
       reconnection: false,
-      auth: { token: sessionToken, clientInstanceId: 'legacy_browser_1234' },
+      auth: { ...handshake(undefined, 'legacy_browser_1234'), token: sessionToken },
     })
     cleanups.push(() => socket.disconnect())
 
@@ -396,7 +403,7 @@ describe('Socket.IO transport', () => {
     let authFailures = 0
     const client = createClient(harness.url, {
       sessionToken: '',
-      acquireGrant: async () => {
+      acquire: async () => {
         const grant = `grant:${minted.length + 1}`
         minted.push(grant)
         return grant
@@ -422,7 +429,7 @@ describe('Socket.IO transport', () => {
     let identityCheckStarted!: () => void
     const identityChecking = new Promise<void>((resolve) => { identityCheckStarted = resolve })
     const client = createClient(harness.url, {
-      acquireGrant: async () => {
+      acquire: async () => {
         await identityChecking
         return 'grant:overlap'
       },
@@ -436,9 +443,9 @@ describe('Socket.IO transport', () => {
     await waitForStatus(client, 'connected')
   })
 
-  test('a dial on a route that does not answer fails at the credential exchange', async () => {
+  test('a dial on a route that does not answer fails at the socket\'s short connect timeout', async () => {
     // WHY: a host's LAN route seen from another network drops packets. socket.io waits
-    // 20s to call that a failure, and only then could the client move to the tunnel.
+    // 20s to call that a failure; the next dial's route choice needs the answer sooner.
     const silent = createNetServer(() => {})
     await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
     cleanups.push(() => { silent.close() })
@@ -449,41 +456,15 @@ describe('Socket.IO transport', () => {
     client.attachDialOutcomeReporter((outcome) => outcomes.push(outcome.kind))
 
     client.start()
-    await waitFor(() => outcomes.length > 0)
+    await waitFor(() => outcomes.length > 0, SOCKET_CONNECT_TIMEOUT_MS + 2_000)
     expect(outcomes).toEqual(['dial-failed'])
-  })
-
-  test('a kept grant the host refuses is replaced once before the device is blocked', async () => {
-    // WHY: a client keeps its grant for redials. A host linked again since may refuse
-    // it; only a new grant the host refuses means this device is done here.
-    const harness = await createHarness(true)
-    const presented: string[] = []
-    let authFailures = 0
-    const client = createClient(harness.url, {
-      acquireGrant: async (options) => {
-        const grant = options?.fresh ? `grant:new-${presented.length}` : 'grant:kept'
-        presented.push(grant)
-        return grant
-      },
-      onAuthFailed: () => { authFailures++ },
-    })
-
-    client.start()
-    await waitForStatus(client, 'connected')
-    // The harness host takes a grant once, so the kept one is refused on the redial.
-    closeClientEngine(client, true)
-    await waitForStatus(client, 'reconnecting')
-    await waitForStatus(client, 'connected')
-    expect(presented).toEqual(['grant:kept', 'grant:kept', 'grant:new-2'])
-    expect(authFailures).toBe(0)
-  })
+  }, SOCKET_CONNECT_TIMEOUT_MS + 5_000)
 
   test('a grant-admitted socket ends when its grant expires', async () => {
     // WHY: a socket lives no longer than its grant — revocation is grant expiry plus
     // a re-dial the revoked device cannot complete. Nothing else ends the socket.
     const harness = await createHarness(true)
-    const ticket = issueGrantWsTicket({ userId: 'user_1', deviceId: 'session_1', expiresAt: Date.now() + 200 })
-    const socket = io(harness.url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { ticket } })
+    const socket = io(harness.url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: handshake({ kind: 'access-token', token: 'grant:short-lived' }) })
     cleanups.push(() => socket.disconnect())
     const reasons: string[] = []
     socket.on('disconnect', (reason) => reasons.push(reason))
@@ -571,33 +552,41 @@ describe('Socket.IO transport', () => {
 })
 
 async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHost = bindHost, lifecycle: Pick<Parameters<typeof attachWebSocketTransport>[2], 'onClientConnected' | 'onClientDisconnected'> = {}): Promise<Harness> {
-  const http = createServer((request, response) => {
-    if (request.method === 'POST' && request.url === '/auth/ws-ticket') {
-      const authorization = request.headers.authorization
-      const bearer = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : ''
-      // A stand-in for the grant path: `grant:<n>` is a "verified grant" whose jti is
-      // the grant itself, spent on first presentation the way the host spends a real one.
-      const ticket = bearer.startsWith('grant:')
-        ? (spentGrants.has(bearer) ? null : (spentGrants.add(bearer), issueGrantWsTicket({ userId: 'user_1', deviceId: 'session_1', expiresAt: Date.now() + 600_000 })))
-        : issueWsTicket(bearer)
-      response.statusCode = ticket ? 200 : 401
-      response.setHeader('content-type', 'application/json')
-      response.end(JSON.stringify(ticket ? { ticket } : { error: 'unauthorized' }))
-      return
-    }
+  const http = createServer((_request, response) => {
     response.statusCode = 404
     response.end()
   })
   const server = new SolusServer()
   const clientEvents = new ClientEventRegistry()
   const events = new HostEventPublisher(clientEvents)
-  const transport = attachWebSocketTransport(http, server, { clientEvents, requireAuth, ...lifecycle })
+  const transport = attachWebSocketTransport(http, server, {
+    clientEvents,
+    requireAuth,
+    doors: testDoors,
+    ...lifecycle,
+  })
   await new Promise<void>((resolve) => http.listen(0, bindHost, resolve))
   const address = http.address()
   if (!address || typeof address === 'string') throw new Error('expected TCP address')
   const harness = { server, http, events, transport, url: `http://${urlHost}:${address.port}` }
   cleanups.push(() => transport.close())
   return harness
+}
+
+/**
+ * The harness host's doors. A paired device's session token is real. `grant:<n>` stands
+ * for a verified access token; this host takes each one once, as a host linked again
+ * since refuses a client's kept token. `grant:short-lived` ends in 200 ms.
+ */
+const testDoors: Doors = {
+  admitCredential: async (credential) => {
+    if (credential.kind === 'session-token') return pairedPrincipalFor(credential.token)
+    if (credential.kind !== 'access-token' || !credential.token.startsWith('grant:') || spentGrants.has(credential.token)) return { ok: false, reason: 'token-refused' }
+    spentGrants.add(credential.token)
+    const expiresAt = Date.now() + (credential.token === 'grant:short-lived' ? 200 : 600_000)
+    return { ok: true, principal: { kind: 'owner', via: 'grant', userId: 'user_1', deviceId: 'session_1', expiresAt, deviceLabel: 'Solus cloud' } }
+  },
+  admitBearer: async () => ({ ok: false, reason: 'not-accepted' }),
 }
 
 /** Bun has no FileReader; this is the one browser call `uploadFiles` makes. */
@@ -615,8 +604,9 @@ class DataUrlFileReader {
   }
 }
 
-function createClient(url: string, overrides: Partial<ConstructorParameters<typeof WsTransport>[0]> = {}): WsTransport {
-  const client = new WsTransport({ serverUrl: url, sessionToken: '', ...overrides })
+/** A client; `acquire` makes it a host reached with grants, from a signed-in account. */
+function createClient(url: string, { acquire, ...overrides }: Partial<ConstructorParameters<typeof WsTransport>[0]> & { acquire?: GrantSource['acquire'] } = {}): WsTransport {
+  const client = new WsTransport({ serverUrl: url, sessionToken: '', grants: acquire ? { acquire, isSignedOut: () => false } : undefined, ...overrides })
   // The supervisor is the sole retry owner (dispatch-client step 3): the
   // harness attaches a fast-ladder one so a drop redials the SAME socket —
   // which is exactly what keeps connection-state recovery working.

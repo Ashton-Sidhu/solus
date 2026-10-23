@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import type { HostUpdateStatus } from '@solus/contracts/host-update-types'
 import type { ServerConnections } from '@solus/client-core/server-connections'
-import type { ConnectionStatus } from '@solus/client-core/ws-transport'
+import type { HostPhase } from '@solus/client-core/host-supervisor'
 
 declare global { var $state: <T>(value: T) => T }
 const originalState = globalThis.$state
@@ -16,16 +16,16 @@ function status(version: string | null): HostUpdateStatus {
 async function fixture(hostKind: 'personal' | 'managed' = 'personal') {
   const { HostUpdatesStore } = await import('@solus/workspace-ui/contexts/updates/host-updates.store.svelte')
   let current = status('2.0.0')
-  let connected: ConnectionStatus = 'connected'
+  let connected: HostPhase = 'connected'
   let supports = true
-  let listener: Parameters<ServerConnections['onStatusChange']>[0] = () => {}
+  let listener: Parameters<ServerConnections['onPhaseChange']>[0] = () => {}
   let read = async () => current
   const store = new HostUpdatesStore({
-    resolveId: (id) => id, statusFor: () => connected, capabilitiesFor: async () => ({ hostUpdates: supports }),
+    resolveId: (id) => id, phaseFor: () => connected, capabilitiesFor: async () => ({ hostUpdates: supports }),
     apiFor: () => ({ hostUpdateStatus: () => read(), hostCheckForUpdates: () => read(), hostInstallUpdate: () => read(), hostCancelUpdate: () => read() }),
     connectionFor: () => ({ target: { uplink: hostKind === 'managed' ? { kind: 'managed' } : undefined } }),
     connectedServerIds: () => ['host'], onConnectionCreated: () => () => {},
-    onStatusChange: (callback) => { listener = callback; return () => {} },
+    onPhaseChange: (callback) => { listener = callback; return () => {} },
   })
   return { store, set: (next: HostUpdateStatus) => { current = next }, read: (next: typeof read) => { read = next },
     disconnect: () => { connected = 'reconnecting'; listener('host', connected, 1) },

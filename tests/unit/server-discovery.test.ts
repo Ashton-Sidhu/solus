@@ -13,7 +13,6 @@ import {
   filterUnsavedDiscoveredServers,
   mergeNearbyHosts,
   NEARBY_HOST_TTL_MS,
-  unannouncedDiscoveredServers,
 } from '@solus/workspace-ui/contexts/connections/discovery'
 import type { DiscoveredServer } from '@solus/contracts/types'
 
@@ -161,19 +160,6 @@ describe('server discovery', () => {
       server('100.64.0.12', 'snoozed-installation'),
       server('100.64.0.13', 'new-installation'),
     ])
-  })
-
-  test('announces every new host in a scan so simultaneous discoveries are not lost', () => {
-    const first = server('100.64.0.11', 'first-installation')
-    const second = server('100.64.0.12', 'second-installation')
-    const third = server('100.64.0.13', 'third-installation')
-    const announced = new Set([first.installationId])
-
-    expect(unannouncedDiscoveredServers([first, second, third], announced)).toEqual([second, third])
-
-    announced.add(second.installationId)
-    announced.add(third.installationId)
-    expect(unannouncedDiscoveredServers([first, second, third], announced)).toEqual([])
   })
 
   test('keeps a nearby host through a missed UDP window, then evicts it at the visibility TTL', () => {

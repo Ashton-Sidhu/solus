@@ -191,9 +191,6 @@ describe('the host acting for a person', () => {
         issued += 1
         return Response.json({ access_token: `access-${issued}`, refresh_token: `refresh-${issued}`, expires_in: 300, token_type: 'Bearer' })
       }
-      if (url === `${API}/v1/auth/session`) {
-        return Response.json({ accessToken: 'api-credential', tokenType: 'Bearer', expiresAt: new Date(Date.now() + 300_000).toISOString(), scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:admit'], home: { kind: 'organization', serviceId: 'solus-api', organizationId: 'org_a' }, subject: { kind: 'user', userId: 'bob', displayName: 'Bob', sessionId: null } })
-      }
       if (url === `${API}/v1/session-admissions`) return options.admit?.() ?? Response.json({ sessionId: 'solus-1', organizationId: 'org_a', ownerKey: 'bob', hostId: HOST_ID, admittedAt: new Date(0).toISOString() }, { status: 201 })
       return new Response('not found', { status: 404 })
     }
@@ -223,7 +220,8 @@ describe('the host acting for a person', () => {
     const held = delegations(plane.fetchImpl)
     await held.establish(BOBS_TOKEN, { organizationId: 'org_a' })
     await held.actFor({ sessionId: 'solus-1', userId: 'bob', organizationId: 'org_a', admit: true })
-    expect(plane.calls.map((call) => call.url)).toEqual([TOKEN_URL, `${API}/v1/auth/session`, `${API}/v1/session-admissions`])
+    // The delegated token is the API credential itself: no second credential is minted from it.
+    expect(plane.calls.map((call) => call.url)).toEqual([TOKEN_URL, `${API}/v1/session-admissions`])
     const exchange = plane.calls[0]!
     // The host proves itself with an assertion its key signed, never a secret.
     expect(exchange.authorization).toBeNull()
@@ -232,11 +230,11 @@ describe('the host acting for a person', () => {
     expect(grantOf(exchange.form!)).toEqual({ grant_type: TOKEN_EXCHANGE_GRANT_TYPE, subject_token: BOBS_TOKEN, subject_token_type: ACCESS_TOKEN_TYPE, organization_id: 'org_a' })
     // The API credential is the delegated access token exchanged, never the host's own token.
     expect(plane.calls[1]!.authorization).toBe('Bearer access-1')
-    expect(plane.calls[2]!.body).toEqual({ sessionId: 'solus-1' })
+    expect(plane.calls[1]!.body).toMatchObject({ sessionId: 'solus-1' })
     // The next turns of the session, and its answers, reach nobody while the token is good.
     await held.actFor({ sessionId: 'solus-1', userId: 'bob', organizationId: 'org_a', admit: false })
     await held.actFor({ sessionId: 'solus-1', userId: 'bob', organizationId: 'org_a', admit: false })
-    expect(plane.calls).toHaveLength(3)
+    expect(plane.calls).toHaveLength(2)
     // Its tools find who they act for by the session id.
     expect(held.actorOf('solus-1')).toEqual({ userId: 'bob', organizationId: 'org_a' })
   })
@@ -302,11 +300,11 @@ describe('the Solus API a host delivers to is the one its registration named', (
     const previousDataDir = process.env.SOLUS_DATA_DIR
     process.env.SOLUS_DATA_DIR = dataDir
     const delivery = await import('@solus/server/sync/runner-delivery')
-    const outbox = await import('@solus/server/sync/outbox/outbox-store')
+    const queue = await import('@solus/server/sync/delivery-queue')
     const dbModule = await import('@solus/server/db')
     try {
       const plane = recordingFetch(() => Response.json({ lastSeq: 1, failed: [] }))
-      outbox.recordOutboxOp({ domain: 'tasks', resourceId: 'task-1', name: 'comment', payload: { body: 'x' }, destination: 'cloud', organizationId: 'org_a', actorUserId: 'bob' })
+      queue.appendDelivery({ organizationId: 'org_a', actorUserId: 'bob' }, 'transcript', [{ key: 's-1:0', payload: { sessionId: 's-1', position: 0, message: {} } }])
       const runner = new delivery.RunnerDelivery({
         registration: () => enrolled().registration,
         delegations: { accessToken: async (userId, scope) => `delegated-${userId}-${scope.organizationId}` },
@@ -315,10 +313,10 @@ describe('the Solus API a host delivers to is the one its registration named', (
         setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 10))) as typeof setTimeout,
       })
       runner.start()
-      for (let attempt = 0; attempt < 100 && outbox.cloudOutboxDestinations().length > 0; attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
+      for (let attempt = 0; attempt < 100 && queue.deliveryDestinations().length > 0; attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
       await runner.stop()
       expect(plane.calls.map((call) => [new URL(call.url).origin, call.authorization])).toEqual([[API, 'Bearer delegated-bob-org_a']])
-      expect(outbox.cloudOutboxDestinations()).toEqual([])
+      expect(queue.deliveryDestinations()).toEqual([])
     } finally {
       dbModule.closeDb()
       rmSync(dataDir, { recursive: true, force: true })

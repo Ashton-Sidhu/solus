@@ -68,7 +68,7 @@ describe('a member removed from the organization', () => {
     await seats.storeToken({ kind: 'user', userId: { kind: 'account', accountId: 'bob' } }, 'codex', '{"tokens":{}}')
     await seats.storeToken({ kind: 'user', userId: { kind: 'account', accountId: 'cara' } }, 'claude-code', 'sk-cara')
     const bobHome = seats.homeFor({ kind: 'user', userId: { kind: 'account', accountId: 'bob' } }, 'claude-code')
-    const transport = sockets([member('bob'), member('bob'), member('cara'), { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }])
+    const transport = sockets([member('bob'), member('bob'), member('cara'), { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }])
 
     const outcome = await removeDepartedMembers(standing([{ organizationId: 'org1', memberUserIds: ['alice', 'cara'] }]), { seats, disconnectWhere: transport.disconnectWhere })
 
@@ -76,7 +76,7 @@ describe('a member removed from the organization', () => {
     expect(seats.memberUserIds()).toEqual(['cara'])
     expect(existsSync(bobHome)).toBe(false)
     expect((await seats.status({ kind: 'user', userId: { kind: 'account', accountId: 'cara' } }, 'claude-code')).state).toBe('connected')
-    expect(transport.open.map((principal) => principal.kind === 'org-member' ? principal.userId : principal.kind)).toEqual(['cara', 'local-owner'])
+    expect(transport.open.map((principal) => principal.kind === 'org-member' ? principal.userId : principal.kind)).toEqual(['cara', 'owner'])
   })
 
   test('a standing without member lists removes nobody', async () => {

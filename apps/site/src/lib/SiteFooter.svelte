@@ -1,16 +1,17 @@
 <script lang="ts">
 	import SolusMark from "./SolusMark.svelte";
-	import { DOWNLOAD_FILENAME, DOWNLOAD_PATH } from "./download";
+	import { DOWNLOADS } from "./download";
 
 	const columns = [
 		{
 			title: "Product",
 			links: [
-				{ href: DOWNLOAD_PATH, label: "Download for macOS", download: true },
+				...Object.values(DOWNLOADS).map((build) => ({ href: build.path, label: `Download for ${build.name}`, download: build.filename })),
+				{ href: "https://github.com/Ashton-Sidhu/solus/releases/latest", label: "Server for Linux", external: true },
 				{ href: "/#cloud", label: "Solus Cloud" },
 				{ href: "/#data", label: "Integrations" },
-				{ href: "/#sync", label: "Sync" },
-				{ href: "/#orchestration", label: "Orchestration" },
+				{ href: "/#workflow", label: "Workflow" },
+				{ href: "/#observability", label: "Observability" },
 				{ href: "/demo", label: "Live demo" },
 			],
 		},
@@ -54,7 +55,7 @@
 						<li>
 							<a
 								href={link.href}
-								download={"download" in link && link.download ? DOWNLOAD_FILENAME : undefined}
+								download={"download" in link ? link.download : undefined}
 								target={"external" in link && link.external ? "_blank" : undefined}
 								rel={"external" in link && link.external ? "noopener noreferrer" : undefined}
 								class="text-[14px] text-ink-2 no-underline transition-colors hover:text-ink"

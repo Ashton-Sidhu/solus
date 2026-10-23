@@ -13,7 +13,8 @@
 import type { HostSessionChange } from './host-facts'
 
 export type HostPhase = 'connecting' | 'reconnecting' | 'connected' | 'blocked' | 'offline'
-export type BlockedReason = 'auth' | 'identity-mismatch'
+/** Why a host is blocked: its credential was refused, another host answers its address, or it speaks another protocol ("Update Solus"). */
+export type BlockedReason = 'auth' | 'identity-mismatch' | 'update-required'
 
 /** How one dial ended — the only inputs the phase machine accepts. */
 export type DialOutcome =
@@ -22,6 +23,7 @@ export type DialOutcome =
   | { kind: 'dial-failed' }
   | { kind: 'auth-blocked' }
   | { kind: 'identity-mismatch' }
+  | { kind: 'update-required' }
 
 /** What the supervisor drives. `start()` is one dial on the standing socket. */
 export interface SupervisedTransport {
@@ -48,10 +50,6 @@ export function ladderDelayMs(attempt: number, random: () => number = Math.rando
 export interface HostSupervisorOptions {
   transport: SupervisedTransport
   onPhaseChange?: (phase: HostPhase, attempt: number) => void
-  /** A dial failed and the next is due. Returns true when the transport now aims
-   *  at a route this run of failures has not tried: that dial goes out at once,
-   *  because a different route is not a retry of a failed one. */
-  onDialFailed?: (attempt: number) => boolean
   /** A server session began, continued, or ended. The host's facts reload
    *  and clear on these edges (`HostFacts.sessionChanged`). */
   onSessionChange?: (change: HostSessionChange) => void
@@ -127,9 +125,10 @@ export class HostSupervisor {
         this.setPhase('blocked')
         return
       }
-      case 'identity-mismatch': {
+      case 'identity-mismatch':
+      case 'update-required': {
         this.dialInFlight = false
-        this.blockedReason = 'identity-mismatch'
+        this.blockedReason = outcome.kind
         this.options.onSessionChange?.('lost')
         this.clearRetryTimer()
         this.setPhase('blocked')
@@ -186,10 +185,6 @@ export class HostSupervisor {
       ? 'offline'
       : this.hasConnected ? 'reconnecting' : 'connecting'
     this.setPhase(presentation)
-    if (this.options.onDialFailed?.(this.attempt)) {
-      this.dial()
-      return
-    }
     const setTimeoutFn = this.options.setTimeoutFn ?? setTimeout
     this.retryTimer = setTimeoutFn(() => {
       this.retryTimer = null

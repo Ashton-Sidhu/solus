@@ -105,6 +105,7 @@ import {
   type CodexTurnHistory,
   type ScannedCodexPlan,
   codexBackgroundCommandWake,
+  codexSubagentWake,
 } from './codex-utils'
 import { adaptCodexTools, bareAgentToolName, codexToolContentItems, CodexToolDispatcher } from './codex-tool-adapter'
 import { CodexNativeChildren, type ChildStop, type ChildTurn, type SettledChild } from './codex-native-children'
@@ -1491,7 +1492,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     this.settleBackgroundCommand(itemId, command, command.isStopping ? 'stopped' : params.item.exitCode === 0 ? 'completed' : 'failed')
     if (this.activeRuns.has(command.threadId)) return false
     if (command.isStopping) return true
-    this.emit('background-command-completed', command.threadId, codexBackgroundCommandWake(params.item))
+    this.emit('background-task-completed', command.threadId, codexBackgroundCommandWake(params.item), 'background-command')
     return true
   }
 
@@ -1506,16 +1507,24 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
   /**
    * A sub-agent's background task settled. With no turn running and nothing
-   * else in the background, the root thread may go idle. A child that ended
-   * on its own wakes nobody: Codex has no wake for it that Solus can see
-   * (docs/background-work.md), so the session's wait ends here. A stopped or
-   * killed task ends the wait through its own settle.
+   * else in the background, the root thread may go idle. Codex does not wake
+   * a root whose turn ended, so a direct child that ended on its own wakes the
+   * session with its report, one wake per child (docs/background-work.md). A
+   * root turn already running gets the result from Codex itself. A nested
+   * child wakes nobody: it reports to its own parent, so when it is the last
+   * task the session's wait ends here. A stopped or killed task ends the wait
+   * through its own settle.
    */
-  private onChildSettled({ sessionId, client, status }: SettledChild): void {
-    log.info('codex_child_settled', { sessionId, status })
-    if (status === 'killed' || this.activeRuns.has(sessionId) || this.hasBackgroundTasks(sessionId)) return
-    this.armThreadIdle(client, sessionId)
-    if (status === 'completed' || status === 'failed') this.emit('background-work-ended', sessionId)
+  private onChildSettled({ sessionId, client, status, threadId, report }: SettledChild): void {
+    log.info('codex_child_settled', { sessionId, childThreadId: threadId, status, wakesRoot: report !== null })
+    if (status === 'killed' || this.activeRuns.has(sessionId)) return
+    const isLastTask = !this.hasBackgroundTasks(sessionId)
+    if (isLastTask) this.armThreadIdle(client, sessionId)
+    if (report !== null && (status === 'completed' || status === 'failed')) {
+      this.emit('background-task-completed', sessionId, codexSubagentWake({ threadId, status, report }), undefined)
+    } else if (isLastTask && (status === 'completed' || status === 'failed')) {
+      this.emit('background-work-ended', sessionId)
+    }
   }
 
   /** Ask Codex to interrupt one sub-agent turn. `refused` is an error answer

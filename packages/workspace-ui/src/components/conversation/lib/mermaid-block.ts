@@ -1,5 +1,5 @@
 import type { Mermaid } from "mermaid";
-import { drawsNatively, type NativeDiagramReply, type NativeDiagramRequest } from "./mermaid-svg";
+import { z } from "zod";
 
 /** How a fenced ```mermaid block reads is the document model's rule, so a
  *  reply and a document make the same choice. */
@@ -144,64 +144,10 @@ function loadMermaid(): Promise<Mermaid> {
   return mermaidLoader;
 }
 
-// Most diagrams an agent writes — flowcharts, sequence, state, class, ER, and
-// xy charts — are drawn by beautiful-mermaid in a worker: no DOM, a few
-// milliseconds each, and nothing on the main thread. Mermaid in the frame
-// draws the rest, and anything the worker cannot parse.
-let nativeWorker: Worker | null = null;
-let nativeWorkerFailed = false;
-let nativeRequestSequence = 0;
-const nativeRequests = new Map<number, (svg: string | null) => void>();
-
-function startNativeWorker(): Worker | null {
-  if (nativeWorker || nativeWorkerFailed) return nativeWorker;
-  try {
-    nativeWorker = new Worker(new URL("./mermaid-svg.worker.ts", import.meta.url), { type: "module" });
-  } catch {
-    nativeWorkerFailed = true;
-    return null;
-  }
-  nativeWorker.onmessage = (event: MessageEvent<NativeDiagramReply>) => {
-    const reply = event.data;
-    nativeRequests.get(reply.requestId)?.("svg" in reply ? reply.svg : null);
-    nativeRequests.delete(reply.requestId);
-  };
-  // A worker that cannot load hands every diagram, now and later, to Mermaid.
-  nativeWorker.onerror = () => {
-    nativeWorkerFailed = true;
-    nativeWorker?.terminate();
-    nativeWorker = null;
-    for (const settle of nativeRequests.values()) settle(null);
-    nativeRequests.clear();
-  };
-  return nativeWorker;
-}
-
-// Keyed by source alone: the SVG draws in theme variables, so one drawing
-// serves both themes.
-const nativeResults = new Map<string, Promise<string | null>>();
-
-/** The diagram drawn by beautiful-mermaid, or null when Mermaid must draw it. */
-function drawNatively(source: string): Promise<string | null> {
-  if (!drawsNatively(source)) return Promise.resolve(null);
-  const cached = nativeResults.get(source);
-  if (cached) return cached;
-  const worker = startNativeWorker();
-  if (!worker) return Promise.resolve(null);
-  const requestId = ++nativeRequestSequence;
-  const pending = new Promise<string | null>((resolve) => {
-    nativeRequests.set(requestId, resolve);
-    worker.postMessage({ requestId, source } satisfies NativeDiagramRequest);
-  });
-  nativeResults.set(source, pending);
-  return pending;
-}
-
-/** Start the diagram worker before it is needed: a fence that is still
- *  streaming will close in a moment, and the layout engine should be warm by
- *  then. Mermaid itself loads only for a diagram the worker cannot draw. */
+/** Warm the isolated renderer while a Mermaid fence is still streaming.
+ * Loading failures are reported by renderMermaid when the fence closes. */
 export function preloadMermaid(): void {
-  startNativeWorker();
+  void loadMermaid().catch(() => {});
 }
 
 // `initialize` re-reads the palette and re-parses the theme CSS, so it runs
@@ -249,6 +195,8 @@ let renderSequence = 0;
 // message, or a flip back to a previous theme costs nothing.
 const results = new Map<string, Promise<MermaidResult>>();
 
+const mermaidErrorSchema = z.object({ message: z.string() });
+
 /** The message Mermaid's parser raised, without the caret diagram that only
  *  reads in a monospace pane. */
 function describeError(message: string): string {
@@ -259,12 +207,7 @@ function describeError(message: string): string {
 
 /** Render Mermaid text to SVG for the current theme. Never throws: a diagram
  *  that does not parse resolves to its error so the block can stay as source. */
-export async function renderMermaid(source: string, isDark: boolean): Promise<MermaidResult> {
-  const svg = await drawNatively(source);
-  return svg ? { svg } : renderWithMermaid(source, isDark);
-}
-
-function renderWithMermaid(source: string, isDark: boolean): Promise<MermaidResult> {
+export function renderMermaid(source: string, isDark: boolean): Promise<MermaidResult> {
   const key = `${isDark ? "dark" : "light"}\n${source}`;
   const cached = results.get(key);
   if (cached) return cached;
@@ -277,8 +220,8 @@ function renderWithMermaid(source: string, isDark: boolean): Promise<MermaidResu
       return { svg };
     } catch (error) {
       // An error from the frame is the frame's `Error`, not this realm's.
-      const message = (error as { message?: unknown } | null)?.message;
-      return { error: describeError(typeof message === "string" ? message : String(error)) };
+      const parsed = mermaidErrorSchema.safeParse(error);
+      return { error: describeError(parsed.success ? parsed.data.message : String(error)) };
     }
   });
   queue = pending;

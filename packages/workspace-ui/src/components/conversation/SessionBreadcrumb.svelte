@@ -3,6 +3,7 @@
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import {
     BAND_ACTION,
+    BAND_SHARE,
     CRUMB_BUTTON,
     MENU_HEADING,
     MENU_LABEL,
@@ -445,7 +446,8 @@
     projectPanelOpen ?? frameChrome.projectPanelOpen,
   );
   const hasTrailingActions = $derived(
-    showNewSessionAction ||
+    !!bandSession?.id ||
+      showNewSessionAction ||
       (showProjectPanelAction && !isProjectPanelOpen) ||
       !!onOpenAsPage ||
       !!onClose,
@@ -967,25 +969,6 @@
       </button>
     {/if}
 
-    <!-- Share is one of the glyph actions on this side of the divider, beside
-         the task's own, and the last of them: what the session is, before the
-         verbs that make or arrange things. -->
-    {#if bandSession?.id}
-      <!-- Who else is in the room, right before the control that decides who may
-           be. The faces survive the narrow band; the verbs beside them do not. -->
-      <SessionPresence
-        serverId={session.serverIdFor(tabId)}
-        sessionId={bandSession.id}
-        title={sessionTitle(bandSession)}
-        class="mx-1"
-      />
-      <ShareButton
-        serverId={session.serverIdFor(tabId)}
-        resource={{ kind: "session", id: bandSession.id }}
-        title={sessionTitle(bandSession)}
-        class="{BAND_ACTION} @max-[36rem]:hidden"
-      />
-    {/if}
     {#if draft}
       <TaskPicker
         task={draft.task}
@@ -1032,11 +1015,34 @@
       {/if}
     {/if}
 
+
     {#if (taskRecord || bandSession?.id) && hasTrailingActions}
       <span
         class="mx-[0.4375rem] h-4 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] @max-[36rem]:hidden"
         aria-hidden="true"
       ></span>
+    {/if}
+
+    <!-- Share opens the trailing group, past the divider: the task's own
+         controls stay with the task on the left, and the verbs that arrange
+         the window sit here. It is the band's one labelled button, so a
+         visitor finds it without hovering. -->
+    {#if bandSession?.id}
+      <!-- Who else is in the room, right before the control that decides who may
+           be. The faces survive the narrow band; the button beside them does not. -->
+      <SessionPresence
+        serverId={session.serverIdFor(tabId)}
+        sessionId={bandSession.id}
+        title={sessionTitle(bandSession)}
+        class="mx-1"
+      />
+      <ShareButton
+        serverId={session.serverIdFor(tabId)}
+        resource={{ kind: "session", id: bandSession.id }}
+        title={sessionTitle(bandSession)}
+        labelled
+        class="{BAND_SHARE} mr-2 @max-[36rem]:hidden"
+      />
     {/if}
 
     {#if showNewSessionAction && canStartSessions}

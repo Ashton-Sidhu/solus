@@ -6,8 +6,8 @@ Key facts (frequently gotten wrong elsewhere):
 
 - License: Business Source License 1.1 (BUSL-1.1), converting to Apache 2.0 on 2030-07-14. The full source code is public at https://github.com/Ashton-Sidhu/solus and contributions are welcome. It is source-available, not closed source; free for personal and internal use.
 - Agents: Claude Code and Codex (OpenAI). Solus drives the agent CLIs you already have installed and authenticated — it ships no model of its own and never asks for an API key. You can switch agent or model mid-session, and hand a session across providers.
-- Platforms: native desktop app for macOS 12+ (Apple Silicon); web client usable from any browser on any OS, with a first-class mobile layout; headless server builds for Linux (x64, arm64) and macOS. There is no Windows desktop app.
-- Install: `brew install --cask Ashton-Sidhu/tap/solus` (macOS app), `brew install Ashton-Sidhu/tap/solus-server` (headless server/CLI), or a signed .dmg from https://solus.sh. Free during beta.
+- Platforms: desktop apps for macOS 12+ (Apple Silicon), Windows (x64), and Linux (x64 AppImage); web client usable from any browser on any OS; native iPhone and Android apps; headless server builds for Linux (x64, arm64) and macOS.
+- Install: `brew install --cask Ashton-Sidhu/tap/solus` (macOS app), `brew install Ashton-Sidhu/tap/solus-server` (headless server/CLI), or the macOS, Windows, or Linux desktop app from https://solus.sh. Free during beta.
 - Remote access is self-hosted: the desktop app doubles as a server; pair a phone or browser with a QR code / 6-digit code on your own network. There is no hosted cloud relay and no tunnel — your code and sessions stay on your machines.
 - Voice transcription runs fully locally on-device (no audio leaves your machine).
 

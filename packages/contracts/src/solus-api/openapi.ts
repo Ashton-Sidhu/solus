@@ -41,7 +41,7 @@ export function solusApiOpenApi() {
   return {
     openapi: '3.1.1', info: { title: 'Solus Workspace API', version: '1.0.0' },
     paths: Object.fromEntries([...new Set(entries.map(entry => entry.path))].map(path => [path, Object.fromEntries(entries.filter(entry => entry.path === path).map(entry => [entry.method, entry.definition]))])),
-    components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'Exchange a verified source credential at /v1/auth/session. Resource requests use the returned short-lived credential.' } }, schemas: { Error: jsonSchema(workspaceErrorSchema),
+    components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', description: 'An access token for the Solus API (`aud` includes urn:solus:api), or a pairing session token on a host. A token that lists several organizations works in the one the Solus-Organization header names.' } }, schemas: { Error: jsonSchema(workspaceErrorSchema),
       ...Object.fromEntries([...sharedResponses].map(([schema, name]) => [name, jsonSchema(schema)])) } },
   }
 }

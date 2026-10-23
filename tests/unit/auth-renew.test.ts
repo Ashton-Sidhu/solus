@@ -5,11 +5,13 @@ import { io, type Socket } from 'socket.io-client'
 import type { TokenVerdict } from '@solus/server/admission/access-tokens'
 import { WsTransport, GRANT_RENEWAL_LEAD_MS, accessTokenEndsAt } from '@solus/client-core/ws-transport'
 import { hostAudience, type AccessTokenClaims } from '@solus/contracts/uplink'
+import { handshake } from './helpers/socket-handshake'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-const { issueGrantWsTicket, resetAuthStateForTests } = await import('@solus/server/admission/auth')
+const { resetAuthStateForTests } = await import('@solus/server/admission/auth')
+const { createDoors } = await import('@solus/server/admission/doors')
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
 const { attachWebSocketTransport } = await import('@solus/server/transport/websocket')
@@ -46,18 +48,15 @@ async function verify(token: string): Promise<TokenVerdict> {
 }
 
 async function host() {
-  const http = createServer((request, response) => {
-    // The ticket door for a token: the owner's grant ticket, to the token's end.
-    const bearer = request.headers.authorization?.slice('Bearer '.length) ?? ''
-    const end = accessTokenEndsAt(bearer)
-    const ticket = request.url === '/auth/ws-ticket' && end ? issueGrantWsTicket({ userId: 'user_1', deviceId: 'grant_1', expiresAt: end }) : null
-    response.statusCode = ticket ? 200 : 401
-    response.setHeader('content-type', 'application/json')
-    response.end(JSON.stringify(ticket ? { ticket } : {}))
-  })
+  const http = createServer((_request, response) => { response.writeHead(404).end() })
   const server = new SolusServer()
   registerAuthHandlers(server)
-  const transport = attachWebSocketTransport(http, server, { clientEvents: new ClientEventRegistry(), requireAuth: true, verifyAccessToken: verify })
+  const transport = attachWebSocketTransport(http, server, {
+    clientEvents: new ClientEventRegistry(),
+    requireAuth: true,
+    verifyAccessToken: verify,
+    doors: createDoors({ place: 'host', verifyAccessToken: verify }),
+  })
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
   cleanups.push(() => transport.close())
   const address = http.address()
@@ -80,8 +79,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
 describe('authRenew on the host', () => {
   test('the next token of the same person keeps the socket open past the old end; another person or audience does not', async () => {
     const { url } = await host()
-    const ticket = issueGrantWsTicket({ userId: 'user_1', deviceId: 'grant_1', expiresAt: Date.now() + 400 })
-    const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { ticket } })
+    const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: handshake({ kind: 'access-token', token: jwt({ exp: (Date.now() + 400) / 1000 }) }) })
     cleanups.push(() => socket.disconnect())
     await waitFor(() => socket.connected)
 
@@ -96,8 +94,7 @@ describe('authRenew on the host', () => {
 
   test('a refused renewal leaves the old end in place', async () => {
     const { url } = await host()
-    const ticket = issueGrantWsTicket({ userId: 'user_1', deviceId: 'grant_1', expiresAt: Date.now() + 300 })
-    const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { ticket } })
+    const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: handshake({ kind: 'access-token', token: jwt({ exp: (Date.now() + 300) / 1000 }) }) })
     cleanups.push(() => socket.disconnect())
     await waitFor(() => socket.connected)
     expect((await renew(socket, jwt({ sub: 'user_2' }))).error).toBeDefined()
@@ -112,7 +109,7 @@ describe('authRenew from the client transport', () => {
     // The first token ends just past the renewal lead, so the renewal is due at once.
     const tokens = [jwt({ exp: nowSeconds + GRANT_RENEWAL_LEAD_MS / 1000 + 1 }), jwt({ exp: nowSeconds + 600 })]
     let acquired = 0
-    const client = new WsTransport({ serverUrl: url, sessionToken: '', acquireGrant: async () => tokens[Math.min(acquired++, 1)] })
+    const client = new WsTransport({ serverUrl: url, sessionToken: '', grants: { acquire: async () => tokens[Math.min(acquired++, 1)] ?? null, isSignedOut: () => false } })
     cleanups.push(() => client.destroy())
     client.start()
     const endOf = () => {

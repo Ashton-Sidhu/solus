@@ -2,6 +2,7 @@
   import { onMount, tick, untrack, type Snippet } from "svelte";
   import { uuid } from "@solus/contracts/uuid";
   import { FileTree } from "@pierre/trees";
+  import { changedFileKind, filterChangedFiles, type ChangeKind } from "@solus/client-core/change-breakdown";
   import DiffActionBar from "./DiffActionBar.svelte";
   import { diffViewPreferences } from "../../lib/diff-view-preferences.svelte";
   import DiffToolbar, { type HeaderStats } from "./DiffToolbar.svelte";
@@ -357,6 +358,7 @@
   export async function openFileFromMap(displayPath: string) {
     const fullPath = toFullPath(displayPath);
     view = "diff";
+    revealFilteredFile(fullPath);
     await tick();
     draft.clear();
     streamRef?.scrollToFile(fullPath);
@@ -400,6 +402,7 @@
     if (key === prevInitialScopeKey) return;
     prevInitialScopeKey = key;
     selectedScope = initialScope;
+    showAllFiles = false;
     draft.clear();
     const showsFirstFile = hasPendingScopeChoice;
     hasPendingScopeChoice = false;
@@ -414,6 +417,7 @@
     if (!mounted || patch === prevPatchOverride) return;
     prevPatchOverride = patch;
     selectedScope = initialScope;
+    showAllFiles = false;
     draft.clear();
     void startLoad();
   });
@@ -474,6 +478,7 @@
   // selection/draft state and reload the diff for the new transcript.
   function resetForNewTranscript() {
     selectedScope = initialScope;
+    showAllFiles = false;
     draft.clear();
     diffState.dispose();
     if (sess) void session.lifecycle.refreshTurnSnapshots(sess.id);
@@ -500,7 +505,20 @@
     resetForNewTranscript();
   });
 
-  const treeFiles = $derived(diff ? diffState.fileDiffs : []);
+  let showAllFiles = $state(false);
+  const selectedKinds = $derived(showAllFiles ? null : diffViewPreferences.changeKinds);
+
+  function selectKinds(kinds: ChangeKind[] | null) {
+    showAllFiles = false;
+    diffViewPreferences.setChangeKinds(kinds);
+  }
+  const allFiles = $derived(diff ? diffState.fileDiffs : []);
+  const visibleFiles = $derived(filterChangedFiles(allFiles, selectedKinds, diffFilePath));
+  const treeFiles = $derived(view === "diff" ? visibleFiles : allFiles);
+
+  function revealFilteredFile(path: string) {
+    if (selectedKinds !== null && !selectedKinds.includes(changedFileKind(path))) showAllFiles = true;
+  }
 
   const diffComments = $derived(
     externalComments ?? (sess?.diffComments?.slice() ?? []),
@@ -539,7 +557,7 @@
         ? displayedWorktreeBranch
         : (checkoutGit(sess?.run)?.branch ?? worktreeBranch),
   );
-  const reviewChangedFiles = $derived(toChangedFileSummaries(treeFiles));
+  const reviewChangedFiles = $derived(toChangedFileSummaries(allFiles));
 
   async function handleTurnSelect(index: number | null) {
     const next: DiffScope =
@@ -605,9 +623,11 @@
   $effect(() => {
     const nav = pendingNavigate;
     const stream = streamRef;
-    if (!nav || !stream || !diff) return;
-    pendingNavigate = null;
+    if (!nav || !diff) return;
     showDiffView();
+    revealFilteredFile(nav.path);
+    if (!stream) return;
+    pendingNavigate = null;
     void tick().then(() => {
       stream.ensureExpanded(nav.path);
       if (nav.line != null) stream.scrollToLine(nav.path, nav.line, nav.side);
@@ -827,6 +847,7 @@
       side: c.side,
     };
     showDiffView();
+    revealFilteredFile(c.filePath);
     void tick().then(() => streamRef?.scrollToLine(c.filePath, c.endLine, c.side));
   }
 
@@ -840,6 +861,7 @@
     const side = t.side === "LEFT" ? "old" : "new";
     draft.range = { startLine: line, endLine: line, side };
     showDiffView();
+    revealFilteredFile(t.filePath);
     void tick().then(() => streamRef?.scrollToLine(t.filePath, line, side));
   }
 
@@ -973,6 +995,7 @@
     const next = ((idx === -1 ? 0 : idx + dir) + paths.length) % paths.length;
     draft.clear();
     showDiffView();
+    revealFilteredFile(paths[next]);
     void tick().then(() => {
       streamRef?.scrollToFile(paths[next]);
       syncTreeTo(paths[next]);
@@ -1143,6 +1166,8 @@
       additions={headerStats?.additions ?? 0}
       deletions={headerStats?.deletions ?? 0}
       changedFiles={reviewChangedFiles}
+      selectedKinds={selectedKinds}
+      onSelectKinds={view === "diff" ? selectKinds : undefined}
       baseLabel={targetBranch}
       {reviewScope}
       onSelectScope={onSelectScope ? selectHostScope : undefined}
@@ -1175,6 +1200,10 @@
     {targetBranch}
     fallbackBranch={checkoutGit(sess?.run)?.branch ?? null}
     {headerStats}
+    changedFiles={reviewChangedFiles}
+    {selectedKinds}
+    onSelectKinds={view === "diff" ? selectKinds : undefined}
+    onOpenFile={(path) => void openFileFromMap(toTreeDisplayPath(path))}
     diffStyle={effectiveDiffStyle}
     onSetStyle={(style) => diffViewPreferences.setDiffStyle(style)}
     tokenHighlight={diffViewPreferences.tokenHighlight}
@@ -1243,6 +1272,11 @@
       onRetry={startLoad}
       {stacked}
     />
+  {:else if treeFiles.length === 0 && selectedKinds !== null && allFiles.length > 0}
+    <div class="flex flex-1 flex-col items-center justify-center gap-3 text-workspace-chrome text-(--solus-text-tertiary)">
+      <p>No files match this filter.</p>
+      <button type="button" class="cursor-pointer rounded-md px-3 py-2 text-foreground hover:bg-(--wash-1) focus-visible:outline-2" onclick={() => selectKinds(null)}>Show all files</button>
+    </div>
   {:else if treeFiles.length === 0}
     <DiffEmptyState
       {selectedTurnIndex}

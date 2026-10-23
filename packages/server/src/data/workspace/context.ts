@@ -3,7 +3,9 @@ import { z } from 'zod'
 import type { ResourceVerb } from '@solus/contracts/permissions'
 import type { SolusApiScope } from '@solus/contracts/solus-api'
 import { recordScopeOf, organizationForNew, type RecordScope } from '../../admission/principal'
-import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
+import { requestAttribution, type WorkspaceRequestContext } from '../../admission/workspace-credentials'
+import { actorFor, attributionOf } from '../../admission/actor'
+import type { Attribution } from '@solus/contracts/user'
 import { SolusApiError } from '../../admission/workspace-error'
 import { authorize, type ResourceAccess } from '../../admission/access-policy'
 import type { AccessResource } from '../../admission/access'
@@ -16,6 +18,14 @@ export function apiScope(context: WorkspaceRequestContext): RecordScope {
 }
 export function apiOrganization(context: WorkspaceRequestContext): string {
   return context.home.kind === 'organization' ? context.home.organizationId : context.actingAgent?.organizationId ?? organizationForNew(context.principal)
+}
+/**
+ * Who a write names: the caller. A host's agent acting for a person names no session
+ * on its credential, so the session it names in the request is the agent's.
+ */
+export function writerAttribution(context: WorkspaceRequestContext, sessionId: string | null | undefined): Attribution {
+  if (context.actingAgent && !context.actingAgent.sessionId && sessionId) return attributionOf(actorFor(context.principal), { sessionId })
+  return requestAttribution(context)
 }
 /** The one scope check, on the operation itself, so HTTP and in-process tools cannot differ. */
 export function requireScope(context: WorkspaceRequestContext, scope: SolusApiScope): void {

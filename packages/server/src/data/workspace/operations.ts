@@ -1,7 +1,7 @@
 import type {
-  WorkspaceCreateTask, WorkspaceUpdateTask, WorkspaceTask, WorkspaceTaskPage, WorkspaceTaskQuery,
+  WorkspaceCreateTask, WorkspaceCreateTaskComment, WorkspaceTaskComment, WorkspaceLink, WorkspaceLinkDelete, WorkspaceUpdateTask, WorkspaceTask, WorkspaceTaskPage, WorkspaceTaskQuery,
   WorkspaceCreateWork, WorkspaceImportWork, WorkspacePublishWork, WorkspaceRequestWorkReview, WorkspaceWorkReview, WorkspaceWorkUpstream, WorkspaceUpdateWork, WorkspaceWork, WorkspaceWorkPage, WorkspaceWorkQuery, WorkspaceWorkSearchQuery, WorkspaceWorkSearchResult,
-  WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequest, WorkspaceSessionPullRequestList, WorkspaceSessionPullRequestPut, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage,
+  WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequestList, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage,
   WorkspaceInsight, WorkspaceInsightPage, WorkspaceInsightQuery, WorkspaceInsightTree,
   WorkspaceActivityList, WorkspaceActivityQuery, WorkspaceMyActivityQuery,
   WorkspaceNotificationArchived, WorkspaceNotificationPage, WorkspaceNotificationQuery, WorkspaceNotificationRead,
@@ -16,6 +16,7 @@ export interface WorkspaceOperations {
   createTask(context: WorkspaceRequestContext, input: WorkspaceCreateTask, key: string): Promise<WorkspaceTask>
   updateTask(context: WorkspaceRequestContext, taskId: string, input: WorkspaceUpdateTask, version: string): Promise<WorkspaceTask>
   deleteTask(context: WorkspaceRequestContext, taskId: string, version: string): Promise<void>
+  createTaskComment(context: WorkspaceRequestContext, taskId: string, input: WorkspaceCreateTaskComment, key: string): Promise<WorkspaceTaskComment>
   listWorks(context: WorkspaceRequestContext, query: WorkspaceWorkQuery): Promise<WorkspaceWorkPage>
   searchWorks(context: WorkspaceRequestContext, query: WorkspaceWorkSearchQuery): Promise<WorkspaceWorkSearchResult>
   importWork(context: WorkspaceRequestContext, input: WorkspaceImportWork, key: string): Promise<WorkspaceWork>
@@ -36,8 +37,9 @@ export interface WorkspaceOperations {
   /** Settle a session for every person, or archive and snooze it in the caller's own list. */
   updateSession(context: WorkspaceRequestContext, sessionId: string, input: WorkspaceUpdateSession): Promise<WorkspaceSessionChanged>
   listSessionPullRequests(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionPullRequestList>
-  putSessionPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }, input: WorkspaceSessionPullRequestPut): Promise<WorkspaceSessionPullRequest>
-  deleteSessionPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }): Promise<void>
+  /** Link a task or a session to another record; the same link again changes nothing. */
+  putLink(context: WorkspaceRequestContext, input: WorkspaceLink): Promise<void>
+  deleteLink(context: WorkspaceRequestContext, input: WorkspaceLinkDelete): Promise<void>
   listSessionMessages(context: WorkspaceRequestContext, sessionId: string, query: WorkspacePageQuery): Promise<WorkspaceTranscriptPage>
   listInsights(context: WorkspaceRequestContext, query: WorkspaceInsightQuery): Promise<WorkspaceInsightPage>
   getInsight(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsight>

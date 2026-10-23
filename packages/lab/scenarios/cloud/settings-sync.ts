@@ -18,7 +18,7 @@ import type { SignedIn } from '../../src/cloud-sign-in'
  * host's own `HOME` in its data directory, never the developer's.
  */
 
-const PROFILE_PATH = '/v1/account/agent-profile'
+const PROFILE_PATH = '/v1/agent-profile'
 
 export default cloudModeScenario('settings sync: one client\'s setting reaches the other, a stale write is refused, the profile reaches a host', async (ctx) => {
   const desktop = await ctx.signIn('alice')

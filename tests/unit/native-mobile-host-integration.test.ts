@@ -40,6 +40,7 @@ beforeAll(async () => {
   const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
   const { HostEventPublisher } = await import('@solus/server/transport/events/host-event-publisher')
   const { attachWebSocketTransport } = await import('@solus/server/transport/websocket')
+  const { createDoors } = await import('@solus/server/admission/doors')
 
   http = createServer(async (request, response) => {
     const json = (status: number, body: object) => {
@@ -47,7 +48,6 @@ beforeAll(async () => {
       response.setHeader('content-type', 'application/json')
       response.end(JSON.stringify(body))
     }
-    const bearer = request.headers.authorization?.replace(/^Bearer /, '') ?? ''
     if (request.method === 'GET' && request.url === '/health') return json(200, { ok: true, installationId: INSTALLATION_ID, name: 'Disposable host', os: 'linux' })
     if (request.method === 'POST' && request.url === '/pair') {
       const body = JSON.parse(await readBody(request)) as { pairToken: string; deviceLabel: string }
@@ -55,10 +55,6 @@ beforeAll(async () => {
       pairedLabels.push(body.deviceLabel)
       const { token } = auth.issueSessionToken(body.deviceLabel)
       return json(200, { sessionToken: token, installationId: INSTALLATION_ID, os: 'linux' })
-    }
-    if (request.method === 'POST' && request.url === '/auth/ws-ticket') {
-      const ticket = auth.issueWsTicket(bearer)
-      return ticket ? json(200, { ticket }) : json(401, { error: 'unauthorized' })
     }
     if (request.url?.startsWith('/v1/')) httpRecordRequests.push(request.url)
     response.statusCode = 404
@@ -87,7 +83,7 @@ beforeAll(async () => {
   })
   const clientEvents = new ClientEventRegistry()
   const events = new HostEventPublisher(clientEvents)
-  const transport = attachWebSocketTransport(http, server, { clientEvents, requireAuth: true })
+  const transport = attachWebSocketTransport(http, server, { clientEvents, requireAuth: true, doors: createDoors({ place: 'host' }) })
   closeTransport = () => transport.close()
   publishToAll = (sessionId, text) => events.publish(clientEvents.routableClientIds(), 'session.eventReceived', { sessionId, event: { type: 'text_chunk', text } })
   const listening = http
@@ -163,7 +159,7 @@ describe('native client against a disposable host', () => {
     await app.threads.load(host.id)
     expect(app.threads.threads().map((thread) => [thread.record.sessionId, thread.record.title])).toEqual([['thread-1', 'Fix the build']])
     expect(socketRecordReads.length).toBeGreaterThan(0)
-    for (const read of socketRecordReads) expect(read).toEqual({ path: expect.stringMatching(/^\/sessions\?/), principal: 'local-owner' })
+    for (const read of socketRecordReads) expect(read).toEqual({ path: expect.stringMatching(/^\/sessions\?/), principal: 'owner' })
     expect(httpRecordRequests).toEqual([])
 
     await app.registry.forget(host.id)

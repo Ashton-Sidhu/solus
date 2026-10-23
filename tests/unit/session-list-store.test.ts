@@ -154,3 +154,26 @@ test('a session no list names finds its home from its organization and publicati
     expect(store.homeFor({ serverId: 'runner', sessionId: 'c', organizationId: 'org-1' })).toBe('runner')
   } finally { restore() }
 })
+
+test('switching organizations replaces cached sessions and preserves Local and list state', async () => {
+  let organizationId: string | null = 'org-1'
+  const { store, fakes, restore } = fakeHomes({
+    host: [record('local'), record('legacy', { organizationId: undefined })],
+    'workspace:org-1': [record('first', { organizationId: 'org-1', view: snoozed })],
+    'workspace:org-2': [record('second', { organizationId: 'org-2' })],
+  })
+  try {
+    await store.load()
+    expect(store.sessionsInOrganization(organizationId).map((session) => session.sessionId)).toEqual(['local', 'legacy', 'first'])
+    const first = store.listed('first')
+    organizationId = 'org-2'
+    expect(store.sessionsInOrganization(organizationId).map((session) => session.sessionId)).toEqual(['local', 'legacy', 'second'])
+    organizationId = null
+    expect(store.sessionsInOrganization(organizationId).map((session) => session.sessionId)).toEqual(['local', 'legacy'])
+    organizationId = 'org-1'
+    expect(store.sessionsInOrganization(organizationId).map((session) => session.sessionId)).toEqual(['local', 'legacy', 'first'])
+    expect(store.listed('first')).toBe(first!)
+    expect(store.stateFor('first')?.snoozedUntil).toBe(100)
+    expect([...fakes.values()].map((home) => home.lists.length)).toEqual([1, 1, 1])
+  } finally { restore() }
+})

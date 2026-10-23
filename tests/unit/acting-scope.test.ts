@@ -9,7 +9,7 @@ import { installTestIdentities } from './helpers/acting-identities'
 // connections; the host's owner and the host itself act as the host. Outside
 // any edge there is no answer, and asking is an error, never the host.
 
-const OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
+const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 const MEMBER: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Bob', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
 const SYSTEM: Principal = { kind: 'system' }
 

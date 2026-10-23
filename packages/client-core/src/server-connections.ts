@@ -1,51 +1,33 @@
 /// <reference types="vite/client" />
-import type { ConnectionsServerInfo, SolusAPI } from '@solus/contracts/host-api'
+import type { ConnectionsServerInfo, NativeSolusAPI, SolusAPI } from '@solus/contracts/host-api'
+import { mergeNativeOnlySolusApi } from './native-api-overlay'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
 import {
   awaitsManagedCompute,
   chooseRunOnHost,
-  dialableRoutes,
-  installationIdDecision,
   loadServers,
   LOCAL_SERVER_ID,
-  nextRouteUrl,
   savedServerRoutes,
   stampHostOperatingSystem,
 } from './server-registry'
 import { activeWorkspace, ambiguousOrganizationIds, loadWorkspaces, savedWorkspaceFor, workspaceTarget } from './workspace-registry'
 import { solusApiId } from '@solus/contracts/uplink'
-import type { WsTransport, ConnectionStatus } from './ws-transport'
+import type { WsTransport } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import type { BrowserFrameSubscriber } from './browser-frame-subscriber'
-import { HostSupervisor, type HostPhase } from './host-supervisor'
+import type { BlockedReason, HostPhase, HostSupervisor } from './host-supervisor'
 import { onWakeSignal } from './wake-signals'
 import { asHostApi, type HostApi } from './host-api'
-import type { HostCapabilities, HostOperatingSystem } from '@solus/contracts/types'
-import { z } from 'zod'
-import { HostFacts, type HostPresence } from './host-facts'
+import type { HostCapabilities } from '@solus/contracts/types'
+import type { HostFacts, HostPresence } from './host-facts'
 import { HostGoneError } from './rpc-error'
 import { HostIntroducer, type IntroducerHost } from './host-introducer'
-import { chooseRoute, directRouteBack, DIRECT_ROUTE_RECHECK_MS } from './route-choice'
+import { HostLink, isSavedHost, readHostHealth, type HostHealth } from './host-link'
 
 const CACHE_TTL_MS = 60_000
 const HEALTH_TIMEOUT_MS = 3_000
 
-export interface ServerHealth {
-  ok: boolean
-  installationId: string
-  name: string
-  os?: HostOperatingSystem
-}
-
-// `ok`, `installationId`, and `name` are the identity contract and stay
-// required; everything else degrades alone so a newer host's additions never
-// null the whole health record and silently stop identity verification.
-const serverHealthSchema = z.object({
-  ok: z.literal(true),
-  installationId: z.string().min(1),
-  name: z.string().min(1),
-  os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
-})
+export type ServerHealth = HostHealth
 
 export interface ManagedConnection {
   serverId: string
@@ -53,18 +35,17 @@ export interface ManagedConnection {
    *  and every call rejects with `HostGoneError`. */
   presence: HostPresence
   target: SolusServerTarget
+  /** The host's link: transport, supervisor, route choice, and facts. */
+  link: HostLink
   transport: WsTransport
   api: SolusAPI
   events: HostEventSubscriber
-  status: ConnectionStatus
-  attempt: number
   /** The one owner of this host's connection lifecycle and retry policy. */
   supervisor: HostSupervisor
   /** Everything read about this host, shared by every reader (docs/plans/host-model.md). */
   facts: HostFacts
 }
 
-type StatusListener = (serverId: string, status: ConnectionStatus, attempt: number) => void
 type ConnectionListener = (connection: ManagedConnection) => void
 type PhaseListener = (serverId: string, phase: HostPhase, attempt: number) => void
 
@@ -87,8 +68,7 @@ function awaitsManagedHost(serverId: string): boolean {
 export class ServerConnections {
   private readonly connections = new Map<string, ManagedConnection>()
   private readonly targets = new Map<string, SolusServerTarget>()
-  private readonly localTokenRefreshers = new Map<string, () => Promise<string>>()
-  private readonly statusListeners = new Set<StatusListener>()
+  private readonly localBridges = new Map<string, { refreshSessionToken: () => Promise<string>; nativeApi: NativeSolusAPI }>()
   private readonly connectionListeners = new Set<ConnectionListener>()
   private readonly phaseListeners = new Set<PhaseListener>()
   /** Introduces the hosts this client owns to each other (docs/plans/host-reach.md §4). */
@@ -101,67 +81,36 @@ export class ServerConnections {
   /** Connections made but not dialed: a managed host the directory does not call ready yet. */
   private readonly undialedServerIds = new Set<string>()
   private primaryServerId: string | null = null
-  /** Hosts reached through their tunnel, and the timer that next checks their direct routes. */
-  private readonly directRechecks = new Map<string, ReturnType<typeof setTimeout>>()
 
   constructor() {
     // One classified wake stream fans out to every supervisor: N hosts must
     // not mean N window listeners each re-deciding what a wake meant.
     onWakeSignal((signal) => {
       for (const connection of this.connections.values()) {
-        if (connection.presence === 'gone' || this.undialedServerIds.has(connection.serverId)) continue
-        connection.supervisor.handleWakeSignal(signal)
-        // A wake is often a network change: a host reached through its tunnel may be on this network now.
-        if (connection.supervisor.phase === 'connected') void this.returnToDirectRoute(connection.serverId)
+        if (this.undialedServerIds.has(connection.serverId)) continue
+        connection.link.wake(signal)
       }
     })
   }
 
-  registerTarget(target: SolusServerTarget, refreshLocalSessionToken?: () => Promise<string>): void {
+  /** A host this client knows besides its saved ones: the desktop's own machine, a guest's shared resource. The desktop gives its native bridge, whose native-only methods join the host's API. */
+  registerTarget(target: SolusServerTarget, local?: { refreshSessionToken: () => Promise<string>; nativeApi: NativeSolusAPI }): void {
     this.targets.set(target.id, target)
-    if (refreshLocalSessionToken) this.localTokenRefreshers.set(target.id, refreshLocalSessionToken)
+    if (local) this.localBridges.set(target.id, local)
   }
 
-  registerPrimary(
-    serverId: string,
-    api: SolusAPI,
-    transport: WsTransport,
-    target: SolusServerTarget,
-  ): ManagedConnection {
+  /**
+   * Installs a connection whose transport the caller made: the in-page demo, whose
+   * backend answers every dial at once. Every app dials through `setPrimary`.
+   */
+  registerPrimary(serverId: string, api: SolusAPI, transport: WsTransport, target: SolusServerTarget): ManagedConnection {
     this.targets.set(serverId, target)
     const existing = this.connections.get(serverId)
-    const previousPrimaryId = this.primaryServerId
-    if (previousPrimaryId && previousPrimaryId !== serverId) {
-      const displaced = this.connections.get(previousPrimaryId)
-      if (displaced) this.destroyConnection(displaced)
-      this.connections.delete(previousPrimaryId)
-      this.clearConnectionReads(previousPrimaryId)
-    }
-    // Re-selecting the same saved host creates a fresh transport. Destroy the
-    // displaced socket before replacing the map entry or it dials forever
-    // with no remaining owner.
-    if (existing && existing.transport !== transport) {
-      this.clearConnectionReads(serverId)
-      this.destroyConnection(existing)
-    }
-    const facts = new HostFacts(serverId, { api: asHostApi(api), events: transport.events })
-    const connection: ManagedConnection = {
-      serverId,
-      presence: 'present',
-      target,
-      transport,
-      api,
-      events: transport.events,
-      status: existing?.status ?? 'disconnected',
-      attempt: existing?.attempt ?? 0,
-      // The boot-created primary is supervised like everything else; boot's
-      // own transport.start() is simply the first dial.
-      supervisor: this.superviseTransport(serverId, transport, facts),
-      facts,
-    }
+    if (existing && existing.transport !== transport) this.destroyConnection(existing)
+    const connection = this.managedConnection(serverId, target, transport, api, 'present')
+    this.connections.set(serverId, connection)
     this.primaryServerId = serverId
     this.emitPrimaryChange()
-    this.connections.set(serverId, connection)
     this.emitConnectionCreated(connection)
     return connection
   }
@@ -175,13 +124,19 @@ export class ServerConnections {
       this.followSavedRoutes(connection)
       if (this.undialedServerIds.has(serverId) && !awaitsManagedHost(serverId)) {
         this.undialedServerIds.delete(serverId)
-        connection.supervisor.start()
+        connection.link.start()
       }
     }
   }
 
+  /** Where a host's connection stands: the one status every surface reads. */
   phaseFor(serverId: string): HostPhase | undefined {
-    return this.connections.get(this.resolveId(serverId))?.supervisor.phase
+    return this.connections.get(this.resolveId(serverId))?.link.phase
+  }
+
+  /** Why a blocked host is blocked; null for one that is not. */
+  blockedReasonFor(serverId: string): BlockedReason | null {
+    return this.connections.get(this.resolveId(serverId))?.link.blockedReason ?? null
   }
 
   onPhaseChange(listener: PhaseListener): () => void {
@@ -193,20 +148,30 @@ export class ServerConnections {
   dialNow(serverId: string): void {
     const resolved = this.resolveId(serverId)
     this.undialedServerIds.delete(resolved)
-    this.connections.get(resolved)?.supervisor.dialNow()
+    this.connections.get(resolved)?.link.dialNow()
+  }
+
+  /** The account holds a sign-in again: every host blocked on sign-in dials now. */
+  dialHostsBlockedOnSignIn(): void {
+    for (const connection of this.connections.values()) {
+      if (connection.link.blockedReason === 'auth') connection.link.dialNow()
+    }
   }
 
   /** Move the new-work default to another catalog host, in place. Hosts are
    *  symmetric and stay connected (dispatch-client step 5): the displaced
-   *  host keeps its supervised socket and every live session on it. */
-  setPrimary(serverId: string): void {
+   *  host keeps its supervised socket and every live session on it. Boot names
+   *  its first host here too, and the connection it gets is that host's. */
+  setPrimary(serverId: string): ManagedConnection {
     const resolved = this.resolveId(serverId)
-    this.ensure(resolved)
+    const connection = this.ensure(resolved)
     this.primaryServerId = resolved
     this.emitPrimaryChange()
+    return connection
   }
 
-  private catalogServerIds(): string[] {
+  /** The hosts this client holds: the registered local target, the primary, every saved host, and the active organization's Solus API. */
+  catalogServerIds(): string[] {
     const ids = new Set<string>()
     let localInstallationId: string | undefined
     for (const [id, target] of this.targets) {
@@ -242,119 +207,6 @@ export class ServerConnections {
     this.startCatalogSupervisors()
   }
 
-  private superviseTransport(serverId: string, transport: WsTransport, facts: HostFacts): HostSupervisor {
-    const supervisor = new HostSupervisor({
-      transport: { start: () => this.dialBestRoute(serverId, transport), probe: () => transport.probe() },
-      onSessionChange: (change) => facts.sessionChanged(change),
-      onPhaseChange: (phase, attempt) => {
-        for (const listener of this.phaseListeners) listener(serverId, phase, attempt)
-        this.scheduleDirectRecheck(serverId, phase)
-        if (phase === 'connected') this.introducer.run()
-      },
-      // Decorate the legacy status stream with the supervisor's attempt count,
-      // which the transport no longer knows.
-      onDialFailed: (attempt) => {
-        const connection = this.connections.get(serverId)
-        if (!connection || connection.status === 'connected') return false
-        this.updateStatus(serverId, connection.status, attempt)
-        // A failed dial on one route is the cue to try the host's next one (C3).
-        return this.advanceRoute(serverId, attempt)
-      },
-    })
-    transport.attachDialOutcomeReporter((outcome) => supervisor.report(outcome))
-    return supervisor
-  }
-
-  /**
-   * Direct-first dialing (docs/plans/personal-uplink.md, C3): a host is dialed on its
-   * direct route first and the tunnel is the fallback. Each dial first checks every
-   * route (`dialBestRoute`); a dial that still fails re-aims the standing socket at the
-   * next route, round-robin, so the supervisor's next dial goes out there. Returns true while the run of failed
-   * dials has not yet tried every route, so the new one is dialed without waiting:
-   * a host away from its LAN reaches its tunnel at once.
-   */
-  private advanceRoute(serverId: string, attempt: number): boolean {
-    const connection = this.connections.get(serverId)
-    const routes = connection?.target.routes
-    if (!connection || !routes) return false
-    const clientOrigin = globalThis.location?.origin ?? ''
-    const next = nextRouteUrl(routes, connection.target.url, clientOrigin)
-    if (!next) return false
-    connection.target.url = next
-    connection.transport.switchServerUrl(next)
-    this.healthCache.delete(serverId)
-    return attempt < dialableRoutes(routes, clientOrigin).length
-  }
-
-  /**
-   * Each dial goes to the route that answers first as this host (`chooseRoute`), so a
-   * host away from its network reaches its tunnel without waiting on a dead address.
-   * A host with one route, or none this page can dial, is dialed as it is.
-   */
-  private dialBestRoute(serverId: string, transport: WsTransport): void {
-    const connection = this.connections.get(serverId)
-    const routes = connection?.transport === transport ? connection.target.routes : undefined
-    const dialable = routes ? dialableRoutes(routes, globalThis.location?.origin ?? '') : []
-    if (!connection || dialable.length < 2) {
-      transport.start()
-      return
-    }
-    void chooseRoute(dialable, (url, signal) => this.answersAsHost(connection.target, url, signal)).then((route) => {
-      if (this.connections.get(serverId) !== connection) return
-      if (route) this.aimAt(connection, route.url)
-      transport.start()
-    })
-  }
-
-  /** Moves a host reached through its tunnel back to a direct route that answers, and dials it there. */
-  private async returnToDirectRoute(serverId: string): Promise<void> {
-    const connection = this.connections.get(serverId)
-    const routes = connection?.target.routes
-    if (!connection || !routes) return
-    const dialable = dialableRoutes(routes, globalThis.location?.origin ?? '')
-    const route = await directRouteBack(dialable, connection.target.url, (url, signal) => this.answersAsHost(connection.target, url, signal))
-    if (!route || this.connections.get(serverId) !== connection || connection.supervisor.phase !== 'connected') return
-    this.aimAt(connection, route.url)
-    connection.supervisor.dialNow()
-  }
-
-  /** While a host is connected through its tunnel, its direct routes are checked again now and then. */
-  private scheduleDirectRecheck(serverId: string, phase: HostPhase): void {
-    const pending = this.directRechecks.get(serverId)
-    if (pending) clearTimeout(pending)
-    this.directRechecks.delete(serverId)
-    const connection = this.connections.get(serverId)
-    const current = connection?.target.routes?.find((route) => route.url === connection.target.url)
-    if (phase !== 'connected' || current?.kind !== 'tunnel') return
-    this.directRechecks.set(serverId, setTimeout(() => {
-      this.directRechecks.delete(serverId)
-      void this.returnToDirectRoute(serverId).finally(() => {
-        if (this.connections.get(serverId)?.supervisor.phase === 'connected') this.scheduleDirectRecheck(serverId, 'connected')
-      })
-    }, DIRECT_ROUTE_RECHECK_MS))
-  }
-
-  private aimAt(connection: ManagedConnection, url: string): void {
-    if (connection.target.url === url) return
-    connection.target.url = url
-    connection.transport.switchServerUrl(url)
-    this.healthCache.delete(connection.serverId)
-  }
-
-  /** Whether `url` answers `/health` as the host this target names. No credential is sent. */
-  private async answersAsHost(target: SolusServerTarget, url: string, signal: AbortSignal): Promise<boolean> {
-    try {
-      const response = await fetch(`${url}/health`, { signal })
-      if (!response.ok) return false
-      const health = serverHealthSchema.safeParse(await response.json())
-      if (!health.success) return false
-      const saved = loadServers().find((server) => server.id === target.id)
-      return !saved || installationIdDecision(saved.installationId, health.data.installationId, saved.uplink) === 'match'
-    } catch {
-      return false
-    }
-  }
-
   /**
    * A connection copies its host's routes when it is made; the directory can change
    * them later (a managed host is reached at its machine's name once it links). Take
@@ -365,15 +217,9 @@ export class ServerConnections {
     if (target.local) return
     const saved = loadServers().find((server) => server.id === connection.serverId)
     if (!saved) return
-    const routes = savedServerRoutes(saved)
-    target.routes = routes
+    target.routes = savedServerRoutes(saved)
     if (saved.uplink) target.uplink = saved.uplink
-    if (routes.some((route) => route.url === target.url)) return
-    const [first] = dialableRoutes(routes, globalThis.location?.origin ?? '')
-    if (!first) return
-    target.url = first.url
-    connection.transport.switchServerUrl(first.url)
-    this.healthCache.delete(connection.serverId)
+    connection.link.followRoutes()
   }
 
   /** Identity since the web `local` alias died (dispatch-client step 5):
@@ -411,43 +257,44 @@ export class ServerConnections {
   }
 
   private connect(serverId: string, target: SolusServerTarget): ManagedConnection {
-    const { api, transport, events } = createSolusConnection(target, {
-      onStatusChange: (status, attempt) => this.updateStatus(serverId, status, attempt),
+    const bridge = this.localBridges.get(serverId)
+    const { api, transport } = createSolusConnection(target, {
       verifyConnectedHost: () => this.verifySavedServerIdentity(target),
-      refreshLocalSessionToken: this.localTokenRefreshers.get(serverId),
+      refreshLocalSessionToken: bridge?.refreshSessionToken,
     })
-    const facts = new HostFacts(serverId, { api: asHostApi(api), events })
-    return {
-      serverId,
-      presence: 'present',
-      target,
-      transport,
-      api,
-      events,
-      status: 'disconnected',
-      attempt: 0,
-      supervisor: this.superviseTransport(serverId, transport, facts),
-      facts,
-    }
+    return this.managedConnection(serverId, target, transport, bridge ? mergeNativeOnlySolusApi(api, bridge.nativeApi) : api, 'present')
   }
 
   private goneConnection(serverId: string): ManagedConnection {
     const target: SolusServerTarget = { id: serverId, label: serverId, url: '', sessionToken: '', local: false }
-    const { api, transport, events } = createSolusConnection(target)
+    const { api, transport } = createSolusConnection(target)
     transport.destroy('disconnected', new HostGoneError(serverId))
-    const facts = new HostFacts(serverId, { api: asHostApi(api), events, presence: 'gone' })
-    return {
-      serverId,
-      presence: 'gone',
-      target,
+    return this.managedConnection(serverId, target, transport, api, 'gone')
+  }
+
+  private managedConnection(serverId: string, target: SolusServerTarget, transport: WsTransport, api: SolusAPI, presence: HostPresence): ManagedConnection {
+    let wasConnected = false
+    const link = new HostLink({
+      hostId: serverId,
       transport,
-      api,
-      events,
-      status: 'disconnected',
-      attempt: 0,
-      supervisor: this.superviseTransport(serverId, transport, facts),
-      facts,
-    }
+      api: asHostApi(api),
+      presence,
+      routes: () => target.routes ?? [],
+      fallbackRoutes: () => target.fallbackRoutes ?? [],
+      clientOrigin: globalThis.location?.origin ?? '',
+      answersAsHost: (url, signal) => this.answersAsHost(target, url, signal),
+      onRouteChange: (url) => {
+        target.url = url
+        this.healthCache.delete(serverId)
+      },
+      onPhaseChange: (phase, attempt) => {
+        if (wasConnected && phase !== 'connected') this.clearConnectionReads(serverId)
+        wasConnected = phase === 'connected'
+        for (const listener of this.phaseListeners) listener(serverId, phase, attempt)
+        if (phase === 'connected') this.introducer.run()
+      },
+    })
+    return { serverId, presence, target, link, transport, api, events: link.events, supervisor: link.supervisor, facts: link.facts }
   }
 
   private addConnection(connection: ManagedConnection): ManagedConnection {
@@ -465,7 +312,7 @@ export class ServerConnections {
       this.emitConnectionCreated(connection)
       if (connection.presence === 'gone') return
       if (awaitsManagedHost(serverId)) this.undialedServerIds.add(serverId)
-      else connection.supervisor.start()
+      else connection.link.start()
     })
     return connection
   }
@@ -562,7 +409,7 @@ export class ServerConnections {
 
   /** The connected hosts where this client is the local owner: only they take part in introductions. */
   private async ownedHosts(): Promise<IntroducerHost[]> {
-    const connected = [...this.connections.values()].filter((connection) => connection.presence === 'present' && connection.supervisor.phase === 'connected')
+    const connected = [...this.connections.values()].filter((connection) => connection.presence === 'present' && connection.link.phase === 'connected')
     const hosts = await Promise.all(connected.map(async (connection): Promise<IntroducerHost | null> => {
       const info = await connection.facts.when('serverInfo').catch(() => null)
       if (info?.principal !== 'local-owner') return null
@@ -599,21 +446,6 @@ export class ServerConnections {
     const target = this.ensure(this.resolveId(serverId)).target
     // A gone host, or one the directory lists with no route yet, has no origin.
     return target.url ? new URL(target.url).origin : ''
-  }
-
-  updateStatus(serverId: string, status: ConnectionStatus, attempt = 0): void {
-    const connection = this.connections.get(serverId)
-    if (connection) {
-      if (connection.status === 'connected' && status !== 'connected') this.clearConnectionReads(serverId)
-      connection.status = status
-      connection.attempt = attempt
-    }
-    for (const listener of this.statusListeners) listener(serverId, status, attempt)
-  }
-
-  onStatusChange(listener: StatusListener): () => void {
-    this.statusListeners.add(listener)
-    return () => this.statusListeners.delete(listener)
   }
 
   /** The primary moved (boot or a Run on switch), so `runOnHostId()` may answer differently. */
@@ -653,16 +485,7 @@ export class ServerConnections {
   }
 
   private destroyConnection(connection: ManagedConnection): void {
-    const recheck = this.directRechecks.get(connection.serverId)
-    if (recheck) clearTimeout(recheck)
-    this.directRechecks.delete(connection.serverId)
-    connection.supervisor.destroy()
-    connection.transport.destroy()
-    connection.facts.dispose()
-  }
-
-  statusFor(serverId: string): ConnectionStatus {
-    return this.connections.get(this.resolveId(serverId))?.status ?? 'disconnected'
+    connection.link.destroy()
   }
 
   /** This host's facts, read once and shared (docs/plans/host-model.md). */
@@ -700,19 +523,11 @@ export class ServerConnections {
     if (!force && cached && cached.expiresAt > Date.now()) return cached.value
 
     const target = this.connections.get(serverId)?.target ?? this.resolveTarget(serverId)
-    let value: ServerHealth | null = null
+    let value: ServerHealth | null
     // A host the directory lists with no route yet has nothing to ask; `/health` alone is this page's origin.
     if (!target?.url) return null
-    try {
-      const response = await fetch(`${target.url}/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
-      if (response.ok) {
-        const body = serverHealthSchema.safeParse(await response.json())
-        if (body.success) {
-          value = body.data
-          if (body.data.os) stampHostOperatingSystem(serverId, body.data.os)
-        }
-      }
-    } catch {}
+    value = await readHostHealth(fetch, target.url, AbortSignal.timeout(HEALTH_TIMEOUT_MS))
+    if (value?.os) stampHostOperatingSystem(serverId, value.os)
     this.healthCache.set(serverId, { value, expiresAt: Date.now() + CACHE_TTL_MS })
     return value
   }
@@ -730,7 +545,15 @@ export class ServerConnections {
     // Only a successful health response can establish or reject identity. A
     // transient HTTP failure must not turn a working socket into a false match.
     if (!health) return true
-    return installationIdDecision(saved.installationId, health.installationId, saved.uplink) === 'match'
+    return isSavedHost(saved, health)
+  }
+
+  /** Whether `url` answers `/health` as the host this target names. No credential is sent. */
+  private async answersAsHost(target: SolusServerTarget, url: string, signal: AbortSignal): Promise<boolean> {
+    const health = await readHostHealth(fetch, url, signal)
+    if (!health) return false
+    const saved = loadServers().find((server) => server.id === target.id)
+    return !saved || isSavedHost(saved, health)
   }
 
   async projectIdentities(serverId: string, force = false): Promise<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>> {

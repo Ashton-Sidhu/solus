@@ -13,18 +13,17 @@ import { resolveHomePath } from '../../../platform/paths'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
 import { automationHomeOf, loadAutomation } from '../../../data/automations/automations-store'
 import { linkSessionItem } from '../../../data/sessions/session-links'
-import { recordOutboxOp } from '../../../sync/outbox/outbox-store'
+import type { WorkspaceLinkTarget } from '@solus/contracts/solus-api'
 import { toolAgentAttribution } from './agent-attribution'
 import type { TaskToolCtx, TaskToolResult } from './task-tools'
 
-/** Extend the existing link tool; remote writes use the same delivery path as session PR links. */
+/** Extend the existing link tool; an organization session's link is written on its Solus API. */
 export async function linkCallerItem(ctx: TaskToolCtx, input: { kind: 'work' | 'automation' | 'file'; target_id?: string; path?: string; title?: string }): Promise<TaskToolResult> {
   const sessionId = ctx.sessionId
   if (!sessionId) return { ok: false, text: 'link needs a calling session id.' }
   const home = await workspaceToolContext(sessionId)
   const session = await home.operations.getSession(home.context, sessionId)
   if (!roleAllows(session.role, 'edit')) return { ok: false, text: 'This session cannot be edited.' }
-  const actor = await toolAgentAttribution(ctx)
   let link: SessionLinkInput
   if (input.kind === 'work') {
     const work = await home.operations.getWork(home.context, input.target_id?.trim() ?? '')
@@ -39,12 +38,11 @@ export async function linkCallerItem(ctx: TaskToolCtx, input: { kind: 'work' | '
       : await automationLink(input.target_id, hostId, session.organizationId)
     link.title = input.title ?? link.title
   }
-  if (home.remote && home.context.home.kind === 'organization') {
-    recordOutboxOp({ domain: 'sessions', resourceId: sessionId, name: 'link-item', payload: { ...link, actor }, sessionId,
-      destination: 'cloud', organizationId: home.context.home.organizationId, actorUserId: home.deliveryActor ?? '' })
-    return { ok: true, text: `Link of ${input.kind} is queued for the session’s organization and appears with this machine’s next delivery.` }
+  if (home.remote) {
+    await home.operations.putLink(home.context, { from: { kind: 'session', id: sessionId }, to: linkTarget(link.target), title: link.title })
+    return { ok: true, text: `Linked ${input.kind} to this session.` }
   }
-  await linkSessionItem(sessionId, link, actor)
+  await linkSessionItem(sessionId, link, await toolAgentAttribution(ctx))
   return { ok: true, text: `Linked ${input.kind} to this session.` }
 }
 
@@ -65,4 +63,11 @@ async function automationLink(named: string | undefined, hostId: string, organiz
   const automation = await loadAutomation(id)
   if (!automation || automation.organizationId !== (organizationId ?? 'local')) throw new Error('Automation not found in the session’s organization.')
   return { target: { kind: 'automation', targetId: id, hostId }, title: automation.name }
+}
+
+/** A session item link as the Solus API's link route names it. */
+function linkTarget(target: SessionLinkInput['target']): WorkspaceLinkTarget {
+  if (target.kind === 'work') return { kind: 'work', id: target.targetId }
+  if (target.kind === 'automation') return { kind: 'automation', id: target.targetId, hostId: target.hostId }
+  return target
 }

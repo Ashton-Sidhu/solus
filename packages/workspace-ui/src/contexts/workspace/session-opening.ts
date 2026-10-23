@@ -1,4 +1,3 @@
-import type { TaskOpenTrace } from '../../components/session/lib/task-open-timing'
 import { hosts } from '../hosts/hosts.svelte'
 import type { Session, RunConfig, Message, SessionMeta } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
@@ -729,19 +728,15 @@ export class SessionOpening {
    * becomes a native task first, because a session binds only to one. The
    * task is open on this client from then on, so the sidebar lists it.
    */
-  async openTask(ticket: Task, timing?: TaskOpenTrace): Promise<void> {
+  async openTask(ticket: Task): Promise<void> {
     const task = ticket.providerId === 'local'
       ? ticket
       : await this.workspace.tasksStore.get(ticket.id, ticket.projectKey ?? undefined).promote()
-    timing?.mark('task_resolved')
     this.workspace.onTaskOpened?.(task.id)
     const links = this.workspace.tasksStore.get(task.id).sessions
     const hasLead = links?.some((candidate) => candidate.role === 'lead') ?? false
-    if (hasLead) await this.openTaskLinkedSession(task, timing)
-    else {
-      await this.openTaskSession(task, { role: 'lead' })
-      timing?.shown()
-    }
+    if (hasLead) await this.openTaskLinkedSession(task)
+    else await this.openTaskSession(task, { role: 'lead' })
   }
 
   /** Jump back to the work happening on a task: its lead when it has one, else
@@ -749,20 +744,17 @@ export class SessionOpening {
    *  history. The back-link counterpart to openTaskSession, driven by the
    *  persisted task↔session map. A lead comes with the task page beside it, as
    *  its draft did; a task nothing has run on starts its lead. */
-  async openTaskLinkedSession(task: Task, timing?: TaskOpenTrace): Promise<void> {
+  async openTaskLinkedSession(task: Task): Promise<void> {
     const opening = ++this.taskOpenCount
     const stillWanted = () => opening === this.taskOpenCount
     const links = this.workspace.tasksStore.get(task.id).sessions
     const link = links?.find((candidate) => candidate.role === 'lead') ?? links?.[links.length - 1]
     if (!link?.sessionId) {
       await this.openTaskSession(task, { role: 'lead' })
-      timing?.shown()
       return
     }
 
-    timing?.mark('owner_lookup_started')
     const ownerServerId = await this.workspace.tasksStore.get(task.id).ownerHost()
-    timing?.mark('owner_lookup_finished')
     if (!ownerServerId || !stillWanted()) return
     // A lead comes with its task page beside it. The page opens once the
     // conversation is the destination, so it lands in that conversation's strip.
@@ -780,16 +772,13 @@ export class SessionOpening {
       this.workspace.showExplicitSidebarTaskSession(task.id, link.sessionId)
       this.workspace.selectTab(openTab, 'click')
       if (opensTaskAside) this.openTaskAside(task.id)
-      timing?.shown()
     }
     else {
       // The task link stores a session id, not its agent backend. Resolve the
       // indexed record before resuming instead of assigning whichever provider
       // happens to be selected now; loading a Claude transcript through Codex
       // (or vice versa) returns an empty conversation.
-      timing?.mark('session_metadata_started')
       const meta = await readSessionMeta(sessionServerId, link.sessionId)
-      timing?.mark('session_metadata_finished')
       if (!meta || !stillWanted()) return
       this.workspace.showExplicitSidebarTaskSession(task.id, link.sessionId)
       // The page opens as soon as the conversation is the destination, so it
@@ -799,7 +788,6 @@ export class SessionOpening {
         if (!opensTaskAside || asideOpened || !stillWanted()) return
         asideOpened = true
         this.openTaskAside(task.id)
-        timing?.shown()
       }
       await this.resumeSession(meta, { stillWanted, onShown: openAside })
       // A resume that found the conversation already open selects it without

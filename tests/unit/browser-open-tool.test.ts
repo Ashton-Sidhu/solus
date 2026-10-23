@@ -47,11 +47,11 @@ const { browserCloseAgentTool, browserNavigateAgentTool, browserOpenAgentTool } 
  */
 
 function harness() {
-  const requested: string[] = []
+  const requested: { browserPageId: string; sessionId: string | undefined }[] = []
   initBrowserRegistry({
     pageChanged: () => {},
     pageClosed: () => {},
-    surfaceRequested: (browserPageId) => requested.push(browserPageId),
+    surfaceRequested: (browserPageId, sessionId) => requested.push({ browserPageId, sessionId }),
   })
   // A headless host lets a page exist without a client surface.
   setBrowserHeadlessHost({ open: async () => { throw new Error('not driven in this test') } })
@@ -87,6 +87,16 @@ describe('browser_open', () => {
     expect(shown.ok).toBe(true)
     expect(background.ok).toBe(true)
     expect(requested).toHaveLength(1)
+  })
+
+  test('names the session that opened the page, so only its conversation shows it', async () => {
+    // WHY: an agent in a background session must not pull the browser over the
+    // conversation the user is reading. The client needs the session to decide.
+    const { requested } = harness()
+
+    await browserOpenAgentTool.execute({ url: 'http://localhost:5173/' }, context)
+
+    expect(requested.map((request) => request.sessionId)).toEqual(['session_1'])
   })
 
   test("an agent run opens the page in its own person's jar", async () => {

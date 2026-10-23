@@ -108,10 +108,10 @@ async function guestStep(ctx: ScenarioContext, resource: { kind: 'work'; id: str
   ctx.check('the sharer always has the link at hand', aliceList?.link?.secret === link!.secret)
   const wrongSecret = ctx.client('maya', { shareSecret: 'not-the-secret' })
   const refused = await wrongSecret.connect()
-  ctx.check('a wrong secret earns no ticket', !refused.ok && refused.stage === 'ticket' && refused.status === 401, JSON.stringify(refused))
+  ctx.check('a wrong secret is refused at the handshake', !refused.ok && refused.stage === 'socket', JSON.stringify(refused))
   const noSecret = ctx.client('maya')
   const bare = await noSecret.connect()
-  ctx.check('a guest without a secret earns no ticket', !bare.ok && bare.stage === 'ticket', JSON.stringify(bare))
+  ctx.check('a guest without a secret is refused at the handshake', !bare.ok && bare.stage === 'socket', JSON.stringify(bare))
 
   wrongSecret.close(); noSecret.close()
   return maya

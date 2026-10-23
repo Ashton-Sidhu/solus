@@ -5,6 +5,11 @@ import {
   type WorkerPoolOptions,
   type WorkerStats,
 } from '@pierre/diffs/worker'
+import { canUseWASM } from '@pierre/diffs'
+
+// Highlights needs WebAssembly with SIMD. A browser without it (Safari before
+// 16.4) keeps Shiki in the workers, as the diffs docs recommend.
+const HAS_WASM = canUseWASM()
 
 // Keep the pool small so background tokenizers never starve the user's cores.
 // Mirrors diffshub's sizing: (cores - 1), clamped to a low ceiling.
@@ -16,6 +21,10 @@ const POOL_OPTIONS: WorkerPoolOptions = {
     { type: 'module' },
   ),
 }
+// The diffs docs suggest `mainThreadMaxCharacters` with Highlights, so small
+// files skip the worker round trip. Measured here, the round trip ends before
+// the first frame paints, and main-thread highlighting only paints a 35 KB
+// file later (23 ms to 31 ms; tests/benchmarks/diff-highlight.ts).
 
 type SolusDiffThemeName = 'github-dark-default' | 'github-light-default'
 
@@ -42,18 +51,18 @@ function lineDiffTypeFor(tokenHighlight: boolean): 'word-alt' | 'none' {
 // the instance. Use an active single theme instead of a light/dark pair: in
 // Solus's Electron runtime the dual-theme output relies on `light-dark(...)`
 // inside Pierre's shadow DOM, which leaves token spans monochrome. A single
-// theme makes Shiki emit concrete inline token colors. Keep the worker options
+// theme makes the highlighter emit concrete inline token colors. Keep the worker options
 // limited to the documented render options; @pierre/diffs resolves languages per
 // render task, and forcing token transformation globally changes the worker AST
 // shape even for diffs that only need normal syntax colors.
 const HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
   theme: getDiffThemeName(true),
   lineDiffType: lineDiffTypeFor(storedTokenHighlight()),
-  preferredHighlighter: 'shiki-js',
+  preferredHighlighter: HAS_WASM ? 'highlights' : 'shiki-js',
 }
 
 /**
- * Shared worker pool that moves Shiki tokenization off the main thread and
+ * Shared worker pool that moves tokenization off the main thread and
  * caches highlighted ASTs (LRU). Without it, CodeView/FileDiff tokenize
  * synchronously on the main thread as virtualized rows scroll into view, which
  * drops frames on fast scroll. A single singleton is shared across every diff

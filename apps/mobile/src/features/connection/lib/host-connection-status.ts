@@ -42,7 +42,9 @@ export function hostConnectionStatus(host: NativeHost, state: HostConnectionStat
         dot: 'error',
         text: state.blockedReason === 'identity-mismatch'
           ? 'A different machine answered at this address'
-          : host.paired ? 'Access ended. Pair again.' : 'Access refused',
+          : state.blockedReason === 'update-required'
+            ? 'Update Solus to connect'
+            : host.paired ? 'Access ended. Pair again.' : 'Access refused',
         failed: true,
         retrying: false,
       }

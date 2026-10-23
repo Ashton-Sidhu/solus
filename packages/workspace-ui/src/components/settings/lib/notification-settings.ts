@@ -142,14 +142,8 @@ export const APP_NOTICE_ROWS: NotificationSettingRow<AppNoticeEvent>[] = [
   {
     id: 'update_available',
     label: 'Software updates',
-    description: 'An update is ready for Solus, Claude Code, or Codex.',
-    keywords: ['update', 'upgrade', 'release', 'version', 'restart', 'download', 'solus', 'claude', 'codex'],
-  },
-  {
-    id: 'host_discovered',
-    label: 'Host found nearby',
-    description: 'A Solus host appears on the local network.',
-    keywords: ['host', 'server', 'nearby', 'discover', 'network', 'lan', 'connection'],
+    description: 'An update is ready for Solus.',
+    keywords: ['update', 'upgrade', 'release', 'version', 'restart', 'download', 'solus'],
   },
   {
     id: 'teammate_presence',

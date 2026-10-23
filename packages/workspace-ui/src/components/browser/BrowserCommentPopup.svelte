@@ -5,14 +5,9 @@
   /**
    * The comment composer that appears on a placed mark.
    *
-   * The spec's "From input to card": empty, it is a compact **seed** — "Add a
-   * note", the caret already in it. The seed already has the comment card's
-   * shape; as the user types, only its content and height expand. It is one
-   * element throughout, so the field keeps focus across the change.
-   *
-   * The morph uses one interruptible grid-row transition when text first appears
-   * or disappears. Padding stays fixed, so later keystrokes only pay the field's
-   * own intrinsic-size update rather than restarting a layout animation.
+   * One card from the start: the mark's number and the field on top, the
+   * element it points at, the recorder, Skip, and Send on the line below. The
+   * caret is already in the field.
    */
 
   interface Props {
@@ -28,7 +23,7 @@
 </script>
 
 <div
-  class="comment-pop text-workspace-chrome flex w-64 max-w-[calc(100%-1rem)] flex-col rounded-[14px] bg-[var(--popover)] px-3 py-2 shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_14%,transparent),0_0.25rem_0.5rem_-0.25rem_rgba(0,0,0,0.14),0_1.5rem_2.75rem_-1.125rem_rgba(0,0,0,0.32)]"
+  class="comment-pop text-workspace-chrome flex w-96 max-w-[calc(100%-1rem)] flex-col rounded-[14px] bg-[var(--popover)] px-3 py-2 shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_14%,transparent),0_0.25rem_0.5rem_-0.25rem_rgba(0,0,0,0.14),0_1.5rem_2.75rem_-1.125rem_rgba(0,0,0,0.32)]"
 >
   <CommentComposer
     surface="compact"
@@ -38,8 +33,8 @@
     submitLabel="Send"
     placeholder="Add a note"
     ariaLabel="Comment on mark {markNumber}"
-    maxHeight={112}
-    editorClass="field-sizing-content min-w-0 flex-1 leading-relaxed"
+    maxHeight={160}
+    editorClass="min-w-0 flex-1 [--plain-editor-padding:0.375rem_0_0.375rem_0.25rem]"
   >
     {#snippet leading()}
       <span

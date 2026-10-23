@@ -35,3 +35,12 @@ describe('session sidebar mounted tabs', () => {
     ])
   })
 })
+
+test('a switch hides mounted sessions from the previous organization without closing their tabs', () => {
+  const tabs = { local: tab('local'), first: tab('first'), second: tab('second') }
+  const organizationIdForTab = (tabId: string) => tabId === 'local' ? 'local' : tabId === 'first' ? 'org-1' : 'org-2'
+  expect(mountedSidebarTabIds(['first', 'local'], tabs, organizationIdForTab, 'org-1')).toEqual(['first', 'local'])
+  expect(mountedSidebarTabIds(['first', 'local'], tabs, organizationIdForTab, 'org-2')).toEqual(['local', 'second'])
+  expect(mountedSidebarTabIds(['first', 'local'], tabs, organizationIdForTab, 'org-1')).toEqual(['first', 'local'])
+  expect(Object.keys(tabs)).toEqual(['local', 'first', 'second'])
+})

@@ -67,7 +67,7 @@ tab is a different action: it changes nothing on the home.
    |---|---|---|
    | `/v1/sessions/:sessionId` | GET, PATCH | `settled` for every person (editor); `archived`, `snoozedUntil`, `snoozeNote` in the caller's own view (viewer) |
    | `/v1/sessions/:sessionId/pull-requests` | GET | the session's links |
-   | `/v1/sessions/:sessionId/pull-requests/:pullRequestId` | PUT, DELETE | link (idempotent), remove (tombstone) |
+   | `/v1/links` with `from: { kind: 'session' }`, `to: { kind: 'pr', url }` | PUT, DELETE | link (idempotent), remove (tombstone) |
    | `/v1/sessions/:sessionId/turns` | POST | a prompt reached the session (a host acting for the person only) |
 
    One PATCH carries both kinds of field: the server checks the role each

@@ -25,7 +25,7 @@ class SolusToolsStore {
         // The event carries no person's key; a key saved from another window may be this person's.
         void this.loadKeyStatus(serverId)
       })
-      const stopStatus = serverConnections.onStatusChange((hostId, status) => {
+      const stopStatus = serverConnections.onPhaseChange((hostId, status) => {
         if (hostId !== serverId) return
         if (status === 'connected') void this.load(serverId)
         else {

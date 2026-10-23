@@ -128,8 +128,9 @@ export interface HostEventMap {
   'browser.pageClosed': { browserPageId: string }
   /** A page has no surface and someone explicitly asked for one — an agent
    *  calling `browserOpen` with `requestSurface`. Desktop clients answer by
-   *  opening the browser pane onto that page. */
-  'browser.surfaceRequested': { browserPageId: string }
+   *  opening the browser pane onto that page, but only beside the session that
+   *  asked (`sessionId`), never over a conversation the user is reading. */
+  'browser.surfaceRequested': { browserPageId: string; sessionId?: string }
   /** One project's named browser profiles changed. Whole set rather than a
    *  delta: the list is a handful of rows, and two mounted clients offering
    *  different identities for one project is the failure to avoid. */

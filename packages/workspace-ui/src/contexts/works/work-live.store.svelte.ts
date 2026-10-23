@@ -20,10 +20,10 @@ function liveHost(serverId: string): LiveHost {
   return {
     api: () => serverConnections.apiFor(serverId),
     subscribe: (type, listener) => serverConnections.eventsFor(serverId).subscribe(type, listener),
-    onConnection: (listener) => serverConnections.onStatusChange((changed, status) => {
+    onConnection: (listener) => serverConnections.onPhaseChange((changed, status) => {
       if (changed !== serverId) return
       if (status === 'connected') listener(true)
-      else if (status === 'disconnected' || status === 'reconnecting') listener(false)
+      else if (status === 'reconnecting' || status === 'offline' || status === 'blocked') listener(false)
     }),
     isConnected: () => serverConnections.phaseFor(serverId) === 'connected',
   }

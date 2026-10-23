@@ -273,7 +273,6 @@ export class HostOnboardingStore {
     fingerprint?: string,
   ): void {
     serversStore.savePairedServer(server)
-    serversStore.toastSnoozedInstallationIds.add(target.installationId)
     // A pair started from the run-on picker already has a destination — that
     // flow retargets the session itself, and this stage's "start working" would
     // move the whole app instead of the one tab the user asked about.

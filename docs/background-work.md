@@ -15,7 +15,7 @@ path.
 | Event | Status |
 |---|---|
 | A turn ends while background work runs | `background`. The turn does not settle and does not notify. A Codex turn that failed shows its error at once, then waits in `background` too. |
-| A background task finishes on its own | The agent wakes with the result in a new turn. That turn settles once, as usual. A Codex native sub-agent wakes nobody: when the last task has ended, the session settles. |
+| A background task finishes on its own | The agent wakes with the result in a new turn. That turn settles once, as usual. A nested Codex native sub-agent (one that another sub-agent started) wakes nobody: when the last task has ended, the session settles. |
 | The person stops the work from the background row, or Stop on mobile | Only the tasks stop, and the session settles as `completed`. Claude's SDK first gives the agent a turn to react; Codex does not wake the agent. |
 | The background work of a failed Codex turn ends | The session settles as `failed`, once. |
 | The person stops the session (Stop shortcut, `stop_session`) | The tasks stop and the session settles as `interrupted`. |
@@ -52,9 +52,20 @@ path.
   root run's normalizer, so its output and report go to its card, never to a
   later root turn. Only card events pass; the child cannot settle, plan for,
   or change the usage of the session. The task settles once:
-  - The child's turn ends: `completed` or `failed`. Nothing wakes the agent.
-    Solus sees no Codex wake for this case and does not queue one. When no
-    other task is left, the session settles.
+  - The child's turn ends: `completed` or `failed`. Codex does not wake a
+    root whose turn ended, so the host queues one wake prompt for the root
+    session: "A sub-agent you started finished (or failed) after your turn
+    ended", the child's thread id, and the first 4,000 characters of its
+    report (its last answer, or the error). Each child wakes the root once,
+    when it ends, so a finished report never waits for a slower sibling.
+    There is no wake when:
+    - the child is nested (another child started it): it reports to its own
+      parent. When it is the last task, the session settles.
+    - a root turn is running: Codex gives that turn the result itself.
+    - a person asked to stop the child, even if it then completed.
+    - the task settled any other way (`stopped`, `killed`, or taken over).
+
+    The wake has no `via`, so every client draws it as a prompt bubble.
   - Stop on the background row (`stopBackgroundTasks`) or on the session sends
     `turn/interrupt` to the child: `stopped`. The task settles only from what
     Codex reports. If Codex answers the interrupt with an error, or the turn id

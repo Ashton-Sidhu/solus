@@ -125,10 +125,10 @@ export async function registerHost(stack: LocalCloudStack, host: HostAddress, ow
 }
 
 /**
- * A client that dials the host with the person's access token for the host's audience,
- * through the ticket door (`/auth/ws-ticket`), as a remote client does. The door makes
- * the person's delegation: `personal` for the owner (and the organization an owner
- * names), else the organization named.
+ * A client that dials the host with the person's access token for the host's audience
+ * in the socket handshake, as a remote client does. The host makes the person's
+ * delegation: `personal` for the owner (and the organization an owner names), else
+ * the organization named.
  */
 export function hostClient(host: HostAddress, signedIn: SignedIn, hostId: string, options: { asOwner: boolean; organizationId?: string; organizationRole?: 'owner' | 'member' }): LabClient {
   const persona = signedIn.persona
@@ -139,7 +139,7 @@ export function hostClient(host: HostAddress, signedIn: SignedIn, hostId: string
     hostUrl: host.tunnelUrl,
     hostId,
     hostKind: 'personal',
-    // An owner who names an organization works in it: the door makes that delegation too.
+    // An owner who names an organization works in it: the host makes that delegation too.
     organizationId: options.asOwner ? options.organizationId : undefined,
     accessToken: () => signedIn.oauth.accessToken({ kind: 'host', hostId }),
   })

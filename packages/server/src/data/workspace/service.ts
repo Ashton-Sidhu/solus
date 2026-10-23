@@ -3,6 +3,7 @@ import type { ShareManager } from '../../sharing/share-manager'
 import { TaskApiOperations } from '../tasks/api-operations'
 import { WorkApiOperations } from '../works/api-operations'
 import { SessionApiOperations } from '../sessions/api-operations'
+import { LinkApiOperations } from '../links/api-operations'
 import { readInsight, readInsightPage, readInsightTree } from '../insights/api-operations'
 import { ActivityApiOperations } from '../activity/api-operations'
 import { NotificationApiOperations } from '../notifications/api-operations'
@@ -13,6 +14,7 @@ export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperat
   const tasks = new TaskApiOperations(shares)
   const works = new WorkApiOperations(shares)
   const sessions = new SessionApiOperations(shares)
+  const links = new LinkApiOperations(shares)
   const activity = new ActivityApiOperations(shares)
   const notifications = new NotificationApiOperations(shares)
   return {
@@ -21,6 +23,7 @@ export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperat
     createTask: withWorkspaceBudget((context, input, key) => tasks.create(context, input, key)),
     updateTask: withWorkspaceBudget((context, taskId, input, version) => tasks.update(context, taskId, input, version)),
     deleteTask: withWorkspaceBudget((context, taskId, version) => tasks.delete(context, taskId, version)),
+    createTaskComment: withWorkspaceBudget((context, taskId, input, key) => tasks.comment(context, taskId, input, key)),
     listWorks: withWorkspaceBudget((context, query) => works.list(context, query)),
     searchWorks: withWorkspaceBudget((context, query) => works.search(context, query)),
     importWork: withWorkspaceBudget((context, input, key) => works.import(context, input, key)),
@@ -39,8 +42,8 @@ export function createWorkspaceOperations(shares: ShareManager): WorkspaceOperat
     admitSessionTurn: withWorkspaceBudget((context, sessionId) => sessions.admitTurn(context, sessionId)),
     updateSession: withWorkspaceBudget((context, sessionId, input) => sessions.update(context, sessionId, input)),
     listSessionPullRequests: withWorkspaceBudget((context, sessionId) => sessions.pullRequests(context, sessionId)),
-    putSessionPullRequest: withWorkspaceBudget((context, sessionId, pullRequest, input) => sessions.linkPullRequest(context, sessionId, pullRequest, input)),
-    deleteSessionPullRequest: withWorkspaceBudget((context, sessionId, pullRequest) => sessions.unlinkPullRequest(context, sessionId, pullRequest)),
+    putLink: withWorkspaceBudget((context, input) => links.put(context, input)),
+    deleteLink: withWorkspaceBudget((context, input) => links.delete(context, input)),
     listSessionMessages: withWorkspaceBudget((context, sessionId, query) => sessions.messages(context, sessionId, query)),
     listInsights: withWorkspaceBudget((context, query) => readInsightPage(context, query)),
     getInsight: withWorkspaceBudget((context, insightId) => readInsight(context, insightId)),

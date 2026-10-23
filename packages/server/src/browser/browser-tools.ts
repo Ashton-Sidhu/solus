@@ -270,7 +270,9 @@ export const browserOpenAgentTool = browserTool({
     const personKey = currentPersonKey()
     request.profileId = profileForOpen(personKey, target.projectRoot, input.profile)
 
-    const page = browserRegistry().open(request, personKey)
+    // The session rides along so a client shows the page beside that session's
+    // conversation only, not over whichever one the user is reading.
+    const page = browserRegistry().open(request, personKey, context.sessionId())
     browserRegistry().noteAgentUse(page.browserPageId, 'browser_open', context.sessionId())
     return ok(`${describePage(page)}\n\nUse browser_snapshot with this browserPageId to see it.`)
   },

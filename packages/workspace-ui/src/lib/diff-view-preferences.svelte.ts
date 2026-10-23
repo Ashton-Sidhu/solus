@@ -1,12 +1,16 @@
+import { parseChangeKinds, type ChangeKind } from '@solus/client-core/change-breakdown'
+
 /**
  * How the reader likes a diff drawn: stacked or side by side, and whether a
- * changed line highlights the changed words. One preference for every diff
+ * changed line highlights the changed words. The classification filter is
+ * saved too, so closing a diff does not reset it. One preference for every diff
  * surface — the diff panel and the Insights result read the same choice, so
  * changing it in one is the choice in the other.
  */
 
 const STYLE_KEY = 'solus-diff-style'
 const TOKEN_HIGHLIGHT_KEY = 'solus-diff-token-highlight'
+const CHANGE_KIND_KEY = 'solus-diff-kind'
 
 export type DiffStyle = 'unified' | 'split'
 
@@ -27,6 +31,13 @@ function writeStorage(key: string, value: string): void {
 }
 
 class DiffViewPreferences {
+  changeKinds = $state<ChangeKind[] | null>(parseChangeKinds(readStorage(CHANGE_KIND_KEY)))
+
+  setChangeKinds(kinds: ChangeKind[] | null): void {
+    this.changeKinds = kinds
+    writeStorage(CHANGE_KIND_KEY, JSON.stringify(kinds))
+  }
+
   diffStyle = $state<DiffStyle>(readStorage(STYLE_KEY) === 'split' ? 'split' : 'unified')
   /** On unless the reader turned it off. */
   tokenHighlight = $state(readStorage(TOKEN_HIGHLIGHT_KEY) !== 'off')

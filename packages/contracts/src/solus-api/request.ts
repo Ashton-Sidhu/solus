@@ -22,6 +22,13 @@ export const solusApiRequestSchema = z.strictObject({
 })
 export type SolusApiRequest = z.infer<typeof solusApiRequestSchema>
 
+/**
+ * The organization an HTTP request works in. A person's token lists the organizations
+ * it may work in, and admits only the one this header names; a host's delegated token
+ * names its own (docs/plans/simplify-auth-and-sync.md §4.2).
+ */
+export const SOLUS_API_ORGANIZATION_HEADER = 'Solus-Organization'
+
 /** The answer to a Solus API request: its status, the headers a client reads, and its body. */
 export interface SolusApiResponse {
   status: number

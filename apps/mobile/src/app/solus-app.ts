@@ -25,6 +25,7 @@ import { previewHost, type HostPreview, type PreviewResult } from '../features/h
 import { ThreadDirectory } from '../features/threads/thread-directory'
 import { ThreadListState } from '../features/threads/thread-list-state'
 import { NativeNotificationHub } from '../features/notifications/notification-hub'
+import { DiffFilterPreference } from '../features/review/diff-filter-preference'
 import { AppearancePreference, type AppearanceMode } from '../features/settings/appearance'
 import { HostSettings } from '../features/settings/host-settings'
 import { HostCloudLink } from '../features/settings/host-cloud-link'
@@ -137,6 +138,7 @@ export class SolusApp {
   /** The device copy of pull request data, for offline reading, and the review drafts. */
   readonly pullRequestCache: PullRequestCache
   readonly pullRequests: PullRequestDirectory
+  readonly diffFilter: DiffFilterPreference
   readonly pullRequestDiffs: PullRequestDiffs
   readonly pullRequestGuides: PullRequestGuides
   readonly reviewDrafts: PullRequestReviewDrafts
@@ -165,6 +167,7 @@ export class SolusApp {
       registry: this.registry,
       createTransport: platform.createTransport,
       hostAccessToken: (host, options) => this.account.hostAccessToken(host, options),
+      isSignedOut: () => this.account.isSignedOut(),
       dialOrganizationId: (host) => this.account.dialOrganizationId(host),
       organizationId: () => this.account.organizationId,
       fetch: platform.fetch,
@@ -172,6 +175,7 @@ export class SolusApp {
     this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId))
     this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
     this.liveActivity = new LiveActivityPreference(storage)
+    this.diffFilter = new DiffFilterPreference(storage)
     this.personal = new PersonalSettingsStore(storage)
     this.appearance = new AppearancePreference(this.personal, (mode) => platform.applyAppearance?.(mode))
     this.agentProfile = new AgentProfileLocalStore(storage)
@@ -372,6 +376,7 @@ export class SolusApp {
 
   /** Personal settings, sync, and organization views follow who is signed in. */
   private followAccount(): void {
+    this.threads.selectOrganization(this.account.organizationId)
     const account = this.account.syncAccount
     this.accountSync.followAccount(account)
     const accountKey = account ? syncAccountKey(account) : null

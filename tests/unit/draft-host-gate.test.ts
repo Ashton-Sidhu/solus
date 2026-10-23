@@ -26,33 +26,43 @@ const host = (overrides: Partial<GatedHost>): GatedHost => ({
 
 describe('the draft host gate', () => {
   test('one online host is enough to compose', () => {
-    expect(draftHostGate([host({}), host({ id: 'mbp', status: 'online' })], NOW)).toBe('compose')
+    expect(draftHostGate([host({}), host({ id: 'mbp', status: 'online' })], NOW, 'compose')).toBe('compose')
   })
 
   test('no host at all asks for one', () => {
-    expect(draftHostGate([], NOW)).toBe('connect')
+    expect(draftHostGate([], NOW, 'compose')).toBe('connect')
   })
 
   test('every host offline asks for one', () => {
-    expect(draftHostGate([host({}), host({ id: 'mbp' })], NOW)).toBe('connect')
+    expect(draftHostGate([host({}), host({ id: 'mbp' })], NOW, 'compose')).toBe('connect')
   })
 
   test('a short drop keeps the composer while the host dials again', () => {
     const dropped = host({ status: 'connecting', offlineSince: NOW - 2_000 })
-    expect(draftHostGate([dropped], NOW)).toBe('compose')
+    expect(draftHostGate([dropped], NOW, 'compose')).toBe('compose')
   })
 
   test('a drop past the reconnect grace asks for a host', () => {
     const dropped = host({ status: 'connecting', offlineSince: NOW - RECONNECT_ESCALATE_MS })
-    expect(draftHostGate([dropped], NOW)).toBe('connect')
+    expect(draftHostGate([dropped], NOW, 'compose')).toBe('connect')
   })
 
   test('a first connect still dialing keeps the composer', () => {
-    expect(draftHostGate([host({ status: 'connecting', offlineSince: null })], NOW)).toBe('compose')
+    expect(draftHostGate([host({ status: 'connecting', offlineSince: null })], NOW, 'compose')).toBe('compose')
+  })
+
+  test('a retry from the connect page keeps the page while the host dials', () => {
+    const retrying = host({ status: 'connecting', offlineSince: NOW - 2_000 })
+    expect(draftHostGate([retrying], NOW, 'connect')).toBe('connect')
+    expect(draftHostGate([host({ status: 'connecting', offlineSince: null })], NOW, 'connect')).toBe('connect')
+  })
+
+  test('the composer comes back from the connect page once a host answers', () => {
+    expect(draftHostGate([host({ status: 'online', offlineSince: null })], NOW, 'connect')).toBe('compose')
   })
 
   test('a host never checked keeps the composer, because nothing is known yet', () => {
-    expect(draftHostGate([host({ status: 'saved', offlineSince: null })], NOW)).toBe('compose')
+    expect(draftHostGate([host({ status: 'saved', offlineSince: null })], NOW, 'compose')).toBe('compose')
   })
 })
 
@@ -104,15 +114,15 @@ describe('a host still setting this person up (docs/plans/member-isolation.md §
 
   test('is not a host the draft can run on: the page shows, not the composer', () => {
     // WHY: a turn there is refused with WORKSPACE_PREPARING; a composer would take text it cannot send.
-    expect(draftHostGate([preparing], NOW)).toBe('connect')
+    expect(draftHostGate([preparing], NOW, 'compose')).toBe('connect')
     expect(connectHostHeadline([preparing], null)).toBe('Setting up your workspace for the first time')
   })
 
   test('another host that is ready is enough to compose', () => {
-    expect(draftHostGate([preparing, host({ id: 'mbp', status: 'online', offlineSince: null })], NOW)).toBe('compose')
+    expect(draftHostGate([preparing, host({ id: 'mbp', status: 'online', offlineSince: null })], NOW, 'compose')).toBe('compose')
   })
 
   test('the composer comes back once the host is ready', () => {
-    expect(draftHostGate([{ ...preparing, isPreparing: false }], NOW)).toBe('compose')
+    expect(draftHostGate([{ ...preparing, isPreparing: false }], NOW, 'compose')).toBe('compose')
   })
 })

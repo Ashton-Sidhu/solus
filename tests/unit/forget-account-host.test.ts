@@ -86,6 +86,7 @@ function accountSource(removeHost: (hostId: string) => Promise<boolean>): Uplink
   return {
     listDirectory: async () => null,
     accessToken: async () => null,
+    isSignedOut: () => false,
     issueEnrollmentTicket: async () => null,
     loadOrganizationDirectory: async () => null,
     startManagedHost: async () => null,

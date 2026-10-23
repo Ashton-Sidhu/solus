@@ -9,6 +9,7 @@ import type {
   PlanDescriptor,
   PluginCommandsResult,
   PromptOptions,
+  PromptVia,
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '@solus/contracts/types'
@@ -59,13 +60,14 @@ export interface BackendEvents {
   normalized: (sessionId: string | null, event: NormalizedEvent) => void
   exit: (sessionId: string | null, code: number | null, signal: string | null) => void
   error: (sessionId: string | null, err: Error) => void
-  /** A command the agent left running finished after its turn ended. The
-   *  control plane wakes the session with `prompt`. Codex only: Claude wakes
-   *  itself inside its open query. */
-  'background-command-completed': (sessionId: string, prompt: string) => void
+  /** A command or a native sub-agent the agent left running finished after
+   *  its turn ended. The control plane wakes the session with `prompt`, sent
+   *  `via` the given origin. Codex only: Claude wakes itself inside its open
+   *  query. */
+  'background-task-completed': (sessionId: string, prompt: string, via: PromptVia | undefined) => void
   /** The last background task of a session ended on its own and nothing wakes
-   *  the agent for it (a Codex native sub-agent that finished after its root
-   *  turn). The control plane ends the session's background wait. Codex only. */
+   *  the agent for it (a Codex native sub-agent nested under another one). The
+   *  control plane ends the session's background wait. Codex only. */
   'background-work-ended': (sessionId: string) => void
 }
 

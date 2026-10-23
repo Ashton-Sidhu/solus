@@ -9,7 +9,6 @@ import { serverConnections } from './server-connections'
 const HEARTBEAT_MS = 10_000
 
 let started = false
-const failedServerIds = new Set<string>()
 
 export function startActivityLeaseHeartbeat(): void {
   if (started || !('window' in globalThis)) return
@@ -18,16 +17,9 @@ export function startActivityLeaseHeartbeat(): void {
   const beat = () => {
     const foreground = !('document' in globalThis) || document.visibilityState === 'visible'
     for (const serverId of serverConnections.connectedServerIds()) {
-      void serverConnections.apiFor(serverId).activityLease(foreground)
-        .then(() => failedServerIds.delete(serverId))
-        .catch((error: unknown) => {
-          if (failedServerIds.has(serverId)) return
-          failedServerIds.add(serverId)
-          console.warn('[solus:activity-lease] heartbeat failed', {
-            serverId,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        })
+      // Best effort: an older host does not know the method, and a host that
+      // is reconnecting misses a beat. The next beat reports again.
+      void serverConnections.apiFor(serverId).activityLease(foreground).catch(() => {})
     }
   }
 

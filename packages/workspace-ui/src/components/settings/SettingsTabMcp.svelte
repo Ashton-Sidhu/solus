@@ -24,7 +24,7 @@
   import { integrationsStore } from "./integrations.store.svelte";
   import { McpCatalog } from "./lib/mcp-catalog.svelte";
   import type { ConnectRequest } from "./lib/mcp-connect.svelte";
-  import { canListTools, catalogCountText, customUrlProblem, urlHost } from "./lib/integration-labels";
+  import { catalogCountText, customUrlProblem, IntegrationLabels, urlHost } from "./lib/integration-labels";
   import { wordsMatch } from "./lib/settings-search";
   import { toasts } from "../../lib/toasts";
 
@@ -81,7 +81,7 @@
 
   /** True when the person can use the server's tools now: no sign-in, or signed in. */
   function isReady(integration: Integration): boolean {
-    return canListTools(integration.auth, hostState?.connections.get(integration.id) ?? null);
+    return new IntegrationLabels(integration).canListTools(hostState?.connections.get(integration.id) ?? null);
   }
 
   async function connectClosed(integrationId: string | null) {
@@ -160,14 +160,14 @@
   </button>
 {/snippet}
 
-{#snippet entryAction(name: string, url: string, icon: string | undefined)}
+{#snippet entryAction(name: string, url: string, icon: string | undefined, authHelp: string | undefined)}
   {@const integration = installedByUrl.get(url)}
   {#if integration && isReady(integration)}
     <!-- The same box as the small Connect button beside it, so the column's edge stays even. -->
     <span class="flex h-7 shrink-0 items-center gap-1 rounded-[min(var(--radius-md),12px)] bg-muted px-2.5 text-workspace-chrome text-foreground pointer-coarse:min-h-11"><Check size={14} class="text-(--solus-status-complete)" />Connected</span>
   {:else}
     <Button variant="outline" size="sm" class="shrink-0 border-border/70 text-workspace-chrome shadow-xs pointer-coarse:min-h-11" disabled={isOffline}
-      onclick={() => { connectRequest = { name: integration?.name ?? name, url, icon, integrationId: integration?.id }; }} aria-label="Connect {name}">Connect</Button>
+      onclick={() => { connectRequest = { name: integration?.name ?? name, url, icon, integrationId: integration?.id, authHelp }; }} aria-label="Connect {name}">Connect</Button>
   {/if}
 {/snippet}
 
@@ -175,10 +175,16 @@
   <li class="flex min-w-0 items-center gap-3.5 py-3" data-testid="mcp-catalog-entry">
     <McpServerIcon name={entry.name} url={entry.url} icon={entry.icon} />
     <div class="min-w-0 flex-1 pr-6">
-      <p class="truncate text-workspace-chrome leading-5 font-medium text-foreground" title={entry.name}>{entry.name}</p>
+      <p class="flex min-w-0 items-center gap-1.5 text-workspace-chrome leading-5 font-medium text-foreground" title={entry.name}>
+        <span class="truncate">{entry.name}</span>
+        {#if entry.source === "solus"}
+          <!-- Listed by Solus, not the integrations.sh feed (§13.5). -->
+          <span class="shrink-0 rounded-full border border-border px-1.5 text-chrome-dense leading-4 font-normal text-muted-foreground">Solus</span>
+        {/if}
+      </p>
       <p class="truncate text-chrome-dense leading-5 text-muted-foreground" title={entry.description}>{entry.description || entry.domain || urlHost(entry.url)}</p>
     </div>
-    {@render entryAction(entry.name, entry.url, entry.icon)}
+    {@render entryAction(entry.name, entry.url, entry.icon, entry.authHelp)}
   </li>
 {/snippet}
 
@@ -329,7 +335,7 @@
                   <p class="truncate text-workspace-chrome font-medium text-foreground">{urlHost(typedUrl)}</p>
                   <p class="truncate text-chrome-dense text-(--solus-text-tertiary)" title={typedUrl}>{typedUrl}</p>
                 </div>
-                {#if !typedUrlProblem}{@render entryAction(urlHost(typedUrl), typedUrl, undefined)}{/if}
+                {#if !typedUrlProblem}{@render entryAction(urlHost(typedUrl), typedUrl, undefined, undefined)}{/if}
               </div>
               {#if typedUrlProblem}
                 <p role="alert" class="text-chrome-dense text-(--solus-status-error)">{typedUrlProblem}</p>

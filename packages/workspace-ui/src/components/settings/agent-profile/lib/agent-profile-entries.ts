@@ -11,7 +11,7 @@ import { integrationSlug, type Integration, type IntegrationAuth, type Integrati
 import type { SeatProvider } from '@solus/contracts/seats'
 import type { AgentMetadata, RemoteSkill } from '@solus/contracts/types'
 import type { AgentProfileConflict } from '@solus/client-core/agent-profile-sync'
-import { integrationStatusText } from '../../lib/integration-labels'
+import { IntegrationLabels } from '../../lib/integration-labels'
 
 /**
  * The agent profile document as the Settings page reads it (plans/020 §3):
@@ -146,7 +146,7 @@ export function profileServerStatus(
   const integration = installed.find((item) => item.url === entry.url)
   // Connect adds the server on the way, so only one that needs a sign-in offers it.
   if (!integration) return { text: 'Not added yet', tone: 'attention', integrationId: null, canConnect: entry.auth.kind !== 'none' }
-  const status = integrationStatusText(integration.auth, connections.get(integration.id) ?? null)
+  const status = new IntegrationLabels(integration).statusText(connections.get(integration.id) ?? null)
   return { text: status.text, tone: status.tone, integrationId: integration.id, canConnect: status.canConnect }
 }
 

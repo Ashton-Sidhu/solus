@@ -169,9 +169,9 @@ describe('AutomationsStore host federation', () => {
       kind: 'saved', automation: { ...original, enabled: false },
     })
     expect(store.get(original.id)?.enabled).toBe(false)
-    connections.emitStatus('host-a', 'disconnected')
+    connections.emitPhase('host-a', 'reconnecting')
     expect(store.loadErrors.has('host-a')).toBe(true)
-    connections.emitStatus('host-a', 'connected')
+    connections.emitPhase('host-a', 'connected')
     await store.loadAll('host-a')
     expect(reads).toBe(2)
     expect(store.loadErrors.has('host-a')).toBe(false)

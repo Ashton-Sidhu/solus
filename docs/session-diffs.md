@@ -19,3 +19,17 @@ assign it a worktree.
 Snapshots use a temporary Git index. They do not change staged files or advance
 the checked-out branch. The same server behavior applies to Claude and Codex and
 to desktop, web, and mobile clients.
+
+The Changed files menu has checkboxes for Code, Tests, Mocks, Generated, and
+Docs. Select any combination. All classes are selected by default. Each row
+shows the full line counts for its class, even when that class is hidden.
+The choices are saved on this device and restored after closing the menu,
+closing the diff, or restarting the client. Select all classes to clear the
+filter. The file tree, diff stream, and diff search use the selected classes.
+Map and Guide keep the full change. A file or comment jump can temporarily
+show all files to reveal its target. It does not change the saved filter.
+Filters do not change the files included in a commit or review submission.
+
+Desktop and web share these controls. The native mobile pull request Files tab
+has the same choices in its Changed files menu. Classification uses paths and
+is the same for both agent providers and all host connection modes.

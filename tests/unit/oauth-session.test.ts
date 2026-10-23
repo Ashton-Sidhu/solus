@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { isLastingRefusal, OAuthSession, type BrowserAuthorizer, type StoredGrant, type TokenStore } from '@solus/client-core/oauth-session'
-import { ACCOUNT_AUDIENCE, hostAudience } from '@solus/contracts/uplink'
+import { ACCESS_TOKEN_TYPE, ACCOUNT_AUDIENCE, hostAudience, SOLUS_API_AUDIENCE, TOKEN_EXCHANGE_GRANT_TYPE } from '@solus/contracts/uplink'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 
 // One sign-in of one client (ADR 0001 §3.2). These tests pin the rules that keep a
-// person signed in: the code flow with PKCE, one refresher per grant, the rotated
-// refresh token saved before its access token is used, per-resource caching, and a
-// sign-out that revokes the grant on the account plane.
+// person signed in: the code flow with PKCE, one refresher per grant, one servers
+// token for the account plane and the Solus API, host tokens by exchange, the rotated
+// refresh token saved before its access token is used, and a sign-out that revokes the
+// grant on the account plane.
 
 function memoryStore(initial: StoredGrant | null = null) {
   let grant = initial
@@ -40,8 +41,8 @@ function approvingAuthorizer(plane: ReturnType<typeof fakeAccountPlane>, answer:
   }
 }
 
-function world(options: { answer?: 'approve' | 'deny' | 'close'; gateRefresh?: () => Promise<void> } = {}) {
-  const plane = fakeAccountPlane({ gateRefresh: options.gateRefresh })
+function world(options: { answer?: 'approve' | 'deny' | 'close'; gateRefresh?: () => Promise<void>; gateExchange?: (resource: string) => Promise<void> } = {}) {
+  const plane = fakeAccountPlane({ gateRefresh: options.gateRefresh, gateExchange: options.gateExchange })
   const memory = memoryStore()
   const session = new OAuthSession({
     cloudOrigin: ISSUER,
@@ -68,7 +69,7 @@ describe('OAuthSession sign-in', () => {
     expect(w.memory.current()?.refreshToken).toBe('rt-2')
     const authorize = w.plane.calls.find((call) => call.path === '/api/auth/oauth2/token')!
     expect(authorize.form.get('code_verifier')).toBeTruthy()
-    // Sign-in names no resource: each refresh names one (ADR §5).
+    // Sign-in names no resource: each refresh names the servers (§3 rule 1).
     expect(authorize.form.get('resource')).toBeNull()
   })
 
@@ -107,67 +108,74 @@ describe('OAuthSession sign-in', () => {
 })
 
 describe('OAuthSession access tokens', () => {
-  test('saves the rotated refresh token before it gives out the access token', async () => {
-    const w = world()
-    await w.session.signIn()
-    const token = await w.session.accessToken(HOST)
-    expect(token).toContain(hostAudience('host-1'))
-    expect(w.memory.saves).toEqual(['rt-2', 'rt-4'])
-    // The token used is the newest one; the one before it is spent.
-    expect(w.plane.isLive('rt-4')).toBe(true)
-    expect(w.plane.isLive('rt-2')).toBe(false)
-  })
+  const refreshes = (w: ReturnType<typeof world>) => w.plane.calls.filter((call) => call.form.get('grant_type') === 'refresh_token')
+  const exchanges = (w: ReturnType<typeof world>) => w.plane.calls.filter((call) => call.form.get('grant_type') === TOKEN_EXCHANGE_GRANT_TYPE)
 
-  test('keeps a token per resource until a minute before its end', async () => {
+  test('one refresh gives one token for both our servers, and saves the rotated refresh token first', async () => {
+    // WHY (simplify-auth-and-sync §3 rule 1): every refresh rotates the grant, so one per resource queued every dial behind the others.
     const w = world()
     await w.session.signIn()
-    const host = await w.session.accessToken(HOST)
-    const account = await w.session.accessToken({ kind: 'account' })
-    expect(account).toContain(ACCOUNT_AUDIENCE)
-    expect(await w.session.accessToken(HOST)).toBe(host)
-    w.plane.advance(239_000)
-    expect(await w.session.accessToken(HOST)).toBe(host)
-    w.plane.advance(2_000)
-    expect(await w.session.accessToken(HOST)).not.toBe(host)
-    expect(await w.session.accessToken(HOST, { fresh: true })).not.toBe(host)
-  })
-
-  test('runs one refresh at a time, so concurrent callers never replay a spent refresh token', async () => {
-    const w = world()
-    await w.session.signIn()
-    const [first, second, api, account] = await Promise.all([
-      w.session.accessToken(HOST),
-      w.session.accessToken(HOST),
-      w.session.accessToken({ kind: 'api' }),
-      w.session.accessToken({ kind: 'account' }),
-    ])
-    expect(first).toBe(second)
-    expect(api).toBeTruthy()
+    const [account, api] = await Promise.all([w.session.accessToken({ kind: 'account' }), w.session.accessToken({ kind: 'api' })])
     expect(account).toBeTruthy()
-    const refreshes = w.plane.calls.filter((call) => call.form.get('grant_type') === 'refresh_token')
-    // One refresh per resource, each with the token the one before it gave.
-    expect(refreshes.map((call) => call.form.get('refresh_token'))).toEqual(['rt-2', 'rt-4', 'rt-6'])
-    expect(w.plane.liveTokens()).toEqual(['rt-8'])
-    expect(w.session.state().kind).toBe('signed-in')
+    expect(api).toBe(account)
+    expect(refreshes(w)).toHaveLength(1)
+    expect(refreshes(w)[0]!.form.getAll('resource').sort()).toEqual([ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE].sort())
+    expect(w.memory.saves).toEqual(['rt-2', 'rt-3'])
+    expect(w.plane.liveTokens()).toEqual(['rt-3'])
   })
 
-  test('a refusal for one resource keeps the grant', async () => {
+  test('tokens for several hosts are exchanges made at the same time, with no refresh each', async () => {
+    // WHY (§3 rule 2): an exchange rotates nothing, so hosts do not wait on each other or on a lock.
+    const held: string[] = []
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const w = world({ gateExchange: async (resource) => { held.push(resource); await gate } })
+    await w.session.signIn()
+    const asks = Promise.all(['a', 'b', 'c'].map((hostId) => w.session.accessToken({ kind: 'host', hostId })))
+    while (held.length < 3) await new Promise((resolve) => setTimeout(resolve, 1))
+    expect(held.sort()).toEqual(['a', 'b', 'c'].map(hostAudience))
+    release()
+    const tokens = await asks
+    expect(new Set(tokens).size).toBe(3)
+    expect(refreshes(w)).toHaveLength(1)
+    const exchange = exchanges(w)[0]!.form
+    expect(exchange.get('subject_token_type')).toBe(ACCESS_TOKEN_TYPE)
+    expect(exchange.get('subject_token')).toBe(await w.session.accessToken({ kind: 'api' }))
+    expect(exchange.get('client_id')).toBe(w.plane.clientId)
+  })
+
+  test('concurrent asks for one host share one exchange, and the token is kept until a minute before its end', async () => {
     const w = world()
     await w.session.signIn()
-    w.plane.refuse(hostAudience('host-1'))
-    expect(await w.session.accessToken(HOST)).toBeNull()
-    expect(w.session.state().kind).toBe('signed-in')
-    expect(await w.session.accessToken({ kind: 'account' })).toBeTruthy()
+    const [first, second] = await Promise.all([w.session.accessToken(HOST), w.session.accessToken(HOST)])
+    expect(first).toBe(second)
+    expect(exchanges(w)).toHaveLength(1)
+    w.plane.advance(239_000)
+    expect(await w.session.accessToken(HOST)).toBe(first)
+    w.plane.advance(2_000)
+    expect(await w.session.accessToken(HOST)).not.toBe(first)
   })
 
-  test('a refusal is kept with its reason and Solus rule until that resource gets a token', async () => {
+  test('a host token the host refused is not given out again', async () => {
+    const w = world()
+    await w.session.signIn()
+    const refused = (await w.session.accessToken(HOST))!
+    const next = await w.session.accessToken(HOST, { refused })
+    expect(next).not.toBe(refused)
+    // A second report of the same refusal does not exchange again.
+    expect(await w.session.accessToken(HOST, { refused })).toBe(next)
+  })
+
+  test('a refusal for one host keeps the grant, with its reason and Solus rule until the host gets a token', async () => {
     // WHY: a transport that only saw "no token" dialed anyway and logged `unauthorized`, so the reason was lost.
     const w = world()
     await w.session.signIn()
     w.plane.refuse(hostAudience('host-1'), { error: 'access_denied', error_description: 'The person is not a member of an organization.', solus_refusal: 'not_a_member' })
     expect(await w.session.accessToken(HOST)).toBeNull()
+    expect(w.session.state().kind).toBe('signed-in')
     expect(w.session.refusal(HOST)).toEqual({ status: 400, code: 'access_denied', description: 'The person is not a member of an organization.', rule: 'not_a_member' })
     expect(w.session.refusal({ kind: 'account' })).toBeNull()
+    expect(await w.session.accessToken({ kind: 'account' })).toBeTruthy()
     w.plane.allow(hostAudience('host-1'))
     expect(await w.session.accessToken(HOST)).toBeTruthy()
     expect(w.session.refusal(HOST)).toBeNull()
@@ -183,12 +191,12 @@ describe('OAuthSession access tokens', () => {
     expect(isLastingRefusal(refusal(400, 'invalid_request'))).toBe(false)
   })
 
-  test('invalid_grant ends the sign-in: the store is cleared and the state says revoked', async () => {
+  test('a grant that ended elsewhere refuses the next exchange, and the refresh then ends the sign-in', async () => {
     const w = world()
     await w.session.signIn()
-    // Another client of the same family replayed a spent token: the plane ended the family.
-    const grant = w.memory.current()!
-    await w.plane.fetch(`${ISSUER}/api/auth/oauth2/revoke`, { method: 'POST', body: new URLSearchParams({ token: grant.refreshToken }).toString() })
+    await w.session.accessToken({ kind: 'api' })
+    // A sign-out on another device revoked the grant; the kept servers token is still unexpired.
+    await w.plane.fetch(`${ISSUER}/api/auth/oauth2/revoke`, { method: 'POST', body: new URLSearchParams({ token: w.memory.current()!.refreshToken }).toString() })
     expect(await w.session.accessToken(HOST)).toBeNull()
     expect(w.session.state()).toEqual({ kind: 'invalid', reason: 'revoked' })
     expect(w.memory.current()).toBeNull()
@@ -215,7 +223,7 @@ describe('OAuthSession identity and sign-out', () => {
     expect(w.session.state()).toMatchObject({ identity: { name: 'Ada Lovelace' } })
     expect(w.memory.current()?.identity.name).toBe('Ada Lovelace')
     const userinfo = w.plane.calls.findIndex((call) => call.path === '/api/auth/oauth2/userinfo')
-    const refresh = w.plane.calls.findIndex((call) => call.form.get('resource') === ACCOUNT_AUDIENCE)
+    const refresh = w.plane.calls.findIndex((call) => call.form.getAll('resource').includes(ACCOUNT_AUDIENCE))
     expect(refresh).toBeGreaterThan(-1)
     expect(userinfo).toBeGreaterThan(refresh)
   })
@@ -248,8 +256,8 @@ describe('OAuthSession identity and sign-out', () => {
     release()
     await Promise.all([running, ended])
     const revoke = w.plane.calls.find((call) => call.path === '/api/auth/oauth2/revoke')!
-    // The refresh rotated rt-2 into rt-4 while sign-out waited; rt-4 is the one revoked.
-    expect(revoke.form.get('token')).toBe('rt-4')
+    // The refresh rotated rt-2 into rt-3 while sign-out waited; rt-3 is the one revoked.
+    expect(revoke.form.get('token')).toBe('rt-3')
     expect(w.plane.liveTokens()).toEqual([])
     expect(w.memory.current()).toBeNull()
   })

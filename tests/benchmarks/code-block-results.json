@@ -1,0 +1,8 @@
+{
+  "benchmark": "tests/benchmarks/code-block.ts",
+  "machine": "Apple Silicon laptop, Chromium in the Solus browser pane, 2026-10-22",
+  "scenario": "150 TypeScript code blocks of 7189 characters mounted at once, tokenizer already loaded, median of 7 rounds",
+  "deferred colouring (shipped)": { "mountTaskMs": 72, "firstFrameMs": 165, "everyBlockColouredMs": 550 },
+  "colouring in the first render (measured, not shipped)": { "mountTaskMs": 245, "firstFrameMs": 602, "everyBlockColouredMs": 602 },
+  "note": "The lexer costs 35 µs per block; the DOM for the spans is the cost. Plain text first keeps the first frame early and finishes colouring no later."
+}

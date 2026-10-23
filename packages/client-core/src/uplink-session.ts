@@ -3,6 +3,8 @@ import {
   enrollmentTicketResponseSchema,
   managedHostStartResponseSchema,
   organizationDirectorySchema,
+  SOLUS_PROTOCOL,
+  SOLUS_PROTOCOL_HEADER,
   type ManagedHostLifecycle,
   type DirectoryHost,
   type OrganizationDirectory,
@@ -11,6 +13,7 @@ import {
 } from '@solus/contracts/uplink'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
+import type { AccountState } from '@solus/contracts/account-types'
 import type { OAuthSession, ResourceRefusal } from './oauth-session'
 import { savedServerRoutes, type SavedServer, type SavedServerUplink } from './server-registry'
 
@@ -28,11 +31,13 @@ import { savedServerRoutes, type SavedServer, type SavedServerUplink } from './s
 export interface UplinkAccountSource {
   /** Null when signed out or the website could not be reached. */
   listDirectory(): Promise<UplinkDirectory | null>
-  /** A five-minute access token for one host or the Solus API; `fresh` after the resource refused the kept one. */
-  accessToken(resource: ConnectionTokenResource, options?: { fresh?: boolean }): Promise<string | null>
+  /** An access token for one host or the Solus API; `refused` names a kept one the resource refused. */
+  accessToken(resource: ConnectionTokenResource, options?: { refused?: string }): Promise<string | null>
   /** Why the last `accessToken` for this resource gave none, when the account plane refused it.
    *  Absent where the sign-in lives in another process (desktop). */
   accessTokenRefusal?(resource: ConnectionTokenResource): ResourceRefusal | null
+  /** True when the account holds no sign-in: it ended (expired, revoked) or was never made. */
+  isSignedOut(): boolean
   issueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
   /** People and teams of one organization, for the share dialog; null when not a member. */
   loadOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>
@@ -53,7 +58,7 @@ export interface UplinkAccountSource {
  */
 export function oauthUplinkAccountSource(
   origin: string,
-  session: Pick<OAuthSession, 'accessToken'> & Partial<Pick<OAuthSession, 'refusal'>>,
+  session: Pick<OAuthSession, 'accessToken' | 'state'> & Partial<Pick<OAuthSession, 'refusal'>>,
   fetchImpl: typeof fetch = fetch,
 ): UplinkAccountSource {
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
@@ -63,7 +68,7 @@ export function oauthUplinkAccountSource(
       return await fetchImpl(`${origin}${path}`, {
         ...init,
         credentials: 'omit',
-        headers: { accept: 'application/json', authorization: `Bearer ${token}`, ...init.headers },
+        headers: { accept: 'application/json', authorization: `Bearer ${token}`, [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL), ...init.headers },
         signal: AbortSignal.timeout(8_000),
       })
     } catch {
@@ -79,6 +84,7 @@ export function oauthUplinkAccountSource(
     },
     accessToken: (resource, options) => session.accessToken(resource, options),
     accessTokenRefusal: (resource) => session.refusal?.(resource) ?? null,
+    isSignedOut: () => isSignedOutState(session.state()),
     async issueEnrollmentTicket() {
       const response = await call('/v1/enrollment-tickets', { method: 'POST' })
       if (!response?.ok) return null
@@ -103,6 +109,11 @@ export function oauthUplinkAccountSource(
       return response?.ok === true || response?.status === 404
     },
   }
+}
+
+/** An account with no sign-in to give tokens from. A sign-in that runs, or a state not known yet, is not signed out. */
+export function isSignedOutState(state: AccountState | undefined): boolean {
+  return state?.kind === 'signed-out' || state?.kind === 'invalid' || state?.kind === 'unavailable'
 }
 
 /** What the registry keeps of a directory row beyond its routes. */

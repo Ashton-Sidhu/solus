@@ -29,11 +29,15 @@ export interface WatchRead {
   /** The login whose credential read the pull request: the agent's own
    *  account. Its remarks are not news. */
   viewer: string
+  /** When this read was made, in epoch milliseconds. */
+  readAt: number
 }
 
 export type WatchNews =
   | { kind: 'checks-failed'; checks: CheckItem[] }
   | { kind: 'checks-passed'; checks: string[] }
+  | { kind: 'all-checks-passed'; checks: string[] }
+  | { kind: 'no-checks'; minutes: number }
   | { kind: 'remarks'; remarks: WatchRemark[] }
   | { kind: 'conflicting' }
   | { kind: 'closed' }
@@ -59,6 +63,10 @@ export interface WatchEvaluation {
  *  answer each other would otherwise keep the agent busy forever. */
 export const REMARK_ONLY_WAKE_LIMIT = 10
 
+/** How long a head may have no check at all before the agent is told that
+ *  none reported: a workflow can skip every job for a change (paths-ignore). */
+export const NO_CHECKS_GRACE_MS = 15 * 60_000
+
 const FAILED_CONCLUSIONS = new Set<CheckConclusion>(['failure', 'cancelled', 'timed_out', 'action_required'])
 const PASSING_CONCLUSIONS = new Set<CheckConclusion>(['success', 'neutral', 'skipped'])
 
@@ -72,6 +80,8 @@ export function initialWatchState(startedAt: number): PullRequestWatchState {
     remarkIdsAtWatermark: [],
     conflicting: false,
     remarkOnlyWakes: 0,
+    owedChecks: [],
+    checksAwaitedSince: null,
   }
 }
 
@@ -81,9 +91,10 @@ export function evaluateWatch(state: PullRequestWatchState, read: WatchRead): Wa
   if (pullRequest.state === 'closed') return { next: state, news: [{ kind: 'closed' }], end: 'closed' }
 
   // A new head is new work: what was said about the old head's checks is void.
-  const next: PullRequestWatchState = pullRequest.headSha === state.headSha
-    ? { ...state }
-    : { ...state, headSha: pullRequest.headSha, failedChecks: [], passReported: false, passedChecks: [] }
+  const headMoved = pullRequest.headSha !== state.headSha
+  const next: PullRequestWatchState = headMoved
+    ? { ...state, headSha: pullRequest.headSha, failedChecks: [], passReported: false, passedChecks: [], owedChecks: [] }
+    : { ...state }
   const news: WatchNews[] = []
 
   const checks = [...read.checks.required, ...read.checks.optional]
@@ -92,17 +103,8 @@ export function evaluateWatch(state: PullRequestWatchState, read: WatchRead): Wa
   next.failedChecks = failed.map((check) => check.id)
   if (newlyFailed.length) news.push({ kind: 'checks-failed', checks: newlyFailed })
 
-  const gate = read.checks.required.length ? read.checks.required : checks
-  const gatePassed = gate.length > 0 && gate.every(isPassing)
-  if (gatePassed) {
-    const names = gate.map((check) => check.name)
-    // Only a required check can grow the gate: advisory bots that add passed
-    // checks would otherwise wake the agent for nothing.
-    const grew = read.checks.required.length > 0 && names.some((name) => !next.passedChecks.includes(name))
-    if (!next.passReported || grew) news.push({ kind: 'checks-passed', checks: names })
-    next.passReported = true
-    next.passedChecks = names
-  }
+  news.push(...passNews(next, read))
+  news.push(...noChecksNews(next, read, headMoved))
 
   // Unknown mergeability keeps the last answer.
   if (pullRequest.mergeable !== null) {
@@ -127,6 +129,52 @@ export function evaluateWatch(state: PullRequestWatchState, read: WatchRead): Wa
   if (!news.length) return { next, news, end: null }
   next.remarkOnlyWakes = news.every((item) => item.kind === 'remarks') ? state.remarkOnlyWakes + 1 : 0
   return { next, news, end: next.remarkOnlyWakes >= REMARK_ONLY_WAKE_LIMIT ? 'remark-limit' : null }
+}
+
+/** What passed that the agent was not told: the checks that gate the merge,
+ *  then every check once the optional ones it was told were running finish. */
+function passNews(next: PullRequestWatchState, read: WatchRead): WatchNews[] {
+  const { required, optional } = read.checks
+  const checks = [...required, ...optional]
+  const gate = required.length ? required : checks
+  // The optional checks still running when the required ones passed are owed
+  // one wake when every check has passed. Only those: an advisory check that
+  // starts later never wakes the agent. One that became required is gate news.
+  const optionalNames = new Set(optional.map((check) => check.name))
+  const owed = next.owedChecks.filter((name) => optionalNames.has(name))
+  next.owedChecks = owed
+  if (!gate.length || !gate.every(isPassing)) return []
+  const names = gate.map((check) => check.name)
+  // Only a required check can grow the gate: advisory bots that add passed
+  // checks would otherwise wake the agent for nothing.
+  const grew = required.length > 0 && names.some((name) => !next.passedChecks.includes(name))
+  const told = next.passReported
+  next.passReported = true
+  next.passedChecks = names
+  if (!told || grew) {
+    next.owedChecks = required.length
+      ? optional.filter((check) => !isFailed(check) && !isPassing(check)).map((check) => check.name)
+      : []
+    return [{ kind: 'checks-passed', checks: names }]
+  }
+  if (!owed.length || !checks.every(isPassing)) return []
+  next.owedChecks = []
+  return [{ kind: 'all-checks-passed', checks: checks.map((check) => check.name) }]
+}
+
+/**
+ * A head with no check at all may never get one (a workflow can skip every
+ * job for a change), so the agent is told once after a grace period. A head
+ * that had checks is never waited on again.
+ */
+function noChecksNews(next: PullRequestWatchState, read: WatchRead, headMoved: boolean): WatchNews[] {
+  if (read.checks.required.length || read.checks.optional.length) next.checksAwaitedSince = null
+  else if (headMoved) next.checksAwaitedSince = new Date(read.readAt).toISOString()
+  if (!next.checksAwaitedSince) return []
+  const waited = read.readAt - Date.parse(next.checksAwaitedSince)
+  if (waited < NO_CHECKS_GRACE_MS) return []
+  next.checksAwaitedSince = null
+  return [{ kind: 'no-checks', minutes: Math.round(waited / 60_000) }]
 }
 
 function isFailed(check: CheckItem): boolean {
@@ -176,6 +224,10 @@ function newsLines(item: WatchNews): string[] {
         `  - ${check.name}${check.appName ? ` (${check.appName})` : ''}: ${check.conclusion}${check.detailsUrl ? ` — ${check.detailsUrl}` : ''}`))]
     case 'checks-passed':
       return [`- Every check that gates the merge passed: ${item.checks.slice(0, LIST_LIMIT).join(', ')}${item.checks.length > LIST_LIMIT ? `, and ${item.checks.length - LIST_LIMIT} more` : ''}.`]
+    case 'all-checks-passed':
+      return [`- Every other check has now finished and passed too: ${item.checks.slice(0, LIST_LIMIT).join(', ')}${item.checks.length > LIST_LIMIT ? `, and ${item.checks.length - LIST_LIMIT} more` : ''}.`]
+    case 'no-checks':
+      return [`- No checks have reported on this head after ${item.minutes} minutes. None may be configured to run on this change; this does not mean CI passed.`]
     case 'conflicting':
       return ['- The branch now conflicts with its base.']
     case 'closed':

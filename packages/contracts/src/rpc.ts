@@ -514,7 +514,6 @@ export const RPC_INVOKE_METHODS = [
   'tasksPublish',
   'tasksSyncNow',
   'tasksSidebarSnapshot',
-  'tasksLogOpenTiming',
   'tasksSearchComments',
   'tasksReadExtras',
   'tasksMarkRead',

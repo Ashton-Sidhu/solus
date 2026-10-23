@@ -16,7 +16,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // merely organization-attributed session reads nothing and marks nothing.
 
 let TranscriptMirrorModule: typeof import('@solus/server/sync/mirror/transcript-mirror')
-let mirrorLog: typeof import('@solus/server/sync/mirror/mirror-log')
+let queue: typeof import('@solus/server/sync/delivery-queue')
 let records: typeof import('@solus/server/data/sessions/session-records')
 let dbModule: typeof import('@solus/server/db')
 
@@ -27,7 +27,7 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-transcript-mirror-'))
   process.env.SOLUS_DATA_DIR = dataDir
   TranscriptMirrorModule = await import('@solus/server/sync/mirror/transcript-mirror')
-  mirrorLog = await import('@solus/server/sync/mirror/mirror-log')
+  queue = await import('@solus/server/sync/delivery-queue')
   records = await import('@solus/server/data/sessions/session-records')
   dbModule = await import('@solus/server/db')
 })
@@ -64,9 +64,9 @@ function rememberedPositions(sessionId: string): number[] {
 /** The rows queued for an organization. These sessions have no owner, so the person who linked the host carries them. */
 function drainLog(organizationId = 'org1') {
   const destination = { organizationId, actorUserId: '' }
-  const items = mirrorLog.listMirror(destination, 100)
-  if (items.length) mirrorLog.ackMirrorThrough(destination, items[items.length - 1].seq)
-  return items.map((item) => ({ domain: item.domain, key: item.key, payload: item.payload }))
+  const items = queue.listDelivery(destination, 100)
+  if (items.length) queue.ackDelivery(destination, items[items.length - 1].seq, [])
+  return items.map((item) => ({ kind: item.kind, payload: item.payload }))
 }
 
 /** A session this host recorded, assigned to an organization and published there when asked. */
@@ -104,7 +104,7 @@ describe('transcript mirror', () => {
     expect(await producer.flushNow('quiet')).toBe(0)
     expect(await producer.flushNow('attributed')).toBe(0)
     expect(loads).toEqual([])
-    expect(mirrorLog.mirrorDestinations()).toEqual([])
+    expect(queue.deliveryDestinations()).toEqual([])
     expect(rememberedPositions('quiet')).toEqual([])
     expect(rememberedPositions('attributed')).toEqual([])
     producer.dispose()
@@ -119,9 +119,9 @@ describe('transcript mirror', () => {
     const lastSeq = await producer.flushNow('s1')
     const first = drainLog()
     expect(first).toEqual([
-      { domain: 'transcripts', key: 's1:0', payload: { sessionId: 's1', position: 0, message: message('a') } },
-      { domain: 'transcripts', key: 's1:1', payload: { sessionId: 's1', position: 1, message: message('b') } },
-      { domain: 'transcripts', key: 's1:2', payload: { sessionId: 's1', position: 2, message: message('c') } },
+      { kind: 'transcript', payload: { sessionId: 's1', position: 0, message: message('a') } },
+      { kind: 'transcript', payload: { sessionId: 's1', position: 1, message: message('b') } },
+      { kind: 'transcript', payload: { sessionId: 's1', position: 2, message: message('c') } },
     ])
     // The flush answers the highest sequence it appended.
     expect(lastSeq).toBeGreaterThan(0)
@@ -137,8 +137,8 @@ describe('transcript mirror', () => {
     producer.touch('s1', { provider: 'claude-code' })
     await producer.flushNow('s1')
     expect(drainLog()).toEqual([
-      { domain: 'transcripts', key: 's1:1', payload: { sessionId: 's1', position: 1, message: message('b done') } },
-      { domain: 'transcripts', key: 's1:3', payload: { sessionId: 's1', position: 3, message: message('d') } },
+      { kind: 'transcript', payload: { sessionId: 's1', position: 1, message: message('b done') } },
+      { kind: 'transcript', payload: { sessionId: 's1', position: 3, message: message('d') } },
     ])
     expect(rememberedPositions('s1')).toEqual([0, 1, 2, 3])
 
@@ -147,7 +147,7 @@ describe('transcript mirror', () => {
     producer.touch('s1', { provider: 'claude-code' })
     await producer.flushNow('s1')
     expect(drainLog()).toEqual([
-      { domain: 'transcripts', key: 's1:truncate', payload: { sessionId: 's1', truncateFrom: 2 } },
+      { kind: 'transcript', payload: { sessionId: 's1', truncateFrom: 2 } },
     ])
     expect(rememberedPositions('s1')).toEqual([0, 1])
     producer.dispose()
@@ -161,7 +161,7 @@ describe('transcript mirror', () => {
     await producer.flushNow('s-org2')
     expect(drainLog('org1')).toEqual([])
     expect(drainLog('org2')).toEqual([
-      { domain: 'transcripts', key: 's-org2:0', payload: { sessionId: 's-org2', position: 0, message: message('two') } },
+      { kind: 'transcript', payload: { sessionId: 's-org2', position: 0, message: message('two') } },
     ])
     producer.dispose()
   })
@@ -212,13 +212,13 @@ describe('transcript mirror', () => {
       return producer.flushNow(sessionId)
     }
     for (const id of ['act-local', 'act-attributed']) expect(await flush(id)).toBe(0)
-    expect(mirrorLog.mirrorDestinations()).toEqual([])
+    expect(queue.deliveryDestinations()).toEqual([])
 
     const lastSeq = await flush('act-pub')
-    const activityItems = drainLog().filter((item) => item.domain === 'activity')
+    const activityItems = drainLog().filter((item) => item.kind === 'activity')
     expect(activityItems).toEqual([
-      { domain: 'activity', key: stopped.id, payload: { activity: { ...stopped, subject: { kind: 'session', id: 'act-pub' } } } },
-      { domain: 'activity', key: renamed.id, payload: { activity: { ...renamed, subject: { kind: 'session', id: 'act-pub' } } } },
+      { kind: 'activity', payload: { activity: { ...stopped, subject: { kind: 'session', id: 'act-pub' } } } },
+      { kind: 'activity', payload: { activity: { ...renamed, subject: { kind: 'session', id: 'act-pub' } } } },
     ])
 
     // Nothing new: nothing is sent again. A new activity, while the transcript stays, is sent alone.
@@ -228,7 +228,7 @@ describe('transcript mirror', () => {
     await appendActivity('org1', answered)
     await flush('act-pub')
     expect(drainLog()).toEqual([
-      { domain: 'activity', key: answered.id, payload: { activity: { ...answered, subject: { kind: 'session', id: 'act-pub' } } } },
+      { kind: 'activity', payload: { activity: { ...answered, subject: { kind: 'session', id: 'act-pub' } } } },
     ])
     producer.dispose()
   })
@@ -244,5 +244,29 @@ describe('transcript mirror', () => {
     expect(await producer.flushNow('s2')).toBe(0)
     expect(loads.length).toBe(loadsBefore)
     expect(drainLog()).toEqual([])
+  })
+
+  test('share rows go with a session\'s first rows and not again with each later sync', async () => {
+    // WHY: the share list changes rarely; sending it with every transcript sync
+    // repeated the same rows on every turn (simplify-auth-and-sync §4.5). A change
+    // sends it on its own (`onShareChanged` in boot).
+    await session('shared', 'published')
+    const rows = [{ subjectKind: 'organization' as const, subjectId: 'org1', role: 'editor' as const, linkSecretHash: null, grantedByUserId: 'u', createdAt: 1 }]
+    let reads = 0
+    const producer = new TranscriptMirrorModule.TranscriptMirror({
+      loadSession: async (_provider, sessionId) => transcripts.get(sessionId) ?? [],
+      shareRows: async () => { reads += 1; return rows },
+      debounceMs: 5,
+    })
+    transcripts.set('shared', [message('a')])
+    producer.touch('shared', { provider: 'claude-code' })
+    await producer.flushNow('shared')
+    expect(drainLog().map((item) => item.kind)).toEqual(['transcript', 'shares'])
+    transcripts.set('shared', [message('a'), message('b')])
+    producer.touch('shared', { provider: 'claude-code' })
+    await producer.flushNow('shared')
+    expect(drainLog().map((item) => item.kind)).toEqual(['transcript'])
+    expect(reads).toBe(1)
+    producer.dispose()
   })
 })

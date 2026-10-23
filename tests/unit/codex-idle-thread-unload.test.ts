@@ -76,7 +76,7 @@ describe('Codex idle thread unload', () => {
     jest.useFakeTimers()
     const { backend, internals, client } = backendWith()
     backend.on('normalized', () => {})
-    backend.on('background-command-completed', () => {})
+    backend.on('background-task-completed', () => {})
     internals.runningCommands.set('item-1', { threadId: 'thread-1', processId: 'proc-1', client, isBackground: true })
     internals.finishRun({ agentSessionId: 'thread-1', threadId: 'thread-1', client })
 

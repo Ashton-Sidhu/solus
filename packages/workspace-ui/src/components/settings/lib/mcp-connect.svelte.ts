@@ -1,7 +1,9 @@
 import type { Integration } from '@solus/contracts/integration-types'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { SetupHandoff, type IntegrationSetupNeed } from '@solus/contracts/integrations/setup-handoff'
 import { SvelteSet } from 'svelte/reactivity'
 import { integrationsStore } from '../integrations.store.svelte'
-import { connectStep, type ConnectStep } from './integration-labels'
+import { IntegrationLabels, type ConnectStep } from './integration-labels'
 import type { McpCatalog } from './mcp-catalog.svelte'
 
 /** What the connect dialog opens for: a server on the host, or a catalog entry to add first. */
@@ -10,6 +12,8 @@ export interface ConnectRequest {
   url: string
   icon?: string
   integrationId?: string
+  /** The vendor's setup page, from a Solus catalog entry (§13.5). */
+  authHelp?: string
 }
 
 /**
@@ -44,13 +48,47 @@ export class McpConnect {
 
   get step(): ConnectStep {
     const integration = this.integration
-    return connectStep(integration?.auth ?? null, integration ? integrationsStore.connection(this.serverId, integration.id) : null)
+    return integration ? new IntegrationLabels(integration).connectStep(integrationsStore.connection(this.serverId, integration.id)) : 'adding'
   }
 
   /** The reason the last Add stopped, while no record exists. */
   get addError(): string {
     const state = this.catalog.installs.get(this.request.url)
     return !this.integrationId && state?.kind === 'failed' ? state.message : ''
+  }
+
+  /**
+   * What the person must set up at the vendor before Solus can connect, for
+   * "Set up with an agent" (docs/plans/mcp-integrations.md §13.4): from the
+   * refused probe while no record exists, else from the record's auth until
+   * the person is connected.
+   */
+  get setupHandoff(): SetupHandoff | null {
+    const need = this.setupNeed
+    if (!need) return null
+    return new SetupHandoff(need, {
+      name: this.integration?.name ?? this.request.name,
+      url: this.integration?.url ?? this.request.url,
+      callbackUrl: need === 'oauth-client' ? integrationsStore.oauthRedirectUrl(this.serverId) : undefined,
+      guideUrl: this.request.authHelp,
+    })
+  }
+
+  private get setupNeed(): IntegrationSetupNeed | null {
+    const integration = this.integration
+    if (!integration) {
+      const state = this.catalog.installs.get(this.request.url)
+      return state?.kind === 'failed' ? state.setupNeed ?? null : null
+    }
+    return new IntegrationSignIn(integration).setupNeedFor(integrationsStore.connection(this.serverId, integration.id))
+  }
+
+  /**
+   * Hand the setup to an agent: keep a server this run added, so the person
+   * finds it waiting in Settings, and close. The caller opens the conversation.
+   */
+  keepForHandoff(): void {
+    this.addedHere = false
   }
 
   get isAdding(): boolean {

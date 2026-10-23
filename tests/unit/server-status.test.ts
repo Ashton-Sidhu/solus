@@ -72,12 +72,12 @@ describe('server status', () => {
   test('every host surface follows the same connection transition', () => {
     // WHY: a page mounted while a socket is connecting must advance with the
     // status-bar picker instead of retaining a different snapshot forever.
-    serversStore.setConnectionStatus('remote', 'connecting')
+    serversStore.setConnectionPhase('remote', 'connecting')
 
     expect(serversStore.statusFor('remote')).toBe('connecting')
     expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('connecting')
 
-    serversStore.setConnectionStatus('remote', 'connected')
+    serversStore.setConnectionPhase('remote', 'connected')
 
     expect(serversStore.statusFor('remote')).toBe('online')
     expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('online')
@@ -94,7 +94,7 @@ describe('server status', () => {
     }
 
     try {
-      serversStore.setConnectionStatus('remote', 'connecting')
+      serversStore.setConnectionPhase('remote', 'connecting')
       await serversStore.probeHosts()
 
       expect(forced).toBe(true)
@@ -108,7 +108,7 @@ describe('server status', () => {
   test('a connected socket wins over an older failed probe', () => {
     // WHY: recovering the host must immediately turn it green; users should not
     // have to wait for the next picker probe to clear a stale offline result.
-    serversStore.setConnectionStatus('remote', 'connected')
+    serversStore.setConnectionPhase('remote', 'connected')
 
     expect(serversStore.statusFor('remote')).toBe('online')
   })
@@ -116,7 +116,7 @@ describe('server status', () => {
   test('an identity mismatch is distinct from an offline host', () => {
     // WHY: retrying cannot fix an address that now reaches a different Solus
     // installation. The host row must tell the user to pair deliberately.
-    serversStore.setConnectionStatus('remote', 'identity-mismatch')
+    serversStore.setConnectionPhase('remote', 'blocked', 0, 'identity-mismatch')
 
     expect(serversStore.statusFor('remote')).toBe('different-server')
     expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('different-server')
@@ -129,9 +129,7 @@ describe('server status', () => {
     const originalIds = serverConnections.connectedServerIds
     const originalConnectionFor = serverConnections.connectionFor
     const early = {
-      status: 'connected',
-      attempt: 0,
-      supervisor: { phase: 'connected' },
+      link: { phase: 'connected', attempt: 0 },
     } as unknown as ReturnType<typeof serverConnections.connectionFor>
     serverConnections.connectedServerIds = () => ['early-host']
     serverConnections.connectionFor = (serverId) => serverId === 'early-host' ? early : undefined
@@ -158,9 +156,7 @@ describe('server status', () => {
     const originalConnectionFor = serverConnections.connectionFor
     const originalProbeHealth = serverConnections.probeHealth
     const serving = {
-      status: 'connected',
-      attempt: 0,
-      supervisor: { phase: 'connected' },
+      link: { phase: 'connected', attempt: 0 },
       target: { id: 'serving-host', label: 'Mac mini', url: 'https://mac-mini.example', local: false },
     } as unknown as ReturnType<typeof serverConnections.connectionFor>
     serverConnections.connectedServerIds = () => ['serving-host']

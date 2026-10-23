@@ -47,4 +47,31 @@ describe('diff view preferences', () => {
     expect(values.get('solus-diff-style')).toBe('split')
     expect(values.get('solus-diff-token-highlight')).toBe('off')
   })
+  test('classification survives reopening and restarting, including an explicit All choice', async () => {
+    const values = installStorage({})
+    const preferences = await freshPreferences()
+    expect(preferences.changeKinds).toBeNull()
+    preferences.setChangeKinds(['docs'])
+    expect(values.get('solus-diff-kind')).toBe(JSON.stringify(['docs']))
+    const reopened = await freshPreferences()
+    expect(reopened.changeKinds).toEqual(['docs'])
+    reopened.setChangeKinds(null)
+    expect((await freshPreferences()).changeKinds).toBeNull()
+    expect(values.get('solus-diff-kind')).toBe('null')
+  })
+
+  test('invalid saved classifications show all files', async () => {
+    installStorage({ 'solus-diff-kind': 'removed-class' })
+    expect((await freshPreferences()).changeKinds).toBeNull()
+  })
+
+})
+
+test('multiple classes and no classes survive reopening', async () => {
+  installStorage({})
+  const preference = await freshPreferences()
+  preference.setChangeKinds(['code', 'docs'])
+  expect((await freshPreferences()).changeKinds).toEqual(['code', 'docs'])
+  preference.setChangeKinds([])
+  expect((await freshPreferences()).changeKinds).toEqual([])
 })

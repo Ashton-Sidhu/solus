@@ -4,11 +4,13 @@ import {
   ACCESS_TOKEN_TYPE,
   CLIENT_ASSERTION_TYPE,
   TOKEN_EXCHANGE_GRANT_TYPE,
+  hostAudience,
   type PersonAccessTokenClaims,
   type HostRegistration,
 } from '@solus/contracts/uplink'
 import { tokenResourceUri, type TokenResource } from '@solus/contracts/auth/clients'
 import { SolusApiClient, SolusApiHttp, WorkspaceRequestError, type SolusApiHttpOptions } from '@solus/contracts/solus-api/client'
+import type { WorkspaceSessionAdmissionRequest } from '@solus/contracts/solus-api'
 import type { FetchLike, TokenVerdict } from '../admission/access-tokens'
 import type { HostCredential } from '../host/host-credential'
 import { secretStore } from '../platform/secrets'
@@ -23,9 +25,8 @@ const log = createLogger('main', 'delegations')
  * organization — a refresh token the account plane issued to this host's own OAuth
  * client in a token exchange (RFC 8693), and the current five-minute access tokens.
  * The host authenticates every exchange and refresh with its key (`private_key_jwt`,
- * `HostCredential`). The Solus API uses this class too, with its service credential:
- * there the subject is the API token a person's client presented, and the scope is one
- * organization (ADR 0001 §6.2).
+ * `HostCredential`). The Solus API holds no delegations: it reads a person's account
+ * with the token their client presented (`PresentedTokens` in `vault/account-reads.ts`).
  *
  * A delegation is made only from an access token a person's client presented here
  * (`establish` through `delegateFromPresentedToken`: at the ticket door, with
@@ -41,8 +42,8 @@ const log = createLogger('main', 'delegations')
 
 export type DelegationScope = { organizationId: string } | 'personal'
 
-/** A delegated token is for the Solus API, the account plane, or another host the person reaches (host-reach.md §3); never a client's host token. */
-export type DelegatedResource = Exclude<TokenResource, { kind: 'host' }>
+/** A delegated token is for the Solus API, the account plane, or another host the person reaches (host-reach.md §3). */
+export type DelegatedResource = TokenResource
 
 /** The account plane's refusals of a host-reach token. They refuse one host, not the delegation (host-reach.md §3.1). */
 const HOST_REACH_REFUSALS = new Set(['host_not_reachable', 'host_outside_organization', 'host_not_ready'])
@@ -59,7 +60,7 @@ export class DelegationError extends Error {
 export interface DelegationsDeps {
   /** The registration, for the Solus API it names (`apiClient`); null when unregistered, and always in API mode. */
   registration: () => HostRegistration | null
-  /** This host's credential (or the Solus API's), with which it authenticates at the token endpoint; null when the host is not registered. */
+  /** This host's credential, with which it authenticates at the token endpoint; null when the host is not registered. */
   credential: () => Pick<HostCredential, 'clientId' | 'tokenEndpoint' | 'assertion'> | null
   /** The account plane refused a refresh: the person may no longer work here in that scope. */
   onRevoked: (userId: string, scope: DelegationScope, refusal: DelegationRefusal) => void
@@ -75,13 +76,6 @@ export interface DelegationsDeps {
   fetchImpl?: FetchLike
   now?: () => number
 }
-
-/**
- * What an organization run's credential may do at the Solus API: its tasks and works,
- * its sessions, admitting one, reading Insights (the person's own turns other hosts
- * ran), and the person's agent profile and its MCP connections (plans/020 §4, §5).
- */
-const DELEGATED_SCOPES = ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'sessions:admit', 'insights:read', 'profile:read', 'integrations:read', 'integrations:write'] as const
 
 const REQUEST_TIMEOUT_MS = 15_000
 /** An access token this close to its end is replaced before it is used. */
@@ -192,7 +186,7 @@ export class Delegations {
    * signed in, the host acts for them. An outage keeps the delegation and fails the call.
    */
   async accessToken(userId: string, scope: DelegationScope, resource: DelegatedResource): Promise<string> {
-    if (resource.kind === 'host-reach') return this.hostReachToken(userId, scope, resource.hostId)
+    if (resource.kind === 'host') return this.hostReachToken(userId, scope, resource.hostId)
     try {
       return await this.heldToken(userId, scope, resource)
     } catch (error) {
@@ -204,7 +198,7 @@ export class Delegations {
     }
   }
 
-  private async heldToken(userId: string, scope: DelegationScope, resource: Exclude<DelegatedResource, { kind: 'host-reach' }>): Promise<string> {
+  private async heldToken(userId: string, scope: DelegationScope, resource: Exclude<DelegatedResource, { kind: 'host' }>): Promise<string> {
     const key = keyOf(userId, scope)
     // A connection that just arrived may still be making the delegation: its turn waits for it.
     const establishing = this.load().has(key) ? null : this.establishing.get(key)
@@ -228,11 +222,12 @@ export class Delegations {
   /**
    * A token to start sessions on another host for the person (docs/plans/host-reach.md
    * §3). The account plane makes it only by exchange, for one of this delegation's own
-   * tokens, and checks the reach then: it lives eight hours and has no refresh token.
+   * tokens, and checks the reach then: it lives one hour and has no refresh token.
    * A refusal names one host (`HOST_NOT_REACHABLE`); the delegation stays.
    */
   private async hostReachToken(userId: string, scope: DelegationScope, hostId: string): Promise<string> {
-    const audience = tokenResourceUri({ kind: 'host-reach', hostId })
+    // Another host's token has that host's own audience (simplify-auth-and-sync §3 rule 2).
+    const audience = hostAudience(hostId)
     const held = this.load().get(keyOf(userId, scope))
     const current = held ? this.current(held, audience) : null
     if (current) return current
@@ -253,7 +248,7 @@ export class Delegations {
    * starts. A continuation whose account plane cannot be reached goes on with the
    * delegation held; a refusal never does.
    */
-  async actFor(input: { sessionId: string; userId: string; organizationId: string; admit: boolean }): Promise<void> {
+  async actFor(input: { sessionId: string; userId: string; organizationId: string; admit: boolean; record?: WorkspaceSessionAdmissionRequest['record'] }): Promise<void> {
     const scope = { organizationId: input.organizationId }
     try {
       await this.accessToken(input.userId, scope, { kind: 'api' })
@@ -261,13 +256,13 @@ export class Delegations {
       if (input.admit || !(error instanceof DelegationError) || error.code !== 'ORGANIZATION_API_UNAVAILABLE') throw error
       log.warn('delegation_kept', { sessionId: input.sessionId, organizationId: input.organizationId, error: error.message })
     }
-    if (input.admit) await this.admit(input.userId, scope, input.sessionId)
+    if (input.admit) await this.admit(input.userId, scope, input.sessionId, input.record)
     this.bindSession(input.sessionId, { userId: input.userId, organizationId: input.organizationId })
   }
 
-  private async admit(userId: string, scope: DelegationScope, sessionId: string): Promise<void> {
+  private async admit(userId: string, scope: DelegationScope, sessionId: string, record: WorkspaceSessionAdmissionRequest['record']): Promise<void> {
     try {
-      await this.apiClient(userId, scope).request('admitSession', { body: { sessionId } })
+      await this.apiClient(userId, scope).request('admitSession', { body: { sessionId, record } })
     } catch (error) {
       if (error instanceof DelegationError) throw error
       if (error instanceof WorkspaceRequestError && (error.status === 401 || error.status === 403 || error.status === 409)) {
@@ -287,7 +282,6 @@ export class Delegations {
       },
       contextKey: () => keyOf(userId, scope),
       acquireSource: () => this.accessToken(userId, scope, { kind: 'api' }),
-      scopes: [...DELEGATED_SCOPES],
     }
     if (this.deps.fetchImpl) options.fetchImpl = this.deps.fetchImpl
     return new SolusApiClient(new SolusApiHttp(options))
@@ -456,15 +450,6 @@ export class Delegations {
 
 function electronPath(): string {
   return join(dataDir(), 'delegations.bin')
-}
-
-/**
- * How a token a person presented makes a delegation: a host makes one for each scope
- * its door names; the Solus API never makes a personal one, because it acts for a
- * person only in one organization (ADR 0001 §6.2).
- */
-export function establishWith(delegations: Pick<Delegations, 'establish'>, apiMode: boolean): (subjectToken: string, scope: DelegationScope) => Promise<void> {
-  return (subjectToken, scope) => apiMode && scope === 'personal' ? Promise.resolve() : delegations.establish(subjectToken, scope)
 }
 
 /**

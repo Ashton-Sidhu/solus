@@ -37,3 +37,9 @@ export const ROW_CLOSE =
 
 export const BAND_ACTION =
   'flex size-[1.875rem] shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-[background,color] duration-150 hover:bg-accent hover:text-foreground'
+
+/** The band's one labelled action, Share: the raised pill the band's window
+ *  controls use, widened to carry the word beside the glyph, so the two read
+ *  as one family. */
+export const BAND_SHARE =
+  'no-drag pointer-events-auto inline-flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-background pl-2.5 pr-3 text-xs font-medium text-[color-mix(in_oklch,var(--foreground)_75%,transparent)] shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] transition-colors hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) pointer-coarse:h-10'

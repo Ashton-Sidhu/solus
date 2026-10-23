@@ -847,14 +847,16 @@
 {#snippet sendButton()}
   <!-- The bottom-right corner is always the next thing you can do, so the
        button stays put and goes neutral rather than disappearing: fill is spent
-       on send, and only once there is something to send. -->
+       on send, and only once there is something to send. A click on a folded
+       bar sends without taking the keyboard, so the bar stays folded. -->
   {#if !showWaveform}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
           <button
             {...tooltipProps}
-            onclick={() => (stopsRun ? stopRun() : handleSend())}
+            onmousedown={(event) => { if (isCollapsed && !stopsRun) event.preventDefault(); }}
+            onclick={() => (stopsRun ? stopRun() : handleSend("steer", { refocus: !isCollapsed }))}
             disabled={!canSend && !stopsRun}
             data-testid={stopsRun ? "stop-button" : "send-button"}
             aria-label={stopsRun

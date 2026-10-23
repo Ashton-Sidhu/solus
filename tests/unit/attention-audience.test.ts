@@ -9,7 +9,7 @@ import type { ShareManager } from '@solus/server/sharing/share-manager'
 
 const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'managed', displayName: 'Bob', deviceId: 'd1', expiresAt: 0, deviceLabel: 'Solus cloud' }
 const GUEST: Principal = { kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 'shared' }, role: 'viewer', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' }
-const OWNER: Principal = { kind: 'local-owner', deviceId: 'mac', deviceLabel: 'Mac' }
+const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: 'mac', deviceLabel: 'Mac' }
 const RUNNER = { kind: 'runner', hostId: 'h', organizationId: 'org1' } as unknown as Principal
 
 const shares = {

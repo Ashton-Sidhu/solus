@@ -1,0 +1,14 @@
+{
+  "benchmark": "tests/benchmarks/diff-highlight.ts",
+  "machine": "Apple Silicon laptop, Chromium in the Solus browser pane, 2026-10-22",
+  "scenario": "one File rendered through a two-worker pool with the highlights backend, median of 7 rounds; coloured means the first frame with more than one token colour",
+  "workers only (shipped)": {
+    "3560-character file": { "renderCallMs": 0.8, "firstFrameMs": 16.6, "colouredMs": 16.6 },
+    "35600-character file": { "renderCallMs": 2.4, "firstFrameMs": 22.8, "colouredMs": 23.0 }
+  },
+  "mainThreadMaxCharacters 100000 (measured, not shipped)": {
+    "3560-character file": { "renderCallMs": 0.7, "firstFrameMs": 16.7, "colouredMs": 16.7 },
+    "35600-character file": { "renderCallMs": 5.7, "firstFrameMs": 31.4, "colouredMs": 31.6 }
+  },
+  "note": "The worker round trip ends before the first frame paints, so the plain-text pass is never shown; main-thread highlighting only paints a large file later."
+}

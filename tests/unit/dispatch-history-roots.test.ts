@@ -70,6 +70,6 @@ describe('dispatch checkout owner', () => {
 
   test('elsewhere each paired device keeps its own clone, as before', () => {
     expect(dispatchCheckoutOwnerKey(member('alice', 'laptop'), 'laptop')).toBe('laptop')
-    expect(dispatchCheckoutOwnerKey({ kind: 'local-owner', deviceId: 'mac', deviceLabel: 'Mac' }, 'mac')).toBe('mac')
+    expect(dispatchCheckoutOwnerKey({ kind: 'owner', via: 'local', expiresAt: null, deviceId: 'mac', deviceLabel: 'Mac' }, 'mac')).toBe('mac')
   })
 })

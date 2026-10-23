@@ -57,9 +57,9 @@ export function makeChatFolder(home: string, chatId: string, member: ProcessUser
   }
   const folder = join(home, CHAT_ROOT_NAME, chatIdSchema.parse(chatId))
   if (member) {
-    // Made as the member, inside the `solus-chats` the host object made `<member>:solus 2750`
-    // (docs/plans/member-isolation.md §5): theirs, readable by the server, closed to other members.
-    applyMemberFiles(member, [{ kind: 'folder', path: folder, mode: 0o750 }])
+    // The host makes solus-chats setgid solus-proj. Keep each chat writable by
+    // that group so another member can start a session in the same directory.
+    applyMemberFiles(member, [{ kind: 'folder', path: folder, mode: 0o2775 }])
   } else {
     mkdirSync(folder, { recursive: true })
   }
@@ -85,7 +85,8 @@ export function projectsRootFor(principal: Principal | undefined, hostRoot = set
 /**
  * The folder one chat runs in (docs/plans/projectless-chat.md): `solus-chats/<chat id>`
  * in the host's data folder, which is never a Git repository. A member's chats
- * stay in their own member folder, so another member's processes cannot reach them.
+ * stay in their own member folder. On managed hosts these working directories
+ * are shared through the project group; personal config and logins stay private.
  */
 export function chatFolderFor(chatId: string, principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
   if (principal?.kind !== 'org-member') return makeChatFolder(solusDir(), chatId)

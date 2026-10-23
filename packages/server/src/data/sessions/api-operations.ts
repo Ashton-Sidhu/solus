@@ -1,12 +1,12 @@
 import { workspaceSessionQuerySchema, workspaceSessionSearchQuerySchema, workspacePageQuerySchema } from '@solus/contracts/solus-api'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { markedPassage, queryWords } from '@solus/contracts/word-match'
-import type { RecordScope } from '../../admission/principal'
+import { runnerPrincipalFor, type RecordScope } from '../../admission/principal'
 import { sql, type SQL } from 'drizzle-orm'
 import { encodePathAsFolder, isSolusWorktreePath, SOLUS_WORKTREE_ENCODED_MARKER, type SessionRecord } from '@solus/contracts/types'
 import { CHAT_ROOT_NAME } from '@solus/contracts/chat'
-import { workspaceSessionAdmissionRequestSchema, workspaceSessionPullRequestPutSchema, workspaceUpdateSessionSchema } from '@solus/contracts/solus-api'
-import type { WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequest, WorkspaceSessionPullRequestList, WorkspaceSessionPullRequestPut, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
+import { workspaceSessionAdmissionRequestSchema, workspaceUpdateSessionSchema } from '@solus/contracts/solus-api'
+import type { WorkspaceSession, WorkspaceSessionChanged, WorkspaceSessionPullRequestList, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
 import { getDatabase } from '../../db/database'
 import { searchIndexFor } from '../../db/search-index'
 import { sessionMessagesRebuilding } from '../../db/session-indexer'
@@ -18,16 +18,15 @@ import { scopeClause } from '../scope'
 import { apiScope, projectIdsForKeys, projectKeyForId, requireResource, requireScope } from '../workspace/context'
 import { pageOf, readCursor, seekClause } from '../workspace/page'
 import { workspaceResourceVisibility } from '../tasks/resource-visibility'
-import { readSessionMetadataPage, sessionListedClause, sessionRecordsIndexing } from './session-records'
+import { getSessionRecord, readSessionMetadataPage, sessionListedClause, sessionRecordsIndexing, upsertSessionRecord } from './session-records'
 import { readApiTranscript } from './api-transcript'
-import { admitSessionRecord, SessionAdmissionConflict } from './session-admissions'
+import { admitSessionRecord, SessionAdmissionConflict, type SessionAdmission } from './session-admissions'
 import { resolveSessionLineageById } from './session-lineage'
-import { linkSessionPullRequest, readSessionPullRequests, unlinkSessionPullRequest } from './session-pull-requests'
+import { readSessionPullRequests } from './session-pull-requests'
 import { SessionShelf, SessionViewer } from './session-states'
-import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
 import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import { actorFor, ownerKeyOf } from '../../admission/actor'
-import { requestAttribution, type WorkspaceRequestContext } from '../../admission/workspace-credentials'
+import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 
 /**
  * The words each session is also known by: the number and title of each pull
@@ -155,28 +154,6 @@ export class SessionApiOperations {
     return { items: (await readSessionPullRequests(apiScope(context), [sessionId]))[sessionId] ?? [] }
   }
 
-  /** Link the pull request the path names. An agent's turn links as the agent, anyone else as a person. */
-  async linkPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }, input: WorkspaceSessionPullRequestPut): Promise<WorkspaceSessionPullRequest> {
-    input = workspaceSessionPullRequestPutSchema.parse(input)
-    requireScope(context, 'sessions:write')
-    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'edit')
-    const identity = pullRequestIdentityOf(input.url)
-    if (!identity || identity.repository !== pullRequest.repository || identity.number !== pullRequest.number) {
-      throw new SolusApiError(400, 'INVALID_REQUEST', 'The URL must name the pull request in the path.')
-    }
-    await linkSessionPullRequest(sessionId, { url: input.url, source: context.actingAgent ? 'agent' : 'manual', by: requestAttribution(context) })
-    const link = ((await readSessionPullRequests(apiScope(context), [sessionId]))[sessionId] ?? [])
-      .find(candidate => candidate.repository === identity.repository && candidate.number === identity.number)
-    if (!link) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
-    return link
-  }
-
-  async unlinkPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }): Promise<void> {
-    requireScope(context, 'sessions:write')
-    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'edit')
-    await unlinkSessionPullRequest(sessionId, pullRequest.repository, pullRequest.number)
-  }
-
   /** The records a caller may read: its scope, then what sharing and parentage let it see. */
   private visible(context: WorkspaceRequestContext): SQL[] {
     return [scopeClause(apiScope(context), sql`session_records.organization_id`),
@@ -197,11 +174,28 @@ export class SessionApiOperations {
     }
     try {
       const admission = await admitSessionRecord({ organizationId: context.home.organizationId, admissionId: input.sessionId, hostId: delegation.hostId, ownerKey: context.principal.userId })
+      if (input.record) await this.writeAdmittedRecord(admission, input.record)
       return { sessionId: admission.admissionId, organizationId: admission.organizationId, ownerKey: admission.ownerKey, hostId: admission.hostId, admittedAt: new Date(admission.createdAt).toISOString() }
     } catch (error) {
       if (error instanceof SessionAdmissionConflict) throw new SolusApiError(409, 'CONFLICT', error.message)
       throw error
     }
+  }
+
+  /**
+   * The session record is written where the session is admitted
+   * (docs/plans/simplify-auth-and-sync.md §4.5): an agent's first write that names
+   * the session finds it here. Later facts arrive in the host's delivery. A record
+   * that exists is left as it is, so asking again changes nothing.
+   */
+  private async writeAdmittedRecord(admission: SessionAdmission, record: NonNullable<WorkspaceSessionAdmissionRequest['record']>): Promise<void> {
+    const { organizationId, admissionId: sessionId, hostId, ownerKey } = admission
+    if (await getSessionRecord(organizationId, sessionId)) return
+    await upsertSessionRecord(organizationId, {
+      sessionId, provider: record.provider, projectPath: record.projectPath, cwd: record.cwd, lastActivityAt: admission.createdAt, runnerHostId: hostId, status: 'running',
+    }, { organizationId, published: true, ownerKey })
+    // A new session is the organization's to open; a chat is its owner's alone until they share it (plan 004 D14).
+    if (!record.privateToOwner) await this.shares.shareRunnerWrite({ kind: 'session', id: sessionId }, runnerPrincipalFor({ hostId, organizationId, ownerUserId: ownerKey, expiresAt: Date.now() }), ownerKey)
   }
 
   async get(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSession> {

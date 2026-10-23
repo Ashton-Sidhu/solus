@@ -1081,12 +1081,12 @@
   --radius-xl: 1rem;
 }
 
-/* Shiki dual-theme support */
-:root .shiki span {
-  color: var(--shiki-light) !important;
+/* Highlights dual-theme support */
+:root .highlights span {
+  color: var(--hls-light) !important;
 }
-.dark .shiki span {
-  color: var(--shiki-dark) !important;
+.dark .highlights span {
+  color: var(--hls-dark) !important;
 }
 
 html, body, #root {
@@ -3423,13 +3423,18 @@ button.solus-token {
   font-weight: 600;
   letter-spacing: normal;
   text-transform: none;
-  white-space: nowrap;
 }
 /* A long cell wraps at 24rem, so one wide column cannot push the others out.
+   Headers wrap too: a header held on one line sets its column's minimum
+   width, and in a narrow pane the other columns shrink to one word each.
    `break-word`, not `anywhere`: `anywhere` lets a column shrink to one
    character, so a short cell such as "10" breaks into "1" and "0". */
+.prose-transcript thead th,
 .prose-transcript tbody td {
   max-width: 24rem;
+  overflow-wrap: break-word;
+}
+.prose-transcript tbody td {
   line-height: 1.5;
   overflow-wrap: break-word;
   border-bottom: 0.0625rem solid color-mix(in oklch, var(--border) 60%, transparent);
@@ -3437,6 +3442,7 @@ button.solus-token {
 /* Collapsed: one line per row. The table keeps its natural width and scrolls,
    and a cell longer than 24rem ends in an ellipsis. */
 .prose-transcript .transcript-table[data-expanded="false"] table { min-width: max-content; }
+.prose-transcript .transcript-table[data-expanded="false"] thead th { white-space: nowrap; }
 .prose-transcript .transcript-table[data-expanded="false"] tbody td {
   overflow: hidden;
   text-overflow: ellipsis;

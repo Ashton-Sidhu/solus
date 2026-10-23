@@ -73,7 +73,10 @@ a view filter. Switching from A to B replaces A's organization content with
 B's while keeping Local visible. Each window has one such selection; separate
 windows can select different organizations. With no selection, show Local.
 The filter does not move records or grant access; the server still checks
-authority for each requested scope and resource.
+authority for each requested scope and resource. Session lists apply this filter
+to cached records and mounted conversations on desktop, web, and mobile. A switch
+keeps open conversations and their list state, so switching back restores their
+rows without a new read.
 
 Keep all three sources accessible, subject to access and availability:
 

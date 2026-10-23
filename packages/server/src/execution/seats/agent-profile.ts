@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import {
-  AGENT_PROFILE_ENTRIES_PATH,
+  AGENT_PROFILE_PATH,
   accountAgentProfileResponseSchema,
   agentProfileFrom,
   agentProfileKeyOf,
@@ -25,7 +25,7 @@ import {
   withoutRetiredEntries,
 } from '@solus/contracts/agent-profile'
 import type { Integration } from '@solus/contracts/integration-types'
-import { vaultConnectionSchema, type VaultConnection } from '@solus/contracts/vault'
+import { VAULT_PATH, vaultConnectionListSchema, type VaultConnection } from '@solus/contracts/vault'
 import { SEAT_PROVIDERS, type SeatProvider } from '@solus/contracts/seats'
 import type { SkillListResult } from '@solus/contracts/skill-types'
 import { createLogger } from '../../logger'
@@ -51,7 +51,6 @@ const log = createLogger('seats', 'agent-profile.ts')
 
 /** Written into each seat home, so the next copy removes what it no longer holds. */
 const MANIFEST_FILE = '.solus-profile.json'
-export const AGENT_PROFILE_READ_PATH = '/v1/agent-profile/read'
 /** How often every person with a seat is pulled for, so a change made elsewhere lands without a client's nudge. */
 export const AGENT_PROFILE_PULL_INTERVAL_MS = 5 * 60_000
 
@@ -74,11 +73,6 @@ interface AccountRead {
   connections: VaultConnection[]
 }
 
-/** What the account plane answers a host's read: the document, or that the person has none, and their vault's statuses (never the material). */
-const accountReadSchema = z.union([
-  z.object({ profile: accountAgentProfileResponseSchema.nullable(), connections: z.array(vaultConnectionSchema) }).strict(),
-  z.object({ error: z.string() }),
-])
 
 /** The homes each provider's profile is read from, first one wins a path. The
  *  shared `~/.agents/skills` is where the skills CLI installs for Codex. */
@@ -166,7 +160,7 @@ interface IntegrationApplyOutcome {
 
 /** A host record as the profile names it: the record, never its connection. */
 function integrationEntryOf(integration: Integration): AgentProfileIntegrationEntry {
-  return { kind: 'integration', slug: integration.slug, name: integration.name, url: integration.url, auth: integration.auth }
+  return { kind: 'integration', slug: integration.slug, name: integration.name, url: integration.url, auth: integration.auth, disabledTools: integration.disabledTools }
 }
 
 function byKind(profile: AgentProfile) {
@@ -330,24 +324,35 @@ export class AgentProfileManager {
     return status
   }
 
-  /** The target's profile and connection statuses from their account; refusals name their reason. */
+  /**
+   * The target's profile and their vault's connection statuses (never the material)
+   * from their account, read side by side; refusals name their reason. A profile with
+   * no revision is none: the person never synced one.
+   */
   private async readAccount(account: ProfileAccount, target: AgentProfileTarget): Promise<AccountRead> {
     const userId = account.userFor(target)
     if (!userId) throw new AgentProfileRefused('NO_TOKEN', 'This host cannot read your account right now. Sign in again.')
-    const response = await account.reads.fetch(userId, null, AGENT_PROFILE_READ_PATH, { method: 'POST' })
-    if (!(response instanceof Response)) {
-      if (response.refused === 'NOT_LINKED') throw new AgentProfileRefused('NOT_LINKED', 'This host is not linked to Solus Cloud.')
-      if (response.refused === 'NO_DELEGATION') throw new AgentProfileRefused('NO_TOKEN', 'This host cannot read your account right now. Sign in again.')
-      log.warn('agent_profile_pull_unreachable', { error: response.message })
-      throw new AgentProfileRefused('UNREACHABLE', 'Solus Cloud is unreachable.')
+    const read = async <T>(path: string, schema: z.ZodType<T>): Promise<T> => {
+      const response = await account.reads.fetch(userId, null, path)
+      if (!(response instanceof Response)) {
+        if (response.refused === 'NOT_LINKED') throw new AgentProfileRefused('NOT_LINKED', 'This host is not linked to Solus Cloud.')
+        if (response.refused === 'NO_DELEGATION') throw new AgentProfileRefused('NO_TOKEN', 'This host cannot read your account right now. Sign in again.')
+        log.warn('agent_profile_pull_unreachable', { error: response.message })
+        throw new AgentProfileRefused('UNREACHABLE', 'Solus Cloud is unreachable.')
+      }
+      if (!response.ok) {
+        log.warn('agent_profile_pull_refused', { status: response.status })
+        throw new AgentProfileRefused('REFUSED', `Solus Cloud refused the read (${response.status}).`)
+      }
+      const parsed = schema.safeParse(await response.json().catch(() => null))
+      if (!parsed.success) throw new AgentProfileRefused('REFUSED', 'Solus Cloud answered with something that is not a profile.')
+      return parsed.data
     }
-    if (!response.ok) {
-      log.warn('agent_profile_pull_refused', { status: response.status })
-      throw new AgentProfileRefused('REFUSED', `Solus Cloud refused the read (${response.status}).`)
-    }
-    const parsed = accountReadSchema.safeParse(await response.json().catch(() => null))
-    if (!parsed.success || 'error' in parsed.data) throw new AgentProfileRefused('REFUSED', 'Solus Cloud answered with something that is not a profile.')
-    return parsed.data
+    const [profile, vault] = await Promise.all([
+      read(AGENT_PROFILE_PATH, accountAgentProfileResponseSchema),
+      read(VAULT_PATH, vaultConnectionListSchema),
+    ])
+    return { profile: profile.revision === null ? null : profile, connections: vault.connections }
   }
 
   /**
@@ -402,7 +407,7 @@ export class AgentProfileManager {
     const userId = account?.userFor(target)
     if (!account || !userId) return null
     const body: AgentProfileEntriesWrite = { set, reset }
-    const response = await account.reads.fetch(userId, null, AGENT_PROFILE_ENTRIES_PATH, {
+    const response = await account.reads.fetch(userId, null, AGENT_PROFILE_PATH, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),

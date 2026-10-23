@@ -15,12 +15,13 @@ const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org
 
 function resolver(options: { link?: ResolvedLinkShare | null; role?: ResourceRole; runner?: string | null } = {}) {
   const asked: string[] = []
+  const link = options.link === undefined ? LINK : options.link
   const shareLinks = new ShareLinkResolver({
     shares: {
-      resolveLinkSecret: async (secret) => (secret === SECRET ? (options.link === undefined ? LINK : options.link) : null),
-      roleFor: async () => options.role ?? 'none',
+      openLink: async (secret) => (secret === SECRET && link
+        ? { share: link, runnerHostId: options.runner === undefined ? 'host-a' : options.runner, roleOf: () => options.role ?? 'none' }
+        : null),
     },
-    runnerOf: async () => (options.runner === undefined ? 'host-a' : options.runner),
     hostRoutes: async (hostId) => [{ kind: 'tunnel', url: `https://h-${hostId}.example` }],
   })
   const memberIn = (principal: Principal | null) => async (organizationId: string) => {
@@ -55,7 +56,7 @@ describe('a share link resolves in one request', () => {
   })
 
   test('a work and a session nobody runs name no host', async () => {
-    const work = resolver({ link: { ...LINK, resource: { kind: 'work', id: 'w1' } } })
+    const work = resolver({ link: { ...LINK, resource: { kind: 'work', id: 'w1' } }, runner: null })
     expect((await work.shareLinks.resolve(SECRET, work.memberIn(null)))?.host).toBeNull()
     const idle = resolver({ runner: null })
     expect((await idle.shareLinks.resolve(SECRET, idle.memberIn(null)))?.host).toBeNull()

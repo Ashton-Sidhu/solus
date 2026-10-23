@@ -168,7 +168,10 @@ export interface StoredStrip {
    user acted on the strip after the opener read the strip's revision, the
    surface opens in the background with an unread dot. If the companion pane is
    closed or empty, the surface opens and becomes active. This is t3code's
-   `openProactive`.
+   `openProactive`. A browser page that an agent opens goes into the strip of
+   that agent's conversation (`openSurfaceBesideSession`). When the user is
+   in another conversation, nothing on screen changes, and the page is beside
+   the agent's conversation when the user goes there.
 9. **Closing a surface.** The surface to its right becomes active, or the one
    to its left if there is none. When the last surface closes, the companion
    pane closes and the strip is deleted. Focus returns to the input bar when

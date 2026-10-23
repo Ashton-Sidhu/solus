@@ -1,3 +1,6 @@
+import type { IntegrationSetupNeed } from '@solus/contracts/integrations/setup-handoff'
+import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
+import { isFirstIntegrationAccount, solusServerIdOf } from '@solus/contracts/integration-types'
 import type {
   CatalogEntry,
   Integration,
@@ -60,7 +63,8 @@ export interface IntegrationCandidate {
  */
 export type AddState =
   | { url: string; step: 'checking' }
-  | { url: string; step: 'failed'; message: string }
+  /** `setupNeed`: the probe refused for a cause an agent can look up (§13.4). */
+  | { url: string; step: 'failed'; message: string; setupNeed?: IntegrationSetupNeed }
 
 /** The one change in flight, so its control shows progress and the others wait. */
 export type IntegrationAction = 'create' | `rename:${string}` | `remove:${string}` | `disconnect:${string}` | `oauth-client:${string}` | `tools:${string}`
@@ -124,18 +128,6 @@ export function probeRefusal(result: IntegrationProbeResult): string | null {
   return result.outcome === 'undetermined' ? UNDETERMINED_REASON[result.reason] : null
 }
 
-/**
- * What the screen does once a server is created: start the person's sign-in,
- * open the row on the OAuth client form an administrator must fill first, or
- * nothing for a server that works without sign-in.
- */
-export type AfterCreate = 'connect' | 'oauth-client' | 'none'
-
-export function afterCreate(integration: Pick<Integration, 'auth'>): AfterCreate {
-  if (isMissingOAuthClient(integration)) return 'oauth-client'
-  return needsConnection(integration) ? 'connect' : 'none'
-}
-
 /** "1,306 servers" for the whole catalog, or every match of a query. */
 export function catalogCountText(total: number): string {
   return `${groupDigits(total)} ${total === 1 ? 'server' : 'servers'}`
@@ -188,6 +180,8 @@ export function looksLikeUrl(input: string): boolean {
 
 /** The host part of an address, for a one-line row; the address itself when it has none. */
 export function urlHost(url: string): string {
+  // A Solus MCP server runs inside the host and has no address of its own (§13.6).
+  if (solusServerIdOf(url)) return 'Built by Solus'
   const match = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:?#]+|\[[^\]]+\])/i.exec(url.trim())
   return match?.[1] ?? url
 }
@@ -209,9 +203,9 @@ export const OAUTH_CALLBACK_PATH = '/oauth/integration/callback'
 
 export const oauthClientText = {
   title: 'OAuth client',
-  explanation: 'This server does not let Solus register itself. Create an OAuth app at the service, then enter its client ID and secret here. Each person still signs in with their own account.',
+  explanation: 'This server needs an OAuth client. Enter the client ID supplied by the service, or create an OAuth app there. Each person signs in with their own account.',
   redirectLabel: 'Redirect URL',
-  redirectNote: 'Add this path, on the host\'s address, to the redirect URLs of the OAuth app.',
+  redirectNote: 'List this address in the OAuth app at the service. This client signs in through this host.',
   clientIdLabel: 'Client ID',
   clientSecretLabel: 'Client secret',
   clientSecretNote: 'Optional. The secret stays on the host. Agents and clients never see it.',
@@ -226,17 +220,6 @@ export const oauthClientText = {
   connectBlocked: 'Enter the OAuth client first',
 } as const
 
-/** True for an OAuth server that has no dynamic registration, so an administrator enters its client. */
-export function needsOAuthClient(integration: Pick<Integration, 'auth'>): boolean {
-  return integration.auth.kind === 'oauth' && integration.auth.registration === 'client-required'
-}
-
-/** True when the person cannot connect yet, because the administrator's client is missing. */
-export function isMissingOAuthClient(integration: Pick<Integration, 'auth'>): boolean {
-  const { auth } = integration
-  return auth.kind === 'oauth' && auth.registration === 'client-required' && !auth.clientId
-}
-
 // ─── The person's connection (§4) ───
 
 export type ConnectionListState =
@@ -246,8 +229,63 @@ export type ConnectionListState =
   /** An older host that has no connection methods. */
   | { kind: 'unsupported' }
 
+/** The first account of each integration (§13.3); the others are `extraAccountMap`'s. */
 export function connectionMap(connections: readonly IntegrationConnection[]): ReadonlyMap<string, IntegrationConnection> {
-  return new Map(connections.map((connection) => [connection.integrationId, connection]))
+  return new Map(connections.filter(isFirstIntegrationAccount).map((connection) => [connection.integrationId, connection]))
+}
+
+/** The accounts after the first, by integration, oldest first (§13.3). */
+export function extraAccountMap(connections: readonly IntegrationConnection[]): ReadonlyMap<string, readonly IntegrationConnection[]> {
+  const byIntegration = new Map<string, IntegrationConnection[]>()
+  for (const connection of connections) {
+    if (isFirstIntegrationAccount(connection)) continue
+    byIntegration.set(connection.integrationId, [...(byIntegration.get(connection.integrationId) ?? []), connection])
+  }
+  return byIntegration
+}
+
+/** One "Add another account" that runs: its sign-in on the host and the page to reopen, or why it stopped (§13.3). */
+export interface AddingAccount {
+  flowId: string | null
+  url: string | null
+  error: string
+}
+
+/** An add that stopped, with why. */
+export function stoppedAdd(error: string): AddingAccount {
+  return { flowId: null, url: null, error }
+}
+
+/**
+ * The adds after a sign-in ended on the host: a failed add stops with the
+ * reason, a cancelled one goes, and a connected one waits for its account to
+ * arrive. A sign-in that was not an add leaves the map as it was.
+ */
+export function withAddFinished(adding: ReadonlyMap<string, AddingAccount>, event: IntegrationAuthFinishedEvent): ReadonlyMap<string, AddingAccount> {
+  if (adding.get(event.integrationId)?.flowId !== event.flowId) return adding
+  if (event.outcome === 'failed') return new Map(adding).set(event.integrationId, stoppedAdd(event.message?.trim() || 'The sign-in did not finish.'))
+  if (event.outcome === 'cancelled') return withoutKey(adding, event.integrationId)
+  return adding
+}
+
+/** The map without one key. */
+export function withoutKey<T>(map: ReadonlyMap<string, T>, key: string): ReadonlyMap<string, T> {
+  const next = new Map(map)
+  next.delete(key)
+  return next
+}
+
+/** The map with one added account replaced, or removed when `connection` is null. */
+export function withExtraAccount(
+  byIntegration: ReadonlyMap<string, readonly IntegrationConnection[]>,
+  integrationId: string,
+  accountId: string,
+  connection: IntegrationConnection | null,
+): ReadonlyMap<string, readonly IntegrationConnection[]> {
+  const next = new Map(byIntegration)
+  const others = (byIntegration.get(integrationId) ?? []).filter((candidate) => candidate.accountId !== accountId)
+  next.set(integrationId, connection ? [...others, connection] : others)
+  return next
 }
 
 /** The map with one connection replaced, or removed when `connection` is null. */
@@ -262,11 +300,6 @@ export function withConnection(
   return next
 }
 
-/** Only an integration with sign-in has a per-person connection. */
-export function needsConnection(integration: Pick<Integration, 'auth'>): boolean {
-  return integration.auth.kind !== 'none'
-}
-
 /**
  * The one status line of an installed server, and the connect action the row
  * shows without opening. A connection still being read says so rather than
@@ -278,33 +311,46 @@ export interface InstalledStatus {
   action: 'connect' | 'reconnect' | null
 }
 
-export function installedStatus(integration: Pick<Integration, 'id' | 'auth'>, connections: ConnectionListState): InstalledStatus {
-  if (!needsConnection(integration)) return { text: 'Ready', tone: 'muted', action: null }
-  if (connections.kind === 'loading') return { text: 'Checking connection…', tone: 'muted', action: null }
-  if (connections.kind !== 'loaded') return { text: 'Connection unknown', tone: 'muted', action: null }
-  const connection = connections.byIntegration.get(integration.id)
-  if (connection?.status === 'connected') {
-    const label = connection.label ?? connection.info?.displayName ?? connection.info?.email ?? null
-    if (connection.source === 'cloud') return { text: 'Connected to your Solus account', tone: 'muted', action: null }
-    return { text: label ? `Connected as ${label}` : 'Connected', tone: 'muted', action: null }
-  }
-  if (isMissingOAuthClient(integration)) return { text: 'Needs an OAuth client', tone: 'danger', action: null }
-  if (!connection) return { text: 'Not connected', tone: 'muted', action: 'connect' }
-  // The account holds the credential and Solus Cloud did not answer: not a sign-in problem, so no Reconnect.
-  if (connection.status === 'cloud-unreachable') return { text: 'Solus Cloud unreachable', tone: 'danger', action: null }
-  // No Solus sign-in lets the host read the account: the person signs in to Solus, not to the server.
-  if (connection.status === 'needs-solus-sign-in') return { text: 'Sign in to Solus', tone: 'danger', action: null }
-  if (connection.status === 'needs-sign-in') return { text: 'Needs sign-in', tone: 'danger', action: 'reconnect' }
-  return { text: 'Connection error', tone: 'danger', action: 'reconnect' }
-}
-
 /**
- * Tools are read only from a server that can answer: one without sign-in, or
- * one the person is connected to. Any other server would only return an error.
+ * One installed server as the mobile MCP screen words it: the shared sign-in
+ * rules (`IntegrationSignIn`) and this client's text for them.
  */
-export function mayLoadTools(integration: Pick<Integration, 'id' | 'auth'>, connections: ConnectionListState): boolean {
-  if (!needsConnection(integration)) return true
-  return connections.kind === 'loaded' && connections.byIntegration.get(integration.id)?.status === 'connected'
+export class InstalledIntegration extends IntegrationSignIn {
+  private readonly integrationId: string
+
+  constructor(integration: Pick<Integration, 'id' | 'auth' | 'url'>) {
+    super(integration)
+    this.integrationId = integration.id
+  }
+
+  /** The row's status line, and the connect action it shows without opening. */
+  status(connections: ConnectionListState): InstalledStatus {
+    if (!this.needsConnection) return { text: 'Ready', tone: 'muted', action: null }
+    if (connections.kind === 'loading') return { text: 'Checking connection…', tone: 'muted', action: null }
+    if (connections.kind !== 'loaded') return { text: 'Connection unknown', tone: 'muted', action: null }
+    const connection = connections.byIntegration.get(this.integrationId)
+    if (connection?.status === 'connected') {
+      const label = connection.label ?? connection.info?.displayName ?? connection.info?.email ?? null
+      if (connection.source === 'cloud') return { text: 'Connected to your Solus account', tone: 'muted', action: null }
+      return { text: label ? `Connected as ${label}` : 'Connected', tone: 'muted', action: null }
+    }
+    if (this.needsOwnerClient) return { text: 'Needs an OAuth client', tone: 'danger', action: null }
+    if (!connection) return { text: 'Not connected', tone: 'muted', action: 'connect' }
+    // The account holds the credential and Solus Cloud did not answer: not a sign-in problem, so no Reconnect.
+    if (connection.status === 'cloud-unreachable') return { text: 'Solus Cloud unreachable', tone: 'danger', action: null }
+    // No Solus sign-in lets the host read the account: the person signs in to Solus, not to the server.
+    if (connection.status === 'needs-solus-sign-in') return { text: 'Sign in to Solus', tone: 'danger', action: null }
+    if (connection.status === 'needs-sign-in') return { text: 'Needs sign-in', tone: 'danger', action: 'reconnect' }
+    return { text: 'Connection error', tone: 'danger', action: 'reconnect' }
+  }
+
+  /**
+   * Tools are read only from a server that can answer: one without sign-in, or
+   * one the person is connected to. Any other server would only return an error.
+   */
+  mayLoadTools(connections: ConnectionListState): boolean {
+    return this.canListTools(connections.kind === 'loaded' ? connections.byIntegration.get(this.integrationId) : undefined)
+  }
 }
 
 /** Where a sign-in runs (plans/020-agent-profile.md §5.3): on the host, or at Solus Cloud for the person's own synced server. */
@@ -360,7 +406,7 @@ export interface ConnectTarget {
  */
 export function connectsThroughCloud(target: ConnectTarget, accountUserId: string | null): boolean {
   if (accountUserId === null || target.url === undefined || target.auth === undefined) return false
-  return !(target.auth.kind === 'oauth' && target.auth.registration === 'client-required')
+  return !(target.auth.kind === 'oauth' && (target.auth.registration === 'client-required' || !!target.auth.clientId))
 }
 
 /** What Solus Cloud answered to Connect. A `browser` flow ends when the account reports the server connected. */

@@ -5,13 +5,13 @@ import { worktreeProjectRoot, type AgentId, type IpcContext, type ReasoningEffor
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { ConnectionStatus } from '@solus/client-core/ws-transport'
+import type { HostPhase } from '@solus/client-core/host-supervisor'
 import { checkoutGit } from '../../contexts/workspace/run-location'
 
 type SolusApi = HostApi
 type ReviewScope = 'branch' | 'session'
 type ReadyListener = (serverId: string, event: ReviewGuideStatusEvent) => void
-type ConnectionListener = (serverId: string, status: ConnectionStatus, attempt: number) => void
+type ConnectionListener = (serverId: string, phase: HostPhase, attempt: number) => void
 
 interface TrackedGuide {
   api: HostApi
@@ -157,7 +157,7 @@ export class ReviewGuideStore {
 
   constructor(
     private readonly eventsFor: (serverId: string) => HostEventSubscriber = (serverId) => serverConnections.eventsFor(serverId),
-    private readonly watchConnections: (listener: ConnectionListener) => () => void = (listener) => serverConnections.onStatusChange(listener),
+    private readonly watchConnections: (listener: ConnectionListener) => () => void = (listener) => serverConnections.onPhaseChange(listener),
   ) {}
 
   bind(serverId: string): void {

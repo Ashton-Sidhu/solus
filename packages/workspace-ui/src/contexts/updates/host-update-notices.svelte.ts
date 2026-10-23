@@ -81,7 +81,9 @@ export function installHostUpdateNotices(session: ReturnType<typeof createAppCor
     const updateNoticesWanted = notificationsStore.wants('update_available')
     // A host with work running is not interrupted; its updates join the notice once it is idle.
     const busyHosts = new Set(Object.values(session.sessions.byId).filter((item) => isSessionBusyStatus(item.status)).map((item) => serverConnections.resolveId(runHost(item.run))))
-    const items = hostUpdatesStore.installableUpdates.filter((item) => !busyHosts.has(item.serverId))
+    // Only a Solus release is announced. A Claude Code or Codex release waits in
+    // Settings, the header update button, and the palette, which already offer it.
+    const items = hostUpdatesStore.installableUpdates.filter((item) => item.target === 'solus' && !busyHosts.has(item.serverId))
     const key = updatesKey(items)
     untrack(() => {
       if (key === shownKey) return

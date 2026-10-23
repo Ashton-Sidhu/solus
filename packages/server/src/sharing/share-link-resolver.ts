@@ -1,12 +1,10 @@
 import { resourceRoleAtLeast, type ShareLinkTarget, type ShareLinkVisitor } from '@solus/contracts/sharing'
 import type { HostRoute } from '@solus/contracts/uplink'
 import type { Principal } from '../admission/principal'
-import type { ResolvedLinkShare, ShareManager } from './share-manager'
+import type { OpenedLink, ShareManager } from './share-manager'
 
 export interface ShareLinkResolverDeps {
-  shares: Pick<ShareManager, 'resolveLinkSecret' | 'roleFor'>
-  /** The host that runs a session of this organization, as its record names it; null when none does. */
-  runnerOf(organizationId: string, sessionId: string): Promise<string | null>
+  shares: Pick<ShareManager, 'openLink'>
   /** The routes the directory knows for one host; none when the caller keeps no directory. */
   hostRoutes?(hostId: string): Promise<HostRoute[]>
 }
@@ -25,21 +23,21 @@ export class ShareLinkResolver {
    * a member there. Null when the secret opens nothing.
    */
   async resolve(secret: string, memberIn: (organizationId: string) => Promise<Principal | null>): Promise<ShareLinkTarget | null> {
-    const share = await this.deps.shares.resolveLinkSecret(secret)
-    if (!share) return null
-    const [host, opensAs] = await Promise.all([this.hostOf(share), this.visitorOf(share, memberIn)])
-    return { resource: share.resource, organizationId: share.organizationId, opensAs, host }
+    const link = await this.deps.shares.openLink(secret)
+    if (!link) return null
+    const { share } = link
+    const [host, member] = await Promise.all([this.hostOf(link.runnerHostId), memberIn(share.organizationId)])
+    return { resource: share.resource, organizationId: share.organizationId, opensAs: visitorOf(link, member), host }
   }
 
-  private async visitorOf(share: ResolvedLinkShare, memberIn: (organizationId: string) => Promise<Principal | null>): Promise<ShareLinkVisitor> {
-    const member = await memberIn(share.organizationId)
-    const role = member ? await this.deps.shares.roleFor(member, share.resource) : 'none'
-    return resourceRoleAtLeast(role, share.role) ? { kind: 'member', role } : { kind: 'guest', role: share.role }
-  }
-
-  private async hostOf(share: ResolvedLinkShare): Promise<ShareLinkTarget['host']> {
-    const hostId = share.resource.kind === 'session' ? await this.deps.runnerOf(share.organizationId, share.resource.id) : null
+  private async hostOf(hostId: string | null): Promise<ShareLinkTarget['host']> {
     if (!hostId) return null
     return { hostId, routes: this.deps.hostRoutes ? await this.deps.hostRoutes(hostId) : [] }
   }
+}
+
+/** A member whose own role is at least the link's opens it as themselves; anyone else as a guest. */
+function visitorOf(link: OpenedLink, member: Principal | null): ShareLinkVisitor {
+  const role = member ? link.roleOf(member) : 'none'
+  return resourceRoleAtLeast(role, link.share.role) ? { kind: 'member', role } : { kind: 'guest', role: link.share.role }
 }

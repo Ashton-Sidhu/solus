@@ -92,7 +92,7 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkDirectory, () => listDirectory(session))
   ipcMain.handle(ACCOUNT_CHANNELS.accountAccessToken, (_event, rawResource, rawOptions) => {
     const resource = connectionTokenResourceSchema.safeParse(rawResource)
-    const options = z.object({ fresh: z.boolean().optional() }).strict().optional().safeParse(rawOptions)
+    const options = z.object({ refused: z.string().min(1).max(16_384).optional() }).strict().optional().safeParse(rawOptions)
     if (!resource.success || !options.success) return null
     return session.accessToken(resource.data, options.data)
   })

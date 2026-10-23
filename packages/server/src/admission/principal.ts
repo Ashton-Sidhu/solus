@@ -1,19 +1,21 @@
 import { z } from 'zod'
 import { hostKindSchema, organizationRoleSchema, type AccessTokenClaims, type HostKind } from '@solus/contracts/uplink'
 import { shareResourceSchema, shareRoleSchema, type ShareResource, type ShareRole } from '@solus/contracts/sharing'
-import type { VerifiedWsTicket } from './auth'
+import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../host/host-category'
 import { isOrganizationAttached } from '../host/organization-attachment'
 
 /**
  * Who a request comes from (docs/plans/personal-uplink.md P1; docs/plans/multiplayer-sharing.md §3.3).
- * Every RPC call carries one; a call with none is refused. Five kinds:
+ * Every RPC call carries one; a call with none is refused. Six kinds:
  *
- * - `local-owner` — the person at the machine or on a network it already trusts:
- *   the desktop renderer, a paired device, a trusted requester. Pairing is local
- *   authorization, so a paired phone is the owner too. Personal hosts only.
- * - `remote-owner` — the owner arriving through a control-plane grant over the
- *   tunnel. Everything the owner can do except change how the host is reached.
+ * - `owner` — the personal host's owner, by one of two ways in (`via`):
+ *   - `local`: the person at the machine or on a network it already trusts: the
+ *     desktop renderer, a paired device, a trusted requester. Pairing is local
+ *     authorization, so a paired phone is the owner too. No expiry.
+ *   - `grant`: the owner arriving with an access token for this host, their own
+ *     client's or another host's acting for them (then the device is that host).
+ *     Everything the owner can do except change how the host is reached.
  * - `org-member` — a member of the organization the host belongs to. Reaches a
  *   session or work only through its owner row or its share list. On a managed
  *   host an organization owner is also the host's administrator.
@@ -26,11 +28,12 @@ import { isOrganizationAttached } from '../host/organization-attachment'
  * - `system` — the host acting for itself: automations, agent tools, internal calls.
  */
 export type Principal =
-  | { kind: 'local-owner'; deviceId: string | null; deviceLabel: string }
+  | { kind: 'owner'; via: 'local'; deviceId: string | null; deviceLabel: string; expiresAt: null }
   | {
-      kind: 'remote-owner'
+      kind: 'owner'
+      via: 'grant'
       userId: string
-      /** The account session the grant was minted for; revoking it on the host ends the socket's next dial. */
+      /** The client grant the token names, or the host acting for the owner; revoking it on the host ends the socket's next dial. */
       deviceId: string
       /** Grant expiry (ms). The transport ends the socket here. */
       expiresAt: number
@@ -85,10 +88,11 @@ export type PrincipalKind = Principal['kind']
 export const INTERNAL_PRINCIPAL: Principal = { kind: 'system' }
 
 /** For reading a principal back off transport-owned state such as `socket.data`. */
-export const principalSchema: z.ZodType<Principal> = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('local-owner'), deviceId: z.string().nullable(), deviceLabel: z.string() }),
+export const principalSchema: z.ZodType<Principal> = z.union([
+  z.object({ kind: z.literal('owner'), via: z.literal('local'), deviceId: z.string().nullable(), deviceLabel: z.string(), expiresAt: z.null() }),
   z.object({
-    kind: z.literal('remote-owner'),
+    kind: z.literal('owner'),
+    via: z.literal('grant'),
     userId: z.string(),
     deviceId: z.string(),
     expiresAt: z.number(),
@@ -137,14 +141,11 @@ export const principalSchema: z.ZodType<Principal> = z.discriminatedUnion('kind'
   z.object({ kind: z.literal('system') }),
 ])
 
-/** What a socket presented at admission. */
-export type AdmissionEvidence =
-  | { kind: 'ticket'; ticket: VerifiedWsTicket }
-  /** No credential: a trusted requester (loopback, the host's tailnet, an opted-in
-   *  LAN) or a host whose bind policy demands none. Both are the local owner. */
-  | { kind: 'credential-free' }
+/** A socket or request with no credential: a trusted requester (loopback, the host's
+ *  tailnet, an opted-in LAN) or a host whose bind policy demands none. The local owner. */
+export const CREDENTIAL_FREE_PRINCIPAL: Principal = Object.freeze({ kind: 'owner', via: 'local', deviceId: null, deviceLabel: 'Web', expiresAt: null })
 
-export const REMOTE_OWNER_DEVICE_LABEL = 'Solus cloud'
+export const GRANT_DEVICE_LABEL = 'Solus cloud'
 export const GUEST_DEVICE_LABEL = 'Guest link'
 export const RUNNER_DEVICE_LABEL = 'Runner'
 
@@ -161,61 +162,18 @@ export function runnerPrincipalFor(runner: { hostId: string; organizationId: str
   }
 }
 
-export function principalFor(evidence: AdmissionEvidence): Principal {
-  if (evidence.kind !== 'ticket') return { kind: 'local-owner', deviceId: null, deviceLabel: 'Web' }
-  const ticket = evidence.ticket
-  if (ticket.kind === 'pairing') {
-    return { kind: 'local-owner', deviceId: ticket.deviceId, deviceLabel: ticket.deviceLabel }
-  }
-  if (ticket.kind === 'runner') return runnerPrincipalFor(ticket)
-  if (ticket.kind === 'guest') {
-    return {
-      kind: 'guest',
-      accountUserId: ticket.accountUserId,
-      organizationId: ticket.organizationId,
-      guestId: ticket.guestId,
-      displayName: ticket.displayName,
-      deviceId: ticket.accountSessionId ?? ticket.guestId,
-      share: ticket.share,
-      expiresAt: ticket.expiresAt,
-      deviceLabel: GUEST_DEVICE_LABEL,
-    }
-  }
-  if (ticket.membership) {
-    const membership = ticket.membership
-    const principal: Extract<Principal, { kind: 'org-member' }> = {
-      kind: 'org-member',
-      userId: ticket.userId,
-      organizationId: membership.organizationId,
-      organizationRole: membership.organizationRole,
-      teamIds: membership.teamIds,
-      hostKind: membership.hostKind,
-      displayName: membership.displayName,
-      deviceId: ticket.deviceId,
-      expiresAt: ticket.expiresAt,
-      deviceLabel: REMOTE_OWNER_DEVICE_LABEL,
-    }
-    if (membership.picture) principal.avatarUrl = membership.picture
-    if (membership.email) principal.email = membership.email
-    return principal
-  }
-  const owner: Extract<Principal, { kind: 'remote-owner' }> = {
-    kind: 'remote-owner',
-    userId: ticket.userId,
-    deviceId: ticket.deviceId,
-    expiresAt: ticket.expiresAt,
-    deviceLabel: REMOTE_OWNER_DEVICE_LABEL,
-  }
-  if (ticket.displayName) owner.displayName = ticket.displayName
-  return owner
+/** How a client reads its own admission (`ConnectionsServerInfo.principal`): the wire names the owner's way in. */
+export function wirePrincipalKind(principal: Principal): ConnectionsServerInfo['principal'] {
+  if (principal.kind !== 'owner') return principal.kind
+  return principal.via === 'local' ? 'local-owner' : 'remote-owner'
 }
 
 /**
  * The personal host's owner: every role on every resource, because they own the
  * disk. A managed host never produces one of these for a person.
  */
-export function isHostOwner(principal: Principal): principal is Extract<Principal, { kind: 'local-owner' | 'remote-owner' }> {
-  return principal.kind === 'local-owner' || principal.kind === 'remote-owner'
+export function isHostOwner(principal: Principal): principal is Extract<Principal, { kind: 'owner' }> {
+  return principal.kind === 'owner'
 }
 
 /**
@@ -270,9 +228,8 @@ export function isAnyOrganization(scope: RecordScope): scope is AnyOrganization 
  */
 export function recordScopeOf(principal: Principal): RecordScope {
   switch (principal.kind) {
-    case 'local-owner':
-      return isOrganizationAttached() ? LOCAL_ORGANIZATION_ID : ANY_ORGANIZATION
-    case 'remote-owner':
+    case 'owner':
+      return principal.via === 'local' && isOrganizationAttached() ? LOCAL_ORGANIZATION_ID : ANY_ORGANIZATION
     case 'system':
       return ANY_ORGANIZATION
     case 'org-member':
@@ -295,8 +252,7 @@ export function recordScopeOf(principal: Principal): RecordScope {
  */
 export function organizationForNew(principal: Principal): string {
   switch (principal.kind) {
-    case 'local-owner':
-    case 'remote-owner':
+    case 'owner':
     case 'system':
       return provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID
     case 'org-member':
@@ -315,9 +271,7 @@ export function scopeAdmits(scope: RecordScope, organizationId: string): boolean
 
 /** Grant-admitted sockets end at the grant's expiry; the others live as long as the connection. */
 export function principalExpiresAt(principal: Principal): number | null {
-  return principal.kind === 'remote-owner' || principal.kind === 'org-member' || principal.kind === 'guest' || principal.kind === 'runner'
-    ? principal.expiresAt
-    : null
+  return principal.kind === 'system' ? null : principal.expiresAt
 }
 
 /**
@@ -331,10 +285,11 @@ export function principalExpiresAt(principal: Principal): number | null {
  * with what the token says now.
  */
 export function renewalExpiry(principal: Principal, claims: AccessTokenClaims): number | null {
-  if (principal.kind !== 'remote-owner' && principal.kind !== 'org-member') return null
-  if (claims.act || claims.sub !== principal.userId) return null
-  if (principal.kind === 'remote-owner') return claims.access === 'owner' ? claims.exp * 1000 : null
-  if (claims.access !== 'org-member') return null
+  if (claims.act) return null
+  if (principal.kind === 'owner' && principal.via === 'grant') {
+    return claims.sub === principal.userId && claims.access === 'owner' ? claims.exp * 1000 : null
+  }
+  if (principal.kind !== 'org-member' || claims.sub !== principal.userId || claims.access !== 'org-member') return null
   const listed = claims.organizations?.find((entry) => entry.id === principal.organizationId)
   if (!listed || listed.role !== principal.organizationRole) return null
   const sameTeams = [...listed.teamIds].sort().join('\n') === [...principal.teamIds].sort().join('\n')

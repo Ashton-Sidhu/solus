@@ -278,7 +278,7 @@ export class PromptDispatch {
   private async admitNewSession(req: CreateSessionRequest, sessionId: string, actor: Actor | undefined): Promise<void> {
     const parentId = req.delegation?.parentSessionId
     const organizationId = req.organizationId ?? (parentId ? await this.rt.turnOrganization(parentId) : undefined)
-    const ctx: TurnAdmissionContext = { session: { sessionId, agentSessionId: null, workingDirectory: req.cwd, organizationId } }
+    const ctx: TurnAdmissionContext = { session: { sessionId, agentSessionId: null, workingDirectory: req.cwd, organizationId, provider: req.provider } }
     if (parentId) ctx.parentSessionId = parentId
     await this.admitTurn(ctx, actor ?? HOST_ACTOR)
   }

@@ -100,7 +100,7 @@ const metaStub = runes.module('record-meta-stub', `
 const connectionsStub = runes.module('record-connections-stub', `
   export const serverConnections = {
     eventsFor: () => ({ subscribe: () => () => {} }),
-    onStatusChange: () => () => {},
+    onPhaseChange: () => () => {},
   }
 `)
 const { SessionRecordStore } = await import(runes.source('session-record-store',

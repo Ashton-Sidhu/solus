@@ -318,7 +318,7 @@ describe('who hears that a person’s profiles changed', () => {
     const { memberPrincipal } = await import('./helpers/actors')
     const alice = memberPrincipal('alice', 'Alice')
     const bob = memberPrincipal('bob', 'Bob')
-    const owner = { kind: 'local-owner' as const, deviceId: null, deviceLabel: 'Desktop' }
+    const owner = { kind: 'owner' as const, via: 'local' as const, expiresAt: null, deviceId: null, deviceLabel: 'Desktop' }
     const shares = { roleFor: async () => 'none' } as unknown as import('@solus/server/sharing/share-manager').ShareManager
     const event = {
       type: 'browser.profilesChanged' as const,

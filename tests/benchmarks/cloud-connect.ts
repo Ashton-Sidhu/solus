@@ -3,8 +3,10 @@
  *
  * A real host sits behind a TCP proxy that adds a fixed one-way delay, the way
  * the relay adds the distance client → edge → host. The account site that mints
- * grants answers after one round trip. Each case measures, from `start()`, when
- * the socket is accepted and when the first queued RPC is answered.
+ * host tokens answers after one round trip. Each case dials as production does:
+ * through `HostLink`, whose route choice (`chooseRoute`) checks every route at once
+ * before each dial. Each case measures, from `start()`, when the socket is accepted
+ * and when the first queued RPC is answered.
  *
  * Run with: bun tests/benchmarks/cloud-connect.ts [oneWayMs] [--skip-direct]
  *
@@ -15,7 +17,7 @@ import { Database } from 'bun:sqlite'
 import { createServer, type Server as HttpServer } from 'node:http'
 import { createServer as createTcpServer, connect as tcpConnect, type Server as TcpServer } from 'node:net'
 import type { WsTransport as WsTransportType } from '@solus/client-core/ws-transport'
-import type { HostSupervisor as HostSupervisorType } from '@solus/client-core/host-supervisor'
+import type { HostLink as HostLinkType } from '@solus/client-core/host-link'
 import type { HostRoute } from '@solus/contracts/uplink'
 
 // The server's websocket module reaches the database module, which imports
@@ -26,13 +28,12 @@ plugin({
   },
 })
 process.env.SOLUS_DATA_DIR ??= (await import('node:fs')).mkdtempSync(`${(await import('node:os')).tmpdir()}/solus-bench-`)
-const { issueGrantWsTicket } = await import('@solus/server/admission/auth')
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
 const { attachWebSocketTransport } = await import('@solus/server/transport/websocket')
 const { WsTransport } = await import('@solus/client-core/ws-transport')
-const { HostSupervisor } = await import('@solus/client-core/host-supervisor')
-const { nextRouteUrl } = await import('@solus/client-core/server-registry')
+const { HostLink, readHostHealth } = await import('@solus/client-core/host-link')
+const { asHostApi } = await import('@solus/client-core/host-api')
 
 const ONE_WAY_MS = Number(process.argv[2] ?? 40)
 const RTT_MS = ONE_WAY_MS * 2
@@ -50,23 +51,23 @@ async function startHost(): Promise<{ url: string; close: () => void }> {
       response.end(JSON.stringify({ ok: true, installationId: INSTALLATION_ID, name: 'Bench host' }))
       return
     }
-    if (request.method === 'POST' && request.url === '/auth/ws-ticket') {
-      const bearer = request.headers.authorization?.replace(/^Bearer /, '') ?? ''
-      // A real host accepts a grant at every exchange while it lives.
-      const ticket = bearer.startsWith('grant:')
-        ? issueGrantWsTicket({ userId: 'user_1', deviceId: 'device_1', expiresAt: Date.now() + 600_000 })
-        : null
-      response.statusCode = ticket ? 200 : 401
-      response.end(JSON.stringify(ticket ? { ticket } : { error: 'unauthorized' }))
-      return
-    }
     response.statusCode = 404
     response.end()
   })
   const server = new SolusServer()
   server.register('connectionsGetServerInfo', async () => ({ name: 'Bench host' }) as never)
   server.register('serverGetCapabilities', async () => ({}) as never)
-  const transport = attachWebSocketTransport(http, server, { clientEvents: new ClientEventRegistry(), requireAuth: true })
+  const transport = attachWebSocketTransport(http, server, {
+    clientEvents: new ClientEventRegistry(),
+    requireAuth: true,
+    // A real host takes a grant in the handshake at every dial while it lives.
+    doors: {
+      admitCredential: async (credential) => credential.kind === 'access-token' && credential.token.startsWith('grant:')
+        ? { ok: true, principal: { kind: 'owner', via: 'grant', userId: 'user_1', deviceId: 'device_1', expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' } }
+        : { ok: false, reason: 'token-refused' },
+      admitBearer: async () => ({ ok: false, reason: 'not-accepted' }),
+    },
+  })
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
   const address = http.address()
   if (!address || typeof address === 'string') throw new Error('expected TCP address')
@@ -92,98 +93,78 @@ async function startRelay(hostUrl: string): Promise<{ url: string; close: () => 
 }
 
 let grantCounter = 0
-/** The account site: one round trip for an access token, kept until asked fresh, as `OAuthSession` keeps it. */
-function accountGrants(): (options?: { fresh?: boolean }) => Promise<string | null> {
+/** The account site: one round trip for a host token, kept until it ends, as `OAuthSession` keeps it. */
+function accountGrants(): () => Promise<string | null> {
   let kept: string | null = null
-  return async (options) => {
-    if (kept && !options?.fresh) return kept
+  return async () => {
+    if (kept) return kept
     await sleep(RTT_MS)
     kept = `grant:${++grantCounter}`
     return kept
   }
 }
 
-/** What `ServerConnections.verifySavedServerIdentity` does for a saved host. */
-async function verifyByHealth(url: string): Promise<boolean> {
-  const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3_000) })
-  const body = await response.json() as { installationId?: string }
-  return body.installationId === INSTALLATION_ID
+/** Whether a route answers `/health` as the bench host: `ServerConnections.answersAsHost`. */
+async function answersAsHost(url: string, signal: AbortSignal): Promise<boolean> {
+  return (await readHostHealth(fetch, url, signal))?.installationId === INSTALLATION_ID
 }
 
 interface Dial {
   transport: WsTransportType
-  supervisor: HostSupervisorType
+  link: HostLinkType
 }
 
-/** Wires a transport the way `ServerConnections` does, including direct-first route advance. */
+/** Wires a transport and its link the way `ServerConnections` does. */
 function dial(routes: HostRoute[]): Dial {
-  let url = routes[0]!.url
   let transport!: WsTransportType
   transport = new WsTransport({
-    serverUrl: url,
+    serverUrl: routes[0]!.url,
     serverId: INSTALLATION_ID,
     sessionToken: '',
-    acquireGrant: accountGrants(),
-    verifyConnectedHost: () => verifyByHealth(transport.serverUrl),
+    grants: { acquire: accountGrants(), isSignedOut: () => false },
+    verifyConnectedHost: () => answersAsHost(transport.serverUrl, AbortSignal.timeout(3_000)),
   })
-  const supervisor = new HostSupervisor({
-    transport,
-    onDialFailed: (attempt) => {
-      const next = nextRouteUrl(routes, url, '')
-      if (!next) return false
-      url = next
-      transport.switchServerUrl(next)
-      return attempt < routes.length
-    },
-  })
-  transport.attachDialOutcomeReporter((outcome) => supervisor.report(outcome))
-  return { transport, supervisor }
+  const link = new HostLink({ hostId: INSTALLATION_ID, transport, api: asHostApi(transport.buildSolusApi()), routes: () => routes, answersAsHost })
+  return { transport, link }
 }
 
 interface Sample { acceptedMs: number; firstRpcMs: number }
 
-async function measure(routes: HostRoute[]): Promise<Sample> {
-  const { transport, supervisor } = dial(routes)
-  const started = performance.now()
-  let acceptedMs = -1
-  const accepted = new Promise<void>((resolve) => {
-    transport.attachDialOutcomeReporter((outcome) => {
-      supervisor.report(outcome)
-      if (outcome.kind === 'accepted') { acceptedMs = performance.now() - started; resolve() }
-    })
+/** Resolves when the link reaches `connected`, with the time it took since `started`. */
+function whenConnected(link: HostLinkType, started: number): Promise<number> {
+  return new Promise((resolve) => {
+    const poll = () => (link.phase === 'connected' ? resolve(performance.now() - started) : setTimeout(poll, 1))
+    poll()
   })
+}
+
+async function measure(routes: HostRoute[]): Promise<Sample> {
+  const { transport, link } = dial(routes)
+  const started = performance.now()
   const firstRpc = transport.invoke('connectionsGetServerInfo', [])
-  supervisor.start()
+  link.start()
+  const accepted = whenConnected(link, started)
   await firstRpc
   const firstRpcMs = performance.now() - started
-  await accepted
-  supervisor.destroy()
-  transport.destroy()
+  const acceptedMs = await accepted
+  link.destroy()
   return { acceptedMs, firstRpcMs }
 }
 
 async function measureRedial(routes: HostRoute[]): Promise<Sample> {
-  const { transport, supervisor } = dial(routes)
-  supervisor.start()
+  const { transport, link } = dial(routes)
+  link.start()
   await transport.invoke('connectionsGetServerInfo', [])
-  let acceptedMs = -1
-  let started = 0
-  const accepted = new Promise<void>((resolve) => {
-    transport.attachDialOutcomeReporter((outcome) => {
-      if (outcome.kind === 'accepted' && started) { acceptedMs = performance.now() - started; resolve() }
-    })
-  })
-  // A network change: the standing socket is gone and the supervisor redials now.
+  // A network change: the standing socket is gone and the link redials now.
   ;(transport as unknown as { socket: { disconnect(): void } }).socket.disconnect()
-  started = performance.now()
+  const started = performance.now()
   const firstRpc = transport.invoke('connectionsGetServerInfo', [])
-  supervisor.dialNow()
-  transport.start()
+  link.dialNow()
+  const accepted = whenConnected(link, started)
   await firstRpc
   const firstRpcMs = performance.now() - started
-  await accepted
-  supervisor.destroy()
-  transport.destroy()
+  const acceptedMs = await accepted
+  link.destroy()
   return { acceptedMs, firstRpcMs }
 }
 

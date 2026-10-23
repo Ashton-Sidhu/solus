@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import {
   ElicitRequestSchema,
   McpError,
@@ -11,9 +13,11 @@ import {
   type ReadResourceResult,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
-import type { Integration, IntegrationConnectNeeded, IntegrationToolSummary } from '@solus/contracts/integration-types'
+import { ACCOUNT_INPUT, DEFAULT_INTEGRATION_ACCOUNT, type Integration, type IntegrationConnection, type IntegrationConnectNeeded, type IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
+import { solusServerFor } from './solus-servers'
+import { solusMcpServer } from './solus-servers/solus-server'
 import { currentPersonKey } from '../vault/acting-scope'
 import type { AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import { mcpElicitationResponse, normalizeMcpElicitationRequest } from '../execution/agents/codex/codex-permissions'
@@ -80,6 +84,8 @@ interface ActiveCall {
 interface UpstreamSession {
   integrationId: string
   personKey: string | null
+  /** Which of the person's accounts the session signs in as (§13.3). */
+  accountId: string
   client: Client
   connected: Promise<void>
   idleTimer: ReturnType<typeof setTimeout> | null
@@ -143,7 +149,7 @@ export class IntegrationGateway {
     try {
       return await use(session.client)
     } finally {
-      this.touch(sessionKey(integrationId, session.personKey))
+      this.touch(sessionKey(integrationId, session.personKey, session.accountId))
     }
   }
 
@@ -180,11 +186,54 @@ export class IntegrationGateway {
     return undefined
   }
 
+  /**
+   * Runs one upstream tool as the acting person. With several accounts
+   * connected (§13.3), `solus_account` in the input names one by its label; without
+   * it, a read-only tool runs for every account and a tool that may write is
+   * refused with the labels to choose from.
+   */
   async call(integrationId: string, tool: string, input: ToolArguments, context: AgentToolContext): Promise<AgentToolResult> {
     const integration = this.store.get(integrationId, ANY_ORGANIZATION)
     if (!integration) return { ok: false, text: 'This integration was removed.' }
     // A run that started before the tool was turned off still lists it.
     if (integration.disabledTools.includes(tool)) return { ok: false, text: `The ${tool} tool of ${integration.name} is turned off in Settings → MCP.` }
+    const personKey = currentPersonKey()
+    const accounts = personKey === null ? [] : this.connectedAccounts(integrationId, personKey)
+    // With one account the tool has no account input, so every argument is the server's.
+    if (accounts.length <= 1) return this.callAs(integration, tool, input, context, accounts[0]?.accountId ?? DEFAULT_INTEGRATION_ACCOUNT)
+    const { account, args } = splitAccount(input)
+    const labels = accounts.map(accountLabel)
+    if (account) {
+      const chosen = accounts.find((candidate) => accountLabel(candidate) === account || candidate.accountId === account)
+      if (!chosen) return { ok: false, text: `${integration.name} has no account named ${account}. Its accounts: ${labels.join(', ')}.` }
+      return this.callAs(integration, tool, args, context, chosen.accountId)
+    }
+    const upstream = (await this.toolsFor(integrationId, personKey)).find((candidate) => candidate.name === tool)
+    if (!upstream?.annotations?.readOnlyHint) {
+      return { ok: false, text: `${integration.name} has several accounts: ${labels.join(', ')}. Call ${tool} again with \`${ACCOUNT_INPUT}\` set to one of them.` }
+    }
+    // A read spans every account; each part names the account it came from.
+    const results = await Promise.all(accounts.map((candidate) => this.callAs(integration, tool, args, context, candidate.accountId)))
+    return {
+      ok: results.some((result) => result.ok),
+      text: results.map((result, index) => `## ${labels[index]}\n${result.text}`).join('\n\n'),
+    }
+  }
+
+  /** The person's accounts on an integration that are connected now, the first first. */
+  private connectedAccounts(integrationId: string, personKey: string): IntegrationConnection[] {
+    return (this.credentials?.accountsFor?.(integrationId, personKey) ?? []).filter((connection) => connection.status === 'connected')
+  }
+
+  /** The labels of the person's connected accounts when there is more than one, for the tool's `solus_account` input. */
+  accountChoices(integrationId: string, personKey: string | null): string[] {
+    if (personKey === null) return []
+    const accounts = this.connectedAccounts(integrationId, personKey)
+    return accounts.length > 1 ? accounts.map(accountLabel) : []
+  }
+
+  private async callAs(integration: Integration, tool: string, input: ToolArguments, context: AgentToolContext, accountId: string): Promise<AgentToolResult> {
+    const integrationId = integration.id
     let timer: ReturnType<typeof setTimeout> | null = null
     const timeout = new AbortController()
     const startTimer = () => { timer ??= setTimeout(() => timeout.abort(new Error('timeout')), CALL_TIMEOUT_MS) }
@@ -192,7 +241,7 @@ export class IntegrationGateway {
     const call: ActiveCall = { integrationName: integration.name, context, pauseTimeout: stopTimer, resumeTimeout: startTimer }
     let session: UpstreamSession | null = null
     try {
-      session = await this.session(integrationId, currentPersonKey())
+      session = await this.session(integrationId, currentPersonKey(), false, accountId)
       session.calls.push(call)
       startTimer()
       const result = await session.client.callTool(
@@ -212,7 +261,7 @@ export class IntegrationGateway {
       if (timeout.signal.aborted) return { ok: false, text: `${integration.name} did not answer within ${CALL_TIMEOUT_MS / 1000} seconds.` }
       log.warn('integration_call_failed', { integrationId, tool, error: errorText(error) })
       // A transport failure drops the session so the next call opens a new one; a server error keeps it.
-      if (session && !(error instanceof McpError)) void this.closeSession(sessionKey(integrationId, session.personKey))
+      if (session && !(error instanceof McpError)) void this.closeSession(sessionKey(integrationId, session.personKey, session.accountId))
       return { ok: false, text: `${integration.name} could not run ${tool}: ${errorText(error)}` }
     } finally {
       stopTimer()
@@ -221,9 +270,33 @@ export class IntegrationGateway {
         if (index >= 0) session.calls.splice(index, 1)
         if (session.retired) {
           if (!session.calls.length) void session.client.close().catch(() => undefined)
-        } else this.touch(sessionKey(integrationId, session.personKey))
+        } else this.touch(sessionKey(integrationId, session.personKey, session.accountId))
       }
     }
+  }
+
+  /**
+   * The session's transport. A remote server: streamable HTTP, with the header
+   * going to the integration's URL only, so a redirect fails instead of carrying
+   * it elsewhere (§4.1 rule 4). A Solus MCP server: an in-memory pair to its
+   * server, built for this person, which reads their token on each request
+   * (§13.6).
+   */
+  private transportFor(integration: Integration, personKey: string | null, authorization: string | null, accountId: string): Transport {
+    const server = solusServerFor(integration.url)
+    if (server) {
+      const [clientEnd, serverEnd] = InMemoryTransport.createLinkedPair()
+      const credentials = this.credentials
+      void solusMcpServer(server, {
+        authorization: async () => (personKey === null ? null : (await credentials?.authorizationFor(integration.id, personKey, accountId)) ?? null),
+        onRefused: (error) => { if (personKey !== null) credentials?.markNeedsSignIn(integration.id, personKey, error.message, accountId) },
+      }).connect(serverEnd)
+      return clientEnd
+    }
+    if (integration.kind === 'solus') throw new Error(`This version of Solus does not have ${integration.name}. Update Solus on this host.`)
+    return authorization
+      ? new StreamableHTTPClientTransport(new URL(integration.url), { requestInit: { headers: { Authorization: authorization }, redirect: 'error' } })
+      : new StreamableHTTPClientTransport(new URL(integration.url))
   }
 
   /** Forget an integration's sessions and tool lists, as after an edit or a removal. */
@@ -340,8 +413,8 @@ export class IntegrationGateway {
    * `ConnectionRequiredError` when the integration needs sign-in and the person
    * has none, unless `allowAnonymous`.
    */
-  private async session(integrationId: string, personKey: string | null, allowAnonymous = false): Promise<UpstreamSession> {
-    const key = sessionKey(integrationId, personKey)
+  private async session(integrationId: string, personKey: string | null, allowAnonymous = false, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): Promise<UpstreamSession> {
+    const key = sessionKey(integrationId, personKey, accountId)
     const open = this.sessions.get(key)
     if (open && this.isCurrent(open)) {
       await open.connected
@@ -349,7 +422,7 @@ export class IntegrationGateway {
     }
     let opening = this.opening.get(key)
     if (!opening) {
-      opening = this.open(key, integrationId, personKey, allowAnonymous).finally(() => this.opening.delete(key))
+      opening = this.open(key, integrationId, personKey, allowAnonymous, accountId).finally(() => this.opening.delete(key))
       this.opening.set(key, opening)
     }
     const session = await opening
@@ -367,19 +440,19 @@ export class IntegrationGateway {
     return Date.now() - session.openedAt < AUTHORIZATION_MAX_AGE_MS
   }
 
-  private async open(key: string, integrationId: string, personKey: string | null, allowAnonymous: boolean): Promise<UpstreamSession> {
+  private async open(key: string, integrationId: string, personKey: string | null, allowAnonymous: boolean, accountId: string): Promise<UpstreamSession> {
     const integration = this.store.get(integrationId, ANY_ORGANIZATION)
     if (!integration) throw new Error('This integration was removed.')
     let authorization: string | null = null
     // The host's own work (null) has no connection: it lists anonymously.
     if (integration.auth.kind !== 'none' && personKey !== null) {
-      authorization = (await this.credentials?.authorizationFor(integrationId, personKey)) ?? null
+      authorization = (await this.credentials?.authorizationFor(integrationId, personKey, accountId)) ?? null
     }
     this.retire(key)
     if (integration.auth.kind !== 'none' && !authorization && !allowAnonymous) throw new ConnectionRequiredError()
     const client = new Client({ name: 'solus', version: '1.0.0' }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { 'io.modelcontextprotocol/ui': {} } } })
     const session: UpstreamSession = {
-      integrationId, personKey, client, connected: Promise.resolve(), idleTimer: null, calls: [],
+      integrationId, personKey, accountId, client, connected: Promise.resolve(), idleTimer: null, calls: [],
       authorized: !!authorization, openedAt: Date.now(), retired: false,
     }
     client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
@@ -388,11 +461,7 @@ export class IntegrationGateway {
       this.notify(integrationId)
     })
     client.setRequestHandler(ElicitRequestSchema, (request) => this.elicit(session, request))
-    // The header goes to the integration's URL only: a redirect fails instead of carrying it elsewhere (§4.1 rule 4).
-    const transport = authorization
-      ? new StreamableHTTPClientTransport(new URL(integration.url), { requestInit: { headers: { Authorization: authorization }, redirect: 'error' } })
-      : new StreamableHTTPClientTransport(new URL(integration.url))
-    session.connected = client.connect(transport)
+    session.connected = client.connect(this.transportFor(integration, personKey, authorization, accountId))
     this.sessions.set(key, session)
     try {
       await session.connected
@@ -440,8 +509,8 @@ export class IntegrationGateway {
 
   /** The server refused the person's header: drop the session so the next use asks for a new one. */
   private signInRefused(session: UpstreamSession, integration: Pick<Integration, 'name'>, error: StreamableHTTPError): void {
-    void this.closeSession(sessionKey(session.integrationId, session.personKey))
-    if (session.personKey !== null) this.credentials?.markNeedsSignIn(session.integrationId, session.personKey, refusedMessage(integration, error))
+    void this.closeSession(sessionKey(session.integrationId, session.personKey, session.accountId))
+    if (session.personKey !== null) this.credentials?.markNeedsSignIn(session.integrationId, session.personKey, refusedMessage(integration, error), session.accountId)
   }
 
   /** A capture that fails is logged; it never fails the tool call that already succeeded. */
@@ -500,8 +569,29 @@ export class IntegrationGateway {
   }
 }
 
-function sessionKey(integrationId: string, personKey: string | null): string {
-  return `${integrationId}\u0000${personKey ?? ''}`
+/** What a person calls an account: the identity its server reported, else its id. */
+function accountLabel(connection: Pick<IntegrationConnection, 'label' | 'accountId'>): string {
+  return connection.label ?? connection.accountId
+}
+
+/** The account Solus's input names, and the arguments the server takes. */
+interface AccountCall {
+  /** The account label or id the call named, or null. */
+  account: string | null
+  args: ToolArguments
+}
+
+function splitAccount(input: ToolArguments): AccountCall {
+  if (!input || !Object.hasOwn(input, ACCOUNT_INPUT)) return { account: null, args: input }
+  const { [ACCOUNT_INPUT]: account, ...args } = input
+  const named = z.string().min(1).safeParse(account)
+  return { account: named.success ? named.data : null, args }
+}
+
+/** One session per integration, person, and account (§13.3); the first account keeps the key it always had. */
+function sessionKey(integrationId: string, personKey: string | null, accountId: string = DEFAULT_INTEGRATION_ACCOUNT): string {
+  const base = `${integrationId}\u0000${personKey ?? ''}`
+  return accountId === DEFAULT_INTEGRATION_ACCOUNT ? base : `${base}\u0000${accountId}`
 }
 
 /** The server answered 401 or 403: it refused the header. */

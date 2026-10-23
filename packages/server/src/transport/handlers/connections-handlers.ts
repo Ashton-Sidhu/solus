@@ -2,6 +2,7 @@ import { accountConnectionsUrl } from '../../vault/account-reads'
 import { ownerKeyOf } from '../../admission/actor'
 import { credentialLocationOf } from '../../vault/vault'
 import { permissionsFor } from '../../admission/access-policy'
+import { wirePrincipalKind } from '../../admission/principal'
 import { generatePairToken, listRevokedDevices, revokeDevice, getInstallationId } from '../../admission/auth'
 import { discoverTailnetServers, listReachableEndpoints } from '../endpoints'
 import { shareRoutesFor } from '../../sharing/share-routes'
@@ -81,14 +82,15 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     const info = deps.getServerInfo()
     const principal = ctx.principal
     // What this connection may do here, so every control disables exactly when the gate would refuse (permissions.md).
-    const answer: ConnectionsServerInfo = { ...info, installationId: getInstallationId(), principal: principal.kind, permissions: permissionsFor(principal) }
+    const answer: ConnectionsServerInfo = { ...info, installationId: getInstallationId(), principal: wirePrincipalKind(principal), permissions: permissionsFor(principal) }
     const connectionsUrl = credentialLocationOf(ownerKeyOf(ctx.actor)).kind === 'account' ? accountConnectionsUrl() : null
     if (connectionsUrl) answer.accountConnectionsUrl = connectionsUrl
     // The one person the client is on this host: "is this me?" compares against it (plans/012 §1).
     if (ctx.actor.user) answer.user = ctx.actor.user
-    if (principal.kind === 'remote-owner') answer.userId = principal.userId
-    // The person at the machine is the host's user (plans/012 §1): the reader knows its key as their own.
-    if (principal.kind === 'local-owner') answer.userId = hostUserKey()
+    if (principal.kind === 'owner') {
+      // The person at the machine is the host's user (plans/012 §1): the reader knows its key as their own.
+      answer.userId = principal.via === 'grant' ? principal.userId : hostUserKey()
+    }
     if (principal.kind === 'org-member') {
       answer.userId = principal.userId
       answer.organizationId = principal.organizationId

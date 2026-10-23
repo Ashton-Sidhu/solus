@@ -176,7 +176,8 @@ export class RemoteHosts {
       // Every dial presents the credential again: the person's host-reach token, or
       // the introduced token after the introduced host proves its identity.
       sessionToken: '',
-      acquireGrant: () => host.credential(),
+      // A host has no sign-in of its own to end: a dial with no credential is retried.
+      grants: { acquire: () => host.credential(), isSignedOut: () => false },
       dialOrganizationId: () => host.organizationId ?? null,
     })
     const supervisor = new HostSupervisor({

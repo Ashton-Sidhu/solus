@@ -63,7 +63,7 @@
     const targetApi = api;
     const targetInventory = inventory;
     if (!canManage) return;
-    return serverConnections.onStatusChange((changedServerId, status) => {
+    return serverConnections.onPhaseChange((changedServerId, status) => {
       if (changedServerId === targetServerId && status === "connected") void targetInventory.load(targetApi);
     });
   });

@@ -8,6 +8,8 @@ import type {
   IntegrationProbeUndeterminedReason,
   IntegrationToolSummary,
 } from '@solus/contracts/integration-types'
+import type { FirstPartyClientId } from '@solus/contracts/first-party-clients'
+import { firstPartyFor } from './first-party'
 
 /**
  * The anonymous check of a remote MCP server (docs/plans/mcp-integrations.md
@@ -239,7 +241,7 @@ function toolSummaries(result: z.infer<typeof toolsResultSchema>): IntegrationTo
 }
 
 type OAuthFinding =
-  | { kind: 'advertised'; discover: string; registration: 'dynamic' | 'client-required' }
+  | { kind: 'advertised'; discover: string; registration: 'dynamic' | 'client-required'; firstParty?: FirstPartyClientId }
   | { kind: 'unusable'; reason: 'unavailable' | 'oauth_unusable' }
   | { kind: 'not-advertised' }
 
@@ -320,7 +322,7 @@ export async function probeMcpServer(url: string, options: ProbeOptions = {}): P
   }
 
   /** The authorization server's metadata, checked as a browser sign-in needs it. */
-  const readIssuer = async (issuer: URL): Promise<{ found: { url: URL; registration: 'dynamic' | 'client-required' } } | { failed: 'missing' | 'invalid' | 'unsupported' | 'blocked' | 'unavailable' }> => {
+  const readIssuer = async (issuer: URL): Promise<{ found: { url: URL; registration: 'dynamic' | 'client-required'; firstParty?: FirstPartyClientId } } | { failed: 'missing' | 'invalid' | 'unsupported' | 'blocked' | 'unavailable' }> => {
     for (const location of issuerLocations(issuer)) {
       const answer = await metadata(location)
       if (answer === 'blocked') {
@@ -348,7 +350,10 @@ export async function probeMcpServer(url: string, options: ProbeOptions = {}): P
         return { failed: 'unsupported' }
       }
       signals.push({ kind: 'authorization-server-metadata', result: 'ok' })
-      return { found: { url: location, registration: server.data.registration_endpoint ? 'dynamic' : 'client-required' } }
+      // An authorization server Solus registered an app with signs in through that app (§13.1).
+      const firstParty = firstPartyFor({ authorizationEndpoint: server.data.authorization_endpoint, tokenEndpoint: server.data.token_endpoint }, endpoint.href)
+      const registration = server.data.registration_endpoint ? 'dynamic' : 'client-required'
+      return { found: firstParty ? { url: location, registration, firstParty } : { url: location, registration } }
     }
     return { failed: 'missing' }
   }
@@ -415,7 +420,11 @@ export async function probeMcpServer(url: string, options: ProbeOptions = {}): P
     if (!found && 'failed' in issuer && issuer.failed === 'missing' && endpoint.pathname !== '/') {
       issuer = await readIssuer(new URL(endpoint.origin))
     }
-    if ('found' in issuer) return { kind: 'advertised', discover: (found?.url ?? issuer.found.url).href, registration: issuer.found.registration }
+    if ('found' in issuer) {
+      const advertised: OAuthFinding = { kind: 'advertised', discover: (found?.url ?? issuer.found.url).href, registration: issuer.found.registration }
+      if (issuer.found.firstParty) advertised.firstParty = issuer.found.firstParty
+      return advertised
+    }
     // Without resource metadata, a missing authorization server means no OAuth at all.
     if (issuer.failed === 'missing' && !found) return { kind: 'not-advertised' }
     return { kind: 'unusable', reason: issuer.failed === 'unavailable' ? 'unavailable' : 'oauth_unusable' }
@@ -445,7 +454,9 @@ export async function probeMcpServer(url: string, options: ProbeOptions = {}): P
     const signIn = exchange.status === 401 || challenge !== undefined
     const oauth = await inspectOAuth(exchange.authenticate, signIn)
     if (oauth.kind === 'advertised') {
-      return { outcome: 'oauth', auth: { kind: 'oauth', discover: oauth.discover, registration: oauth.registration }, signals }
+      const auth: IntegrationAuth = { kind: 'oauth', discover: oauth.discover, registration: oauth.registration }
+      if (oauth.firstParty) auth.firstParty = oauth.firstParty
+      return { outcome: 'oauth', auth, signals }
     }
     if (oauth.kind === 'unusable') return undetermined(oauth.reason)
     if (!signIn && exchange.media === 'html') return undetermined('refused')

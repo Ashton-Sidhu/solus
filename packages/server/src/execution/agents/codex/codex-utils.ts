@@ -952,3 +952,16 @@ export function codexBackgroundCommandWake(item: { command: string; exitCode?: n
   const header = `A background command finished after your turn ended${exit}: ${command}`
   return tail ? `${header}\n\nOutput (last part):\n${tail}` : header
 }
+
+const SUBAGENT_REPORT_CHARS = 4_000
+
+/** The prompt that wakes a Codex session when a native sub-agent it started
+ *  ends on its own after the session's turn ended: which child, how it ended,
+ *  and the start of its report. Codex does not wake the parent for it. */
+export function codexSubagentWake(child: { threadId: string; status: 'completed' | 'failed'; report: string }): string {
+  const report = child.report.trim()
+  const bounded = report.length > SUBAGENT_REPORT_CHARS ? `${report.slice(0, SUBAGENT_REPORT_CHARS)}…` : report
+  const ending = child.status === 'failed' ? 'failed' : 'finished'
+  const header = `A sub-agent you started ${ending} after your turn ended: ${child.threadId}`
+  return bounded ? `${header}\n\n${child.status === 'failed' ? 'Error' : 'Report'}:\n${bounded}` : header
+}

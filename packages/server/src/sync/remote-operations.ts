@@ -2,23 +2,19 @@ import { WorkspaceRequestError, type SolusApiClient } from '@solus/contracts/sol
 import { workspaceErrorCodeSchema } from '@solus/contracts/solus-api'
 import { SolusApiError } from '../admission/workspace-error'
 import type { WorkspaceOperations } from '../data/workspace/operations'
-import { sessionPullRequestId } from '@solus/contracts/session-pull-requests'
 
 /**
  * The record operations of an organization run, answered by its Solus API
  * (organization-vms §3). An agent tool in a session whose home is the API calls
  * the same `WorkspaceOperations` it calls for a Local session; these send each
  * one to the API as the person the run's authority names, synchronously, so a
- * create is readable the moment it returns. The API checks scope and access; the
+ * create is readable the moment it returns. The session they name is already
+ * there: the API wrote its record when it admitted the session. The API checks scope and access; the
  * context argument is the host's and is not sent. A failure answers the API's
  * own code, or that the API cannot be reached: nothing falls back to a Local
  * record.
  */
-export function remoteWorkspaceOperations(
-  client: SolusApiClient,
-  /** Waits until the session a write names has reached the API; its first report may still be queued. */
-  sessionReported: (recordId: string) => Promise<boolean>,
-): WorkspaceOperations {
+export function remoteWorkspaceOperations(client: SolusApiClient): WorkspaceOperations {
   const call = async <T>(request: () => Promise<T>): Promise<T> => {
     try {
       return await request()
@@ -31,41 +27,30 @@ export function remoteWorkspaceOperations(
   return {
     listTasks: (_context, query) => call(() => client.request('listTasks', { query })),
     getTask: (_context, taskId) => call(() => client.request('getTask', { id: taskId })),
-    createTask: async (_context, input, key) => {
-      if (input.originSessionId) await sessionReported(input.originSessionId)
-      return call(() => client.request('createTask', { body: input, key }))
-    },
+    createTask: (_context, input, key) => call(() => client.request('createTask', { body: input, key })),
     updateTask: (_context, taskId, input, version) => call(() => client.request('updateTask', { id: taskId, body: input, version })),
     deleteTask: (_context, taskId, version) => call(() => client.request('deleteTask', { id: taskId, version })),
+    createTaskComment: (_context, taskId, input, key) => call(() => client.request('createTaskComment', { id: taskId, body: input, key })),
     listWorks: (_context, query) => call(() => client.request('listWorks', { query })),
-    importWork: async (_context, input, key) => {
-      if (input.originSessionId) await sessionReported(input.originSessionId)
-      return call(() => client.request('importWork', { body: input, key }))
-    },
+    importWork: (_context, input, key) => call(() => client.request('importWork', { body: input, key })),
     publishWork: (_context, workId, input) => call(() => client.request('publishWork', { id: workId, body: input })),
     pullWorkUpstream: (_context, workId) => call(() => client.request('pullWorkUpstream', { id: workId, body: {} })),
     requestWorkReview: (_context, workId, input) => call(() => client.request('requestWorkReview', { id: workId, body: input })),
     searchWorks: (_context, query) => call(() => client.request('searchWorks', { query })),
     getWorkVersion: async (_context, workId) => (await call(() => client.request('getWork', { id: workId }))).version,
     getWork: (_context, workId) => call(() => client.request('getWork', { id: workId })),
-    createWork: async (_context, input, key) => {
-      if (input.originSessionId) await sessionReported(input.originSessionId)
-      return call(() => client.request('createWork', { body: input, key }))
-    },
+    createWork: (_context, input, key) => call(() => client.request('createWork', { body: input, key })),
     updateWork: (_context, workId, input, version) => call(() => client.request('updateWork', { id: workId, body: input, version })),
     deleteWork: (_context, workId, version) => call(() => client.request('deleteWork', { id: workId, version })),
     listSessions: (_context, query) => call(() => client.request('listSessions', { query })),
     searchSessions: (_context, query) => call(() => client.request('searchSessions', { query })),
     admitSession: (_context, input) => call(() => client.request('admitSession', { body: input })),
     getSession: (_context, sessionId) => call(() => client.request('getSession', { id: sessionId })),
-    admitSessionTurn: async (_context, sessionId) => { await sessionReported(sessionId); await call(() => client.request('admitSessionTurn', { id: sessionId, body: {} })) },
-    updateSession: async (_context, sessionId, input) => { await sessionReported(sessionId); return call(() => client.request('updateSession', { id: sessionId, body: input })) },
+    admitSessionTurn: async (_context, sessionId) => { await call(() => client.request('admitSessionTurn', { id: sessionId, body: {} })) },
+    updateSession: (_context, sessionId, input) => call(() => client.request('updateSession', { id: sessionId, body: input })),
     listSessionPullRequests: (_context, sessionId) => call(() => client.request('listSessionPullRequests', { id: sessionId })),
-    putSessionPullRequest: async (_context, sessionId, pullRequest, input) => {
-      await sessionReported(sessionId)
-      return call(() => client.request('putSessionPullRequest', { id: sessionId, pullRequestId: sessionPullRequestId(pullRequest), body: input }))
-    },
-    deleteSessionPullRequest: (_context, sessionId, pullRequest) => call(() => client.request('deleteSessionPullRequest', { id: sessionId, pullRequestId: sessionPullRequestId(pullRequest) })),
+    putLink: (_context, input) => call(() => client.request('putLink', { body: input })),
+    deleteLink: (_context, input) => call(() => client.request('deleteLink', { body: input })),
     listSessionMessages: (_context, sessionId, query) => call(() => client.request('listSessionMessages', { id: sessionId, query })),
     listInsights: (_context, query) => call(() => client.request('listInsights', { query })),
     getInsight: (_context, insightId) => call(() => client.request('getInsight', { id: insightId })),

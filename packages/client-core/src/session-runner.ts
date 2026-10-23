@@ -19,8 +19,8 @@ export function savedRunnerFor(
 export function connectedRunnerFor(
   runnerHostId: string,
   saved: readonly Pick<SavedServer, 'id' | 'uplink'>[] = loadServers(),
-  statusFor: (serverId: string) => string = (serverId) => serverConnections.statusFor(serverId),
+  phaseFor: (serverId: string) => string | undefined = (serverId) => serverConnections.phaseFor(serverId),
 ): string | null {
   const runnerId = savedRunnerFor(runnerHostId, saved)
-  return runnerId && statusFor(runnerId) === 'connected' ? runnerId : null
+  return runnerId && phaseFor(runnerId) === 'connected' ? runnerId : null
 }

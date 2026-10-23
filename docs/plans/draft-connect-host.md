@@ -26,6 +26,12 @@ The reconnect grace is `RECONNECT_ESCALATE_MS` (12 seconds), the same grace
 that `ConnectionStatusOverlay` uses before it shows its card. A short drop thus
 does not remove the composer while the user types.
 
+When the connect page shows, it stays until a host is online. A Retry or a
+Start dials the host again, and that dial is not "inside the grace": the page
+shows "Connecting to <Host>" until the host answers. If the gate does not keep
+the page, the composer shows during the dial and goes away when the dial
+fails.
+
 Mobile has no offline timestamp per host. On mobile, the supervisor's
 `offline` phase is the known answer, because the supervisor sets it only after
 its retry ladder stops.

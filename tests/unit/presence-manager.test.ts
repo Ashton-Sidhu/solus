@@ -17,7 +17,7 @@ afterEach(() => useHostUser(null))
 // watches the session; a client composes in at most one session; and a person's
 // colour is the same everywhere.
 
-const OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
+const OWNER: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Mac' }
 const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', avatarUrl: 'https://x/bob.png', deviceId: 'd-bob', expiresAt: 0, deviceLabel: 'Solus cloud' }
 const MAYA: Principal = { kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 's1' }, role: 'viewer', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' }
 

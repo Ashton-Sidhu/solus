@@ -587,6 +587,15 @@ export async function markOwnRunningSessionRecordsInterrupted(): Promise<string[
   return rows.map((row) => row.session_id)
 }
 
+/** This host's own published organization sessions: what it sends its Solus API once at boot. */
+export async function ownPublishedSessionIds(): Promise<string[]> {
+  const rows = z.array(z.object({ session_id: z.string() })).parse(await getDatabase().all(sql`
+    SELECT session_id FROM ${sessionRecords}
+    WHERE publication = 'published' AND runner_host_id IS NULL AND organization_id <> ${LOCAL_ORGANIZATION_ID}
+  `))
+  return rows.map((row) => row.session_id)
+}
+
 /** What a runtime status means to the record: a turn open, or not. */
 export function sessionRecordStatusOf(status: SessionStatus): SessionRecordStatus {
   switch (status) {

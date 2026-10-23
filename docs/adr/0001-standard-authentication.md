@@ -4,6 +4,14 @@ Status: ACCEPTED, 2026-10-09. Supersedes plan 010 §2.4 (8-hour first-party
 tokens), §3 (desktop sign-in through the device grant), and the "unchanged" list of
 §4 for signed-in use. Plan 010's roles (§3) stay; this ADR makes the code meet them.
 
+**Amended 2026-10-23** (`docs/plans/simplify-auth-and-sync.md`): a client's one
+refresh gives one token for our own servers (`aud: [account, api]`); a token for a
+host comes from a token exchange, never a refresh; there is one host audience (the
+host-reach audience is gone); the Solus API has no OAuth client of its own; a socket
+presents one credential in its handshake and no ws-ticket exists; every client and
+host speaks `SOLUS_PROTOCOL`, and an older one gets `update_required`. Rules 3, 6
+and 7 and §2.3 below are changed to match. Sections after §2 keep their history.
+
 ## 1. Context
 
 Plan 010 made app.solus.sh an OAuth 2.1 and OpenID Connect provider. The code
@@ -43,10 +51,9 @@ standard exists.
 | **account** | A person at app.solus.sh. |
 | **client** | One install of desktop, mobile, web, or the CLI. A public OAuth client. |
 | **client grant** | One sign-in of one client: its refresh-token family. Its id is `grant_id`. |
-| **access token** | A JWT (RFC 9068) for one resource: a host, the Solus API, or the account plane. Life: 5 minutes. |
+| **access token** | A JWT (RFC 9068): for one host, or for our own servers (the account plane and the Solus API together). Life: one hour. |
 | **host** | A machine that runs the Solus server. A resource server and a confidential OAuth client. |
 | **host credential** | The one key a host holds to prove that it is that host (`private_key_jwt`). |
-| **service credential** | The same kind of key, held by the Solus API. |
 | **delegation** | Tokens that a host holds to act for a person, made by token exchange from one client grant. |
 | **local access** | Access that needs no account: pairing (a client or another host pairs with a host) and host session tokens. It works offline and signed out, and in the same way when signed in. |
 
@@ -61,9 +68,12 @@ standard exists.
 2. **Identity is OIDC.** The ID token and `/userinfo` give `sub`, `email`,
    `email_verified`, `name`, and `picture`. Organizations are API data
    (`GET /v1/account`), not identity.
-3. **Access tokens are short and have one audience.** The client gets each one with
-   its refresh token and `resource` (RFC 8707). Life: 5 minutes. Nobody forwards an
-   access token to a different audience.
+3. **One refresh for our servers, an exchange for each host.** The client's refresh
+   token (RFC 8707 `resource` twice) gives one token for the account plane and the
+   Solus API, which we run with the same trust. A token for a host is a token exchange
+   (RFC 8693) of that token, for one host's audience: no rotation, so tokens for
+   several hosts are minted at the same time. Life: one hour. Nobody forwards a host's
+   token to another host.
 4. **A socket does not close when its token ends.** The client sends the next token
    on the open socket (`auth.renew`). The host closes the socket only when no valid
    token comes.
@@ -75,11 +85,11 @@ standard exists.
    client's access token for that host (RFC 8693). The delegation carries the
    client grant's `grant_id`, and the cloud refuses it when that grant is revoked. It is
    the same path for the owner and for a member. The scope is one organization or
-   `personal`. A delegation can also get a host-reach token for another host the
-   person reaches (amended 2026-10-13, see the cross-host entry below).
-7. **Every call to the account plane for a person uses a delegated access token as
-   `Authorization: Bearer`.** This is true for a host, a managed host, and the Solus
-   API. No token goes in a body. No host token or service key goes beside it.
+   `personal`. A delegation can also exchange for a token for another host the
+   person reaches, with that host's one audience (amended 2026-10-23).
+7. **Every call to the account plane for a person uses `Authorization: Bearer`**:
+   the person's own token for our servers, or a host's delegated token. No token goes
+   in a body. No host token or service key goes beside it.
 8. **A host has one credential, from registration.** A host registers with its
    owner's account the first time a signed-in owner presents a token to it (the
    desktop on sign-in; any signed-in owner client for a standalone host). Registration
@@ -117,15 +127,12 @@ the device grant that returns a session token (desktop and mobile);
 the host credential); the body `accessToken` on executor routes; the
 service-key path for connection credentials; guest grant JWTs (dead code).
 
-What stays: WebSocket tickets (a browser cannot set headers on a socket), signed
-asset URLs, share links, local access (pairing and host session tokens), and the
-tunnel token. A dial with an account token presents it in the socket.io handshake
-instead, the socket's first message and never a header or a URL, and the host admits
-it as its ticket door does (`exchangeCredential`; docs/plans/instant-share-open.md,
-2026-10-21). That saves the ticket request and its CORS preflight. The host names its
-refusal (`CREDENTIAL_REFUSED`); a host that predates it refuses as `UNAUTHORIZED`, and
-the client asks that host for tickets. Paired devices and link guests still use
-tickets.
+What stays: signed asset URLs, share links, local access (pairing and host session
+tokens), and the tunnel token. WebSocket tickets are gone (2026-10-23): a socket
+presents its one credential in the socket.io handshake, the socket's first message and
+never a header or a URL — an access token, a pairing session token, or a share secret
+with the guest's name — and the server builds the principal from it directly
+(`admission/doors.ts`). A handshake with another `protocol` gets `update_required`.
 
 ## 3. Interfaces
 
@@ -438,7 +445,11 @@ these decisions where the text above was not exact:
   answers the callback address `/auth/callback` instead of redirecting to it, and the
   page completes the code itself, so no page loads. The callback is the registered
   redirect URI only; no route serves it. With no cookie, a member goes to the sign-in
-  page and a guest of a share link stays a guest. Sign-out on the web ends the grant
+  page and a guest of a share link stays a guest. A grant that ends while the page is
+  open (its refresh token expired, or was revoked) is made again the same way
+  (`keepWebSignIn`), and the hosts refused meanwhile dial again. While an account
+  holds no sign-in, on the web or the desktop, a host reached with its tokens shows
+  "Sign-in required" and does not redial. Sign-out on the web ends the grant
   and then the cookie, because on the account origin the page and the website are
   one, and the cookie would sign the page in again.
 - **The CLI keeps no sign-in.** `solus connect` signs in with the device grant, uses
@@ -589,17 +600,12 @@ exact:
   the provisioner makes: then the private key would pass through the provider and sit
   in the boot files, a long-lived secret outside the machine. A deleted managed host's
   client is removed with its link (before, it stayed).
-- **The Solus API.** It is the confidential client `solus-api`, with `private_key_jwt` and
-  the public half of `SOLUS_API_CLIENT_KEY` (a private ES256 JWK), written at every start
-  of the account site. In API mode the server reads the same variable, takes it out of
-  its environment, and builds `Delegations` with it. Its admission makes a delegation
-  for the organization the request names, with the API token presented, never a
-  personal one (`establishWith`). The exchange accepts a subject whose audience is
-  `SOLUS_API_AUDIENCE` only from `solus-api`, and a host audience only from that host.
-  Its delegated token is for `ACCOUNT_AUDIENCE` only, and its `act` has no `host_id`
-  (`tokenActorSchema.host_id` is optional); a host's door and the API's runner door
-  refuse a delegated token with no host. Its standing is the person's membership in the
-  organization. The Devices page does not list the Solus API's delegations.
+- **The Solus API.** It has no OAuth client and holds no delegations (changed
+  2026-10-23, `docs/plans/simplify-auth-and-sync.md` §4.1, §4.7). A person's token for
+  our servers has `aud: [account, api]`, so the token a client presents to the Solus
+  API reaches the account plane as it is: API mode keeps the newest one of each person
+  until a minute before it ends (`PresentedTokens`, `vault/account-reads.ts`) and reads
+  their vault and agent profile with it. The account plane checks its grant at each call.
 - **Executor routes.** `delegatedUser(db, issuer, authorization)` has one branch: a
   delegated token for `ACCOUNT_AUDIENCE` whose actor is a host or `solus-api`, whose
   grant is alive, and whose person stands in its scope (`delegationAlive`). The read

@@ -1,9 +1,9 @@
 import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspace/startup-transcript'
 import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
-import { setConnectionState } from '@solus/client-core/connection-state'
-import { installWsBackedSolusApi, localServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
+import { localServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
 import { renderFatal } from './boot-scene'
 import { startScrollReveal } from '@solus/workspace-ui/lib/scroll-reveal'
 import type { LocalConnectionInfo, NativeSolusAPI } from '@solus/contracts/host-api'
@@ -55,28 +55,18 @@ async function boot(): Promise<void> {
   // for new work. Another host is chosen per run with the Run on picker.
   const target = localServerTarget(local)
   bootTarget = target
-  serverConnections.registerTarget(target, () => nativeApi.refreshLocalSessionToken())
+  serverConnections.registerTarget(target, { refreshSessionToken: () => nativeApi.refreshLocalSessionToken(), nativeApi })
 
   // The local server accepts the socket instantly, and RPC calls made before it
   // opens queue and flush automatically (see WsTransport.invoke/send) — so there
   // is nothing to wait for. Leave the boot shell up and mount straight into the
   // app, letting its own per-surface skeletons cover in-flight data.
-  setConnectionState({ status: 'connecting', attempt: 0, target })
-
   let appMounted = false
-  const { transport, api } = installWsBackedSolusApi(target, nativeApi, {
-    verifyConnectedHost: () => serverConnections.verifySavedServerIdentity(target),
-    onStatusChange: (status, attempt) => {
-      serverConnections.updateStatus(target.id, status, attempt)
-      setConnectionState({ status, attempt, target })
-    },
-    onAuthFailed: () => {
-      if (!appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
-    },
+  const primary = serverConnections.setPrimary(target.id)
+  installWindowSolusApi(primary.api)
+  const stopBootWatch = serverConnections.onPhaseChange((serverId, phase) => {
+    if (serverId === target.id && phase === 'blocked' && !appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
   })
-  serverConnections.registerPrimary(target.id, api, transport, target)
-
-  transport.start()
   void prefetchStartupTranscript()
   // Every catalog entry is eagerly desired: saved remote hosts hold live
   // supervised sockets from boot, so their rows go live instead of cached.
@@ -97,6 +87,7 @@ async function boot(): Promise<void> {
     props: { initialWorkspaceLayout },
   })
   appMounted = true
+  stopBootWatch()
   performance.mark('solus.boot.mounted')
 
   // Main starts the disk-heavy transcript index only after the renderer has had

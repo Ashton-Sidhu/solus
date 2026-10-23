@@ -121,7 +121,7 @@ export interface BrowserRecordingSink {
 export interface BrowserEventSink {
   pageChanged(page: BrowserPage): void
   pageClosed(browserPageId: string): void
-  surfaceRequested(browserPageId: string): void
+  surfaceRequested(browserPageId: string, sessionId: string | undefined): void
 }
 
 /**
@@ -190,7 +190,7 @@ export class BrowserRegistry {
    * (docs/plans/member-isolation.md §6). `ownerKey` null is the host's own work,
    * which gets an unsaved jar.
    */
-  open(request: BrowserOpenRequest, ownerKey: string | null): BrowserPage {
+  open(request: BrowserOpenRequest, ownerKey: string | null, requestingSessionId?: string): BrowserPage {
     // A page opens at the size of the pane. A preset is only ever chosen
     // deliberately — by the caller here, or by the user later — and once chosen
     // it stays until somebody chooses again.
@@ -238,7 +238,7 @@ export class BrowserRegistry {
       })
     }
     this.events.pageChanged(this.projectPage(page))
-    if (request.requestSurface) this.events.surfaceRequested(page.browserPageId)
+    if (request.requestSurface) this.events.surfaceRequested(page.browserPageId, requestingSessionId)
     log.info('browser_page_opened', {
       browserPageId: page.browserPageId,
       targetKind: page.target.kind,
@@ -1472,6 +1472,7 @@ const annotationSchema = z.object({
   tool: z.enum(BROWSER_MARK_TOOLS),
   rect: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }),
   path: pointsSchema.optional(),
+  scroll: z.object({ x: z.number(), y: z.number() }).optional(),
   element: elementSchema.optional(),
   elements: z.array(elementSchema).optional(),
   note: z.string().optional(),

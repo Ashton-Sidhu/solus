@@ -147,7 +147,7 @@ describe('audience', () => {
     const link = await shares.setLink({ resource: { kind: 'work', id: shared.id }, role: 'viewer' }, alice)
     const share = await shares.resolveLinkSecret(link!.secret)
     const guest: Principal = { kind: 'guest', guestId: 'g1', organizationId: 'A', displayName: 'Maya', deviceId: 'g1', share: share!, expiresAt: Date.now() + 300000, deviceLabel: 'Guest link' }
-    const owner: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Test' }
+    const owner: Principal = { kind: 'owner', via: 'local', expiresAt: null, deviceId: null, deviceLabel: 'Test' }
     const runner: Principal = { kind: 'runner', hostId: 'h1', organizationId: 'A', ownerUserId: 'bob', deviceId: 'h1', expiresAt: Date.now() + 300000, deviceLabel: 'Runner' }
 
     expect(await audience.eventVisibleTo(guest, changed(shared.id), shares)).toBe(true)

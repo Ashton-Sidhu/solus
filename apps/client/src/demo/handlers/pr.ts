@@ -104,13 +104,20 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     checks: [],
     needsReview: [],
   }))
-  // The capture carries no CI. Reporting an empty run is what keeps the row
-  // free of a check chip, rather than a failed load that reads as a red build.
-  backend.register('prChecks', (): PrChecksSnapshot => ({
-    repo: store.prOverview().pullRequest.baseRepo,
-    checks: [],
-    loadFailed: false,
-  }))
+  // The demo pull request's CI has finished and passed. A fixture with no
+  // checks reports an empty run, which reads as no CI rather than a red build.
+  backend.register('prChecks', (): PrChecksSnapshot => {
+    const { pullRequest } = store.prOverview()
+    const required = store.prChecks()
+    return {
+      repo: pullRequest.baseRepo,
+      checks: required.length === 0 ? [] : [{
+        number: pullRequest.number,
+        summary: { state: 'passing', required, optional: [], headSha: pullRequest.headSha, inFlight: false },
+      }],
+      loadFailed: false,
+    }
+  })
   backend.register('prRefresh', () => undefined)
   backend.register('prGenerateGuides', () => undefined)
   // Guides are per-pull-request reports an agent writes. The demo ships the one
