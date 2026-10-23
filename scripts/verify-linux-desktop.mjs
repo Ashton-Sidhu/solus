@@ -39,6 +39,8 @@ const env = {
   ELECTRON_ENABLE_LOGGING: '1',
 }
 if (sessionBus) env.DBUS_SESSION_BUS_ADDRESS = sessionBus
+// xvfb-run's display accepts only clients that present its cookie.
+if (process.env.XAUTHORITY) env.XAUTHORITY = process.env.XAUTHORITY
 if (appImage && process.env.APPIMAGE_EXTRACT_AND_RUN) env.APPIMAGE_EXTRACT_AND_RUN = process.env.APPIMAGE_EXTRACT_AND_RUN
 await mkdir(env.CODEX_HOME, { recursive: true })
 await mkdir(env.CLAUDE_CONFIG_DIR, { recursive: true })
