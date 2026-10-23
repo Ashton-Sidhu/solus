@@ -66,7 +66,7 @@ export interface CreateSolusConnectionOptions {
 export function localServerTarget(local: LocalConnectionInfoLike): SolusServerTarget {
   return {
     id: LOCAL_SERVER_ID,
-    label: 'This Mac',
+    label: 'This computer',
     url: `http://127.0.0.1:${local.port}`,
     sessionToken: local.token,
     installationId: local.installationId,

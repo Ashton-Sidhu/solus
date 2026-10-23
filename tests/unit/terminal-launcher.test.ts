@@ -1,8 +1,13 @@
+import { EventEmitter } from 'node:events'
 import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 type ExecCall = { file: string; args: string[] }
 
 const execCalls: ExecCall[] = []
+let missingBinaries = new Set<string>()
+let spawnFails = false
+let lastSpawn: { detached: boolean; stdio: string; env: NodeJS.ProcessEnv } | undefined
+let unrefCalled = false
 let hasSession = true
 let failSessionCreation = false
 /** tmux clients attached to the shared session, as `[clientPid, ...]`. */
@@ -16,6 +21,10 @@ const execFileSync = mock((file: string, args: string[]) => {
   if (file === 'tmux' && args[0] === 'has-session' && !hasSession) throw new Error('no session')
   if (file === 'tmux' && args[0] === 'new-session' && failSessionCreation) throw new Error('tmux unavailable')
   if (file === 'tmux' && args[0] === 'list-clients') return attachedClientPids.join('\n')
+  if (file === '/usr/bin/which') {
+    if (missingBinaries.has(args[0])) throw new Error('not installed')
+    return '/usr/bin/' + args[0]
+  }
   if (file === '/bin/ps') {
     return Object.entries(processTree).map(([pid, line]) => `${pid} ${line}`).join('\n')
   }
@@ -35,7 +44,14 @@ const execFile = mock((file: string, args: string[], _options: { env: NodeJS.Pro
   queueMicrotask(() => callback(null, result))
 })
 
-mock.module('child_process', () => ({ execFileSync, execFile }))
+const spawn = mock((file: string, args: string[], options: { detached: boolean; stdio: string; env: NodeJS.ProcessEnv }) => {
+  lastSpawn = options
+  execCalls.push({ file, args })
+  const child = Object.assign(new EventEmitter(), { unref: mock(() => { unrefCalled = true }) })
+  queueMicrotask(() => spawnFails ? child.emit('error', new Error('spawn failed')) : child.emit('spawn'))
+  return child
+})
+mock.module('child_process', () => ({ execFileSync, execFile, spawn }))
 mock.module('@solus/server/cli-env', () => ({ hostCliEnv: () => ({ PATH: '/usr/bin:/bin' }), warmCliPath: () => cliPathReady }))
 mock.module('@solus/server/logger', () => ({
   createLogger: () => ({ info() {}, warn() {}, error() {} }),
@@ -55,6 +71,10 @@ beforeAll(async () => {
 beforeEach(() => {
   execCalls.length = 0
   hasSession = true
+  missingBinaries = new Set()
+  spawnFails = false
+  lastSpawn = undefined
+  unrefCalled = false
   failSessionCreation = false
   attachedClientPids = []
   processTree = {}
@@ -266,5 +286,29 @@ describe('resolveTerminal', () => {
 
     expect(resolved.name).toBe(process.platform === 'darwin' ? 'Terminal' : 'Default Terminal')
     expect(resolved.source).toBe('fallback')
+  })
+})
+
+
+describe('Linux terminal process lifetime', () => {
+  test.skipIf(process.platform !== 'linux')('returns on spawn while the terminal stays alive', async () => {
+    expect(await launchInTerminal({ command: 'pwd', fallbackTerminalId: 'ghostty' })).toBe(true)
+    expect(lastSpawn?.detached).toBe(true)
+    expect(lastSpawn?.stdio).toBe('ignore')
+    expect(lastSpawn).not.toHaveProperty('timeout')
+    expect(unrefCalled).toBe(true)
+  })
+  test.skipIf(process.platform !== 'linux')('uses an installed terminal when the system alternative is missing', async () => {
+    missingBinaries.add('x-terminal-emulator')
+    expect(await launchInTerminal({ command: 'pwd', fallbackTerminalId: 'default-terminal' })).toBe(true)
+    expect(execCalls.at(-1)?.file).toBe('ghostty')
+  })
+  test.skipIf(process.platform !== 'linux')('reports missing selections and spawn failures', async () => {
+    missingBinaries.add('ghostty')
+    expect(await launchInTerminal({ command: 'pwd', fallbackTerminalId: 'ghostty' })).toBe(false)
+    missingBinaries.clear()
+    spawnFails = true
+    expect(await launchInTerminal({ command: 'pwd', fallbackTerminalId: 'ghostty' })).toBe(false)
+    expect(unrefCalled).toBe(false)
   })
 })

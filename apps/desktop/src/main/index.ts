@@ -1,12 +1,14 @@
 import { DesktopActivityBadges } from './activity-badges'
-import { conversationLinkAction } from './conversation-link-action'
+import { attachContextMenu } from './context-menu'
+import { initialWindowBounds } from './window-platform'
+import { secureStorage } from './secure-storage'
 // Electron's bundled Node.js doesn't use the macOS system keychain for TLS.
 // Point it at the macOS root CA bundle so the Anthropic SDK can verify certs.
-if (!process.env.NODE_EXTRA_CA_CERTS) {
+if (process.platform === 'darwin' && !process.env.NODE_EXTRA_CA_CERTS) {
   process.env.NODE_EXTRA_CA_CERTS = '/etc/ssl/cert.pem'
 }
 
-import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol } from 'electron'
 import { join } from 'path'
 import { readFileSync, statSync, writeFileSync } from 'fs'
 import { importLoginShellEnv, warmCliPath } from '@solus/server/cli-env'
@@ -54,6 +56,19 @@ const skipOnboarding = process.argv.includes('--skip-onboarding') || process.env
 const isPairUrl = process.argv.includes('pair-url')
 const isDevMode = Boolean(process.env.ELECTRON_RENDERER_URL)
 
+if (process.platform === 'linux') {
+  app.setDesktopName('com.solus.app.desktop')
+  app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
+  if (!isHeadless && !isPairUrl && process.env.SOLUS_TEST_MODE !== '1') {
+    if (!app.requestSingleInstanceLock()) app.exit(0)
+    app.on('second-instance', () => {
+      hiddenUntilTrayShow = false
+      if (app.isReady()) showMainWindow()
+      else app.once('ready', () => showMainWindow())
+    })
+  }
+}
+
 const log = createLogger('main', 'index.ts')
 const bootStartedAt = Date.now()
 
@@ -67,7 +82,7 @@ configurePlatformServices({
   },
   openExternal: (url) => shell.openExternal(url),
   trashItem: (path) => shell.trashItem(path),
-  safeStorage,
+  safeStorage: secureStorage(safeStorage),
 })
 
 // Privileged custom scheme the renderer fetches a video on this computer
@@ -256,30 +271,9 @@ function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): AppliedAppGloba
   return { failed }
 }
 
-function createTemplateMenuIcon(svg: string): Electron.NativeImage {
-  const icon = nativeImage.createFromDataURL(
-    `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
-  )
-  icon.setTemplateImage(true)
-  return icon
-}
-
-// Phosphor "Quotes" icon as a 16x16 template image (black+transparent so
-// macOS inverts it automatically for dark/light menus).
-const quoteInReplyIcon = createTemplateMenuIcon(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 256 256"><path fill="#000" d="M116,72v88a48.05,48.05,0,0,1-48,48H64a8,8,0,0,1,0-16H68a32,32,0,0,0,32-32v-8H48a16,16,0,0,1-16-16V72A16,16,0,0,1,48,56h52A16,16,0,0,1,116,72Zm96-16H160a16,16,0,0,0-16,16v64a16,16,0,0,0,16,16h52v8a32,32,0,0,1-32,32h-4a8,8,0,0,0,0,16h4a48.05,48.05,0,0,0,48-48V72A16,16,0,0,0,212,56Z"/></svg>'
-)
-
 const isTestMode = process.env.SOLUS_TEST_MODE === '1'
 
 // ─── Window geometry ───
-
-function workAreaBoundsForCursor(): Electron.Rectangle {
-  const cursor = screen.getCursorScreenPoint()
-  const display = screen.getDisplayNearestPoint(cursor)
-  const { x, y, width, height } = display.workArea
-  return { x, y, width, height }
-}
 
 function isLive(win: BrowserWindow | null): win is BrowserWindow {
   return !!win && !win.isDestroyed()
@@ -340,29 +334,16 @@ function loadRenderer(win: BrowserWindow): void {
   }
 }
 
-/** Default bounds: a centered card on the cursor display. */
-function defaultWindowBounds(): Electron.Rectangle {
-  const { x, y, width, height } = workAreaBoundsForCursor()
-  const w = Math.round(width * 0.92)
-  const h = Math.round(height * 0.9)
-  return {
-    x: x + Math.round((width - w) / 2),
-    y: y + Math.round((height - h) / 2),
-    width: w,
-    height: h,
-  }
-}
-
 /** Create the standard desktop window. Closing it hides it so reopening is
  * instant; a fresh launch starts at the default bounds. */
 function createMainWindow(): BrowserWindow {
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
-    ...defaultWindowBounds(),
+    ...initialWindowBounds(screen),
     minWidth: 640,
     minHeight: 480,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#fafafa',
     show: false,
-    icon: join(__dirname, '../../resources/icon.icns'),
+    icon: join(app.getAppPath(), 'resources/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -444,7 +425,7 @@ function createMainWindow(): BrowserWindow {
     sendNativeEvent('solus:window-hidden')
   })
 
-  attachContextMenu(mainWindow)
+  attachContextMenu(mainWindow, () => quoteContextTabId)
 
   mainWindow.once('ready-to-show', () => {
     if (!isTestMode && process.env.ELECTRON_RENDERER_URL) {
@@ -502,6 +483,7 @@ function showMainWindow(options: { fromTrayShow?: boolean } = {}): void {
     createMainWindow()
     return
   }
+  if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   focusMainWindow()
 }
@@ -531,7 +513,7 @@ function hideAppWindow(): void {
 }
 
 function hideUntilTrayShow(): void {
-  hiddenUntilTrayShow = true
+  hiddenUntilTrayShow = process.platform === 'darwin'
   hideMainWindow()
 }
 
@@ -539,100 +521,9 @@ function hideUntilTrayShow(): void {
 function showAndFocusWorkspaceWindow(): void {
   if (isTestMode) return
   if (!isLive(mainWindow)) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   focusMainWindow()
-}
-
-/** Only http(s) links get link items — never file:, javascript:, or our own solus-img: scheme. */
-function isSafeExternalUrl(url: string): boolean {
-  if (!url) return false
-  try {
-    const { protocol } = new URL(url)
-    return protocol === 'http:' || protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-/** Native context menu for the workspace window. */
-function attachContextMenu(win: BrowserWindow): void {
-  win.webContents.on('context-menu', (_event, params) => {
-    const menuItems: Electron.MenuItemConstructorOptions[] = []
-
-    const linkUrl = isSafeExternalUrl(params.linkURL) ? params.linkURL : null
-    const openLink = conversationLinkAction(
-      linkUrl,
-      params.selectionText,
-      quoteContextTabId,
-      params.isEditable,
-      (url, sourceTabId) => win.webContents.send('solus:open-selected-link', url, sourceTabId),
-    )
-    if (openLink) menuItems.push(openLink)
-    if (linkUrl) {
-      menuItems.push(
-        { label: 'Open in default browser', click: () => void shell.openExternal(linkUrl) },
-        { type: 'separator' },
-        { label: 'Copy Link', click: () => clipboard.writeText(linkUrl) },
-      )
-    }
-    if (openLink || linkUrl) menuItems.push({ type: 'separator' })
-
-    // Corrections come first — a right-click on a red-underlined word is asking
-    // for the suggestion, not for the clipboard.
-    if (params.misspelledWord) {
-      for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
-        menuItems.push({
-          label: suggestion,
-          click: () => win.webContents.replaceMisspelling(suggestion),
-        })
-      }
-      if (params.dictionarySuggestions.length === 0) {
-        menuItems.push({ label: 'No suggestions', enabled: false })
-      }
-      menuItems.push({ type: 'separator' })
-    }
-
-    if (params.mediaType === 'image') {
-      menuItems.push({
-        label: 'Copy Image',
-        click: () => win.webContents.copyImageAt(params.x, params.y),
-      })
-      menuItems.push({ type: 'separator' })
-    }
-
-    // Always present, disabled when they don't apply. Omitting them instead let
-    // the template come out empty — right-clicking the transcript with nothing
-    // selected popped no menu at all, which reads as a broken right-click.
-    menuItems.push(
-      { label: 'Cut', role: 'cut', enabled: params.editFlags.canCut },
-      { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
-      { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
-      { type: 'separator' },
-      { label: 'Select All', role: 'selectAll', enabled: params.editFlags.canSelectAll },
-    )
-
-    // Conversation output only: let the user pull a selected snippet into the
-    // composer as a markdown blockquote to address that specific text.
-    if (quoteContextTabId && params.selectionText && !params.isEditable) {
-      const sourceTabId = quoteContextTabId
-      menuItems.push({ type: 'separator' })
-      menuItems.push({
-        label: 'Quote in reply',
-        icon: quoteInReplyIcon,
-        click: () => win.webContents.send('solus:quote-selection', params.selectionText, sourceTabId),
-      })
-      menuItems.push({
-        label: 'Ask in New Session',
-        click: () => win.webContents.send(
-          'solus:ask-selection-in-new-session',
-          params.selectionText,
-          sourceTabId,
-        ),
-      })
-    }
-
-    Menu.buildFromTemplate(menuItems).popup({ window: win })
-  })
 }
 
 // ─── Native-only IPC handlers (don't go through SolusServer) ───
@@ -980,9 +871,9 @@ if (isPairUrl) {
         currentAppShortcuts = loadAppShortcuts()
         applyAppGlobalShortcuts(currentAppShortcuts)
 
-        const trayIconPath = join(__dirname, '../../resources/trayTemplate.png')
+        const trayIconPath = join(app.getAppPath(), process.platform === 'darwin' ? 'resources/trayTemplate.png' : 'resources/icon.png')
         const trayIcon = nativeImage.createFromPath(trayIconPath)
-        trayIcon.setTemplateImage(true)
+        if (process.platform === 'darwin') trayIcon.setTemplateImage(true)
         tray = new Tray(trayIcon)
         tray.setToolTip('Solus')
         tray.setContextMenu(buildTrayMenu(updates.restartToUpdate))

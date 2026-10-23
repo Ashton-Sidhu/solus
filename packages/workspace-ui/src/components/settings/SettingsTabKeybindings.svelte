@@ -113,16 +113,14 @@
       appFailed = failed;
       if (failed) {
         toasts.show({
-          message: "Couldn't apply the shortcut without a restart",
+          message: "Shortcut unavailable. Choose another key or check desktop shortcut permissions.",
           variant: "error",
-          action: { label: "Restart", onAction: restart },
         });
       }
     } catch (error) {
       appFailed = true;
       toasts.error("Couldn't apply the shortcut", {
         description: error instanceof Error ? error.message : String(error),
-        action: { label: "Restart", onAction: restart },
       });
     }
   }
@@ -132,10 +130,6 @@
       void commitAppShortcut(combo);
       requestInputFocus();
     });
-  }
-
-  function restart(): void {
-    void serverConnections.localHostApi()?.restartApp();
   }
 
   // ─── Two-pane structure ───
@@ -328,14 +322,7 @@
         {@render captureChip()}
       {:else}
         {#if failed}
-          <Button
-            variant="outline"
-            size="xs"
-            class="border-(--solus-accent) text-(--solus-accent) hover:bg-(--solus-accent)/12"
-            onclick={restart}
-          >
-            Restart
-          </Button>
+          <span class="text-muted-foreground">Shortcut unavailable</span>
         {/if}
         <button
           type="button"

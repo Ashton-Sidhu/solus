@@ -1,7 +1,8 @@
 import { createRequire } from 'node:module'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { app, ipcMain } from 'electron'
+import { desktopUpdateMode } from './update-mode'
+import { app, ipcMain, shell } from 'electron'
 import { z } from 'zod'
 import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
 import { createLogger } from '@solus/server/logger'
@@ -72,10 +73,12 @@ interface UpdateIpcDeps {
  * cannot see: an ESM `import()` yields no `autoUpdater` binding at all.
  */
 export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
+  const mode = desktopUpdateMode(process.platform, app.isPackaged, process.env.APPIMAGE)
+  const openDownloads = () => shell.openExternal('https://github.com/Ashton-Sidhu/solus/releases/latest')
   let status: DesktopUpdateStatus = {
     currentVersion: app.getVersion(),
-    autoDownload: loadSettings().autoDownload,
-    state: { kind: 'idle' },
+    autoDownload: mode === 'automatic' && loadSettings().autoDownload,
+    state: mode === 'manual' ? { kind: 'manual' } : { kind: 'idle' },
   }
   let updater: AutoUpdater | null = null
 
@@ -93,7 +96,7 @@ export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
 
   const loadUpdater = (): AutoUpdater | null => {
     if (updater) return updater
-    if (!app.isPackaged) return null
+    if (mode !== 'automatic') return null
     try {
       // SAFETY: `require` returns the package's real CommonJS exports object,
       // whose shape is the one its own type declarations describe.
@@ -125,6 +128,7 @@ export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
   }
 
   const check = async (): Promise<void> => {
+    if (mode === 'manual') { await openDownloads(); return }
     const instance = loadUpdater()
     if (!instance) {
       if (!app.isPackaged) apply({ type: 'error', message: 'Updates run only in the packaged app.' })
@@ -140,6 +144,7 @@ export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
   }
 
   const download = async (): Promise<void> => {
+    if (mode === 'manual') { await openDownloads(); return }
     const instance = loadUpdater()
     if (!instance || status.state.kind !== 'available') return
     apply({ type: 'download-started' })
@@ -166,6 +171,7 @@ export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
   ipcMain.handle(UPDATE_CHANNELS.download, () => download())
   ipcMain.on(UPDATE_CHANNELS.restart, () => restart())
   ipcMain.handle(UPDATE_CHANNELS.setAutoDownload, (_event, raw) => {
+    if (mode !== 'automatic') return
     const enabled = z.boolean().parse(raw)
     saveSettings({ autoDownload: enabled })
     if (updater) updater.autoDownload = enabled
@@ -174,7 +180,7 @@ export function registerUpdateIpc(deps: UpdateIpcDeps): UpdateIpc {
     if (enabled && status.state.kind === 'available') void download()
   })
 
-  if (!app.isPackaged) {
+  if (mode !== 'automatic') {
     log.info('auto_updater_skipped_dev')
   } else {
     setTimeout(() => void check(), FIRST_CHECK_DELAY_MS)

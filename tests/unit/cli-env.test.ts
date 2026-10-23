@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { computeCliPathAsync, importLoginShellEnv, loginShellEnvToImport } from '@solus/server/cli-env'
@@ -37,13 +37,20 @@ test('the PATH probe reads the login shell PATH, not the PATH Solus was launched
   const node = Bun.which('node')
   if (!node) throw new Error('This test requires Node.js.')
   const home = mkdtempSync(join(tmpdir(), 'solus-path-probe-'))
-  writeFileSync(join(home, '.zshenv'), 'export PATH=/probe/login:$PATH\n')
+  // A system zprofile can replace PATH after zshenv; the user's login profile runs last.
+  writeFileSync(join(home, '.zprofile'), 'export PATH=/probe/login:$PATH\n')
+  writeFileSync(join(home, '.zshrc'), 'export PATH=/probe/login:$PATH\n')
+  writeFileSync(join(home, '.bash_profile'), 'export PATH=/probe/login:$PATH\n')
   const moduleUrl = new URL('../../packages/server/src/cli-env.ts', import.meta.url).href
   const script = `const { computeCliPathAsync } = await import(${JSON.stringify(moduleUrl)}); process.stdout.write(await computeCliPathAsync())`
   const result = Bun.spawnSync([node, '--input-type=module', '-e', script], {
     env: { PATH: `${dirname(node)}:/usr/bin:/bin`, HOME: home, ZDOTDIR: home },
   })
-  expect(result.stdout.toString().split(':')).toContain('/probe/login')
+  try {
+    expect(result.stdout.toString().split(':')).toContain('/probe/login')
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
 })
 
 test('the login shell PATH comes before the fallback install folders', async () => {

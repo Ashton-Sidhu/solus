@@ -7,6 +7,8 @@ import { serverConnections } from "@solus/client-core/server-connections";
 import { hostPolicy } from "@solus/client-core/host-policy";
 import { unsupportedOnHost } from "@solus/client-core/host-capabilities";
 
+import { desktopCaptureSupport } from "@solus/client-core/desktop-capture";
+
 import { localApi } from "@solus/client-core/local-api";
 
 import { uploadLocalAttachments } from "@solus/workspace-ui/components/input/lib/attachment-uploads.svelte";
@@ -46,11 +48,34 @@ export function createDesktopAttachments(
   const desktopHandlersAvailable = $derived(
     (hosts.device?.hasDesktopHandlers ?? false),
   );
+  const captureSupport = desktopCaptureSupport(localApi.getPlatform());
   async function handleScreenshot(tabId?: string) {
-    if (!desktopHandlersAvailable) return;
-    const result = await serverConnections.localHostApi()?.takeScreenshot();
-    if (!result) return;
-    session.addAttachments([result], tabId);
+    if (!desktopHandlersAvailable || !captureSupport.screenshot) return;
+    const { targetTabId, serverId, ctx } = attachmentTarget(session, tabId);
+    const targetStillExists = () => {
+      const current = attachmentTarget(session, targetTabId);
+      if (current.serverId !== serverId) return false;
+      return targetTabId ? !!session.runFor(targetTabId) : current.targetTabId === undefined;
+    };
+    try {
+      const targetApi = serverConnections.apiFor(serverId);
+      const capabilities = await serverConnections.capabilitiesFor(serverId);
+      if (capabilities.attachUpload !== true) {
+        toasts.info("This host cannot receive screenshots.");
+        return;
+      }
+      const captureApi = serverConnections.localHostApi();
+      if (!captureApi) throw new Error("The local desktop is not connected. Try again after it reconnects.");
+      const result = await captureApi.takeScreenshot();
+      if (!result) return;
+      if (!targetStillExists()) return;
+      const attachments = await uploadLocalAttachments(targetApi, ctx, serverId, [result],
+            (path, mime) => localApi.readAttachmentBytes(path, mime), readLocalVideo);
+      if (!targetStillExists()) return;
+      session.addAttachments(attachments, targetTabId);
+    } catch (error) {
+      toasts.error(error instanceof Error ? error.message : "Could not take a screenshot.");
+    }
   }
 
   async function handleAttachFile(tabId?: string) {

@@ -121,7 +121,12 @@ export class AccountSession {
 
   /** The browser sign-in; refused while the keychain cannot keep its result. */
   async signIn(): Promise<SignInEnd> {
-    if (!this.deps.store.canPersist()) return 'error'
+    if (!this.deps.store.canPersist()) {
+      this.isEncryptionUnavailable = true
+      this.announce()
+      throw new Error('Sign-in needs secure system storage. Install or unlock your desktop keyring, then try again.')
+    }
+    this.reloadFromDisk()
     return this.oauth.signIn()
   }
 

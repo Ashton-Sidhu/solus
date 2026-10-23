@@ -51,3 +51,31 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: bun run build
+
+  linux-desktop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install desktop libraries
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-0 libnss3 libgbm1 libasound2 libsecret-1-0 xvfb zsh tmux
+      - run: bun install --frozen-lockfile
+      - name: Linux desktop unit checks
+        run: bun scripts/test-unit.ts desktop-package desktop-linux-window desktop-secret-storage desktop-capture desktop-update-mode terminal-launcher cli-env account-store desktop-update-status
+      - name: Build desktop and web in sequence
+        env:
+          NODE_OPTIONS: --max-old-space-size=3072
+        run: |
+          BUILD_TARGET=test bun run build:desktop
+          BUILD_TARGET=test bun run build:client
+      - name: Package and probe native runtime
+        run: bun run electron-builder --linux --x64 --dir --publish never
+      - name: Verify packaged desktop
+        run: xvfb-run -a node scripts/verify-linux-desktop.mjs x11 release/linux-unpacked/solus
+      - name: Save screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-desktop-verification
+          path: .solus-local/linux-verification/

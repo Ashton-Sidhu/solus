@@ -14,6 +14,7 @@ export interface DesktopUpdateRelease {
 
 export type DesktopUpdateState =
   | { kind: 'idle' }
+  | { kind: 'manual' }
   | { kind: 'checking' }
   | { kind: 'up-to-date'; checkedAt: number }
   | { kind: 'available'; release: DesktopUpdateRelease }

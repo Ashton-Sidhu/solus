@@ -28,6 +28,7 @@
     serversStore,
   } from "../../contexts";
   import { comboHint } from "../../lib/keybindings/manifest";
+  import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Sidebar from "../ui/sidebar";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -47,9 +48,9 @@
   // Unread notifications addressed to you across every source; "+" while a source has not answered.
   const notificationCount = $derived(notificationHubStore.unreadCount);
   const notificationCountLabel = $derived(unreadCountLabel(notificationCount));
-  // No keychain means no account on this device, so there is nothing to offer.
+  // Keep retry available after the desktop keyring is unlocked.
   const offersSignIn = $derived(
-    accountStore.isAvailable && !signedIn && account.kind !== "unavailable",
+    accountStore.isAvailable && !signedIn,
   );
   // The organization this window works in (organization-scope §2): a filter on
   // what the window shows beside Local. Listed only when the account holds one.
@@ -241,10 +242,10 @@
         variant="ghost"
         size="sm"
         class="h-7 gap-1.5 rounded-lg px-2 text-workspace-chrome font-normal text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
-        onclick={() => void accountStore.signIn()}
+        onclick={() => void accountStore.signIn().catch((error) => toasts.error(error instanceof Error ? error.message : "Could not sign in."))}
       >
         <LogInIcon size={14} />
-        {account.kind === "invalid" ? "Sign in again" : "Sign in"}
+        {account.kind === "unavailable" ? "Retry sign-in" : account.kind === "invalid" ? "Sign in again" : "Sign in"}
       </Button>
     {/if}
   </div>

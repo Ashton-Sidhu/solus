@@ -1,4 +1,5 @@
 const { flipFuses, FuseVersion, FuseV1Options } = require('@electron/fuses')
+const { packageLayout } = require('./desktop-package-layout.cjs')
 const { execFileSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
@@ -74,26 +75,25 @@ console.log('claude-sdk-probe-ok')
  * Must run before `flipFuses`: the RunAsNode fuse we disable below is what
  * `ELECTRON_RUN_AS_NODE` needs, so afterwards the app can only boot its GUI.
  */
-function probePackagedRuntime(context, appPath) {
+function probePackagedRuntime(context) {
   const archName = ARCH_NAMES[context.arch]
   if (context.electronPlatformName !== process.platform || archName !== process.arch) {
     console.log(`[afterPack] runtime probe skipped: cannot run ${context.electronPlatformName}/${archName} on this host`)
     return
   }
 
-  const resourcesDir = path.join(appPath, 'Contents', 'Resources')
+  const { resourcesDir, executable } = packageLayout(context)
   const unpackedNatives = path.join(
     resourcesDir,
     'app.asar.unpacked',
     'node_modules',
     '@ff-labs',
-    `fff-bin-${context.electronPlatformName}-${archName}`
+    `fff-bin-${context.electronPlatformName}-${archName}${context.electronPlatformName === "linux" ? "-gnu" : ""}`
   )
   if (!fs.existsSync(unpackedNatives)) {
     throw new Error(`[afterPack] fff native library was not unpacked; expected ${unpackedNatives}. Check the asarUnpack globs in package.json.`)
   }
 
-  const executable = path.join(appPath, 'Contents', 'MacOS', context.packager.appInfo.productFilename)
   const fffEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@ff-labs', 'fff-node', 'dist', 'index.js')
   const onnxEntry = path.join(resourcesDir, 'app.asar', 'node_modules', 'onnxruntime-node', 'dist', 'index.js')
   const claudeEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'sdk.mjs')
@@ -131,23 +131,20 @@ function directoryBytes(directory) {
 }
 
 module.exports = async function afterPack(context) {
-  const appPath = path.join(
-    context.appOutDir,
-    `${context.packager.appInfo.productFilename}.app`
-  )
+  const { appPath, fusePath } = packageLayout(context)
   const bytes = directoryBytes(appPath)
   console.log(`[afterPack] app size: ${(bytes / 1_000_000).toFixed(1)} MB`)
   if (context.electronPlatformName === 'darwin' && ARCH_NAMES[context.arch] === 'arm64' && bytes > MAX_MAC_ARM64_APP_BYTES) {
     throw new Error('[afterPack] Mac ARM64 app exceeds 600 MB. Check for bundled CLIs, duplicate renderer packages, or non-target native libraries.')
   }
-  probePackagedRuntime(context, appPath)
-  await flipFuses(appPath, {
+  probePackagedRuntime(context)
+  await flipFuses(fusePath, {
     version: FuseVersion.V1,
     [FuseV1Options.RunAsNode]: false,
     [FuseV1Options.EnableCookieEncryption]: true,
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
     [FuseV1Options.EnableNodeCliInspectArguments]: false,
-    [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
+    [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: context.electronPlatformName !== 'linux',
     [FuseV1Options.OnlyLoadAppFromAsar]: true,
   })
 }

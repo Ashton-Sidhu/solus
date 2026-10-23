@@ -6,6 +6,7 @@
    * else. It never gates the landing.
    */
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
+  import { toasts } from "../../lib/toasts";
   import { onMount } from "svelte";
   import { accountStore, uplinkStore } from "../../contexts";
   import WorkspaceMark from "../ui/WorkspaceMark.svelte";
@@ -27,7 +28,7 @@
     void uplinkStore.refresh(LOCAL_SERVER_ID);
   });
 
-  /** One action for both halves: the browser approves the sign-in, then this Mac is linked. */
+  /** One action for both halves: the browser approves sign-in, then this computer is linked. */
   async function connect() {
     if (!accountStore.isSignedIn) {
       const ended = await accountStore.signIn();
@@ -45,7 +46,7 @@
     state={row.state}
     statusText="Waiting…"
     actionLabel={row.actionLabel}
-    onaction={() => void connect()}
+    onaction={() => void connect().catch((error) => toasts.error(error instanceof Error ? error.message : "Could not connect to Solus Cloud."))}
   >
     {#snippet mark()}<WorkspaceMark class="size-[18px]" />{/snippet}
   </OnboardingRow>

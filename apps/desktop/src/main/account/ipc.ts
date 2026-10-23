@@ -10,6 +10,7 @@ import {
   organizationSettingsPatchRequestSchema,
 } from '@solus/contracts/settings'
 import { desktopAgentProfileRequests } from './agent-profile-client'
+import { secureStorage } from '../secure-storage'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
 import { loopbackAuthorizer } from './loopback-authorizer'
@@ -78,7 +79,7 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     cloudOrigin: resolveCloudOrigin(),
     fetch: (input, init) => fetch(input, init),
     now: () => Date.now(),
-    store: new AccountStore(join(app.getPath('userData'), 'account.bin'), safeStorage),
+    store: new AccountStore(join(app.getPath('userData'), 'account.bin'), secureStorage(safeStorage)),
     authorizer: loopbackAuthorizer({ openExternal: (url) => shell.openExternal(url) }),
     onStateChange: (state) => broadcast(ACCOUNT_CHANNELS.stateChanged, state),
   })

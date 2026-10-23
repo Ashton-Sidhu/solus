@@ -82,6 +82,7 @@ export default defineConfig(({ mode }) => {
           '@ff-labs/fff-node',
           '@anthropic-ai/claude-agent-sdk',
           'electron-updater',
+          '@homebridge/dbus-native',
           'onnxruntime-node',
           'socket.io',
           'socket.io-client',

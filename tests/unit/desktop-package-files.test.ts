@@ -10,6 +10,25 @@ const fileStat = statSync(import.meta.filename)
 const expandMacros = (pattern: string) => pattern.replaceAll('${arch}', 'arm64')
 
 describe('desktop package contents', () => {
+  test('Linux packages keep only the selected native runtime and the app allowlist', () => {
+    const expandLinux = (pattern: string) => pattern.replaceAll('${arch}', 'x64')
+    const matchers = getFileMatchers(build, 'files', '/package', {
+      macroExpander: expandLinux, customBuildOptions: build.linux ?? {}, globalOutDir: '/package', defaultSrc: root,
+    })!
+    expect(matchers[0].containsOnlyIgnore()).toBe(false)
+    const appIncludes = matchers[0].createFilter()
+    expect(appIncludes(join(root, 'dist/renderer/index.html'), fileStat)).toBe(true)
+    expect(appIncludes(join(root, '.env'), fileStat)).toBe(false)
+    expect(appIncludes(join(root, '.solus-local/solus.db'), fileStat)).toBe(false)
+    const rules = [build.files, build.linux?.files].flat().filter((rule): rule is string => typeof rule === 'string' && rule.startsWith('!'))
+    const includes = new FileMatcher(root, '/package', expandLinux, ['**/*', ...rules]).createFilter()
+    for (const name of ['onnxruntime-node/bin/napi-v6/linux/x64/onnxruntime_binding.node', 'onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1', '@ff-labs/fff-bin-linux-x64-gnu/libfff_c.so']) {
+      expect(includes(join(root, 'node_modules', name), fileStat)).toBe(true)
+    }
+    for (const name of ['onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.dylib', 'onnxruntime-node/bin/napi-v6/linux/arm64/libonnxruntime.so.1', '@anthropic-ai/claude-agent-sdk-linux-x64/claude']) {
+      expect(includes(join(root, 'node_modules', name), fileStat)).toBe(false)
+    }
+  })
   test('Mac packaging keeps the app file allowlist and excludes workspace data', () => {
     const matchers = getFileMatchers(build, 'files', '/package', {
       macroExpander: expandMacros,

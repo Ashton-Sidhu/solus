@@ -103,7 +103,7 @@
   <SettingsRow
     label="Download updates automatically"
     description="Download updates when found. You choose when to restart."
-    visible={updatesStore.isAvailable}
+    visible={updatesStore.isAvailable && state.kind !== "manual"}
   >
     {#snippet control()}
       <Switch

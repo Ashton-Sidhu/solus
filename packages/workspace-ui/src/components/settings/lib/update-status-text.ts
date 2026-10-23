@@ -3,6 +3,8 @@ import type { DesktopUpdateState } from '@solus/contracts/desktop-update-types'
 /** What the About section says for one update state. */
 export function updateStatusLine(state: DesktopUpdateState): string {
   switch (state.kind) {
+    case 'manual':
+      return 'Download and install the latest Linux package to update Solus.'
     case 'idle':
       return 'Not checked yet.'
     case 'checking':
@@ -25,6 +27,8 @@ export type UpdateCommand = 'check' | 'download' | 'restart'
 /** The one command that moves the state forward, or null while it is moving on its own. */
 export function updateCommandFor(state: DesktopUpdateState): { command: UpdateCommand; label: string } | null {
   switch (state.kind) {
+    case 'manual':
+      return { command: 'download', label: 'Download Linux update' }
     case 'idle':
     case 'up-to-date':
       return { command: 'check', label: 'Check for updates' }

@@ -37,6 +37,8 @@
   import { hostPolicy } from "@solus/client-core/host-policy";
   import { unsupportedOnHost } from "@solus/client-core/host-capabilities";
 
+  import { desktopCaptureSupport } from "@solus/client-core/desktop-capture";
+
   import { localApi } from "@solus/client-core/local-api";
 
   import BrowserWebviewLayer from "./shell/BrowserWebviewLayer.svelte";
@@ -122,6 +124,7 @@
   const desktopHandlersAvailable = $derived(
     (hosts.device?.hasDesktopHandlers ?? false),
   );
+  const captureSupport = desktopCaptureSupport(localApi.getPlatform());
   // Mount global scope and the single dispatcher listener (shared with web).
   installGlobalDispatcher(keybindings, () => settings.keybindings);
   installDesktopKeybindings(core, ui, {
@@ -288,7 +291,7 @@
       <div class="workspace-shell h-full w-full">
         <WorkspaceLayout
           onAttachFile={handleAttachFile}
-          onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
+          onScreenshot={desktopHandlersAvailable && captureSupport.screenshot ? handleScreenshot : null}
         />
       </div>
     {:else if workspaceLayoutComponent}
@@ -304,7 +307,7 @@
         <div class="workspace-shell h-full w-full">
           <WorkspaceLayout
             onAttachFile={handleAttachFile}
-            onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
+            onScreenshot={desktopHandlersAvailable && captureSupport.screenshot ? handleScreenshot : null}
           />
         </div>
       {:catch}

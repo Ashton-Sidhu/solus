@@ -1,4 +1,5 @@
-import { execFile, execFileSync } from 'child_process'
+import { execFile, execFileSync, spawn } from 'child_process'
+import { resolveHomePath } from '@solus/server/platform/paths'
 import { basename } from 'path'
 import { createLogger } from '@solus/server/logger'
 import type { ResolvedTerminal, TerminalAppId, TerminalLaunchRequest } from '@solus/contracts/types'
@@ -12,6 +13,7 @@ const TMUX_SESSION_NAME = 'solus'
 const ATTACH_COMMAND = `exec tmux attach-session -t ${TMUX_SESSION_NAME}`
 
 function createTmuxWindow(command: string, cwd?: string): boolean {
+  if (cwd) cwd = resolveHomePath(cwd)
   try {
     execFileSync('tmux', ['has-session', '-t', TMUX_SESSION_NAME], {
       env: hostCliEnv(),
@@ -119,7 +121,7 @@ export async function resolveTerminal(fallbackTerminalId: TerminalAppId): Promis
     return resolved
   }
 
-  const app = terminalApp(fallbackTerminalId)
+  const app = await availableTerminal(fallbackTerminalId)
   const resolved: ResolvedTerminal = {
     id: app?.id ?? null,
     name: app ? terminalDisplayName(app) : 'Terminal',
@@ -161,7 +163,7 @@ async function useAttachedTerminal(): Promise<boolean> {
 }
 
 /** Starts the fallback terminal already attached to the shared session. */
-function launchTerminalApp(app: TerminalApp): boolean {
+async function launchTerminalApp(app: TerminalApp): Promise<boolean> {
   try {
     if (process.platform === 'darwin') {
       if (app.macAppleScript) {
@@ -180,7 +182,14 @@ function launchTerminalApp(app: TerminalApp): boolean {
         return false
       }
     } else {
-      execFileSync(app.linuxBin, app.linuxArgs(ATTACH_COMMAND), { timeout: 5000, env: hostCliEnv() })
+      return await new Promise<boolean>((resolve) => {
+        const child = spawn(app.linuxBin, app.linuxArgs(ATTACH_COMMAND), { detached: true, stdio: 'ignore', env: hostCliEnv() })
+        child.once('error', error => {
+          log.error('fallback_terminal_launch_failed', { terminalId: app.id, error: error.message })
+          resolve(false)
+        })
+        child.once('spawn', () => { child.unref(); resolve(true) })
+      })
     }
     return true
   } catch (err) {
@@ -204,10 +213,20 @@ export async function launchInTerminal(request: TerminalLaunchRequest): Promise<
   if (!createTmuxWindow(command, cwd)) return false
   if (await useAttachedTerminal()) return true
 
-  const app = terminalApp(fallbackTerminalId)
+  const app = await availableTerminal(fallbackTerminalId)
   if (!app) {
     log.warn('unknown_terminal', { fallbackTerminalId })
     return false
   }
   return launchTerminalApp(app)
+}
+
+/** Resolve the default role from installed Linux terminals; explicit choices stay explicit. */
+export async function availableTerminal(id: TerminalAppId): Promise<TerminalApp | undefined> {
+  if (process.platform === 'darwin') return terminalApp(id)
+  const candidates = id === 'default-terminal' ? TERMINAL_APPS : [terminalApp(id)].filter((app): app is TerminalApp => !!app)
+  for (const app of candidates) {
+    if (await probeOutput('/usr/bin/which', [app.linuxBin], 2000)) return app
+  }
+  return undefined
 }

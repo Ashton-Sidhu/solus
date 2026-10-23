@@ -11,6 +11,7 @@ import { hosts } from '../contexts/hosts/hosts.svelte'
 import { toasts } from './toasts'
 import { requestInputFocus } from './inputFocus'
 import type { HostApi } from '@solus/client-core/host-api'
+import { localApi } from '@solus/client-core/local-api'
 import { hostPolicy } from '@solus/client-core/host-policy'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { PrsStore } from '../contexts/prs/prs.store.svelte'
@@ -242,7 +243,11 @@ export class GitActions {
     const ctx = this.target().ctx
     // Opening one attaches a terminal to the shared session, so what "Open in
     // terminal" resolves to has just changed for every surface that shows it.
-    void this.api().openWorktreeTerminal(ctx).then(() => toolsStore.refreshResolvedTerminal(ctx.settings.fallbackTerminal))
+    void this.api().openWorktreeTerminal(ctx).then(launched => {
+      if (!launched) toasts.error('Could not open the terminal. Check that the terminal and tmux are installed.')
+      else if (localApi.getPlatform() === 'linux') toasts.info('Command sent to the terminal. Switch to its window to continue.')
+      void toolsStore.refreshResolvedTerminal(ctx.settings.fallbackTerminal)
+    }).catch(error => toasts.error(error instanceof Error ? error.message : 'Could not open the terminal.'))
     requestInputFocus()
   }
 }

@@ -49,12 +49,14 @@
     "push:dev": "bun scripts/push-dev.ts",
     "generate:codex-types": "codex app-server generate-ts --out packages/server/src/execution/agents/codex/generated",
     "generate:icon": "bun scripts/generate-icon.ts",
-    "generate:app-icons": "bun scripts/generate-app-icons.ts"
+    "generate:app-icons": "bun scripts/generate-app-icons.ts",
+    "dist:linux": "bun run build:desktop && bun run build:client && electron-builder --linux --x64"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.263",
     "@dagrejs/dagre": "^3.1.1",
     "@ff-labs/fff-node": "^0.11.0",
+    "@homebridge/dbus-native": "^0.7.9",
     "@hono/node-server": "^2.1.1",
     "@octokit/graphql": "^9.0.5",
     "@octokit/rest": "^22.0.1",
@@ -105,14 +107,12 @@
       "resources/**/*",
       "package.json",
       "!**/*.map",
-      "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
-      "!node_modules/onnxruntime-node/bin/napi-v6/!(darwin)/**/*",
-      "!node_modules/onnxruntime-node/bin/napi-v6/darwin/!(${arch})/**/*",
-      "!node_modules/onnxruntime-node/bin/napi-v6/darwin/*/libonnxruntime.*.*.dylib"
+      "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*"
     ],
     "asarUnpack": [
       "node_modules/@ff-labs/fff-bin-*/**/*",
-      "node_modules/@yuuang/ffi-rs-*/**/*"
+      "node_modules/@yuuang/ffi-rs-*/**/*",
+      "node_modules/onnxruntime-node/bin/**/*"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
@@ -140,7 +140,20 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Solus uses your microphone to transcribe voice input locally on your device.",
         "NSAppleEventsUsageDescription": "Solus needs to send Apple Events to your terminal app to open editor sessions."
-      }
+      },
+      "files": [
+        "dist/main/**/*",
+        "dist/preload/**/*",
+        "dist/renderer/**/*",
+        "dist/client/**/*",
+        "resources/**/*",
+        "package.json",
+        "!**/*.map",
+        "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v6/!(darwin)/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v6/darwin/!(${arch})/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v6/darwin/*/libonnxruntime.*.*.dylib"
+      ]
     },
     "dmg": {
       "sign": false
@@ -149,7 +162,42 @@
       "provider": "generic",
       "url": "https://releases.solus.sh"
     },
-    "afterPack": "./scripts/afterPack.js"
+    "afterPack": "./scripts/afterPack.js",
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "executableName": "solus",
+      "category": "Development",
+      "icon": "resources/icon.png",
+      "maintainer": "Solus <support@solus.sh>",
+      "syncDesktopName": true,
+      "files": [
+        "dist/main/**/*",
+        "dist/preload/**/*",
+        "dist/renderer/**/*",
+        "dist/client/**/*",
+        "resources/**/*",
+        "package.json",
+        "!**/*.map",
+        "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v6/!(linux)/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v6/linux/!(${arch})/**/*",
+        "!node_modules/@ff-labs/fff-bin-*-musl/**/*",
+        "!node_modules/@yuuang/ffi-rs-*-musl/**/*"
+      ]
+    }
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -280,5 +328,6 @@
     "expo-network@58.0.3": "patches/expo-network@58.0.3.patch",
     "react-native-gesture-handler@3.2.1": "patches/react-native-gesture-handler@3.2.1.patch",
     "react-native-keyboard-controller@1.22.7": "patches/react-native-keyboard-controller@1.22.7.patch"
-  }
+  },
+  "desktopName": "com.solus.app.desktop"
 }

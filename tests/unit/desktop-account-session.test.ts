@@ -80,12 +80,23 @@ describe('desktop account session', () => {
     const heard: string[] = []
     session.onChange((state) => heard.push(state.kind))
     expect(session.current()).toEqual({ kind: 'unavailable', reason: 'encryption' })
-    expect(await session.signIn()).toBe('error')
+    await expect(session.signIn()).rejects.toThrow('keyring')
     w.setKeychain(true)
     session.reloadFromDisk()
     expect(session.current()).toMatchObject({ kind: 'signed-in', identity: { sub: 'user-1' } })
     expect(w.states.at(-1)?.kind).toBe('signed-in')
     expect(heard.at(-1)).toBe('signed-in')
+  })
+
+  test('a sign-in without a keyring says why, and works once the keyring unlocks', async () => {
+    const w = world({ keychainAtStart: false })
+    const session = w.make()
+    // A Linux desktop with a locked or missing keyring: the user must learn what to fix.
+    await expect(session.signIn()).rejects.toThrow('keyring')
+    expect(session.current()).toEqual({ kind: 'unavailable', reason: 'encryption' })
+    w.setKeychain(true)
+    expect(await session.signIn()).toBe('approved')
+    expect(session.current().kind).toBe('signed-in')
   })
 
   test('verify reads the identity again; a revoked grant ends the sign-in', async () => {

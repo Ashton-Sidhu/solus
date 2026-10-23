@@ -1,7 +1,8 @@
 import { dialog, shell } from 'electron'
+import { takeDesktopScreenshot } from '../../capture/screenshot'
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
 import { join, dirname } from 'path'
-import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
+import { existsSync, writeFileSync, statSync } from 'fs'
 import { appendFile, mkdir, stat } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile } from 'child_process'
@@ -12,13 +13,13 @@ import { IMAGE_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@solus/contracts/m
 import { transcribeAudio, warmTranscription } from '@solus/desktop-main/transcription'
 import { readWav } from '@solus/server/transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '@solus/server/model-downloader'
-import { launchInTerminal, resolveTerminal, terminalDisplayName } from '@solus/desktop-main/terminal-launcher'
+import { launchInTerminal, resolveTerminal, terminalDisplayName, availableTerminal } from '@solus/desktop-main/terminal-launcher'
 import { findAppBundle } from '@solus/desktop-main/mac-apps'
 import { EDITOR_APPS, editorApp } from '@solus/desktop-main/editor-apps'
 import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
 import { findOnPath, warmCliPath } from '@solus/server/cli-env'
 import { createLogger } from '@solus/server/logger'
-import { solusDir } from '@solus/server/platform/paths'
+import { solusDir, resolveHomePath } from '@solus/server/platform/paths'
 import type { SolusServer } from '@solus/server/transport/server'
 import { filePathsToAttachments } from '@solus/server/transport/attachment-utils'
 import { allowClientAttachmentReads } from '@solus/desktop-main/client-attachment-read'
@@ -65,15 +66,6 @@ function writeDataUrlToTmp(dataUrl: string, namePrefix: string): { mimeType: str
   const filePath = join(tmpdir(), `${namePrefix}-${Date.now()}.${ext}`)
   writeFileSync(filePath, buf)
   return { mimeType, ext, buf, filePath }
-}
-
-function runScreencapture(args: string[], timeout: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile('/usr/sbin/screencapture', args, { timeout }, (err) => {
-      if (err) reject(err)
-      else resolve()
-    })
-  })
 }
 
 function shellQuote(value: string): string {
@@ -137,33 +129,25 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     return filePathsToAttachments(filePaths)
   })
 
+  let takingScreenshot = false
   server.register('takeScreenshot', async () => {
+    if (takingScreenshot) throw new Error('A screenshot request is already open.')
     const win = deps.getWorkspaceWindow()
     if (!win) return null
     if (!(await deps.ensureScreenCaptureAccess())) return null
 
-    win.hide()
-    await new Promise((r) => setTimeout(r, 300))
-
+    if (takingScreenshot) throw new Error('A screenshot request is already open.')
+    takingScreenshot = true
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    win.once('closed', abort)
     try {
-      const screenshotPath = join(tmpdir(), `solus-screenshot-${Date.now()}.png`)
-      await runScreencapture(['-i', screenshotPath], 30000)
-
-      if (!existsSync(screenshotPath)) return null
-
-      const buf = readFileSync(screenshotPath)
-      return {
-        id: crypto.randomUUID(),
-        type: 'image',
-        name: `screenshot ${deps.bumpScreenshotCounter()}.png`,
-        path: screenshotPath,
-        mimeType: 'image/png',
-        dataUrl: `data:image/png;base64,${buf.toString('base64')}`,
-        size: buf.length,
-      }
-    } catch {
-      return null
+      win.hide()
+      await new Promise((r) => setTimeout(r, 300))
+      return await takeDesktopScreenshot(`screenshot ${deps.bumpScreenshotCounter()}.png`, controller.signal)
     } finally {
+      takingScreenshot = false
+      win.removeListener('closed', abort)
       deps.showAndFocusWorkspaceWindow()
     }
   })
@@ -246,30 +230,27 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const agentId = ctx.settings.activeAgent
     const agentBin = AGENT_BIN[agentId] ?? 'claude'
     const sessionId = ctx.session.agentSessionId
-    const projectPath = ctx.session.workingDirectory && ctx.session.workingDirectory !== '~'
-      ? ctx.session.workingDirectory
-      : process.cwd()
+    const projectPath = resolveHomePath(ctx.session.workingDirectory || '~')
     const command = buildAgentTerminalCommand(agentId, agentBin, sessionId)
     const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
     const launcher = await launchInTerminal({ command, fallbackTerminalId, cwd: projectPath })
-    deps.hideAppWindow()
+    if (launcher && process.platform === 'darwin') deps.hideAppWindow()
     return launcher
   })
 
   server.register('openWorktreeTerminal', async (args) => {
     const [ctx] = args
-    const targetPath = ctx.session.gitContext?.worktreePath
-      || (ctx.session.workingDirectory && ctx.session.workingDirectory !== '~' ? ctx.session.workingDirectory : process.cwd())
+    const targetPath = resolveHomePath(ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory || '~')
     if (!existsSync(targetPath) || !statSync(targetPath).isDirectory()) return false
 
-    const shellPath = process.env.SHELL || '/bin/zsh'
+    const shellPath = process.env.SHELL && existsSync(process.env.SHELL) ? process.env.SHELL : (process.platform === 'darwin' ? '/bin/zsh' : '/bin/sh')
     const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
     const launcher = await launchInTerminal({
       command: `exec ${shellQuote(shellPath)} -l`,
       fallbackTerminalId,
       cwd: targetPath,
     })
-    deps.hideAppWindow()
+    if (launcher && process.platform === 'darwin') deps.hideAppWindow()
     return launcher
   })
 
@@ -298,7 +279,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     for (const app of TERMINAL_APPS) {
       // The system terminal has no bundle to probe: it is the one that is
       // always there, and on macOS it has a name of its own.
-      if (app.id === 'default-terminal') {
+      if (app.id === 'default-terminal' && (process.platform === 'darwin' || await availableTerminal(app.id))) {
         terminals.push({ id: app.id, name: terminalDisplayName(app) })
         continue
       }
@@ -355,7 +336,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const command = [app.bin, ...(app.args ?? []), ...escapedPaths].join(' ')
 
     const launched = await launchInTerminal({ command, fallbackTerminalId: fallbackTerminalId || 'default-terminal', cwd })
-    deps.hideAppWindow()
+    if (launched && process.platform === 'darwin') deps.hideAppWindow()
     return launched
   })
 }

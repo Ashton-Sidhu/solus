@@ -8,6 +8,8 @@ import { toasts } from "@solus/workspace-ui/lib/toasts";
 
 import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
 
+import { desktopCaptureSupport } from "@solus/client-core/desktop-capture";
+
 import { localApi } from "@solus/client-core/local-api";
 
 import { useKeybinding } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";
@@ -50,6 +52,7 @@ export function installDesktopKeybindings(
     handleScreenshot,
     handleAttachFile,
   } = actions;
+  const captureSupport = desktopCaptureSupport(localApi.getPlatform());
   const activeTabId = $derived(session.activeTabId);
   const keyboardTabId = $derived(session.focusedChatTabId ?? activeTabId);
   const desktopHandlersAvailable = $derived(
@@ -190,7 +193,7 @@ export function installDesktopKeybindings(
     void sessionSidebarStore.selectAdjacentRow(-1).then(() => requestInputFocus());
   });
   useKeybinding("global.screenshot", () => handleScreenshot(keyboardTabId), {
-    enabled: () => desktopHandlersAvailable,
+    enabled: () => desktopHandlersAvailable && captureSupport.screenshot,
   });
   useKeybinding(
     "global.session-picker",
@@ -276,7 +279,10 @@ export function installDesktopKeybindings(
   useKeybinding(
     "global.git-open-terminal",
     () => {
-      void session.apiForContext(session.ctx).openWorktreeTerminal(session.ctx);
+      void session.apiForContext(session.ctx).openWorktreeTerminal(session.ctx).then((launched) => {
+        if (!launched) toasts.error("Could not open the terminal. Check that the terminal and tmux are installed.");
+        else if (localApi.getPlatform() === "linux") toasts.info("Command sent to the terminal. Switch to its window to continue.");
+      }).catch((error) => toasts.error(error instanceof Error ? error.message : "Could not open the terminal."));
     },
     {
       enabled: () =>

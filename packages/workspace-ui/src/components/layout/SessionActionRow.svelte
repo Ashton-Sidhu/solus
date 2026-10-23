@@ -19,6 +19,7 @@
     serversStore,
     toolsStore,
   } from "../../contexts";
+  import { localApi } from "@solus/client-core/local-api";
   import { toasts } from "../../lib/toasts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -200,7 +201,11 @@
     void session
       .apiFor(tabId)
       .openInTerminal(session.ctxFor(tabId))
-      .then(() => toolsStore.refreshResolvedTerminal(theme.fallbackTerminal));
+      .then((launched) => {
+        if (!launched) toasts.error("Could not open the terminal. Check that the terminal and tmux are installed.");
+        else if (localApi.getPlatform() === "linux") toasts.info("Command sent to the terminal. Switch to its window to continue.");
+        void toolsStore.refreshResolvedTerminal(theme.fallbackTerminal);
+      }).catch((error) => toasts.error(error instanceof Error ? error.message : "Could not open the terminal."));
     requestInputFocus();
   }
 
