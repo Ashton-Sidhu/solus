@@ -63,12 +63,15 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Linux desktop unit checks
         run: bun scripts/test-unit.ts desktop-package desktop-linux-window desktop-secret-storage desktop-capture desktop-update-mode terminal-launcher cli-env account-store desktop-update-status
+      # The real agent backends, as a release ships them: the smoke test starts
+      # the app in normal mode and sends no prompt, so it needs no credentials.
+      # A BUILD_TARGET=test bundle has only the mock Claude backend.
       - name: Build desktop and web in sequence
         env:
           NODE_OPTIONS: --max-old-space-size=3072
         run: |
-          BUILD_TARGET=test bun run build:desktop
-          BUILD_TARGET=test bun run build:client
+          bun run build:desktop
+          bun run build:client
       - name: Package and probe native runtime
         run: bun run electron-builder --linux --x64 --dir --publish never
       - name: Verify packaged desktop
