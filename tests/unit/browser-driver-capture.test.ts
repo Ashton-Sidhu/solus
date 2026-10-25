@@ -42,6 +42,7 @@ function fakeGuest() {
   }
   const contents = {
     debugger: cdp,
+    on: () => {},
     isDestroyed: () => false,
     setWindowOpenHandler: () => {},
     getBackgroundThrottling: () => false,
