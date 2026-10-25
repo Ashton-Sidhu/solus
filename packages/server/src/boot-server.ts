@@ -53,7 +53,8 @@ import { SOLUS_API_AUDIENCE, directoryResponseSchema, hostAudience, type HostKin
 import { registerUplinkHandlers } from './transport/handlers/uplink-handlers'
 import { registerSharingHandlers } from './transport/handlers/sharing-handlers'
 import { registerCloudUploadHandlers } from './transport/solus-api/cloud-uploads'
-import { ShareManager } from './sharing/share-manager'
+import { ShareManager, type ShareChange } from './sharing/share-manager'
+import { GUEST_VISIT_TTL_MS } from './admission/doors'
 import { profileTargetFor, registerSeatHandlers } from './transport/handlers/seat-handlers'
 import { registerIntegrationHandlers } from './transport/handlers/integration-handlers'
 import { registerMcpAppHandlers } from './transport/handlers/mcp-app-handlers'
@@ -196,6 +197,8 @@ import { registerTaskOutboxApplier } from './data/tasks/task-applier'
 import { registerWorkOutboxApplier } from './data/works/work-applier'
 import { agentTargetFromMetadata } from './execution/agents/agent-targets'
 import { registerAttachmentHandlers } from './transport/handlers/attachment-handlers'
+import { registerSuggestionHandlers } from './transport/handlers/suggestion-handlers'
+import { SessionSuggestions } from './sharing/session-suggestions'
 import { registerAssetHandlers } from './transport/handlers/asset-handlers'
 import { registerCapabilityHandlers } from './transport/handlers/capability-handlers'
 import { registerObservabilityHandlers } from './transport/handlers/observability-handlers'
@@ -544,7 +547,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   opts.sessionRuntime.useSeats(seats)
   // WORKAROUND(openai/codex#54472): Codex history is read through the seat that last ran the thread.
-  const codexBackend = opts.sessionRuntime.backendFor('codex')
+  // A host built without Codex (the Lab's and the e2e suite's mock registry) has no reader to give seats.
+  const codexBackend = opts.sessionRuntime.getBackendIds().includes('codex') ? opts.sessionRuntime.backendFor('codex') : null
   if (codexBackend instanceof CodexBackend) codexBackend.useReaderSeats(seats)
   const seatConnector = new SeatConnector({ seats })
   const agentAuth = new AgentAuthFlows({ seats })
@@ -702,6 +706,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerFilesystemHandlers(server)
   registerCodeIntelHandlers(server, { codeIntel })
   registerAttachmentHandlers(server)
+  // What a guest who may only propose sends a session waits here for someone who may prompt it.
+  const linkExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const suggestions = new SessionSuggestions({ onChanged: (sessionId) => events.broadcast('session.suggestionsChanged', { sessionId }) })
+  registerSuggestionHandlers(server, { suggestions, shares })
   registerAssetHandlers(server)
   registerHistoryHandlers(server, {
     sessionRuntime: opts.sessionRuntime,
@@ -1403,12 +1411,46 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       return principal ? scopeAdmits(recordScopeOf(principal), organizationId) : organizationId === LOCAL_ORGANIZATION_ID
     })
     void events.publish(recipients, 'share.changed', payload)
+    scheduleLinkExpiry(change)
     if (!guestsRevoked) return
+    // The link's guests go, and so does what they suggested and nobody sent.
+    if (change.resource.kind === 'session') void suggestions.endGuestSuggestions(change.resource.id)
     ws.disconnectWhere((principal) => principal.kind === 'guest'
       && scopeAdmits(recordScopeOf(principal), organizationId)
       && principal.share.resource.kind === change.resource.kind
       && principal.share.resource.id === change.resource.id, 'share-link-revoked')
   }))
+  /**
+   * A link that expires while its guests are connected ends them then, as removing
+   * it would (docs/plans/custom-roles.md §9). A guest admitted after the expiry was
+   * set already has its socket end there; this covers the ones admitted before.
+   * One timer per resource, replaced by each change; nothing past the guest visit,
+   * which ends every socket anyway.
+   */
+  function scheduleLinkExpiry(change: ShareChange): void {
+    const key = `${change.resource.kind}:${change.resource.id}`
+    clearTimeout(linkExpiryTimers.get(key))
+    linkExpiryTimers.delete(key)
+    const expiry = change.linkExpiry
+    if (!expiry) return
+    const delay = Math.max(0, expiry.expiresAt - Date.now())
+    if (delay > GUEST_VISIT_TTL_MS) return
+    const timer = setTimeout(() => {
+      linkExpiryTimers.delete(key)
+      void shares.linkEnded(change.resource, expiry.linkSecretHash).then((ended) => {
+        if (!ended) return
+        events.forgetRoomAdmissions()
+        const ends = ws.disconnectWhere((principal) => principal.kind === 'guest'
+          && principal.share.linkSecretHash === expiry.linkSecretHash
+          && principal.share.resource.kind === change.resource.kind
+          && principal.share.resource.id === change.resource.id, 'share-link-expired')
+        log.info('share_link_expired', { kind: change.resource.kind, resourceId: change.resource.id, guests: ends })
+        if (change.resource.kind === 'session') void suggestions.endGuestSuggestions(change.resource.id)
+      })
+    }, delay)
+    timer.unref?.()
+    linkExpiryTimers.set(key, timer)
+  }
   // A seat changes for one member; only that member's clients hear it.
   domainEventUnsubscribes.push(seats.onChanged((event) => {
     events.publish(clientsForSeat(event.seat), 'host.seatChanged', event)

@@ -31,6 +31,7 @@ import { seatProviderSchema } from '@solus/contracts/seats'
 import { AgentAuthFlow } from './agent-auth-flow'
 import type { IntegrationConnectNeeded } from '@solus/contracts/integration-types'
 import { Listeners } from '../../lib/listeners'
+import { SessionSuggestionsFeed } from './session-suggestions'
 
 /**
  * One open conversation on one host (plan 017 stage 3). It owns the watch,
@@ -107,6 +108,8 @@ export class ConversationController {
   /** An integration tool of this session's turn needs the person's connection (`integration.connectNeeded`). */
   connectNeeded: IntegrationConnectNeeded | null = null
   readonly connectNeededChanges = new Listeners()
+  /** What guests suggested to this session, for whoever may prompt it to send or dismiss. */
+  readonly suggestions: SessionSuggestionsFeed
   /** The host's agents, whether each is installed, and what each can do.
    *  Null until the host answers: unknown, not unavailable. */
   agents: readonly AgentMetadata[] | null = null
@@ -185,6 +188,8 @@ export class ConversationController {
       this.flush()
     } })
     this.cleanups.push(() => this.auth.close())
+    this.suggestions = new SessionSuggestionsFeed(connection, () => this.run.sessionId, () => this.context())
+    this.cleanups.push(() => this.suggestions.close())
     this.cleanups.push(connection.events.subscribe('session.eventReceived', (payload) => {
       if (payload.sessionId === this.run.sessionId) this.receive(payload.event)
     }))
@@ -234,7 +239,16 @@ export class ConversationController {
    * its cards (docs/plans/access-model.md §2.7). A new session is the reader's own.
    */
   get mayDrive(): boolean {
-    return resourceAllows({ role: this.target.record?.role }, 'drive')
+    return resourceAllows({ role: this.target.record?.role }, 'drive.prompt')
+  }
+
+  /**
+   * Whether the reader may answer the agent's cards: what it may run, its
+   * questions, and its plans. Its own action, apart from prompting
+   * (docs/plans/custom-roles.md §3).
+   */
+  get mayApprove(): boolean {
+    return resourceAllows({ role: this.target.record?.role }, 'drive.approve')
   }
 
   /** Auto can pick this session's model: nothing has started it yet. */
@@ -273,6 +287,8 @@ export class ConversationController {
       this.applyWatch(watched)
       this.setPhase({ kind: 'ready' })
       void this.deps.connection.api.setSessionReadState(this.run.sessionId, Date.now()).catch(() => undefined)
+      // Every load, reconnects included: a change missed while away is read again.
+      if (this.started) void this.suggestions.refresh()
       this.flush(true)
       void this.drainOutbox()
     } catch (error) {

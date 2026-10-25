@@ -1,3 +1,4 @@
+import type { SessionSuggestion, SessionSuggestRequest, SuggestionDecision } from './session-suggestions'
 import type { SessionQueueMutation, SessionQueueSnapshot } from './session-queue'
 import type { CheckoutSnapshot } from './checkout'
 import type { WorktreeOfferResolution } from './activity'
@@ -41,6 +42,7 @@ import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirec
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
+import type { SessionActionLeaf } from './permissions'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
@@ -117,7 +119,7 @@ export interface ConnectionsServerInfo {
   displayName?: string
   /** A guest's one resource and its role there; the guest shell renders nothing else.
    *  A task resource reaches the task page and every session and work linked to it. */
-  share?: { resource: ShareResource; role: ShareRole }
+  share?: { resource: ShareResource; role: ShareRole; actions?: readonly SessionActionLeaf[] }
   /** The permissions this connection holds on the host (docs/plans/permissions.md): prefixes, `['host']` for the owner. A control is disabled exactly when its permission is not covered. */
   permissions: Permission[]
   /** `preparing` while the host is still making this member's Linux user and folders (docs/plans/member-isolation.md §8.1): their turns are refused until `connection.memberWorkspaceReady`. Absent when ready, and for everyone who is not such a member. */
@@ -145,6 +147,12 @@ export interface SolusAPI {
   retry(ctx: IpcContext, options: PromptOptions): Promise<void>
   sessionQueue(ctx: IpcContext): Promise<SessionQueueSnapshot>
   sessionQueueChange(ctx: IpcContext, mutation: SessionQueueMutation): Promise<SessionQueueSnapshot>
+  /** The session's suggestions: all of them to someone who may prompt it, a guest's own to that guest. */
+  sessionSuggestions(ctx: IpcContext): Promise<SessionSuggestion[]>
+  sessionSuggest(ctx: IpcContext, request: SessionSuggestRequest): Promise<SessionSuggestion>
+  sessionSuggestionWithdraw(ctx: IpcContext, suggestionId: string): Promise<boolean>
+  /** Send runs the suggestion as the caller's own turn, with this call's context; dismiss removes its files. */
+  sessionSuggestionDecide(ctx: IpcContext, suggestionId: string, decision: SuggestionDecision): Promise<boolean>
   switchSessionAgent(sessionId: string, provider: AgentId, agentSessionId?: string | null): Promise<SessionProviderSwitchResult>
   saveFileDialog(defaultName: string, content: string): Promise<string | null>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>

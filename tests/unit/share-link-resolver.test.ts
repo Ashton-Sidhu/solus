@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { ResourceRole } from '@solus/contracts/sharing'
+import type { SessionActionLeaf } from '@solus/contracts/permissions'
 import type { Principal } from '@solus/server/admission/principal'
 import type { ResolvedLinkShare } from '@solus/server/sharing/share-manager'
 import { ShareLinkResolver } from '@solus/server/sharing/share-link-resolver'
@@ -10,16 +11,16 @@ import { ShareLinkResolver } from '@solus/server/sharing/share-link-resolver'
 // gives a member less than a stranger.
 
 const SECRET = 's'.repeat(32)
-const LINK: ResolvedLinkShare = { organizationId: 'org1', resource: { kind: 'session', id: 'sess1' }, role: 'editor', sharedByUserId: 'alice', linkSecretHash: 'h' }
+const LINK: ResolvedLinkShare = { organizationId: 'org1', resource: { kind: 'session', id: 'sess1' }, role: 'editor', expiresAt: null, sharedByUserId: 'alice', linkSecretHash: 'h' }
 const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org1', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'g1', expiresAt: 0, deviceLabel: 'Solus cloud' }
 
-function resolver(options: { link?: ResolvedLinkShare | null; role?: ResourceRole; runner?: string | null } = {}) {
+function resolver(options: { link?: ResolvedLinkShare | null; role?: ResourceRole; actions?: SessionActionLeaf[]; runner?: string | null } = {}) {
   const asked: string[] = []
   const link = options.link === undefined ? LINK : options.link
   const shareLinks = new ShareLinkResolver({
     shares: {
       openLink: async (secret) => (secret === SECRET && link
-        ? { share: link, runnerHostId: options.runner === undefined ? 'host-a' : options.runner, roleOf: () => options.role ?? 'none' }
+        ? { share: link, runnerHostId: options.runner === undefined ? 'host-a' : options.runner, standingOf: () => ({ role: options.role ?? 'none', ...(options.actions ? { actions: options.actions } : {}) }) }
         : null),
     },
     hostRoutes: async (hostId) => [{ kind: 'tunnel', url: `https://h-${hostId}.example` }],
@@ -43,6 +44,19 @@ describe('a share link resolves in one request', () => {
   test('a member with less than the link role opens it as a guest with the link role', async () => {
     const { shareLinks, memberIn } = resolver({ role: 'viewer' })
     expect((await shareLinks.resolve(SECRET, memberIn(BOB)))?.opensAs).toEqual({ kind: 'guest', role: 'editor' })
+  })
+
+  test('a custom link opens a member as themselves only when their standing covers every action of the link', async () => {
+    // WHY (custom-roles.md §6): a link never gives a member less than a stranger. A
+    // viewer member asked to prompt by the link must open it as a guest, or they
+    // would lose the prompt the link gives anyone.
+    const link: ResolvedLinkShare = { ...LINK, role: 'custom', actions: ['read.transcript', 'drive.propose'] }
+    const viewer = resolver({ link, role: 'viewer' })
+    expect((await viewer.shareLinks.resolve(SECRET, viewer.memberIn(BOB)))?.opensAs).toEqual({ kind: 'guest', role: 'custom', actions: ['read.transcript', 'drive.propose'] })
+    const editor = resolver({ link, role: 'editor' })
+    expect((await editor.shareLinks.resolve(SECRET, editor.memberIn(BOB)))?.opensAs).toEqual({ kind: 'member', role: 'editor' })
+    const custom = resolver({ link, role: 'custom', actions: ['read.transcript', 'drive.propose', 'drive.prompt'] })
+    expect((await custom.shareLinks.resolve(SECRET, custom.memberIn(BOB)))?.opensAs).toEqual({ kind: 'member', role: 'custom', actions: ['read.transcript', 'drive.propose', 'drive.prompt'] })
   })
 
   test('a visitor with no membership there is a guest', async () => {

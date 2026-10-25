@@ -36,7 +36,7 @@ export function UsageLimitRecoveryCard(props: {
           ? `Usage limit resets ${new Date(resetsAt * 1000).toLocaleString()}.`
           : "The provider did not report a reset time. Retry manually when your limit is available."}
       </Text>
-      {props.store.controller.mayDrive ? (
+      {props.store.controller.mayApprove ? (
         <View className="flex-row flex-wrap gap-2">
           <Pressable
             accessibilityRole="button"

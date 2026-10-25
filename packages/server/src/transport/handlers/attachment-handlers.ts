@@ -6,7 +6,7 @@ import type { AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentU
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
-import { assertAttachmentMime, attachmentFileMode, attachmentUploadPath, reserveAttachmentSlot, storeAttachment } from '../../data/assets/attachment-store'
+import { assertAttachmentMime, assertGuestAttachment, attachmentFileMode, guestImageSignature, attachmentUploadPath, reserveAttachmentSlot, storeAttachment } from '../../data/assets/attachment-store'
 import type { SolusServer } from '../server'
 import { getAssetSigningSecret, readSignedToken, signToken } from '../../admission/signed-token'
 
@@ -52,6 +52,8 @@ interface AttachmentUploadTokenPayload {
   size: number
   mime: string
   expiresAt: number
+  /** A guest's upload: the bytes must be the image type the token names (`assertGuestAttachment`). */
+  fromGuest?: true
 }
 
 const attachmentUploadTokenPayloadSchema = z
@@ -61,6 +63,7 @@ const attachmentUploadTokenPayloadSchema = z
     size: z.number().int().positive(),
     mime: z.string(),
     expiresAt: z.number().int(),
+    fromGuest: z.literal(true).optional(),
   })
   .strict()
 
@@ -72,9 +75,11 @@ const attachmentUploadTokenPayloadSchema = z
 export async function createAttachmentUploadToken(
   ctx: IpcContext,
   request: AttachmentUploadTokenRequest,
-  deps: AttachmentHandlerDeps & { secret?: Buffer; now?: number } = {},
+  deps: AttachmentHandlerDeps & { secret?: Buffer; now?: number; fromGuest?: boolean } = {},
 ): Promise<AttachmentUploadTokenResult> {
   assertAttachmentMime(request.mime)
+  // A guest's image is checked when its bytes arrive; a type it may never send is refused now.
+  if (deps.fromGuest) guestImageSignature(request.mime)
   if (!Number.isSafeInteger(request.size) || request.size <= 0) throw new Error('The attachment is empty.')
   const isVideo = videoMimeType({ name: request.name, mimeType: request.mime }) !== null
   const limit = isVideo ? MAX_VIDEO_UPLOAD_BYTES : MAX_ATTACHMENT_UPLOAD_BYTES
@@ -84,6 +89,7 @@ export async function createAttachmentUploadToken(
   const filePath = await attachmentUploadPath(requireBucket(ctx), request.name, request.mime, deps.attachmentsDir)
   const expiresAt = (deps.now ?? Date.now()) + ATTACHMENT_UPLOAD_TOKEN_TTL_MS
   const payload: AttachmentUploadTokenPayload = { kind: 'upload', path: filePath, size: request.size, mime: request.mime, expiresAt }
+  if (deps.fromGuest) payload.fromGuest = true
   const token = signToken(payload, deps.secret ?? getAssetSigningSecret())
   return { relativeUrl: `/api/uploads/${token}`, hostPath: filePath, expiresAt }
 }
@@ -134,6 +140,7 @@ async function writeStreamedAttachment(payload: AttachmentUploadTokenPayload, bo
   }
 
   let received = 0
+  const head = new Uint8Array(12)
   let release: (() => Promise<void>) | undefined
   let completed = false
   try {
@@ -143,11 +150,14 @@ async function writeStreamedAttachment(payload: AttachmentUploadTokenPayload, bo
       return new Response(error instanceof Error ? error.message : 'Cannot reserve an upload slot', { status: 409 })
     }
     for await (const chunk of body) {
+      if (received < head.length) head.set(chunk.subarray(0, head.length - received), received)
       received += chunk.byteLength
       if (received > payload.size) return new Response('The upload is larger than declared', { status: 413 })
       await handle.writeFile(chunk)
     }
     if (received !== payload.size) return new Response('The upload ended early', { status: 400 })
+    const refused = guestRefusal(payload, head)
+    if (refused) return refused
     await handle.close()
     try {
       await link(partialPath, payload.path)
@@ -167,12 +177,31 @@ async function writeStreamedAttachment(payload: AttachmentUploadTokenPayload, bo
 }
 
 export function registerAttachmentHandlers(server: SolusServer, deps: AttachmentHandlerDeps = {}): void {
-  server.register('attachUpload', async (args) => {
+  server.register('attachUpload', async (args, handlerCtx) => {
     const [ctx, request] = args
+    if (handlerCtx.principal.kind === 'guest') assertGuestAttachment(request.mime, dataUrlHead(request.dataUrl))
     return writeAttachmentUpload(ctx, request, deps)
   })
-  server.register('attachUploadToken', async (args) => {
+  server.register('attachUploadToken', async (args, handlerCtx) => {
     const [ctx, request] = args
-    return createAttachmentUploadToken(ctx, request, deps)
+    return createAttachmentUploadToken(ctx, request, { ...deps, fromGuest: handlerCtx.principal.kind === 'guest' })
   })
 }
+
+/** A guest's upload whose bytes are not the image type its token names; null when it may land. */
+function guestRefusal(payload: AttachmentUploadTokenPayload, head: Uint8Array): Response | null {
+  if (!payload.fromGuest) return null
+  try {
+    assertGuestAttachment(payload.mime, head)
+    return null
+  } catch (error) {
+    return new Response(error instanceof Error ? error.message : 'This file is refused', { status: 415 })
+  }
+}
+
+/** The first bytes of a base64 data URL, enough for `assertGuestAttachment`. */
+function dataUrlHead(dataUrl: string): Uint8Array {
+  const comma = dataUrl.indexOf(',')
+  return new Uint8Array(Buffer.from(dataUrl.slice(comma + 1, comma + 1 + 24), 'base64'))
+}
+

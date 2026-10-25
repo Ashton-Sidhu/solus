@@ -1,6 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { higherResourceRole, shareResourceKindSchema, type ResourceRole, type ShareResourceKind, type ShareRole } from '@solus/contracts/sharing'
-import type { ResourceKind } from '@solus/contracts/permissions'
+import type { ResourceKind, ResourceStanding, SessionActionLeaf } from '@solus/contracts/permissions'
 import { ownerKeyOf, type Actor } from './actor'
 import { isAnyOrganization, isHostAdmin, recordScopeOf, scopeAdmits, type RecordScope } from './principal'
 import { aclEntry } from '../sharing/schema'
@@ -41,6 +41,10 @@ export interface AclEntry {
   organizationId: string
   /** Set on the `everyone` entry: the hash of the link's secret. */
   linkSecretHash: string | null
+  /** The leaves a `custom` entry holds; null for a preset. */
+  actions: readonly SessionActionLeaf[] | null
+  /** When the entry stops naming anyone, on this host's clock; null never. */
+  expiresAt: number | null
 }
 
 /** What `roleOf` reads of a resource: its own row and its ACL entries. */
@@ -53,8 +57,9 @@ export interface ResourceRow {
 }
 
 /** Whether an ACL entry names this actor: the person, a team they are in, their organization, or the link they arrived with. */
-function entryNames(actor: Actor, resource: Pick<ResourceRow, 'kind' | 'id'>, entry: AclEntry): boolean {
+function entryNames(actor: Actor, resource: Pick<ResourceRow, 'kind' | 'id'>, entry: AclEntry, now: number): boolean {
   const principal = actor.principal
+  if (entry.expiresAt !== null && entry.expiresAt <= now) return false
   switch (entry.subjectKind) {
     case 'user': return entry.subjectId === ownerKeyOf(actor)
     case 'team': return principal.kind === 'org-member' && principal.teamIds.includes(entry.subjectId)
@@ -69,22 +74,32 @@ function entryNames(actor: Actor, resource: Pick<ResourceRow, 'kind' | 'id'>, en
 }
 
 /**
- * The role `actor` holds on `resource`. The host itself (`system`) holds every
- * role; a runner holds none: its writes go through the system-only methods.
+ * The standing `actor` holds on `resource`: the highest preset role its entries
+ * give, and the leaves its custom entries list (docs/plans/custom-roles.md §6).
+ * The host itself (`system`) is the owner; a runner holds nothing: its writes go
+ * through the system-only methods.
  */
-export function roleOf(actor: Actor, resource: ResourceRow): ResourceRole {
+export function standingOf(actor: Actor, resource: ResourceRow, now = Date.now()): ResourceStanding {
   const principal = actor.principal
-  if (principal.kind === 'system') return 'owner'
-  if (principal.kind === 'runner') return 'none'
+  if (principal.kind === 'system') return { role: 'owner' }
+  if (principal.kind === 'runner') return { role: 'none' }
   const scope = recordScopeOf(principal)
-  if (!scopeAdmits(scope, resource.organizationId)) return 'none'
-  if (resource.ownerKey === ownerKeyOf(actor)) return 'owner'
-  if (PERSONAL.has(resource.kind)) return 'none'
+  if (!scopeAdmits(scope, resource.organizationId)) return { role: 'none' }
+  if (resource.ownerKey === ownerKeyOf(actor)) return { role: 'owner' }
+  if (PERSONAL.has(resource.kind)) return { role: 'none' }
   let role: ResourceRole = isHostAdmin(principal) ? 'editor' : 'none'
+  const actions = new Set<SessionActionLeaf>()
   for (const entry of resource.acl) {
-    if (scopeAdmits(scope, entry.organizationId) && entryNames(actor, resource, entry)) role = higherResourceRole(role, entry.role)
+    if (!scopeAdmits(scope, entry.organizationId) || !entryNames(actor, resource, entry, now)) continue
+    role = higherResourceRole(role, entry.role)
+    for (const action of entry.actions ?? []) actions.add(action)
   }
-  return role
+  return actions.size ? { role, actions: [...actions] } : { role }
+}
+
+/** The role alone, for the questions that ask only "how far": may share, may own, may open. */
+export function roleOf(actor: Actor, resource: ResourceRow, now = Date.now()): ResourceRole {
+  return standingOf(actor, resource, now).role
 }
 
 /** The columns of the resource table a predicate reads. */
@@ -99,7 +114,7 @@ function inScope(scope: RecordScope, column: SQL): SQL {
 }
 
 /** The ACL entries that name this actor, as one OR of subject tests on the alias `acl`. */
-function namingClause(actor: Actor, kind: ResourceKind, id: SQL): SQL {
+function namingClause(actor: Actor, kind: ResourceKind, id: SQL, now: number): SQL {
   const principal = actor.principal
   const person = ownerKeyOf(actor)
   const clauses: SQL[] = []
@@ -111,7 +126,8 @@ function namingClause(actor: Actor, kind: ResourceKind, id: SQL): SQL {
   if (principal.kind === 'guest') {
     const bound = principal.share.resource
     if (bound.kind !== 'task' && bound.kind === kind) {
-      clauses.push(sql`(acl.subject_kind = 'everyone' AND acl.link_secret_hash = ${principal.share.linkSecretHash} AND ${id} = ${bound.id})`)
+      clauses.push(sql`(acl.subject_kind = 'everyone' AND acl.link_secret_hash = ${principal.share.linkSecretHash} AND ${id} = ${bound.id}
+        AND (acl.expires_at IS NULL OR acl.expires_at > ${now}))`)
     }
   }
   return clauses.length ? sql`(${sql.join(clauses, sql` OR `)})` : sql`1 = 0`
@@ -121,7 +137,7 @@ function namingClause(actor: Actor, kind: ResourceKind, id: SQL): SQL {
  * `roleOf(actor, row) !== 'none'` as a predicate on the resource table's
  * columns, for list queries. Apply it before LIMIT.
  */
-export function visibleTo(actor: Actor, kind: ResourceKind, columns: ResourceColumns): SQL {
+export function visibleTo(actor: Actor, kind: ResourceKind, columns: ResourceColumns, now = Date.now()): SQL {
   const principal = actor.principal
   if (principal.kind === 'system') return sql`1 = 1`
   if (principal.kind === 'runner') return sql`1 = 0`
@@ -133,6 +149,6 @@ export function visibleTo(actor: Actor, kind: ResourceKind, columns: ResourceCol
   if (!isShareable(kind)) return sql`(${inScope(scope, columns.organization)} AND ${owned})`
   const named = sql`EXISTS (SELECT 1 FROM ${aclEntry} AS acl
     WHERE acl.resource_kind = ${kind} AND acl.resource_id = ${columns.id}
-      AND ${inScope(scope, sql`acl.organization_id`)} AND ${namingClause(actor, kind, columns.id)})`
+      AND ${inScope(scope, sql`acl.organization_id`)} AND ${namingClause(actor, kind, columns.id, now)})`
   return sql`(${inScope(scope, columns.organization)} AND (${owned} OR ${named}))`
 }

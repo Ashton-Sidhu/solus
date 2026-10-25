@@ -22,6 +22,10 @@ export const aclEntry = defineTable('acl_entry', {
   link_secret_hash: text(),
   /** The secret itself, kept so the link is always at hand; null on a row made before the column existed. */
   link_secret: text(),
+  /** A `custom` row's leaves, as a JSON array; null for a preset (docs/plans/custom-roles.md §5). */
+  actions: text(),
+  /** When the row stops naming anyone, in ms on this host's clock; null never. Only a link has one. */
+  expires_at: bigint(),
   granted_by_user_id: text({ notNull: true }),
   created_at: bigint({ notNull: true }),
   organization_id: ORGANIZATION,

@@ -1,8 +1,9 @@
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { SvelteMap } from 'svelte/reactivity'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import type { ShareLink, ShareList, ShareResource, ShareResourceKind, ShareRole, ShareSetRequest } from '@solus/contracts/sharing'
+import type { ShareLink, ShareList, ShareResource, ShareResourceKind, ShareRole, ShareSetLinkRequest, ShareSetRequest } from '@solus/contracts/sharing'
 import type { User } from '@solus/contracts/user'
+import type { SessionActionLeaf } from '@solus/contracts/permissions'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
@@ -383,6 +384,25 @@ export class SharesStore {
       return list ? { ...list, link } : null
     })
     return link
+  }
+
+  /**
+   * The link's custom leaves or its lifetime, changed alone: the secret stays, so
+   * its guests stay connected with what the link now gives them. `expiresInMs`
+   * counts from the host's clock; null never expires.
+   */
+  async setLinkAccess(serverId: string, list: ShareList, change: { actions?: SessionActionLeaf[]; expiresInMs?: number | null }): Promise<void> {
+    const link = list.link
+    if (!link) return
+    await this.run(serverId, list.resource, async () => {
+      const actions = change.actions ?? link.actions
+      const request: ShareSetLinkRequest = { resource: list.resource, role: link.role }
+      if (link.role === 'custom' && actions) request.actions = [...actions]
+      if (change.expiresInMs !== undefined) request.expiresInMs = change.expiresInMs
+      const next = await serverConnections.apiFor(serverId).shareSetLink(request)
+      const current = this.listFor(serverId, list.resource)
+      return current ? { ...current, link: next } : null
+    })
   }
 
   private async run(serverId: string, resource: ShareResource, change: () => Promise<ShareList | null>): Promise<void> {

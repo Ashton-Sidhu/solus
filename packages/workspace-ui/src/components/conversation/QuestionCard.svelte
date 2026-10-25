@@ -55,7 +55,7 @@
   // Addressed to the turn's author (plan 004 F2): "Waiting on Alice" to everyone else.
   const self = $derived(sess ? presenceStore.currentUserId(runHost(sess.run)) : null);
   // A member who may only read the session reads the question but cannot answer it.
-  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id));
+  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id, "drive.approve"));
 
   // The typed remark lives on the request (`request.remarks`), so it stays when
   // the card mounts again and goes back to the composer if the question closes

@@ -38,6 +38,7 @@
   import AgentAuthCard from "../seats/AgentAuthCard.svelte";
   import ComposingLine from "../presence/ComposingLine.svelte";
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
+  import SuggestionGroup from "./suggestions/SuggestionGroup.svelte";
   import StatusCard from "./StatusCard.svelte";
   import TranscriptStatusRow from "./TranscriptStatusRow.svelte";
 
@@ -855,6 +856,7 @@
             <AgentAuthCard />
           {/if}
           <QueuedPromptGroup tabId={tab.id} />
+          <SuggestionGroup tabId={tab.id} />
           <!-- Someone else's prompt is on its way: it lands here, so the notice does too. -->
           <ComposingLine serverId={runHost(sess.run)} sessionId={sess.id} />
 

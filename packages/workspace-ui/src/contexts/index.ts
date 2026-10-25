@@ -83,6 +83,7 @@ export {
 /** Personal Uplink: a host's link to the owner's Solus cloud account, and how hosts are reached. */
 export { uplinkStore } from './connections/uplink.store.svelte'
 export { sharesStore } from './sharing/shares.store.svelte'
+export { suggestionsStore } from './sharing/suggestions.store.svelte'
 export { activeSessionShareTarget } from './sharing/share-target'
 export type { ShareDialogTarget } from './sharing/shares.store.svelte'
 export { linkDescription, registrationDescription } from './connections/host-routes'

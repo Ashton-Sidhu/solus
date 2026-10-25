@@ -62,7 +62,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { useComposerFold } from "./lib/composer-fold.svelte";
-  import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
+  import { sessionComposerMode, SUGGEST_ONLY_REASON, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
 
   import type { Snippet } from "svelte";
   import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
@@ -212,10 +212,11 @@
   );
   // Every provider steers; the turn just has to have actually started.
   const canSteer = $derived(!!sess && isSteerableStatus(sess.status));
+  const composerMode = $derived(sess ? sessionComposerMode(runHost(sess.run), sess.id) : "prompt");
   const readOnlyReason = $derived(
     suppliedReadOnlyReason ??
       sess?.readOnlyReason ??
-      (sess && !canDriveSession(runHost(sess.run), sess.id) ? VIEW_ONLY_REASON : null),
+      (composerMode === "view" ? VIEW_ONLY_REASON : null),
   );
   const isReadOnly = $derived(!!readOnlyReason);
   // Model and permission-mode shortcuts belong to the composer, not to a tab
@@ -312,7 +313,7 @@
   const voice = dictation;
   const voiceOwnerId = $props.id();
   const commands = useComposerCommands(() => ({
-    isReadOnly, isConnecting, isTouch, run, prompt, sessionId, targetTabId,
+    isReadOnly, suggestsOnly: composerMode === "suggest", isConnecting, isTouch, run, prompt, sessionId, targetTabId,
     draftId, composerCwd, pluginCommands, onDispatch, onDispatchInBackground,
     onSent, editor: composerEl, refocusComposer,
   }));
@@ -459,6 +460,8 @@
   const placeholder = $derived(
     isReadOnly
       ? (readOnlyReason ?? "This session is read-only.")
+      : composerMode === "suggest"
+        ? SUGGEST_ONLY_REASON
       : isConnecting
         ? "Initializing..."
         : voiceState === "transcribing"

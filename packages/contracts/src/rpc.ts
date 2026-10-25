@@ -106,6 +106,10 @@ export const RPC_INVOKE_METHODS = [
   'editQueuedPrompt',
   'sessionQueue',
   'sessionQueueChange',
+  'sessionSuggestions',
+  'sessionSuggest',
+  'sessionSuggestionWithdraw',
+  'sessionSuggestionDecide',
   'writePlanFile',
 
   // Files / media

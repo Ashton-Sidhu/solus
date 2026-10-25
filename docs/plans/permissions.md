@@ -1,7 +1,8 @@
 # Permissions — one table for the gate and the controls
 
 Status: done 2026-10-09; names changed to the standard terms on 2026-10-14
-(`access-model.md` step 6). Replaces the method classes of
+(`access-model.md` step 6). Resource verbs gained session leaves and custom
+roles on 2026-10-25 (`custom-roles.md`); that plan's §14 is the current shape. Replaces the method classes of
 `admission/access-policy.ts` (`local-only`, `host-admin`, `host-wide`,
 `resource`, `system-only`) and the guest allowlist, and the client's guesses
 (`canDriveSession` on its own, sign-in checks standing in for permission).
@@ -142,8 +143,14 @@ Nothing else decides access.
 - **Split a permission.** Change the method's row to the finer leaf and the
   control's `may` call. Every holder of the parent keeps it.
 - **Add a host role.** One branch in `permissionsFor`.
-- **Add a method.** Nothing, unless a principal must hold it apart from
-  `host.use`: then one row.
+- **Add a method.** One row, always: its permission (`host.use` written out)
+  or its resource action. A method in neither table fails the build
+  (`EVERY_METHOD_CLASSIFIED`; `custom-roles.md` D4, which reverses the rule
+  that a method needs no row).
+- **Add a session leaf.** One entry in `SESSION_ACTION_LEAVES`, one row in
+  `SHAREABLE_SESSION_ACTIONS`, and point its methods at it. Every preset that
+  holds its parent verb holds it; no custom role does until its sharer turns it
+  on (`custom-roles.md` §3).
 - **Add a scope.** Make the permission `{ action, within }`; `permissionsAllow`
   and the tables do not change.
 

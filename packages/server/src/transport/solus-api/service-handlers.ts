@@ -49,7 +49,11 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
     const info: ConnectionsServerInfo = { host: deps.host, port: deps.port(), allowLan: false,
       installationId: deps.serviceId, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'], principal: wirePrincipalKind(principal), permissions: permissionsFor(principal, true) }
     if (principal.kind === 'org-member') Object.assign(info, { userId: principal.userId, organizationId: principal.organizationId, displayName: principal.displayName })
-    if (principal.kind === 'guest') Object.assign(info, { userId: principal.accountUserId, organizationId: principal.organizationId, displayName: principal.displayName, share: { resource: principal.share.resource, role: principal.share.role } })
+    if (principal.kind === 'guest') {
+      const share: NonNullable<ConnectionsServerInfo['share']> = { resource: principal.share.resource, role: principal.share.role }
+      if (principal.share.actions) share.actions = principal.share.actions
+      Object.assign(info, { userId: principal.accountUserId, organizationId: principal.organizationId, displayName: principal.displayName, share })
+    }
     return info
   })
   registerWorkspaceProjectHandlers(server)

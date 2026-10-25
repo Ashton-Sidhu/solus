@@ -24,9 +24,12 @@ import {
 import { videoMimeType } from '@solus/contracts/media-types';
 import { attachmentUploads, uploadFileObjects } from './attachment-uploads.svelte';
 import { checkoutPlace, runHost } from '../../../contexts/workspace/run-location';
+import { suggestionsStore } from '../../../contexts/sharing/suggestions.store.svelte';
 
 interface ComposerCommandOptions {
   isReadOnly: boolean;
+  /** The session's link lets this client suggest, not prompt: Send makes a suggestion (docs/plans/custom-roles.md §7). */
+  suggestsOnly?: boolean;
   isConnecting: boolean;
   isTouch: boolean;
   run?: RunConfig;
@@ -233,6 +236,37 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     return true;
   }
 
+  /**
+   * Send the composer's text and uploaded files as a suggestion. The composer
+   * clears at once, as a sent prompt's does; a refusal from the host says why in
+   * a toast, and the text is put back so nothing is lost.
+   */
+  function sendSuggestion(text: string): boolean {
+    const { prompt, sessionId, targetTabId, editor: composerEl, refocusComposer } = getOptions();
+    const serverId = sessionId ? runHost(session.sessions.byId[sessionId]?.run) : null;
+    if (!sessionId || !targetTabId || !serverId) return false;
+    if (!text) {
+      toasts.info("Write a message to suggest.");
+      refocusComposer();
+      return false;
+    }
+    const attachments = prompt.attachments.flatMap((attachment) =>
+      attachment.hostPath ? [{ name: attachment.name, mimeType: attachment.mimeType ?? "application/octet-stream", hostPath: attachment.hostPath }] : [],
+    );
+    const target = { serverId, sessionId, api: session.apiFor(targetTabId), ctx: session.ctxFor(targetTabId) };
+    const kept = prompt.attachments.splice(0);
+    prompt.text = "";
+    composerEl?.clearEditor();
+    void suggestionsStore.suggest(target, { text, attachments }).then((sent) => {
+      if (sent || prompt.text) return;
+      prompt.text = text;
+      prompt.attachments.push(...kept);
+      composerEl?.setValueAndCursor(text);
+    });
+    composerEl?.focus();
+    return true;
+  }
+
   /** The same two calls `conversation.interrupt` makes: the tab lets go of the
    *  turn locally, and the host is told to stop the provider. */
   function stopRun() {
@@ -270,6 +304,9 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
       refocusComposer();
       return false;
     }
+
+    // A suggestion is only text and files for someone else to send: no command runs from it.
+    if (getOptions().suggestsOnly) return sendSuggestion(text);
 
     if (/^\/goal(?:\s|$)/.test(text)) {
       void handleGoalCommand(text.slice("/goal".length));

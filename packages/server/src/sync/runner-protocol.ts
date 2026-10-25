@@ -109,6 +109,10 @@ export const sharesMirrorPayloadSchema = z.object({
     linkSecretHash: z.string().nullable(),
     grantedByUserId: z.string(),
     createdAt: z.number(),
+    /** A custom row's leaves. Strings, not the leaf enum: a newer host may send a leaf this build does not know, which the read drops. */
+    actions: z.array(z.string()).max(32).nullable().optional(),
+    /** The link's expiry on the host's clock; null never. */
+    expiresAt: z.number().nullable().optional(),
   })),
 })
 export type SharesMirrorPayload = z.infer<typeof sharesMirrorPayloadSchema>

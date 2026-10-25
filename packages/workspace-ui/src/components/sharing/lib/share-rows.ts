@@ -1,4 +1,6 @@
 import { cloudShareUrl, isGuestLinkResource, type ShareList, type ShareRole, type ShareSetRequest } from '@solus/contracts/sharing'
+import { SESSION_ACTION_LEAVES, type SessionActionLeaf } from '@solus/contracts/permissions'
+import { DEFAULT_LINK_ACTIONS, SHAREABLE_SESSION_ACTIONS, customRoleActions, type ShareableAction } from '@solus/contracts/shareable-actions'
 import { parseUserKey, userKey, type User } from '@solus/contracts/user'
 import { memberByKey, type OrganizationPeople } from '../../users/lib/organization-people'
 
@@ -22,7 +24,7 @@ export type ShareScope =
   | { kind: 'private' }
   | { kind: 'team'; teamId: string; role: ShareRole }
   | { kind: 'organization'; organizationId: string; role: ShareRole }
-  | { kind: 'link'; role: ShareRole }
+  | { kind: 'link'; role: ShareRole; actions?: readonly SessionActionLeaf[] }
 
 /** The scope without its role: which row of the choice is on. */
 export function scopeKey(scope: ShareScope): string {
@@ -39,12 +41,16 @@ export function scopeRole(scope: ShareScope): ShareRole | null {
 }
 
 export function sameScope(a: ShareScope, b: ShareScope): boolean {
-  return scopeKey(a) === scopeKey(b) && scopeRole(a) === scopeRole(b)
+  return scopeKey(a) === scopeKey(b) && scopeRole(a) === scopeRole(b) && linkActionsKey(a) === linkActionsKey(b)
+}
+
+function linkActionsKey(scope: ShareScope): string {
+  return scope.kind === 'link' && scope.role === 'custom' ? (scope.actions ?? []).join(',') : ''
 }
 
 /** The scope a list stands for: the link if there is one, else the widest named row, with its role. */
 export function scopeOf(list: ShareList): ShareScope {
-  if (list.link) return { kind: 'link', role: list.link.role }
+  if (list.link) return list.link.role === 'custom' ? { kind: 'link', role: 'custom', actions: list.link.actions ?? [] } : { kind: 'link', role: list.link.role }
   const organization = list.entries.find((entry) => entry.subject.kind === 'organization')
   if (organization?.subject.kind === 'organization') return { kind: 'organization', organizationId: organization.subject.id, role: organization.role }
   const team = list.entries.find((entry) => entry.subject.kind === 'team')
@@ -82,12 +88,14 @@ export interface ScopeOption {
 /** What the dialog says on a team or organization row of a host members cannot reach (host-sharing.md §4.3). */
 export const MEMBERS_CANNOT_REACH_ROW = 'Link this computer so members can reach it'
 
-const can = (role: ShareRole) => (role === 'editor' ? 'edit' : role === 'commenter' ? 'comment' : 'view')
+const can = (role: ShareRole) => (role === 'editor' ? 'edit' : role === 'commenter' ? 'comment' : role === 'custom' ? 'do what you choose' : 'view')
 
 /** A row's words for its role: `detail(role)` is the line under the name. */
 function option(scope: ShareScope, name: string, detail: (role: ShareRole) => string, currentRole: ShareRole | null, startRole: ShareRole): ScopeOption {
   const role = currentRole ?? startRole
   const withRole: ShareScope = scope.kind === 'private' ? scope : { ...scope, role }
+  // A link that starts as a custom role starts with the link defaults.
+  if (withRole.kind === 'link' && role === 'custom' && !withRole.actions) withRole.actions = [...DEFAULT_LINK_ACTIONS]
   return { key: scopeKey(scope), scope: withRole, name, detail: detail(role), role: scope.kind === 'private' ? null : role }
 }
 
@@ -130,7 +138,11 @@ export function scopeOptions(list: ShareList, directory: OrganizationPeople | nu
       'editor',
     )))
   }
-  options.push(option({ kind: 'link', role: 'viewer' }, 'Anyone with the link', (role) => `Anyone on the internet with the link can ${can(role)}`, roleIfCurrent({ kind: 'link', role: 'viewer' }), 'viewer'))
+  // A session's link starts as a custom role with the link defaults (custom-roles.md §4); a work's as viewers.
+  const linkStart: ShareRole = list.resource.kind === 'session' ? 'custom' : 'viewer'
+  const linkOption = option({ kind: 'link', role: linkStart }, 'Anyone with the link', (role) => `Anyone on the internet with the link can ${can(role)}`, roleIfCurrent({ kind: 'link', role: linkStart }), linkStart)
+  if (current.kind === 'link' && current.role === 'custom') linkOption.scope = current
+  options.push(linkOption)
   return options
 }
 
@@ -141,7 +153,7 @@ export function scopeOptions(list: ShareList, directory: OrganizationPeople | nu
 export function scopeRequestFor(scope: ShareScope, list: ShareList): ShareSetRequest {
   const entries: ShareSetRequest['entries'] = list.entries
     .filter((entry) => entry.subject.kind === 'user')
-    .map((entry) => ({ subject: entry.subject, role: entry.role }))
+    .map(keptEntry)
   switch (scope.kind) {
     case 'private':
       break
@@ -155,14 +167,23 @@ export function scopeRequestFor(scope: ShareScope, list: ShareList): ShareSetReq
       // The organization's entry is kept as the host has it: the host holds it at the
       // link's role or above (`ShareManager.holdOrganizationAtLink`), making it when needed.
       const existing = list.entries.find((entry) => entry.subject.kind === 'organization')
-      if (existing?.subject.kind === 'organization') entries.push({ subject: existing.subject, role: existing.role })
+      if (existing?.subject.kind === 'organization') entries.push(keptEntry(existing))
       break
     }
   }
   const request: ShareSetRequest = { resource: list.resource, entries }
   const linkRole = scope.kind === 'link' ? scope.role : null
-  if (linkRole !== (list.link?.role ?? null)) request.link = { role: linkRole }
+  const linkActions = scope.kind === 'link' && scope.role === 'custom' ? [...(scope.actions ?? DEFAULT_LINK_ACTIONS)] : undefined
+  const current = scopeOf(list)
+  if (linkRole !== (list.link?.role ?? null) || (scope.kind === 'link' && linkActionsKey(scope) !== linkActionsKey(current))) {
+    request.link = linkActions ? { role: linkRole, actions: linkActions } : { role: linkRole }
+  }
   return request
+}
+
+/** A row the write keeps as the host has it: its role, and a custom role's leaves. */
+function keptEntry(entry: ShareList['entries'][number]): ShareSetRequest['entries'][number] {
+  return entry.actions ? { subject: entry.subject, role: entry.role, actions: [...entry.actions] } : { subject: entry.subject, role: entry.role }
 }
 
 /** Who "Only …" names: the reader when they own it, else the owner by name. */
@@ -235,7 +256,7 @@ export function personCandidates(list: ShareList, directory: OrganizationPeople 
 export function withPersonRole(list: ShareList, userId: string, role: ShareRole): ShareSetRequest {
   const entries: ShareSetRequest['entries'] = list.entries
     .filter((entry) => !(entry.subject.kind === 'user' && entry.subject.id === userId))
-    .map((entry) => ({ subject: entry.subject, role: entry.role }))
+    .map(keptEntry)
   entries.push({ subject: { kind: 'user', id: userId }, role })
   return { resource: list.resource, entries }
 }
@@ -246,7 +267,7 @@ export function withoutPerson(list: ShareList, userId: string): ShareSetRequest 
     resource: list.resource,
     entries: list.entries
       .filter((entry) => !(entry.subject.kind === 'user' && entry.subject.id === userId))
-      .map((entry) => ({ subject: entry.subject, role: entry.role })),
+      .map(keptEntry),
   }
 }
 
@@ -314,4 +335,50 @@ export function shareSummary(list: ShareList | undefined): ShareSummary {
     case 'organization': return { scope, people, hasLink: false, label: `${prefix} · the organization${named}` }
     case 'link': return { scope, people, hasLink: true, label: `${prefix} · anyone with the link${named}` }
   }
+}
+
+// ── A custom link's rows (docs/plans/custom-roles.md §4) ────────────────────
+
+/** One row of a custom role: its leaf, whether it is on, and whether it can change now. */
+export interface CustomActionRow {
+  leaf: SessionActionLeaf
+  row: ShareableAction
+  isOn: boolean
+  /** Locked on, or off because what it needs is off. */
+  isFixed: boolean
+}
+
+/** Every shareable leaf in table order, as the dialog draws it. */
+export function customActionRows(actions: readonly SessionActionLeaf[]): CustomActionRow[] {
+  const held = new Set(actions)
+  return SESSION_ACTION_LEAVES.map((leaf) => {
+    const row: ShareableAction = SHAREABLE_SESSION_ACTIONS[leaf]
+    const needsOff = !!row.requiresAny && !row.requiresAny.some((other) => held.has(other))
+    return { leaf, row, isOn: held.has(leaf), isFixed: !!row.locked || needsOff }
+  })
+}
+
+/** The leaves after one row is turned on or off, held to the same rules the host applies. */
+export function toggledActions(actions: readonly SessionActionLeaf[], leaf: SessionActionLeaf, on: boolean): SessionActionLeaf[] {
+  const next = on ? [...actions, leaf] : actions.filter((held) => held !== leaf)
+  return customRoleActions(next)
+}
+
+/** The link's lifetimes the dialog offers, with their words; null never expires. */
+export const LINK_LIFETIME_CHOICES: ReadonlyArray<{ label: string; ms: number | null }> = [
+  { label: '1 hour', ms: 60 * 60 * 1000 },
+  { label: '1 day', ms: 24 * 60 * 60 * 1000 },
+  { label: '7 days', ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: 'Never', ms: null },
+]
+
+/** How long a link has left, in the words the dialog shows; `now` is this client's clock. */
+export function linkExpiryLabel(expiresAt: number | null, now: number): string {
+  if (expiresAt === null) return 'Never expires'
+  const left = expiresAt - now
+  if (left <= 0) return 'Expired'
+  const hours = Math.round(left / (60 * 60 * 1000))
+  if (hours < 1) return 'Expires in less than an hour'
+  if (hours < 48) return `Expires in ${hours} ${hours === 1 ? 'hour' : 'hours'}`
+  return `Expires in ${Math.round(hours / 24)} days`
 }

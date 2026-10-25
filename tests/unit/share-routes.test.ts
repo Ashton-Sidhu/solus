@@ -3,7 +3,7 @@ import { shareRoutesFor } from '@solus/server/sharing/share-routes'
 import type { ReachableEndpoint } from '@solus/server/transport/endpoints'
 
 // docs/plans/host-sharing.md §4.1 step 2: a link names the host. The tunnel is the
-// route when it is up; otherwise the addresses a visitor off this machine can dial.
+// route when it is up; otherwise the tailnet address a visitor off this machine can dial.
 describe('share routes', () => {
   const endpoints: ReachableEndpoint[] = [
     { kind: 'loopback', label: 'Localhost', host: '127.0.0.1', port: 7777 },
@@ -16,16 +16,15 @@ describe('share routes', () => {
     expect(shareRoutesFor('https://h-abc.tunnel.example', endpoints)).toEqual([{ kind: 'tunnel', url: 'https://h-abc.tunnel.example' }])
   })
 
-  test('tailnet before LAN, and never loopback, when there is no tunnel', () => {
-    // WHY: loopback is this machine only, so it is no link; the tailnet reaches further than one Wi-Fi.
-    expect(shareRoutesFor(null, endpoints)).toEqual([
-      { kind: 'direct', url: 'http://100.64.0.9:7777' },
-      { kind: 'direct', url: 'http://192.168.1.42:7777' },
-    ])
+  test('the tailnet, never a LAN address or loopback, when there is no tunnel', () => {
+    // WHY (custom-roles.md §9): the link's secret is the whole credential. The tailnet
+    // encrypts it; a LAN address is plain HTTP that anyone on the Wi-Fi can read, and
+    // loopback is this machine only.
+    expect(shareRoutesFor(null, endpoints)).toEqual([{ kind: 'direct', url: 'http://100.64.0.9:7777' }])
   })
 
-  test('nothing when the host is loopback-only and has no tunnel', () => {
-    // WHY: the dialog must say there is no link rather than hand out one nobody can open.
-    expect(shareRoutesFor(null, [endpoints[0]!])).toEqual([])
+  test('nothing when the host has only loopback and LAN addresses and no tunnel', () => {
+    // WHY: the dialog must say there is no link rather than hand out one that leaks its secret or that nobody can open.
+    expect(shareRoutesFor(null, [endpoints[0]!, endpoints[1]!])).toEqual([])
   })
 })

@@ -162,6 +162,13 @@
       "when": 1792772031732,
       "tag": "0022_runner_delivery_cursors",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1792917807506,
+      "tag": "0023_acl_custom_roles",
+      "breakpoints": true
     }
   ]
 }

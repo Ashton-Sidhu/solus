@@ -1,4 +1,4 @@
-import { EVERY_PERMISSION, permissionsAllow, isResourceVerb, type Permission, type ResourceRef, type ResourceVerb } from '@solus/contracts/permissions'
+import { EVERY_PERMISSION, permissionsAllow, isResourceActionPath, type Permission, type ResourceActionPath, type ResourceRef } from '@solus/contracts/permissions'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { HostFact } from '@solus/client-core/host-facts'
 import { resourceMay } from '../sharing/resource-roles'
@@ -46,11 +46,11 @@ export class HostStanding {
     return fact.state === 'ready' && fact.value.memberWorkspace === 'preparing'
   }
 
-  /** Whether this client holds a permission here, or may do `verb` on one resource of this host. */
+  /** Whether this client holds a permission here, or may do `action` on one resource of this host. */
   may(permission: Permission): boolean
-  may(verb: ResourceVerb, resource: ResourceRef): boolean
-  may(action: Permission | ResourceVerb, resource?: ResourceRef): boolean {
-    if (resource && isResourceVerb(action)) return resourceMay(this.serverId, resource, action)
+  may(action: ResourceActionPath, resource: ResourceRef): boolean
+  may(action: Permission | ResourceActionPath, resource?: ResourceRef): boolean {
+    if (resource && isResourceActionPath(action)) return resourceMay(this.serverId, resource, action)
     return permissionsAllow(this.permissions, action)
   }
 }

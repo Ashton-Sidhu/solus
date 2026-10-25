@@ -3,6 +3,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import {
+  DEFAULT_LINK_LIFETIME_MS,
+  higherResourceRole,
   resourceRoleAtLeast,
   shareNamedSubjectSchema,
   shareResourceKindSchema,
@@ -19,11 +21,13 @@ import {
   type ShareSetRequest,
   type ShareTransferRequest,
 } from '@solus/contracts/sharing'
+import { sessionActionLeafSchema, type ResourceStanding, type SessionActionLeaf } from '@solus/contracts/permissions'
+import { DEFAULT_LINK_ACTIONS, customRoleActions } from '@solus/contracts/shareable-actions'
 import type { Db } from '../db/database'
 import { createLogger } from '../logger'
 import { isHostAdmin, isHostOwner, isOrganizationSpace, organizationForNew, recordScopeOf, scopeAdmits, type Principal } from '../admission/principal'
 import { actorFor, ownerKeyOf, type Actor } from '../admission/actor'
-import { roleOf, visibleTo, type AccessResource, type AclEntry } from '../admission/access'
+import { roleOf, standingOf, visibleTo, type AccessResource, type AclEntry } from '../admission/access'
 import { aclEntry } from './schema'
 import { hostUserKey } from '../host/host-user'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
@@ -67,10 +71,56 @@ const entryRowSchema = z.object({
   link_secret_hash: z.string().nullable(),
   /** The secret itself, kept so the link is always at hand; null on a row made before the column existed. */
   link_secret: z.string().nullable(),
+  /** A custom row's leaves as JSON; read with `actionsOf`. */
+  actions: z.string().nullable(),
+  expires_at: z.number().nullable(),
   granted_by_user_id: z.string(),
   created_at: z.number(),
 })
 type EntryRow = z.infer<typeof entryRowSchema>
+
+/**
+ * The leaves a custom row holds. A leaf this build does not know (written by a
+ * newer host, or one removed since) is dropped: it never widens a role.
+ */
+function leavesOf(values: readonly string[], context: { resourceId: string }): SessionActionLeaf[] {
+  const leaves: SessionActionLeaf[] = []
+  for (const value of values) {
+    const leaf = sessionActionLeafSchema.safeParse(value)
+    if (leaf.success) leaves.push(leaf.data)
+    else log.warn('acl_actions_unknown', { resourceId: context.resourceId, action: value })
+  }
+  return leaves
+}
+
+function actionsOf(row: Pick<EntryRow, 'role' | 'actions' | 'resource_id'>): SessionActionLeaf[] | null {
+  if (row.role !== 'custom' || !row.actions) return null
+  const parsed = z.array(z.string()).safeParse(JSON.parse(row.actions))
+  return parsed.success ? leavesOf(parsed.data, { resourceId: row.resource_id }) : []
+}
+
+/**
+ * The stored form of a role: a preset carries no leaves; a custom role is a
+ * session's only, and is held to the rules of `customRoleActions`.
+ */
+/** A role as an `acl_entry` row stores it: a custom role's leaves as JSON, else null. */
+interface StoredRole {
+  role: ShareRole
+  actions: string | null
+}
+
+function storedRole(resource: ShareResource, role: ShareRole, actions: readonly SessionActionLeaf[] | undefined): StoredRole {
+  if (role !== 'custom') return { role, actions: null }
+  if (resource.kind !== 'session') throw new ShareAccessError('FORBIDDEN', 'Only a session can have a custom role')
+  // A custom role named without its leaves is the link defaults: the sharer chose none of them.
+  return { role, actions: JSON.stringify(customRoleActions(actions ?? DEFAULT_LINK_ACTIONS)) }
+}
+
+/** The least preset that covers a standing's leaves: anything that drives needs an editor. */
+function presetCovering(role: ShareRole, actions: readonly SessionActionLeaf[] | null): Exclude<ShareRole, 'custom'> {
+  if (role !== 'custom') return role
+  return actions?.some((leaf) => leaf.startsWith('drive.')) ? 'editor' : 'viewer'
+}
 
 const homeRowSchema = z.object({ owner_key: z.string(), organization_id: z.string() })
 /** One ACL entry of a link's resource, with that resource's own row and runner beside it. */
@@ -84,7 +134,15 @@ const idRowSchema = z.object({ id: z.string() })
 
 /** What `roleOf` reads of one stored ACL entry. */
 function aclEntryOf(row: EntryRow): AclEntry {
-  return { subjectKind: row.subject_kind, subjectId: row.subject_id, role: row.role, organizationId: row.organization_id, linkSecretHash: row.link_secret_hash }
+  return {
+    subjectKind: row.subject_kind, subjectId: row.subject_id, role: row.role, organizationId: row.organization_id,
+    linkSecretHash: row.link_secret_hash, actions: actionsOf(row), expiresAt: row.expires_at,
+  }
+}
+
+/** A standing as the wire carries it: the leaves only when there are some. */
+function standingFields(standing: ResourceStanding): ResourceStanding {
+  return standing.actions?.length ? { role: standing.role, actions: standing.actions } : { role: standing.role }
 }
 
 /**
@@ -142,14 +200,18 @@ export interface OpenedLink {
   share: ResolvedLinkShare
   /** The host that runs the session, as its record names it; null for a work, or a session no host runs. */
   runnerHostId: string | null
-  /** The role a principal holds on the resource, from the same read. */
-  roleOf(principal: Principal): ResourceRole
+  /** The standing a principal holds on the resource, from the same read. */
+  standingOf(principal: Principal): ResourceStanding
 }
 
 export interface ResolvedLinkShare {
   organizationId: string
   resource: ShareResource
   role: ShareRole
+  /** The link's leaves when its role is custom. */
+  actions?: readonly SessionActionLeaf[]
+  /** When the link stops opening, on this host's clock; null never. */
+  expiresAt: number | null
   sharedByUserId: string
   linkSecretHash: string
 }
@@ -161,6 +223,8 @@ export interface ShareChange extends ShareChangedEvent {
   organizationSharedBy?: Actor
   /** The guest link was removed or regenerated: every guest socket on this resource ends now. */
   guestsRevoked: boolean
+  /** The link as it now stands expires: its guests end then (custom-roles.md §9). */
+  linkExpiry?: { linkSecretHash: string; expiresAt: number }
 }
 
 export interface ShareManagerDeps {
@@ -241,7 +305,7 @@ export class ShareManager {
    * the role the caller holds on it (docs/plans/access-model.md §2.7): `roleOf`
    * over its row and its ACL entries, read in one query each.
    */
-  async accessOf(principal: Principal, kind: ShareResourceKind, ids: readonly string[]): Promise<Map<string, { ownerKey: string; role: ResourceRole }>> {
+  async accessOf(principal: Principal, kind: ShareResourceKind, ids: readonly string[]): Promise<Map<string, { ownerKey: string } & ResourceStanding>> {
     if (ids.length === 0) return new Map()
     if (ids.length > 201) throw new Error('Role reads require a bounded resource page.')
     const { table, id } = RESOURCE_TABLES[kind]
@@ -257,10 +321,10 @@ export class ShareManager {
     const actor = actorFor(principal)
     return new Map(rows.map((row) => [row.id, {
       ownerKey: row.owner_key,
-      role: roleOf(actor, {
+      ...standingFields(standingOf(actor, {
         kind, id: row.id, organizationId: row.organization_id, ownerKey: row.owner_key,
         acl: entries.filter((entry) => entry.resource_id === row.id).map(aclEntryOf),
-      }),
+      })),
     }]))
   }
 
@@ -363,7 +427,7 @@ export class ShareManager {
       home.ownerKey = request.toUserId
       log.info('share_ownership_transferred', { kind: resource.kind, resourceId: resource.id, toUserId: request.toUserId })
       await this.announce(home.organizationId, access, principal, previousOwner !== request.toUserId ? [previousOwner] : [], false)
-      return this.listOf(access, this.roleIn(principal, access))
+      return this.listOf(access, this.standingIn(principal, access))
     })
   }
 
@@ -381,9 +445,14 @@ export class ShareManager {
    * one answer the gate and the event audience ask, for every kind a call names.
    */
   async roleFor(principal: Principal, resource: AccessResource): Promise<ResourceRole> {
+    return (await this.standingFor(principal, resource)).role
+  }
+
+  /** The standing this principal holds on the resource: what the gate asks of every resource call. */
+  async standingFor(principal: Principal, resource: AccessResource): Promise<ResourceStanding> {
     const kind = shareResourceKindSchema.safeParse(resource.kind)
-    if (!kind.success) return this.ownedRoleFor(principal, resource)
-    return this.roleIn(principal, await this.access({ kind: kind.data, id: resource.id }))
+    if (!kind.success) return { role: await this.ownedRoleFor(principal, resource) }
+    return this.standingIn(principal, await this.access({ kind: kind.data, id: resource.id }))
   }
 
   /**
@@ -427,21 +496,25 @@ export class ShareManager {
    * by the person who names it, a host owner or a member. The handler records
    * them as its owner before anyone else can name it.
    */
-  private roleIn(principal: Principal, access: ResourceAccess): ResourceRole {
+  private standingIn(principal: Principal, access: ResourceAccess): ResourceStanding {
     const actor = actorFor(principal)
     const { resource, home } = access
     if (!home) {
-      if (principal.kind === 'system') return 'owner'
+      if (principal.kind === 'system') return { role: 'owner' }
       const starts = resource.kind === 'session' && this.deps.sessionExists?.(resource.id) === false
-      return starts && (isHostOwner(principal) || principal.kind === 'org-member') ? 'owner' : 'none'
+      return { role: starts && (isHostOwner(principal) || principal.kind === 'org-member') ? 'owner' : 'none' }
     }
-    return roleOf(actor, {
+    return standingFields(standingOf(actor, {
       kind: resource.kind,
       id: resource.id,
       organizationId: home.organizationId,
       ownerKey: home.ownerKey,
       acl: access.entries.map(aclEntryOf),
-    })
+    }, this.now()))
+  }
+
+  private roleIn(principal: Principal, access: ResourceAccess): ResourceRole {
+    return this.standingIn(principal, access).role
   }
 
   /**
@@ -453,7 +526,7 @@ export class ShareManager {
     if (principal.kind === 'system') return items
     const ids = [...new Set(items.map(idOf))]
     const { table, id } = RESOURCE_TABLES[kind]
-    const predicate = visibleTo(actorFor(principal), kind, { id: sql`${table}.${id}`, organization: sql`${table}.organization_id`, owner: sql`${table}.owner_key` })
+    const predicate = visibleTo(actorFor(principal), kind, { id: sql`${table}.${id}`, organization: sql`${table}.organization_id`, owner: sql`${table}.owner_key` }, this.now())
     const visible = new Set<string>()
     for (let start = 0; start < ids.length; start += ID_CHUNK) {
       const chunk = ids.slice(start, start + ID_CHUNK)
@@ -470,36 +543,39 @@ export class ShareManager {
 
   async list(resourceInput: ShareResource, principal: Principal): Promise<ShareList> {
     const access = await this.access(resourceInput)
-    const callerRole = this.roleIn(principal, access)
-    if (callerRole === 'none') throw new ShareAccessError('FORBIDDEN', `This ${access.resource.kind} is not shared with you`)
-    return this.listOf(withHome(access), callerRole)
+    const caller = this.standingIn(principal, access)
+    if (caller.role === 'none') throw new ShareAccessError('FORBIDDEN', `This ${access.resource.kind} is not shared with you`)
+    return this.listOf(withHome(access), caller)
   }
 
   /** The list `access` describes. A write answers with it as it now stands, even when the writer just removed their own access. */
-  private listOf(access: RecordedAccess, callerRole: ResourceRole): ShareList {
+  private listOf(access: RecordedAccess, caller: ResourceStanding): ShareList {
     const link = linkRowOf(access)
     const entries: ShareList['entries'] = access.entries
       .filter((row) => row.subject_kind !== 'everyone')
-      .map((row) => ({
-        subject: row.subject_kind === 'user'
-          ? { kind: 'user', id: row.subject_id }
-          : row.subject_kind === 'team'
-            ? { kind: 'team', id: row.subject_id }
-            : { kind: 'organization', id: row.subject_id },
-        role: row.role,
-        grantedByUserId: row.granted_by_user_id,
-        createdAt: row.created_at,
-      }))
+      .map((row) => {
+        const entry: ShareList['entries'][number] = {
+          subject: row.subject_kind === 'user'
+            ? { kind: 'user', id: row.subject_id }
+            : row.subject_kind === 'team'
+              ? { kind: 'team', id: row.subject_id }
+              : { kind: 'organization', id: row.subject_id },
+          role: row.role,
+          grantedByUserId: row.granted_by_user_id,
+          createdAt: row.created_at,
+        }
+        const actions = actionsOf(row)
+        if (actions) entry.actions = actions
+        return entry
+      })
     // The secret goes to whoever may change the link; a viewer learns only that one exists.
-    const shareLink: ShareList['link'] = link ? { role: link.role } : null
-    if (shareLink && link?.link_secret && resourceRoleAtLeast(callerRole, 'editor')) shareLink.secret = link.link_secret
-    return {
-      resource: access.resource,
-      ownerKey: access.home.ownerKey,
-      entries,
-      callerRole,
-      link: shareLink,
-    }
+    const shareLink: ShareList['link'] = link ? { role: link.role, expiresAt: link.expires_at } : null
+    const linkActions = link ? actionsOf(link) : null
+    if (shareLink && linkActions) shareLink.actions = linkActions
+    if (shareLink && link?.link_secret && resourceRoleAtLeast(caller.role, 'editor')) shareLink.secret = link.link_secret
+    const list: ShareList = { resource: access.resource, ownerKey: access.home.ownerKey, entries, callerRole: caller.role, link: shareLink }
+    if (caller.actions?.length) list.callerActions = [...caller.actions]
+    return list
   }
 
   /**
@@ -519,11 +595,11 @@ export class ShareManager {
       const { resource } = access
       const organizationId = access.home.organizationId
       const grantedBy = ownerKeyOf(actorFor(principal)) ?? hostUserKey()
-      const next = new Map<string, { subject: ShareNamedSubject; role: ShareRole }>()
+      const next = new Map<string, { subject: ShareNamedSubject; role: ShareRole; actions: string | null }>()
       for (const entry of request.entries) {
         const subject = shareNamedSubjectSchema.parse(entry.subject)
         if (subject.kind === 'user' && subject.id === access.home.ownerKey) continue
-        next.set(`${subject.kind}:${subject.id}`, { subject, role: entry.role })
+        next.set(`${subject.kind}:${subject.id}`, { subject, ...storedRole(resource, entry.role, entry.actions) })
       }
       const before = new Map(access.entries.filter((row) => row.subject_kind !== 'everyone').map((row) => [`${row.subject_kind}:${row.subject_id}`, row]))
       const removed = [...before.entries()].filter(([key]) => !next.has(key)).map(([, row]) => row)
@@ -533,30 +609,30 @@ export class ShareManager {
       const now = this.now()
       const kept: EntryRow[] = []
       const added: EntryRow[] = []
-      for (const [key, { subject, role }] of next) {
+      for (const [key, { subject, role, actions }] of next) {
         const existing = before.get(key)
         if (!existing) {
-          added.push({ id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: subject.kind, subject_id: subject.id, role, link_secret_hash: null, link_secret: null, granted_by_user_id: grantedBy, created_at: now })
+          added.push({ id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: subject.kind, subject_id: subject.id, role, link_secret_hash: null, link_secret: null, actions, expires_at: null, granted_by_user_id: grantedBy, created_at: now })
           continue
         }
-        if (existing.role !== role) await db.run(sql`UPDATE ${aclEntry} SET role = ${role} WHERE id = ${existing.id}`)
-        kept.push({ ...existing, role })
+        if (existing.role !== role || existing.actions !== actions) await db.run(sql`UPDATE ${aclEntry} SET role = ${role}, actions = ${actions} WHERE id = ${existing.id}`)
+        kept.push({ ...existing, role, actions })
       }
       if (added.length) {
         await db.run(sql`
-          INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
-          VALUES ${sql.join(added.map((row) => sql`(${row.id}, ${row.resource_kind}, ${row.resource_id}, ${row.subject_kind}, ${row.subject_id}, ${row.role}, NULL, ${row.granted_by_user_id}, ${row.created_at}, ${row.organization_id})`), sql`, `)}
+          INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, actions, link_secret_hash, granted_by_user_id, created_at, organization_id)
+          VALUES ${sql.join(added.map((row) => sql`(${row.id}, ${row.resource_kind}, ${row.resource_id}, ${row.subject_kind}, ${row.subject_id}, ${row.role}, ${row.actions}, NULL, ${row.granted_by_user_id}, ${row.created_at}, ${row.organization_id})`), sql`, `)}
         `)
       }
       const linkRow = linkRowOf(access)
       access.entries = [...kept, ...added, ...(linkRow ? [linkRow] : [])].sort(byCreation)
       const removedUserIds = removed.filter((row) => row.subject_kind === 'user').map((row) => row.subject_id)
       log.info('share_grants_set', { kind: resource.kind, resourceId: resource.id, grants: next.size, removed: removedUserIds.length })
-      const link = request.link ? await this.writeLink(access, request.link.role, false, organizationId, grantedBy) : null
+      const link = request.link ? await this.writeLink(access, request.link, false, organizationId, grantedBy) : null
       const held = await this.holdOrganizationAtLink(db, access, grantedBy)
       const sharedWithOrganization = held === 'added' || [...next.values()].some(({ subject }) => subject.kind === 'organization' && !before.has(`organization:${subject.id}`))
       await this.announce(organizationId, access, principal, removedUserIds, link?.guestsRevoked ?? false, sharedWithOrganization)
-      return this.listOf(access, this.roleIn(principal, access))
+      return this.listOf(access, this.standingIn(principal, access))
     })
   }
 
@@ -612,7 +688,7 @@ export class ShareManager {
       this.assertEditor(principal, access)
       const organizationId = access.home.organizationId
       const grantedBy = ownerKeyOf(actorFor(principal)) ?? hostUserKey()
-      const change = await this.writeLink(access, request.role, request.regenerate === true, organizationId, grantedBy)
+      const change = await this.writeLink(access, request, request.regenerate === true, organizationId, grantedBy)
       const held = await this.holdOrganizationAtLink(this.deps.db, access, grantedBy)
       if (change.changed || held) await this.announce(organizationId, access, principal, [], change.guestsRevoked, held === 'added')
       return change.link
@@ -632,21 +708,26 @@ export class ShareManager {
     const organizationId = access.home.organizationId
     if (!link || organizationId === LOCAL_ORGANIZATION_ID || this.deps.membersReachable?.() === false) return null
     const { resource } = access
+    // A custom link is held at the least preset that covers it: members get a named role, never a list.
+    const linkRole = presetCovering(link.role, actionsOf(link))
     const entry = access.entries.find((row) => row.subject_kind === 'organization' && row.subject_id === organizationId)
     if (entry) {
-      if (resourceRoleAtLeast(entry.role, link.role)) return null
-      await db.run(sql`UPDATE ${aclEntry} SET role = ${link.role} WHERE id = ${entry.id}`)
-      entry.role = link.role
-      log.info('share_organization_held_at_link', { kind: resource.kind, resourceId: resource.id, role: link.role, added: false })
+      if (entry.role !== 'custom' && resourceRoleAtLeast(entry.role, linkRole)) return null
+      const role = entry.role === 'custom' ? higherResourceRole(presetCovering(entry.role, actionsOf(entry)), linkRole) : linkRole
+      if (role === 'none' || role === 'owner' || role === 'custom') return null
+      await db.run(sql`UPDATE ${aclEntry} SET role = ${role}, actions = NULL WHERE id = ${entry.id}`)
+      entry.role = role
+      entry.actions = null
+      log.info('share_organization_held_at_link', { kind: resource.kind, resourceId: resource.id, role, added: false })
       return 'raised'
     }
-    const row: EntryRow = { id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: 'organization', subject_id: organizationId, role: link.role, link_secret_hash: null, link_secret: null, granted_by_user_id: grantedBy, created_at: this.now() }
+    const row: EntryRow = { id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: 'organization', subject_id: organizationId, role: linkRole, link_secret_hash: null, link_secret: null, actions: null, expires_at: null, granted_by_user_id: grantedBy, created_at: this.now() }
     await db.run(sql`
       INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
       VALUES (${row.id}, ${row.resource_kind}, ${row.resource_id}, 'organization', ${organizationId}, ${row.role}, NULL, ${grantedBy}, ${row.created_at}, ${organizationId})
     `)
     access.entries = [...access.entries, row].sort(byCreation)
-    log.info('share_organization_held_at_link', { kind: resource.kind, resourceId: resource.id, role: link.role, added: true })
+    log.info('share_organization_held_at_link', { kind: resource.kind, resourceId: resource.id, role: linkRole, added: true })
     return 'added'
   }
 
@@ -658,12 +739,13 @@ export class ShareManager {
 
   /**
    * Writes the link row and updates `access` to match. A new secret is made when
-   * there was no link or `regenerate` asks; a role change alone keeps the secret,
-   * so its guests stay connected with the new role.
+   * there was no link or `regenerate` asks; a change of role, leaves, or expiry
+   * alone keeps the secret, so its guests stay connected with the new standing.
+   * A new link lasts `DEFAULT_LINK_LIFETIME_MS` unless the request says how long.
    */
   private async writeLink(
     access: ResourceAccess,
-    role: ShareRole | null,
+    request: { role: ShareRole | null; actions?: readonly SessionActionLeaf[]; expiresInMs?: number | null },
     regenerate: boolean,
     organizationId: string,
     grantedBy: string,
@@ -671,34 +753,46 @@ export class ShareManager {
     const { resource } = access
     const existing = linkRowOf(access)
     const db = this.deps.db
-    if (role === null) {
+    if (request.role === null) {
       if (!existing) return { changed: false, guestsRevoked: false, link: null }
       await db.run(sql`DELETE FROM ${aclEntry} WHERE id = ${existing.id}`)
       access.entries = access.entries.filter((row) => row !== existing)
       log.info('share_link_removed', { kind: resource.kind, resourceId: resource.id })
       return { changed: true, guestsRevoked: true, link: null }
     }
+    const { role, actions } = storedRole(resource, request.role, request.actions)
+    const now = this.now()
+    const lifetime = request.expiresInMs === undefined ? (existing ? undefined : DEFAULT_LINK_LIFETIME_MS) : request.expiresInMs
+    const expiresAt = lifetime === undefined ? existing?.expires_at ?? null : lifetime === null ? null : now + lifetime
+    const answer = (row: EntryRow, secret: string): ShareLink => {
+      const answered: ShareLink = { role: row.role, expiresAt: row.expires_at, secret }
+      const leaves = actionsOf(row)
+      if (leaves) answered.actions = leaves
+      return answered
+    }
     if (existing && !regenerate) {
-      const changed = existing.role !== role
-      if (changed) await db.run(sql`UPDATE ${aclEntry} SET role = ${role} WHERE id = ${existing.id}`)
+      const changed = existing.role !== role || existing.actions !== actions || existing.expires_at !== expiresAt
+      if (changed) await db.run(sql`UPDATE ${aclEntry} SET role = ${role}, actions = ${actions}, expires_at = ${expiresAt} WHERE id = ${existing.id}`)
       existing.role = role
-      log.info('share_link_set', { kind: resource.kind, resourceId: resource.id, role, rotated: false })
-      return { changed, guestsRevoked: false, link: existing.link_secret ? { role, secret: existing.link_secret } : null }
+      existing.actions = actions
+      existing.expires_at = expiresAt
+      log.info('share_link_set', { kind: resource.kind, resourceId: resource.id, role, rotated: false, expiresAt })
+      return { changed, guestsRevoked: false, link: existing.link_secret ? answer(existing, existing.link_secret) : null }
     }
     const secret = randomBytes(32).toString('base64url')
     const row: EntryRow = existing
-      ? { ...existing, role, link_secret_hash: hashLinkSecret(secret), link_secret: secret, granted_by_user_id: grantedBy }
-      : { id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: 'everyone', subject_id: '', role, link_secret_hash: hashLinkSecret(secret), link_secret: secret, granted_by_user_id: grantedBy, created_at: this.now() }
+      ? { ...existing, role, actions, expires_at: expiresAt, link_secret_hash: hashLinkSecret(secret), link_secret: secret, granted_by_user_id: grantedBy }
+      : { id: randomUUID(), organization_id: organizationId, resource_kind: resource.kind, resource_id: resource.id, subject_kind: 'everyone', subject_id: '', role, actions, expires_at: expiresAt, link_secret_hash: hashLinkSecret(secret), link_secret: secret, granted_by_user_id: grantedBy, created_at: now }
     await db.run(existing
-      ? sql`UPDATE ${aclEntry} SET role = ${role}, link_secret_hash = ${row.link_secret_hash}, link_secret = ${secret}, granted_by_user_id = ${grantedBy} WHERE id = ${existing.id}`
+      ? sql`UPDATE ${aclEntry} SET role = ${role}, actions = ${actions}, expires_at = ${expiresAt}, link_secret_hash = ${row.link_secret_hash}, link_secret = ${secret}, granted_by_user_id = ${grantedBy} WHERE id = ${existing.id}`
       : sql`
-        INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, link_secret, granted_by_user_id, created_at, organization_id)
-        VALUES (${row.id}, ${row.resource_kind}, ${row.resource_id}, 'everyone', '', ${role}, ${row.link_secret_hash}, ${secret}, ${grantedBy}, ${row.created_at}, ${row.organization_id})
+        INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, actions, expires_at, link_secret_hash, link_secret, granted_by_user_id, created_at, organization_id)
+        VALUES (${row.id}, ${row.resource_kind}, ${row.resource_id}, 'everyone', '', ${role}, ${actions}, ${expiresAt}, ${row.link_secret_hash}, ${secret}, ${grantedBy}, ${row.created_at}, ${row.organization_id})
       `)
     access.entries = [...access.entries.filter((entry) => entry !== existing), row].sort(byCreation)
-    log.info('share_link_set', { kind: resource.kind, resourceId: resource.id, role, rotated: true })
+    log.info('share_link_set', { kind: resource.kind, resourceId: resource.id, role, rotated: true, expiresAt })
     // A regenerated secret ends the old guests.
-    return { changed: true, guestsRevoked: !!existing, link: { role, secret } }
+    return { changed: true, guestsRevoked: !!existing, link: answer(row, secret) }
   }
 
   /** Admission: the secret names one resource and one role, or nothing. The hash
@@ -708,15 +802,9 @@ export class ShareManager {
     const row = entryRowSchema.nullish().parse(await this.deps.db.get(sql`
       SELECT * FROM ${aclEntry} WHERE subject_kind = 'everyone' AND link_secret_hash = ${hash}
     `))
-    // A task link made before tasks stopped being shared opens nothing.
-    if (!row || row.resource_kind === 'task') return null
-    return {
-      organizationId: row.organization_id,
-      resource: { kind: row.resource_kind, id: row.resource_id },
-      role: row.role,
-      sharedByUserId: row.granted_by_user_id,
-      linkSecretHash: hash,
-    }
+    // A task link made before tasks stopped being shared opens nothing; nor does an expired one.
+    if (!row || row.resource_kind === 'task' || this.expired(row)) return null
+    return this.linkShareOf(row, hash)
   }
 
   /**
@@ -740,19 +828,37 @@ export class ShareManager {
       ORDER BY e.created_at, e.id
     `))
     const link = rows.find((row) => row.subject_kind === 'everyone' && row.link_secret_hash === hash)
-    // A task link made before tasks stopped being shared opens nothing.
-    if (!link || link.resource_kind === 'task') return null
+    // A task link made before tasks stopped being shared opens nothing; nor does an expired one.
+    if (!link || link.resource_kind === 'task' || this.expired(link)) return null
     const resource: ShareResource = { kind: link.resource_kind, id: link.resource_id }
     const homeRow = link.home_owner_key !== null && link.home_organization_id !== null
       ? { owner_key: link.home_owner_key, organization_id: link.home_organization_id }
       : null
     const access: ResourceAccess = { resource, home: this.homeFrom(resource, homeRow), entries: rows }
     return {
-      share: { organizationId: link.organization_id, resource, role: link.role, sharedByUserId: link.granted_by_user_id, linkSecretHash: hash },
+      share: this.linkShareOf(link, hash),
       // As `getSessionRecord` scopes it: a record of another organization names no runner here.
       runnerHostId: link.home_organization_id === link.organization_id ? link.runner_host_id : null,
-      roleOf: (principal) => this.roleIn(principal, access),
+      standingOf: (principal) => this.standingIn(principal, access),
     }
+  }
+
+  private expired(row: Pick<EntryRow, 'expires_at'>): boolean {
+    return row.expires_at !== null && row.expires_at <= this.now()
+  }
+
+  private linkShareOf(row: EntryRow, hash: string): ResolvedLinkShare {
+    const share: ResolvedLinkShare = {
+      organizationId: row.organization_id,
+      resource: { kind: row.resource_kind, id: row.resource_id },
+      role: row.role,
+      expiresAt: row.expires_at,
+      sharedByUserId: row.granted_by_user_id,
+      linkSecretHash: hash,
+    }
+    const actions = actionsOf(row)
+    if (actions) share.actions = actions
+    return share
   }
 
   // ── The mirror (docs/plans/host-sharing.md §2) ──────────────────────────
@@ -770,6 +876,8 @@ export class ShareManager {
       linkSecretHash: row.link_secret_hash,
       grantedByUserId: row.granted_by_user_id,
       createdAt: row.created_at,
+      actions: actionsOf(row),
+      expiresAt: row.expires_at,
     }))
   }
 
@@ -787,9 +895,10 @@ export class ShareManager {
         WHERE resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND organization_id = ${organizationId}
       `)
       for (const row of rows) {
+        const actions = row.role === 'custom' ? JSON.stringify(leavesOf(row.actions ?? [], { resourceId: resource.id })) : null
         await db.run(sql`
-          INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, link_secret, granted_by_user_id, created_at, organization_id)
-          VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, ${row.subjectKind}, ${row.subjectId}, ${row.role}, ${row.linkSecretHash}, NULL, ${row.grantedByUserId}, ${row.createdAt}, ${organizationId})
+          INSERT INTO ${aclEntry} (id, resource_kind, resource_id, subject_kind, subject_id, role, actions, expires_at, link_secret_hash, link_secret, granted_by_user_id, created_at, organization_id)
+          VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, ${row.subjectKind}, ${row.subjectId}, ${row.role}, ${actions}, ${row.expiresAt ?? null}, ${row.linkSecretHash}, NULL, ${row.grantedByUserId}, ${row.createdAt}, ${organizationId})
           ON CONFLICT DO NOTHING
         `)
       }
@@ -805,6 +914,12 @@ export class ShareManager {
         }
       })
     })
+  }
+
+  /** Whether the link a guest arrived with no longer opens: gone, replaced, or expired. */
+  async linkEnded(resource: ShareResource, linkSecretHash: string): Promise<boolean> {
+    const link = linkRowOf({ resource, home: null, entries: await this.entries(resource) })
+    return !link || link.link_secret_hash !== linkSecretHash || this.expired(link)
   }
 
   /** Removes every ACL entry when a resource is deleted. */
@@ -844,6 +959,8 @@ export class ShareManager {
     }
     if (changedBy) change.changedBy = changedBy
     if (sharedWithOrganization && changedBy) change.organizationSharedBy = actor
+    const link = linkRowOf(access)
+    if (link?.link_secret_hash && link.expires_at !== null) change.linkExpiry = { linkSecretHash: link.link_secret_hash, expiresAt: link.expires_at }
     await afterDatabaseCommit(async () => {
       for (const listener of this.listeners) {
         try { listener(change) } catch (error) {

@@ -1,4 +1,5 @@
 import { resourceRoleAtLeast, type ShareLinkTarget, type ShareLinkVisitor } from '@solus/contracts/sharing'
+import { standingAllows, type ResourceStanding } from '@solus/contracts/permissions'
 import type { HostRoute } from '@solus/contracts/uplink'
 import type { Principal } from '../admission/principal'
 import type { OpenedLink, ShareManager } from './share-manager'
@@ -36,8 +37,22 @@ export class ShareLinkResolver {
   }
 }
 
-/** A member whose own role is at least the link's opens it as themselves; anyone else as a guest. */
+/**
+ * A member whose own standing covers everything the link gives opens it as
+ * themselves; anyone else as a guest. So a link never gives a member less than a
+ * stranger.
+ */
 function visitorOf(link: OpenedLink, member: Principal | null): ShareLinkVisitor {
-  const role = member ? link.roleOf(member) : 'none'
-  return resourceRoleAtLeast(role, link.share.role) ? { kind: 'member', role } : { kind: 'guest', role: link.share.role }
+  const standing = member ? link.standingOf(member) : null
+  const visitor: ShareLinkVisitor = standing && covers(standing, link.share)
+    ? { kind: 'member', role: standing.role }
+    : { kind: 'guest', role: link.share.role }
+  const actions = visitor.kind === 'member' ? standing?.actions : link.share.actions
+  if (actions) visitor.actions = [...actions]
+  return visitor
+}
+
+function covers(standing: ResourceStanding, link: OpenedLink['share']): boolean {
+  if (link.role !== 'custom') return standing.role !== 'custom' && resourceRoleAtLeast(standing.role, link.role)
+  return standing.role !== 'none' && (link.actions ?? []).every((leaf) => standingAllows(standing, leaf))
 }
