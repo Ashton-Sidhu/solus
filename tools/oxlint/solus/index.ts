@@ -6,6 +6,7 @@ import { noBroadUnknownRecordsRule } from './rules/no-broad-unknown-records.ts'
 import { noGithubTaskEscapesRule } from './rules/no-github-task-escapes.ts'
 import { noHostApiEscapesRule } from './rules/no-host-api-escapes.ts'
 import { noPassThroughWrappersRule } from './rules/no-pass-through-wrappers.ts'
+import { noPollingLoopInTestsRule } from './rules/no-polling-loop-in-tests.ts'
 import { noPierreDiffEscapesRule } from './rules/no-pierre-diff-escapes.ts'
 import { noPrivatePathToMemberRule } from './rules/no-private-path-to-member.ts'
 import { noPrContextEscapesRule } from './rules/no-pr-context-escapes.ts'
@@ -22,6 +23,7 @@ const solusPlugin = definePlugin({
     'no-github-task-escapes': noGithubTaskEscapesRule,
     'no-host-api-escapes': noHostApiEscapesRule,
     'no-pass-through-wrappers': noPassThroughWrappersRule,
+    'no-polling-loop-in-tests': noPollingLoopInTestsRule,
     'no-pierre-diff-escapes': noPierreDiffEscapesRule,
     'no-private-path-to-member': noPrivatePathToMemberRule,
     'no-pr-context-escapes': noPrContextEscapesRule,

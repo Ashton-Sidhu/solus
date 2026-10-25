@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "jsPlugins": [
+    { "name": "solus", "specifier": "./tools/oxlint/solus/index.ts" }
+  ],
+  "categories": { "correctness": "off" },
+  "rules": {
+    "solus/no-polling-loop-in-tests": "error"
+  },
+  // The root config ignores tests/, so `bun run lint:tests` lints them with
+  // this config. Burn-down list: these files still poll, so they stay at
+  // "warn". Remove a file when you convert its loops. Do not add files.
+  "overrides": [{
+    "files": [
+      "tests/unit/account-present.test.ts",
+      "tests/unit/activity-host-actions.test.ts",
+      "tests/unit/auth-renew.test.ts",
+      "tests/unit/automation-execution-preferences.test.ts",
+      "tests/unit/chat-session-list.test.ts",
+      "tests/unit/code-highlight.test.ts",
+      "tests/unit/device-run.test.ts",
+      "tests/unit/execution-preferences.test.ts",
+      "tests/unit/github-request-budget.test.ts",
+      "tests/unit/handshake-credential.test.ts",
+      "tests/unit/host-authentication.test.ts",
+      "tests/unit/integrations/gateway.test.ts",
+      "tests/unit/oauth-session.test.ts",
+      "tests/unit/organization-vm-flow.test.ts",
+      "tests/unit/runner-delivery.test.ts",
+      "tests/unit/session-identity.test.ts",
+      "tests/unit/session-message-window.test.ts",
+      "tests/unit/session-orchestrator.test.ts",
+      "tests/unit/session-record-repository.test.ts",
+      "tests/unit/session-record-settle.test.ts",
+      "tests/unit/session-runtime-queue-author.test.ts",
+      "tests/unit/socket-io-transport.test.ts",
+      "tests/unit/web-sign-in.test.ts",
+      "tests/unit/ws-dial-organization.test.ts",
+      "tests/unit/ws-grant-refusal.test.ts"
+    ],
+    "rules": { "solus/no-polling-loop-in-tests": "warn" }
+  }]
+}
