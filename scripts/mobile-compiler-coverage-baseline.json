@@ -740,6 +740,13 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/home/ThreadUndoNotice.android.tsx": {
+      "compiled": [
+        "SwipeableUndoNotice",
+        "ThreadUndoNotice"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/home/ThreadUndoNotice.tsx": {
       "compiled": [
         "ThreadUndoNotice"
