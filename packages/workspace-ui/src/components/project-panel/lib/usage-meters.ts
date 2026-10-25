@@ -20,7 +20,13 @@ export interface ProviderUsage {
   label: string
   stale: boolean
   meters: UsageMeter[]
-  status: 'api' | 'unavailable' | null
+  status: 'api' | 'signed_out' | 'unavailable' | null
+}
+
+/** The terminal command that signs a signed-out agent in on its host, when
+ *  there is one. Only Codex reports a signed-out state today. */
+export function signInCommand(provider: string): string | null {
+  return provider === 'codex' ? 'codex login' : null
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
@@ -152,8 +158,8 @@ export function providerUsage(
       meter('fiveHour', 'Session', limits.fiveHour, now),
       meter('weekly', 'Weekly', limits.weekly, now),
     ].filter((entry): entry is UsageMeter => entry !== null)
-    if (limits.usageMode === 'api') {
-      rows.push({ provider: agent.id, label: agent.label, stale: false, meters: [], status: 'api' })
+    if (limits.usageMode === 'api' || limits.usageMode === 'signed_out') {
+      rows.push({ provider: agent.id, label: agent.label, stale: false, meters: [], status: limits.usageMode })
       continue
     }
     if (meters.length === 0 && !limits.stale) continue

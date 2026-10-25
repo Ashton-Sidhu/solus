@@ -6,7 +6,7 @@
   import { messageTimestampClock } from "../../lib/shared-clock";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
-  import { providerUsage, USAGE_REFRESH_INTERVAL_MS, usageByProvider } from "./lib/usage-meters";
+  import { providerUsage, USAGE_REFRESH_INTERVAL_MS, usageByProvider, signInCommand } from "./lib/usage-meters";
 
   interface Props {
     /** The host the tab runs on: quota belongs to that host's agent logins. */
@@ -70,12 +70,20 @@
           {/if}
         </span>
         <span class="min-w-0 flex-1 truncate">{row.label}</span>
-        {#if row.status}
+        {#if row.status && row.status !== "signed_out"}
           <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">
             {row.status === "api" ? "API billing" : "Unavailable"}
           </span>
         {/if}
       </div>
+      {#if row.status === "signed_out"}
+        <!-- Guidance, not a state word: it is too long to share the row, so it
+             hangs beneath it where the meters would be. -->
+        {@const command = signInCommand(row.provider)}
+        <p class="pr-2 pb-1.5 pl-8 text-chrome-dense text-(--solus-text-secondary)">
+          Sign in to {row.label}{#if command}: run <code class="font-mono">{command}</code>{/if}
+        </p>
+      {/if}
       {#if row.meters.length > 0}
         <div class="flex flex-col gap-1.5 pt-0.5 pr-2 pb-1.5 pl-8">
         {#each row.meters as meter (meter.key)}

@@ -2374,8 +2374,10 @@ export interface AgentUsageLimits {
   fiveHour: UsageWindow | null
   weekly: UsageWindow | null
   planType: string | null
-  /** API-key sessions use metered API billing, not subscription quota windows. */
-  usageMode?: 'subscription' | 'api'
+  /** API-key sessions use metered API billing, not subscription quota windows.
+   *  `signed_out`: the agent has no login, so there is no quota until the user
+   *  signs in. */
+  usageMode?: 'subscription' | 'api' | 'signed_out'
   fetchedAt: number
   /** Last refresh failed — these numbers are old, not live. */
   stale: boolean
