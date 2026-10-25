@@ -1,5 +1,8 @@
 // Adapted from T3 Code apps/mobile/src/lib/markdownLinks.test.ts, enrichedLinkPresentation.test.ts, and markdownHtml.test.ts (MIT, see apps/mobile/UPSTREAM.md).
 import { describe, expect, it } from "bun:test";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 import {
   ENRICHED_INLINE_FILE_LINK_REGEX,
@@ -218,7 +221,7 @@ describe("HTML in native Markdown", () => {
       markdownHtmlContent(
         "<a href='https://example.com'><img src='https://example.com/banner.svg' alt='Review' /></a>",
       ),
-    ).toBe("![Review](<https://example.com/banner.svg>)");
+    ).toBe("[![Review](<https://example.com/banner.svg>)](<https://example.com>)");
   });
 
   it("decodes HTML attributes once and preserves entity-shaped query values through Markdown", () => {
@@ -258,7 +261,52 @@ describe("HTML in native Markdown", () => {
     const plain = "# Title\n\nNo tags, `a < b`.";
     expect(markdownWithHtml(plain)).toBe(plain);
   });
+
+  // PR comments from bots link with HTML anchors; a tap must open them.
+  it("turns an http(s) or mailto anchor into a Markdown link with an escaped label", () => {
+    expect(markdownWithHtml('See <a href="https://example.com/a?b=1&amp;c=2">the [docs]</a> now')).toBe(
+      "See [the \\[docs\\]](<https://example.com/a?b=1\\&c=2>) now",
+    );
+    expect(markdownWithHtml('Mail <a href="mailto:me@example.com">me</a>')).toBe(
+      "Mail [me](<mailto:me@example.com>)",
+    );
+  });
+
+  it("links HTML anchors in a table cell without breaking the row at <br>", () => {
+    const table = parseMarkdown(
+      "| Status | Preview URL |\n| - | - |\n| Done | <a href='https://commit.example.com'>Commit</a><br><a href='https://branch.example.com'>Branch</a> |",
+    ).children[0];
+    expect(table?.type).toBe("table");
+    if (table?.type !== "table") return;
+    expect(table.children).toHaveLength(2);
+    expect(table.children[1]?.children[1]?.children).toMatchObject([
+      { type: "link", url: "https://commit.example.com", children: [{ value: "Commit" }] },
+      { type: "text", value: " " },
+      { type: "link", url: "https://branch.example.com", children: [{ value: "Branch" }] },
+    ]);
+  });
+
+  it("keeps a table row intact when an anchor href contains a pipe", () => {
+    const table = parseMarkdown(
+      "| Preview | Logs |\n| - | - |\n| <a href='https://example.com/?a=1&#124;2'>Open</a> | done |",
+    ).children[0];
+    expect(table?.type).toBe("table");
+    if (table?.type !== "table") return;
+    expect(table.children[1]?.children).toMatchObject([
+      { children: [{ type: "link", url: "https://example.com/?a=1%7C2" }] },
+      { children: [{ value: "done" }] },
+    ]);
+  });
+
+  it("keeps anchor text unlinked for unsafe hrefs", () => {
+    expect(markdownWithHtml('Run <a href="javascript:alert(1)">this</a> now')).toBe("Run this now");
+  });
 });
+
+// The native renderer parses the converted Markdown with the same GFM parser.
+function parseMarkdown(markdown: string) {
+  return unified().use(remarkParse).use(remarkGfm).parse(markdownWithHtml(markdown));
+}
 
 describe("Images on a line of their own", () => {
   // Enriched draws an image that shares a paragraph with text as a 20pt icon.
