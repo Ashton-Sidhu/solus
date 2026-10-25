@@ -109,6 +109,7 @@ export function toPermissionRequest(event: Extract<NormalizedEvent, { type: 'per
   }
   if (event.turnAuthor) request.turnAuthor = event.turnAuthor
   if (event.guestTurn) request.guestTurn = true
+  if (event.supportsFeedback) request.supportsFeedback = true
   return request
 }
 

@@ -42,6 +42,8 @@ const sessionOriginSchema = z.object({
 /** Images another host uploaded here. The run reads only files inside this
  *  host's attachment store (`resolvePromptImages`), so a path is checked there. */
 const imageRefsSchema = z.array(promptImageRefSchema).max(MAX_ATTACHMENT_UPLOAD_COUNT).optional()
+/** A denial's message to the agent that asked: text, never blank. */
+const permissionFeedbackSchema = z.string().trim().min(1).optional()
 
 const headlessPromptSchema = z.object({
   sessionId: z.string().min(1).max(200),
@@ -405,12 +407,13 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   // sent work to — the card that shows a child's question answers it for the
   // child. Access to the conversation itself is checked by the access policy.
   server.register('respondPermission', async (args, handlerCtx) => {
-    const [ctx, askingSessionId, questionId, optionId, updatedPlan] = args
-    log.info('rpc_respond_permission', { sessionId: ctx.session.sessionId, askingSessionId, questionId, optionId, hasUpdatedPlan: !!updatedPlan })
+    const [ctx, askingSessionId, questionId, optionId, updatedPlan, feedback] = args
+    log.info('rpc_respond_permission', { sessionId: ctx.session.sessionId, askingSessionId, questionId, optionId, hasUpdatedPlan: !!updatedPlan, hasFeedback: feedback !== undefined })
+    if (!permissionFeedbackSchema.safeParse(feedback).success) throw new Error('Feedback must be text')
     if (!deps.orchestrator.mayAnswer(ctx.session.sessionId, askingSessionId)) return false
     if (!await mayAnswer(askingSessionId, handlerCtx.principal)) return false
     // A caller may not answer: false. The host does not hold the request now: a typed refusal.
-    if (!sessionRuntime.inputRequests.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, handlerCtx.actor)) throw new RequestNotAnswerableError()
+    if (!sessionRuntime.inputRequests.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, handlerCtx.actor, feedback)) throw new RequestNotAnswerableError()
     return true
   })
 

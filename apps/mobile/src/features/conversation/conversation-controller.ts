@@ -606,9 +606,10 @@ export class ConversationController {
     this.flush()
   }
 
-  async answerPermission(questionId: string, optionId: string): Promise<boolean> {
+  /** `feedback` goes with a denial to the agent that asked. */
+  async answerPermission(questionId: string, optionId: string, feedback?: string): Promise<boolean> {
     const accepted = await this.callWithContext((ctx) =>
-      this.answerOrExpire(questionId, this.deps.connection.api.respondPermission(ctx, this.run.sessionId, questionId, optionId)))
+      this.answerOrExpire(questionId, this.deps.connection.api.respondPermission(ctx, this.run.sessionId, questionId, optionId, undefined, feedback)))
     return this.afterAnswer(accepted)
   }
 

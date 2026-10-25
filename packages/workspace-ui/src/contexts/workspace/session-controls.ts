@@ -35,12 +35,13 @@ export class SessionControls {
   }
 
   /** The card leaves only once the host took the answer: a refused answer
-   *  (a viewer on a shared session) leaves the request open for someone else. */
-  async respondPermission(tabId: string, questionId: string, optionId: string): Promise<boolean> {
+   *  (a viewer on a shared session) leaves the request open for someone else.
+   *  `feedback` goes with a denial to the agent that asked. */
+  async respondPermission(tabId: string, questionId: string, optionId: string, feedback?: string): Promise<boolean> {
     const ctx = this.workspace.ctxFor(tabId)
     let answered: boolean
     try {
-      answered = await this.workspace.apiFor(tabId).respondPermission(ctx, ctx.session.sessionId, questionId, optionId)
+      answered = await this.workspace.apiFor(tabId).respondPermission(ctx, ctx.session.sessionId, questionId, optionId, undefined, feedback)
     } catch (error) {
       this.refuseAnswer(tabId, questionId, error)
       return false

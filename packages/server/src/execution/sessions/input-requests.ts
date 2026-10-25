@@ -37,6 +37,11 @@ export function permissionDecisionFor(pendingEvent: NormalizedEvent | undefined,
   return /session|always/i.test(`${option.id} ${option.label}`) ? 'approved_for_session' : 'approved'
 }
 
+/** Feedback goes only with a denial, of a request whose provider can carry it to the agent. */
+function takesFeedback(pendingEvent: NormalizedEvent, optionId: string): boolean {
+  return pendingEvent.type === 'permission_request' && !!pendingEvent.supportsFeedback && permissionDecisionFor(pendingEvent, optionId) === 'denied'
+}
+
 export function eventHasQuestionId(event: NormalizedEvent, questionId: string): boolean {
   return 'questionId' in event && event.questionId === questionId
 }
@@ -113,13 +118,16 @@ export class InputRequests {
 
   /** Answers a permission `askingSessionId` is waiting on. The answer goes to
    *  that session only: a question id that session is not waiting on — another
-   *  session's, one already answered, or one from a turn that ended — is refused. */
-  respondToPermission(askingSessionId: string, questionId: string, optionId: string, updatedPlan: string | undefined, actor: Actor): boolean {
+   *  session's, one already answered, or one from a turn that ended — is refused.
+   *  `feedback` goes with a denial to the agent that asked; a request that does
+   *  not take it, or an option that is not a denial, throws and stays pending. */
+  respondToPermission(askingSessionId: string, questionId: string, optionId: string, updatedPlan: string | undefined, actor: Actor, feedback?: string): boolean {
     const pending = this.pendingQuestion(askingSessionId, questionId)
     if (!pending) return false
     const { sessionId, backend: b, event: pendingEvent } = pending
+    if (feedback !== undefined && !takesFeedback(pendingEvent, optionId)) throw new Error('This request does not take feedback')
     const pendingInfo = b.permissions.getPendingInfo(questionId)
-    if (!b.permissions.respondToPermission(questionId, optionId, updatedPlan)) return false
+    if (!b.permissions.respondToPermission(questionId, optionId, updatedPlan, feedback)) return false
     // Codex reports the resolution later (`serverRequest/resolved`); it carries
     // what was chosen. Claude reports none, so the host says it now. Who decided
     // is recorded once, as activity every client reads (plan 004 F4, plans/012 §5).

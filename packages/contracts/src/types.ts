@@ -654,6 +654,8 @@ export interface PermissionRequest {
   turnAuthor?: User
   /** A link guest sent the turn, so it runs in Ask mode whatever the session's mode is. */
   guestTurn?: true
+  /** A denial can carry the user's text to the agent that asked (Claude only). */
+  supportsFeedback?: true
   /** Set when the request can no longer be answered. */
   expired?: RequestExpiry
 }
@@ -1916,7 +1918,7 @@ export type NormalizedEvent =
   | { type: 'usage'; context?: ContextUsage; run?: UsageData }
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
-  | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number; turnAuthor?: User; guestTurn?: true }
+  | { type: 'permission_request'; questionId: string; toolName: string; toolUseId?: string; toolDescription?: string; toolInput?: PermissionToolInput; options: PermissionOption[]; startedAtMs?: number; turnAuthor?: User; guestTurn?: true; supportsFeedback?: true }
   /** Who decided is an `activity` of its own; this event only clears the request.
    *  With `expired`, nobody answered: the host closed the request (its run ended),
    *  and clients keep the card, without answer controls, to say why. */

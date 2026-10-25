@@ -40,6 +40,15 @@ mapping is in `claude-agent.ts`; the Codex mapping is in `codex-utils.ts`.
   suggestions back with `destination: 'session'`. When there is no suggestion,
   it allows the tool for the session. Bash with no suggestion gets no session
   option, because a rule for the bare tool would allow every command.
+- **Text in the composer is feedback on a Claude request.** While a Claude
+  permission card is open, Send denies the request that the card shows and
+  gives the text to the agent that asked, as the denial message. This includes
+  a subagent's call. The parent gets no prompt, and other requests stay open.
+  The request has `supportsFeedback`; the answer is `respondPermission` with
+  `feedback`. Feedback is text only: a draft with attachments stays. The draft
+  clears only when the host accepts the answer. Codex approvals carry no denial
+  message, so a Codex card does not have `supportsFeedback`, and the composer
+  sends a normal prompt.
 - **Codex always gets the reviewer.** Solus sends `approvalsReviewer` on every
   thread and turn. A resumed thread otherwise keeps its last reviewer.
 - **A mode change applies on the next turn.** Solus does not restart a running

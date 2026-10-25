@@ -56,6 +56,7 @@
   import { otherPerson, steerPlaceholder } from "../presence/lib/actor-name";
   import { useComposerFocus } from "./lib/composer-focus.svelte";
   import { pendingPlanForPrompt } from "./lib/pending-plan";
+  import { permissionForFeedback } from "./lib/pending-permission";
   import {
     pendingQuestionForPrompt,
   } from "./lib/pending-question";
@@ -192,6 +193,7 @@
     pendingPlanForPrompt(sess, session.planStore.plans),
   );
   const pendingQuestion = $derived(pendingQuestionForPrompt(sess));
+  const permissionTakesFeedback = $derived(permissionForFeedback(sess) !== null);
   // Not a width question. The four things that used to read `isMobileViewport`
   // here each ask about the *hand* or the *keyboard*: whether there is an Escape
   // key to stop a run, whether ⌥Enter is spellable, and how big a hit target has
@@ -467,7 +469,9 @@
             ? "Send feedback to revise the pending plan..."
             : pendingQuestion
               ? "Send a note to answer the pending question..."
-              : isRateLimited
+              : permissionTakesFeedback
+                ? "Send feedback to deny this request..."
+                : isRateLimited
                 ? resetsAt
                   ? `Add to the queue — rate limited until ${formatReleaseTime(resetsAt)}`
                   : "Add to the queue — rate limited"
