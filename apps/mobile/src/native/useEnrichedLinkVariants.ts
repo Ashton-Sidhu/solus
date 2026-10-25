@@ -10,12 +10,13 @@ import type {
   MarkdownStyle,
 } from "react-native-enriched-markdown";
 
-import { enrichedLinkVariantPattern } from "../lib/enrichedLinkPresentation";
+import { enrichedLinkVariantPattern, mentionChipColor } from "../lib/enrichedLinkPresentation";
 import { fileMentionPath } from "../lib/fileMentions";
 import { markdownFileIconSource } from "../lib/markdownFileIcons";
 import { markdownLinkIconSource } from "../lib/markdownLinkIcons";
 import { resolveMarkdownLinkIcon, resolveMarkdownLinkPresentation } from "../lib/markdownLinks";
 import { fileBasename } from "../lib/markdownLinkTargets";
+import { useUniwindTheme } from "../lib/useUniwindTheme";
 import type { NativeMarkdownTextStyle } from "./SelectableMarkdownText.types";
 
 interface EnrichedLinkPresentation {
@@ -25,24 +26,22 @@ interface EnrichedLinkPresentation {
   readonly iconTintColor?: string;
 }
 
-/** T3's `mention` chip accent (`composerChipPresentation.ts`), the same in light and dark. */
-const MENTION_CHIP_COLOR = "#0096af";
-
 /**
- * A mention is T3's mention chip: its accent, the document icon, and the file
- * name. A file link is a pill with its type icon and file name; a GitHub link
+ * A mention is T3's mention chip: its accent (`mentionChipColor`, readable in
+ * the theme), the document icon, and the file name. A file link is a pill with its type icon and file name; a GitHub link
  * gets the GitHub mark.
  */
 export function enrichedLinkPresentation(
   url: string,
   textStyle: NativeMarkdownTextStyle,
+  mentionColor: string,
   fileChip = false,
 ): EnrichedLinkPresentation | undefined {
   if (fileChip) return { color: textStyle.fileTextColor, label: replyImage(url).label, icon: markdownFileIconSource("image") };
   const mentionPath = fileMentionPath(url);
   if (mentionPath !== null)
     return {
-      color: MENTION_CHIP_COLOR,
+      color: mentionColor,
       label: fileBasename(mentionPath),
       icon: markdownFileIconSource("default"),
     };
@@ -68,15 +67,21 @@ export function useEnrichedLinkVariants(
   textStyle: NativeMarkdownTextStyle,
   fileChipHrefs?: readonly string[],
 ) {
+  const mentionColor = mentionChipColor(useUniwindTheme());
   const links = useMemo(() => {
     const byUrl = new Map<string, EnrichedLinkPresentation>();
     for (const asset of assets) {
       if (asset.kind !== "link" || byUrl.has(asset.url)) continue;
-      const value = enrichedLinkPresentation(asset.url, textStyle, fileChipHrefs?.includes(asset.url));
+      const value = enrichedLinkPresentation(
+        asset.url,
+        textStyle,
+        mentionColor,
+        fileChipHrefs?.includes(asset.url),
+      );
       if (value) byUrl.set(asset.url, value);
     }
     return byUrl;
-  }, [assets, textStyle, fileChipHrefs]);
+  }, [assets, textStyle, mentionColor, fileChipHrefs]);
   const linkVariants = useMemo<MarkdownStyle["linkVariants"]>(
     () =>
       Object.fromEntries(

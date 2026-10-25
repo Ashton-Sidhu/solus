@@ -7,7 +7,12 @@ import { unified } from "unified";
 import {
   ENRICHED_INLINE_FILE_LINK_REGEX,
   enrichedLinkVariantPattern,
+  mentionChipColor,
 } from "../../apps/mobile/src/lib/enrichedLinkPresentation";
+import {
+  getMobileThemeVariables,
+  themeAccentWithContrast,
+} from "../../apps/mobile/src/lib/mobileTheme";
 import {
   markdownHtmlContent,
   markdownWithBlockImages,
@@ -198,6 +203,46 @@ describe("Enriched link presentation", () => {
     expect(pattern.test(url)).toBe(true);
     expect(pattern.test(`${url}/child`)).toBe(false);
     expect(pattern.test("file:///workspace/app1Xtsx?line=34")).toBe(false);
+  });
+});
+
+function contrastRatio(first: string, second: string): number {
+  const luminance = (hex: string) => {
+    const [red = 0, green = 0, blue = 0] = [1, 3, 5].map((offset) => {
+      const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const [darker = 0, lighter = 0] = [luminance(first), luminance(second)].sort((a, b) => a - b);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+describe("mention chip color", () => {
+  // T3's #0096af reads about 3.5:1 on white, below the 4.5:1 text minimum.
+  it("reads at 5:1 in messages, replies, and the composer in light and dark", () => {
+    for (const appearance of ["light", "dark"] as const) {
+      const theme = getMobileThemeVariables(appearance);
+      const shown = mentionChipColor(theme);
+      for (const surface of [
+        theme["--color-user-bubble"],
+        theme["--color-thread-canvas"],
+        theme["--color-composer-surface"],
+      ]) {
+        expect(contrastRatio(shown, surface), `${appearance}: ${shown} on ${surface}`).toBeGreaterThanOrEqual(5);
+      }
+    }
+  });
+
+  it("keeps the accent's hue rather than greying it toward black", () => {
+    const shown = mentionChipColor(getMobileThemeVariables("light"));
+    const [red, green, blue] = [1, 3, 5].map((offset) => Number.parseInt(shown.slice(offset, offset + 2), 16));
+    expect(blue!).toBeGreaterThan(red! + 40);
+    expect(green!).toBeGreaterThan(red! + 40);
+  });
+
+  it("keeps an accent that already reads everywhere", () => {
+    expect(themeAccentWithContrast("#00596a", ["#ffffff", "#fbfbf8"], 5)).toBe("#00596a");
   });
 });
 
