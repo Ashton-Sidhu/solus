@@ -70,6 +70,22 @@ T3 Code mobile fixes merged after the parity sweep. #23366 replaces the
 | `src/navigation/RootNavigator.tsx` | [#23366](https://github.com/pingdotgg/t3code/pull/23366) | An open Settings, new-task, pairing, or Solus Cloud route keeps the presentation it opened with (sheet or column page) until it is dismissed, so a fold or a resize does not remount it and lose its draft. T3 keeps only its two sheets; the Solus connect sheets flip on the same layout answer, thus they are kept too. |
 | `src/features/workspace/WorkspaceToolbar.ios.tsx`, `WorkspaceToolbar.tsx`, `WorkspaceNativeTabs.ios.tsx`, `src/features/home/HomeRouteScreen.tsx` | [#23366](https://github.com/pingdotgg/t3code/pull/23366) | The iPad sidebar's bottom-toolbar New session is removed, with its `onNewTask` prop. The conversation header (`useThreadHeaderOptions`) and the empty detail (`WorkspaceEmptyDetail`) keep theirs; Solus never hid the empty-detail action behind a visible sidebar, so `createWorkspaceStackNavigator.ios.tsx` is unchanged, and the empty-detail label stays "New session". |
 
+## Native code highlights (2026-10-25)
+
+T3 Code [#24544](https://github.com/pingdotgg/t3code/pull/24544) at its head
+`9abc9d15be`: code highlights with the @pierre/highlights lexers that web uses,
+compiled from WebAssembly to C, instead of Shiki. A new development build is
+necessary: the module is native code.
+
+| Solus path | T3 source | Local changes |
+| --- | --- | --- |
+| `modules/solus-highlights/` (`cpp/solus_highlights.c`, `.h`, `ios/SolusHighlightsModule.swift`, `SolusHighlights.podspec`, `android/build.gradle`, `android/src/main/cpp/*`, `android/src/main/java/expo/modules/solushighlights/SolusHighlightsModule.kt`) | `modules/t3-highlights/` | Solus names (`SolusHighlights`, `solus_highlights_tokenize`, `libsolushighlights.so`). Autolinked from `modules/` as the other Solus modules, so there is no `file:` dependency or `package.json`. The same C, compiler flags, runtime defines, and 16 KB pages. |
+| `modules/solus-highlights/Vendor/`, `cpp/generated/id_ranges.inc`, `scripts/generate-highlights.mts`, `src/lib/highlights.generated.ts` | `modules/t3-highlights/Vendor/`, `cpp/generated/`, `scripts/generate-highlights.mts`, `src/lib/highlights.generated.ts` | The generator reads the @pierre/highlights at the repository root, the copy web uses. It also writes simde from its pinned 0.8.2 release and the package's `LICENSE.md` and `NOTICE.md`, and it refuses a Unicode version other than 17.0 (Node 25). Its C, runtime, simde, and Unicode output is byte for byte T3's. The color tables come from `github-light-default` and `github-dark-default`, the themes of web's diffs, not T3's Pierre themes. |
+| `src/lib/highlights.ts`, `src/lib/highlightLanguage.ts` | the same paths | Tokens are `ReviewHighlightedToken`. Without the module, `highlightCode` returns a promise of Shiki's tokens (`src/lib/shikiHighlights.ts`: the earlier highlighter with Shiki's JavaScript engine only) instead of plain text. `decodeHighlightRecords` is exported for its test. |
+| `src/features/diffs/nativeReviewDiffHighlighter.ts`, `nativeReviewDiffTypes.ts`, `src/features/review/useNativeReviewDiffHighlighting.ts`, `nativeReviewDiffAdapter.ts`, `reviewDiffBridgeKeys.ts` | the same paths | Synchronous with the module. With the Shiki fallback, the hook waits for the promise, and an aborted request publishes no rows. |
+| Removed: `src/features/review/shikiReviewHighlighter.ts`, `incrementalSnippet.ts`, `reviewHighlighterEngine.ts`; `react-native-shiki-engine` | the same | `shiki` and `@shikijs/*` 4.2.0 stay for the fallback. Solus has no Markdown code-block highlighter, comment-composer preview, or fbjni plugin, so T3's changes to `markdownCodeHighlightState.ts`, `ReviewCommentComposerSheet.tsx`, and `withAndroidFbjniVersion.cjs` do not apply. |
+| `tests/unit/native-mobile-highlights.test.ts`, `native-mobile-highlights-generated.test.ts`, `native-mobile-highlights-native.test.ts`, `native-mobile-review-diff-highlighting.test.ts`, `native-mobile-review-diff-fallback.test.ts`, `native-mobile-source-highlighting.test.ts`, `tests/unit/helpers/native-mobile-highlights.ts`, `tests/fixtures/solus-highlights-harness.c` | `src/lib/highlights.test.ts`, `src/lib/highlights.testing.ts`, `scripts/generate-highlights.test.ts`, `src/features/diffs/nativeReviewDiffHighlighter.test.ts` | The native test compiles the module's C with `cc` and compares its records with the WebAssembly's for all 81 lexers, malformed UTF-8, repository files, and a large input followed by a small one. The Swift and Kotlin code was not built here (no Xcode or Gradle run). |
+
 ## Mobile parity sweep (2026-10-21, T3 PRs merged 2026-10-21)
 
 Maria's mobile parity PRs. Each row ports only what a Solus host and the desktop
@@ -130,14 +146,14 @@ The fork is vendored in `deps/` (see `deps/README.md`).
 
 | Solus path | T3 source | Local changes |
 | --- | --- | --- |
-| `src/features/review/shikiReviewHighlighter.ts`, `incrementalSnippet.ts`, `reviewHighlighterEngine.ts`, `reviewHighlightedToken.types.ts` | the same paths | Snippet and source-file highlighting only: no review diffs, word diffs, or `@pierre/diffs` (a local extension map replaces `getFiletypeFromFileName`). The Effect Schema error is a plain `Error` subclass. |
-| `src/features/files/sourceHighlightingState.ts` | the same path | T3's Effect atom family is a promise cache with the same idle TTL and a `useSourceHighlight` hook. |
+| `src/features/review/reviewHighlightedToken.types.ts` | the same path | None. The Shiki highlighter, snippet sessions, and engine choice of this port are replaced by native highlights (see Native code highlights). |
+| `src/features/files/sourceHighlightingState.ts` | the same path | T3's Effect atom family is a cache with the same idle TTL and a `useSourceHighlight` hook. A highlight that answers in the call is ready in the first render (see Native code highlights). |
 | `src/features/files/SourceFileSurface.tsx` | the same path | The JavaScript surface only (no `t3-review-diff` canvas, no attachment selection mode, no line target); Solus's code font; a failed highlight shows "Plain text" and highlighting shows no loading strip. |
 | `src/features/files/WorkspaceFileImagePreview.tsx` | the same path | Solus's host connection: the image loads through `host-media-url.ts`. The media actions menu is in the viewer (see Media viewers). |
 | `src/features/threads/thread-context-divider.tsx` | the same path | Draws only the compaction divider (no handoff divider). It reads its item from the conversation store and uses the desktop divider words (`@solus/contracts/context-compaction`). |
 | `src/components/MediaSourceCaption.tsx`, `VideoThumbnailImage.tsx`, `AudioFilePreview.tsx`, `src/lib/videoThumbnails.ts` | the same paths | Thumbnails come from a URL only. `FilePreview`, `MediaImagePreview`, and `MediaVideoPlayer` are in Media viewers. |
 | `expo-audio` 58.0.9 (no patch) | `patches/` | `AudioFilePreview` uses only the player. T3's patch changes only the recorder, and the app does not record (dictation is the iOS keyboard), so there is no patch and `expo-audio` does not build from source. |
-| `metro.config.js` (Shiki) | `metro.config.js` | T3's resolution of `shiki` and every `@shikijs/*` package from the app's Shiki 4.2.0. |
+| `metro.config.js` (Shiki) | `metro.config.js` | T3's resolution of `shiki` and every `@shikijs/*` package from the app's Shiki 4.2.0. T3 removed it with Shiki (#24544); Solus keeps it for the Shiki fallback. |
 
 ## Enriched Markdown (2026-10-13, T3 `main` at `42160f2925`)
 
@@ -221,7 +237,7 @@ T3 Code mobile fixes merged after the port, applied where Solus has the same def
 
 | T3 pull request | Solus files | Local changes |
 | --- | --- | --- |
-| #16729, highlight batches keep grammar state | `src/features/review/shikiReviewHighlighter.ts` | None. |
+| #16729, highlight batches keep grammar state | `src/lib/shikiHighlights.ts` (the Shiki fallback; was `src/features/review/shikiReviewHighlighter.ts`) | None. |
 | #15397, elapsed-time clocks pause while hidden | `src/features/threads/use-visible-second-clock.ts` | The working timer and the agent rows share it. The AppState gate is a plain function (`tickWhileAppActive`) so a Bun test can drive it. |
 | #16296, collect the UI runtime on an iOS memory warning | `src/lib/ui-runtime-memory-warning-gc.ts`, `src/App.tsx` | A start/stop function in the app's lifecycle effect instead of a hook. |
 
