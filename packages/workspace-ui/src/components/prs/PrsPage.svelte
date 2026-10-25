@@ -73,7 +73,8 @@
     readSavedDetailPanelWidth,
     saveDetailPanelWidth,
   } from "../ui/list-page/detail-panel-width";
-  import { clearPrFilters, prAuthorOptions, prClientFilterKey, prFilterGroups, prLabelOptions, prMenuQualifiers } from "./lib/pr-filter-menu";
+  import { clearPrFilters, prAuthorOptions, prClientFilterKey, prFilterGroups, prLabelOptions, prMenuQualifiers, withHostChoices } from "./lib/pr-filter-menu";
+  import { PrFilterOptionsStore } from "../../contexts/prs/pr-filter-options.store.svelte";
   import { BoundedPageFill } from "@solus/client-core/bounded-page-fill";
   import { PrReviewSelection } from "./lib/pr-review-selection.svelte";
   import { queueReviewGuides } from "./lib/pr-guide-batch";
@@ -336,10 +337,19 @@
     )?.key ?? null,
   );
 
+  // The label and author pickers also offer what the host has beyond the
+  // loaded rows, searched from the picker's field.
+  const filterOptions = new PrFilterOptionsStore(() => paginating);
+  $effect(() => () => filterOptions.dispose());
+
   const filterGroups = $derived(
     prFilterGroups(
       listView,
-      { authors: prAuthorOptions(searched), labels: prLabelOptions(searched) },
+      {
+        authors: withHostChoices(prAuthorOptions(searched), filterOptions.choices.author, "author"),
+        labels: withHostChoices(prLabelOptions(searched), filterOptions.choices.label, "label"),
+        search: (field, query) => filterOptions.search(field, query),
+      },
       // A state change moves the read key only when the fetch scope does.
       // Label, author and draft are asked of the host (`prMenuQualifiers`).
       (next) => (listView.statusKeys = next),

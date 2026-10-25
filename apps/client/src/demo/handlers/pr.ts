@@ -27,6 +27,13 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
       projectRoot,
       page: { items: store.prList(), page: 1, hasMore: false },
     })))
+  backend.register('prFilterOptions', (args) => {
+    const needle = arg<string>(args, 2).trim().toLowerCase()
+    const choices = arg<'label' | 'author'>(args, 1) === 'label'
+      ? [{ value: 'bug', color: 'd73a4a' }, { value: 'enhancement', color: 'a2eeef' }, { value: 'documentation', color: '0075ca' }]
+      : [...new Map(store.prList().map((pr) => [pr.author, { value: pr.author, avatarUrl: pr.authorAvatarUrl }])).values()]
+    return choices.filter((choice) => choice.value.toLowerCase().includes(needle))
+  })
   backend.register('prGetOverview', () => store.prOverview())
   backend.register('prGetDetail', () => store.prOverview().pullRequest)
   backend.register('prUpdate', (args) => {

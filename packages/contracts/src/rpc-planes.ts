@@ -374,6 +374,7 @@ export const RPC_PLANES = {
   // PR records
   prList: 'collaboration',
   prListProjects: 'collaboration',
+  prFilterOptions: 'collaboration',
   prSetInterest: 'collaboration',
   prGuideMetadata: 'collaboration',
   // Reading a pull request asks its code host alone, so the workspace service

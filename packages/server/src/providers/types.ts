@@ -7,6 +7,7 @@ import type {
   PrDiffSlice,
   PrConversationItem,
   PrFilter,
+  PrFilterChoice,
   PrLabel,
   PrListPage,
   PrReviewer,
@@ -134,6 +135,9 @@ export interface ReviewProvider {
    *  the provider read the same pull request a second time. */
   listReviewerCandidates(repo: RepoRef, pullRequest: PullRequest): Promise<PrReviewerCandidate[]>
   listLabelCandidates(repo: RepoRef): Promise<PrLabel[]>
+  /** People who can be mentioned in the repository whose login or name
+   *  matches `query`, at most `limit`: the list's author filter choices. */
+  listMentionableUsers(repo: RepoRef, query: string, limit: number): Promise<PrFilterChoice[]>
   setLabels(repo: RepoRef, number: number, names: string[]): Promise<PrLabel[]>
   /** The pull requests opened from each branch, in every state, newest first,
    *  in as few requests as the host allows. Only PR sync calls this
