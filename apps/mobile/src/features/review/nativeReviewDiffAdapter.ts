@@ -3,11 +3,9 @@
 // `createNativeReviewDiffTheme` takes no theme id, and the add and delete
 // colours are desktop's status green and red.
 import type { NativeReviewDiffRow, NativeReviewDiffTheme } from "../diffs/nativeReviewDiffSurface";
-import type {
-  NativeReviewDiffFile,
-  NativeReviewDiffLanguage,
-} from "../diffs/nativeReviewDiffTypes";
+import type { NativeReviewDiffFile } from "../diffs/nativeReviewDiffTypes";
 import type { ResolvedMobileCodeSurface } from "../../lib/appearancePreferences";
+import { resolveHighlightLanguage } from "../../lib/highlightLanguage";
 import { themeColorWithAlpha, type MobileThemeAppearance, type MobileThemeVariables } from "../../lib/mobileTheme";
 import { computeWordAltDiffRanges } from "./reviewWordDiffs";
 import {
@@ -217,49 +215,6 @@ function mapChangeType(file: ReviewRenderableFile): NativeReviewDiffRow["changeT
     default:
       return "modified";
   }
-}
-
-const HINTED_LANGUAGES = new Map<string, NativeReviewDiffLanguage>(
-  (
-    ["typescript", "tsx", "javascript", "jsx", "json", "yaml", "bash", "diff"] as const
-  ).map((language) => [language, language]),
-);
-
-// The order is important: ".tsx" must match before ".ts".
-const LANGUAGE_BY_PATH_SUFFIX: ReadonlyArray<readonly [string, NativeReviewDiffLanguage]> = [
-  [".tsx", "tsx"],
-  [".ts", "typescript"],
-  [".jsx", "jsx"],
-  [".js", "javascript"],
-  [".cjs", "javascript"],
-  [".json", "json"],
-  [".jsonc", "json"],
-  [".yml", "yaml"],
-  [".yaml", "yaml"],
-];
-
-function isShellPath(normalizedPath: string): boolean {
-  return (
-    normalizedPath.endsWith(".sh") ||
-    normalizedPath.includes("/bin/") ||
-    normalizedPath.includes("shell")
-  );
-}
-
-function getLanguageForPath(
-  filePath: string,
-  languageHint: string | null,
-): NativeReviewDiffLanguage {
-  const hinted = languageHint === null ? undefined : HINTED_LANGUAGES.get(languageHint.toLowerCase());
-  if (hinted !== undefined) {
-    return hinted;
-  }
-
-  const normalizedPath = filePath.toLowerCase();
-  const bySuffix = LANGUAGE_BY_PATH_SUFFIX.find(([suffix]) => normalizedPath.endsWith(suffix));
-  if (bySuffix !== undefined) return bySuffix[1];
-  if (isShellPath(normalizedPath)) return "bash";
-  return "diff";
 }
 
 function createNoticeRow(fileId: string, suffix: string, text: string): NativeReviewDiffRow {
@@ -539,7 +494,7 @@ function prepareNativeReviewDiffData(parsedDiff: ReviewParsedDiff): PreparedNati
   const files = parsedDiff.files.map<NativeReviewDiffFile>((file) => ({
     id: file.id,
     path: file.path,
-    language: getLanguageForPath(file.path, file.languageHint),
+    language: resolveHighlightLanguage({ language: file.languageHint, path: file.path }),
     additions: file.additions,
     deletions: file.deletions,
   }));

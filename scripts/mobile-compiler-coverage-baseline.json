@@ -1240,15 +1240,10 @@
       "skipped": []
     },
     "apps/mobile/src/features/review/useNativeReviewDiffHighlighting.ts": {
-      "compiled": [],
-      "skipped": [
-        {
-          "name": "useNativeReviewDiffHighlighting",
-          "reasons": [
-            "Todo"
-          ]
-        }
-      ]
+      "compiled": [
+        "useNativeReviewDiffHighlighting"
+      ],
+      "skipped": []
     },
     "apps/mobile/src/features/review/useReviewCommentSelectionController.ts": {
       "compiled": [

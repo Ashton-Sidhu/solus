@@ -15,7 +15,7 @@ import {
   type ResolvedMobileCodeSurface,
 } from "../../lib/appearancePreferences";
 import { CODE_FONT } from "../../theme/tokens";
-import type { ReviewHighlightedToken } from "../review/shikiReviewHighlighter";
+import type { ReviewHighlightedToken } from "../review/reviewHighlightedToken.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useSourceHighlight } from "./sourceHighlightingState";
 
@@ -99,7 +99,7 @@ const HighlightedSourceLine = memo(function HighlightedSourceLine(props: {
   );
 });
 
-/** Numbered, virtualized source lines, colored by Shiki once highlighting finishes. */
+/** Numbered, virtualized source lines, colored by the native lexers in the first render. */
 export function SourceFileSurface(props: SourceFileSurfaceProps) {
   const { appearance, themeAppearance: theme } = useAppearancePreferences();
   const codeSurface = useMemo(
