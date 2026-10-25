@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { Building2 as OrganizationIcon, Check as CheckIcon, ChevronDown as CaretDownIcon, Copy as CopyIcon, Globe as GlobeIcon, LoaderCircle as CircleNotchIcon, Lock as LockIcon, Users as UsersIcon } from "@lucide/svelte";
+  import { Building2 as OrganizationIcon, Check as CheckIcon, ChevronDown as CaretDownIcon, Copy as CopyIcon, Globe as GlobeIcon, LoaderCircle as CircleNotchIcon, Lock as LockIcon, TriangleAlert as WarningIcon, Users as UsersIcon } from "@lucide/svelte";
+  import { Switch } from "../ui/switch";
+  import type { SessionActionLeaf } from "@solus/contracts/permissions";
   import type { ShareRole } from "@solus/contracts/sharing";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
@@ -11,7 +13,7 @@
   import { isSolusApiId } from "@solus/contracts/uplink";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, linkToCopy, type PersonRow, type ScopeOption } from "./lib/share-rows";
+  import { LINK_LIFETIME_CHOICES, customActionRows, linkExpiryLabel, linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, linkToCopy, toggledActions, type PersonRow, type ScopeOption } from "./lib/share-rows";
   import { publishProblemMessage } from "./lib/publish-copy";
   import { userKey } from "@solus/contracts/user";
   import UserAvatar from "../users/UserAvatar.svelte";
@@ -70,11 +72,26 @@
   const options = $derived(list ? scopeOptions(list, directory, serversStore.activeOrganizationId, ownerLabel(list, directory), { membersReachable }) : []);
   const selectedKey = $derived(list ? scopeKey(scopeOf(list)) : "private");
   const selected = $derived(options.find((option) => option.key === selectedKey) ?? options[0]);
+  const linkRuns = $derived(list?.link?.role === "editor" || (list?.link?.role === "custom" && !!list.link.actions?.includes("drive.prompt")));
   const consentSentence = $derived(
-    target && target.resource.kind !== "work" && list?.link?.role === "editor"
+    target && target.resource.kind !== "work" && linkRuns
       ? "Turns started by guests run under the login of whoever made the link."
       : null,
   );
+  /** A custom link's rows, under the general access, while the link is the scope. */
+  const customRows = $derived(list?.link?.role === "custom" ? customActionRows(list.link.actions ?? []) : []);
+  /** The clock the expiry line reads; it is set when the dialog opens and when the link changes. */
+  const openedAt = $derived.by(() => { void list?.link; return Date.now(); });
+
+  async function setLinkAction(leaf: SessionActionLeaf, on: boolean): Promise<void> {
+    if (!target || !list?.link || !canShare) return;
+    await sharesStore.setLinkAccess(target.serverId, list, { actions: toggledActions(list.link.actions ?? [], leaf, on) });
+  }
+
+  async function setLinkLifetime(ms: number | null): Promise<void> {
+    if (!target || !list?.link || !canShare) return;
+    await sharesStore.setLinkAccess(target.serverId, list, { expiresInMs: ms });
+  }
   const kindWord = $derived(target?.resource.kind ?? "session");
 
   function close(): void {
@@ -106,9 +123,11 @@
     await sharesStore.removePerson(target.serverId, list, person.userId);
   }
 
-  const roleLabel = (role: ShareRole | "owner") => (role === "owner" ? "Owner" : role === "editor" ? "Can edit" : role === "commenter" ? "Can comment" : "Can view");
+  const roleLabel = (role: ShareRole | "owner") => (role === "owner" ? "Owner" : role === "editor" ? "Can edit" : role === "commenter" ? "Can comment" : role === "custom" ? "Custom" : "Can view");
   // Only a work has comments and review decisions, so only a work offers a commenter.
   const roleChoices = $derived<readonly ShareRole[]>(target?.resource.kind === "work" ? ["viewer", "commenter", "editor"] : ["viewer", "editor"]);
+  // A session's link can also be a custom role: the owner picks what a guest may do (custom-roles.md §4).
+  const linkRoleChoices = $derived<readonly ShareRole[]>(target?.resource.kind === "session" ? ["viewer", "custom", "editor"] : roleChoices);
 
   const linkContext = $derived(target ? sharesStore.linkContext(target.serverId, target.resource) : null);
   /** The link as the host now holds it: always at hand for whoever may share. */
@@ -143,7 +162,7 @@
   {/if}
 {/snippet}
 
-{#snippet roleMenu(current: ShareRole, onSelect: (role: ShareRole) => void, onRemove: (() => void) | null, testId: string)}
+{#snippet roleMenu(current: ShareRole, onSelect: (role: ShareRole) => void, onRemove: (() => void) | null, testId: string, choices: readonly ShareRole[] = roleChoices)}
   <DropdownMenu.Root>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
@@ -154,8 +173,8 @@
       {/snippet}
     </DropdownMenu.Trigger>
     <DropdownMenu.Content align="end" class="w-auto min-w-36" portalProps={menuPortal}>
-      {#each roleChoices as role (role)}
-        <DropdownMenu.Item onSelect={() => onSelect(role)}>
+      {#each choices as role (role)}
+        <DropdownMenu.Item onSelect={() => onSelect(role)} data-testid="share-role-choice" data-role={role}>
           <span class="flex-1">{roleLabel(role)}</span>
           {#if role === current}<CheckIcon />{/if}
         </DropdownMenu.Item>
@@ -284,11 +303,55 @@
             </span>
             {#if selected.role}
               {#if canShare}
-                {@render roleMenu(selected.role, (role) => void chooseScope(selected, role), null, "share-scope-role")}
+                {@render roleMenu(selected.role, (role) => void chooseScope(selected, role), null, "share-scope-role", selected.scope.kind === "link" ? linkRoleChoices : roleChoices)}
               {:else}
                 <span class="mr-2 shrink-0 text-muted-foreground">{roleLabel(selected.role)}</span>
               {/if}
             {/if}
+          </li>
+        {/if}
+        {#if list.link && canShare}
+          <!-- The link's own settings: what a custom link lets a guest do, and how long it lasts. -->
+          <li class="flex flex-col gap-3 rounded-xl bg-muted/40 px-3.5 py-3" aria-label="Link settings" data-testid="share-link-settings">
+            {#if customRows.length > 0}
+              <ul class="flex flex-col gap-2.5" aria-label="What anyone with the link can do">
+                {#each customRows as item (item.leaf)}
+                  <li class="flex items-start gap-3" data-testid="share-link-action" data-action={item.leaf} data-on={item.isOn ? "true" : "false"}>
+                    <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
+                      <span class="text-foreground">{item.row.label}</span>
+                      {#if item.row.detail}<span class="text-pretty text-[0.875em] text-muted-foreground">{item.row.detail}</span>{/if}
+                      {#if item.isOn && item.row.warning}
+                        <span class="flex items-center gap-1.5 text-[0.875em] text-(--solus-status-permission)" data-testid="share-link-warning"><WarningIcon size={14} class="shrink-0" />{item.row.warning}</span>
+                      {/if}
+                    </span>
+                    <Switch
+                      checked={item.isOn}
+                      disabled={item.isFixed || sharesStore.busy}
+                      onCheckedChange={(next) => void setLinkAction(item.leaf, next)}
+                      aria-label={item.row.label}
+                    />
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            <div class="flex items-center gap-3">
+              <span class="min-w-0 flex-1 truncate text-muted-foreground" data-testid="share-link-expiry">{linkExpiryLabel(list.link.expiresAt, openedAt)}</span>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger>
+                  {#snippet child({ props })}
+                    <Button {...props} variant="ghost" size="sm" class="shrink-0 gap-1 px-2 text-workspace-chrome font-normal text-foreground aria-expanded:bg-transparent pointer-coarse:h-10" data-testid="share-link-lifetime" disabled={sharesStore.busy}>
+                      Lasts
+                      <CaretDownIcon />
+                    </Button>
+                  {/snippet}
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Content align="end" class="w-auto min-w-36" portalProps={menuPortal}>
+                  {#each LINK_LIFETIME_CHOICES as choice (choice.label)}
+                    <DropdownMenu.Item onSelect={() => void setLinkLifetime(choice.ms)} data-testid="share-link-lifetime-choice">{choice.label}</DropdownMenu.Item>
+                  {/each}
+                </DropdownMenu.Content>
+              </DropdownMenu.Root>
+            </div>
           </li>
         {/if}
         {#if !peopleLoaded}
@@ -317,7 +380,7 @@
         <p class="text-pretty text-[0.875em] text-muted-foreground" data-testid="share-sign-in">Sign in to share with people, a team, or your organization.</p>
       {/if}
       {#if link?.kind === "unreachable"}
-        <p class="text-pretty text-[0.875em] text-muted-foreground" data-testid="share-unreachable">Nobody can reach this computer for a link. Allow connections from your network, or link this computer, under Connections.</p>
+        <p class="text-pretty text-[0.875em] text-muted-foreground" data-testid="share-unreachable">Nobody can reach this computer for a link. Link this computer under Connections, or use Tailscale. A link never goes over a plain network address, where anyone on the network could read it.</p>
       {:else if link?.kind === "unavailable"}
         <p class="text-pretty text-[0.875em] text-muted-foreground">This old link cannot be copied. Choose another access, then the link again, to get a new one.</p>
       {/if}

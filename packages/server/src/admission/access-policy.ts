@@ -1,29 +1,30 @@
 import { z } from 'zod'
 import type { RpcMethod } from '@solus/contracts/rpc'
 import {
-  HOST_USE,
   permissionsAllow,
   permissionOf,
   isResourceMethod,
-  isResourceVerb,
-  resourceVerbOf,
-  roleAllows,
+  isResourceActionPath,
+  resourceActionPathOf,
+  standingAllows,
   type Permission,
+  type ResourceActionPath,
   type ResourceKind,
   type ResourceMethod,
-  type ResourceVerb,
+  type ResourceStanding,
+  type SessionActionLeaf,
 } from '@solus/contracts/permissions'
-import { shareResourceSchema, type ResourceRole } from '@solus/contracts/sharing'
+import { shareResourceSchema } from '@solus/contracts/sharing'
 import { hostCategory } from '../host/host-category'
 import { isApiMode } from '../host/api-mode'
 import { isHostAdmin, isHostOwner, type Principal, type PrincipalKind } from './principal'
 import type { AccessResource } from './access'
 
 /**
- * The access gate of one host (docs/plans/permissions.md). Every method needs one
- * action, declared once in the contracts: a permission, held on the whole host,
- * or a resource verb, held through the resource role `roleOf` gives on the
- * resource the call names. `permissionsFor` is the one place a host role's
+ * The access gate of one host (docs/plans/permissions.md, custom-roles.md). Every
+ * method needs one action, declared once in the contracts: a permission, held on
+ * the whole host, or a resource action, held through the standing `standingOf`
+ * gives on the resource the call names. `permissionsFor` is the one place a host role's
  * permissions are written; `RESOURCE_LOCATORS` is the one place the server says
  * where a resource id sits in a call; `authorize` is the one decision, which the
  * RPC gate and the Solus API both call. Nothing else decides access.
@@ -134,17 +135,17 @@ export const RESOURCE_LOCATORS = {
   cancelQueuedPrompt: ctxAt(0),
   editQueuedPrompt: ctxAt(0),
   sessionQueue: ctxAt(0),
+  sessionSuggestions: ctxAt(0),
+  sessionSuggest: ctxAt(0),
+  sessionSuggestionWithdraw: ctxAt(0),
+  sessionSuggestionDecide: ctxAt(0),
   sessionQueueChange: ctxAt(0),
   // Typing in a session is something only someone who may prompt it does.
   presenceSetComposing: sessionFieldAt(0, 'sessionId'),
   presenceSetEditing: workFieldAt(0),
   writePlanFile: optionalCtxAt(2),
-  attachFiles: optionalCtxAt(0),
-  attachFilePaths: optionalCtxAt(1),
   attachUpload: ctxAt(0),
   attachUploadToken: ctxAt(0),
-  takeScreenshot: optionalCtxAt(0),
-  pasteImage: optionalCtxAt(1),
   setSessionTitle: sessionIdAt(0),
   ensureBackgroundSessionTitle: sessionIdAt(0),
   setSessionBranch: sessionIdAt(0),
@@ -254,6 +255,16 @@ export const GUEST_PERMISSIONS: readonly Permission[] = [
 ]
 
 /**
+ * The guest permissions that read the shared session's checkout, and the leaf of
+ * that session each needs (custom-roles.md §3). The checkout is the session's, so
+ * its link decides: git status and history go with its diffs, files with its files.
+ */
+const GUEST_CHECKOUT_PERMISSIONS: ReadonlyArray<readonly [Permission, SessionActionLeaf]> = [
+  ['host.git.read', 'read.diffs'],
+  ['host.files.read', 'read.files'],
+]
+
+/**
  * The permissions a principal holds on this host (permissions.md §2): the one
  * table a client's controls and this gate both read. A managed host never gives
  * `host.local.reach`: Solus cloud owns how it is reached.
@@ -290,7 +301,7 @@ export class RpcAccessError extends Error {
 }
 
 export interface ResourceAccess {
-  roleFor(principal: Principal, resource: AccessResource): Promise<ResourceRole>
+  standingFor(principal: Principal, resource: AccessResource): Promise<ResourceStanding>
 }
 
 /** Why `authorize` refused, in words a person can read. */
@@ -328,15 +339,16 @@ function refusedPermission(name: string, principal: Principal, permission: Permi
  * refused to a guest. A Solus API token's scopes are a separate upper bound
  * (`requireScope`).
  */
-export async function authorize(principal: Principal, action: Permission | ResourceVerb, resource: AccessResource | null, options: AuthorizeOptions): Promise<AccessRefusal | null> {
+export async function authorize(principal: Principal, action: Permission | ResourceActionPath, resource: AccessResource | null, options: AuthorizeOptions): Promise<AccessRefusal | null> {
   const { name, resources, managed = hostCategory() === 'managed' || isApiMode() } = options
   // Managed-hosts.md §1: how a managed host is reached is Solus cloud's, whoever calls, the host's own calls included.
   if (managed && action === 'host.local.reach') {
     return { code: 'MANAGED_HOST', detail: `"${name}" is not available on a managed host: Solus cloud owns how this host is reached` }
   }
   if (principal.kind === 'system') return null
-  if (!isResourceVerb(action)) {
-    return permissionsAllow(permissionsFor(principal, managed), action) ? null : refusedPermission(name, principal, action)
+  if (!isResourceActionPath(action)) {
+    if (!permissionsAllow(permissionsFor(principal, managed), action)) return refusedPermission(name, principal, action)
+    return principal.kind === 'guest' ? await guestCheckoutRefusal(principal, action, name, resources) : null
   }
   if (principal.kind === 'runner') return { code: 'FORBIDDEN', detail: `"${name}" is not available to a runner` }
   if (!resource) {
@@ -345,12 +357,23 @@ export async function authorize(principal: Principal, action: Permission | Resou
   if (!resources) {
     return isHostOwner(principal) ? null : { code: 'FORBIDDEN', detail: 'Sharing is not available on this host' }
   }
-  const role = await resources.roleFor(principal, resource)
-  if (roleAllows(role, action)) return null
+  const standing = await resources.standingFor(principal, resource)
+  if (standingAllows(standing, action)) return null
   return {
     code: 'FORBIDDEN',
-    detail: role === 'none' ? `This ${resource.kind} is not shared with you` : `"${name}" needs ${resource.kind}.${action} on this ${resource.kind}`,
+    detail: standing.role === 'none' ? `This ${resource.kind} is not shared with you` : `"${name}" needs ${resource.kind}.${action} on this ${resource.kind}`,
   }
+}
+
+/** A guest's read of the shared checkout: the link must hold the leaf that read belongs to. */
+async function guestCheckoutRefusal(principal: Extract<Principal, { kind: 'guest' }>, permission: Permission, name: string, resources: ResourceAccess | undefined): Promise<AccessRefusal | null> {
+  const bound = GUEST_CHECKOUT_PERMISSIONS.find(([held]) => permissionsAllow([held], permission))
+  if (!bound) return null
+  const [, leaf] = bound
+  const shared = principal.share.resource
+  if (shared.kind !== 'session' || !resources) return { code: 'FORBIDDEN', detail: `"${name}" is not available to a guest` }
+  if (standingAllows(await resources.standingFor(principal, shared), leaf)) return null
+  return { code: 'FORBIDDEN', detail: `"${name}" needs session.${leaf} on this session` }
 }
 
 /** The RPC door: the action and the resource of one call, decided by `authorize`. */
@@ -358,7 +381,7 @@ export async function assertRpcAccess(method: RpcMethod, principal: Principal, a
   // A host admin may hand on what a departed member owned; the share manager decides (plan 004 item 10).
   if (method === 'shareTransfer' && isHostAdmin(principal)) return
   const refusal = isResourceMethod(method)
-    ? await authorize(principal, resourceVerbOf(method), RESOURCE_LOCATORS[method](args), { name: method, resources, managed })
-    : await authorize(principal, permissionOf(method) ?? HOST_USE, null, { name: method, resources, managed })
+    ? await authorize(principal, resourceActionPathOf(method), RESOURCE_LOCATORS[method](args), { name: method, resources, managed })
+    : await authorize(principal, permissionOf(method)!, null, { name: method, resources, managed })
   if (refusal) throw new RpcAccessError(method, principal.kind, refusal.detail, refusal.code)
 }

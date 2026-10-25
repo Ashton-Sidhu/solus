@@ -15,7 +15,11 @@ import {
   linkToCopy,
   withPersonRole,
   withoutPerson,
+  customActionRows,
+  toggledActions,
+  linkExpiryLabel,
 } from '../../packages/workspace-ui/src/components/sharing/lib/share-rows'
+import { DEFAULT_LINK_ACTIONS } from '@solus/contracts/shareable-actions'
 import { appLinkUrl } from '../../packages/workspace-ui/src/contexts/sharing/app-link'
 import { parseRoute } from '../../packages/workspace-ui/src/contexts/workspace/routing/codec'
 
@@ -240,5 +244,43 @@ describe('the member link', () => {
     const session = new URL(appLinkUrl('https://app.solus.sh', { kind: 'session', id: 's1' }, 'solus-api:org1'))
     expect(session.hash).toBe('')
     expect(parseRoute(session.pathname)).toEqual({ name: 'sessionRecord', params: { sessionId: 's1', serverId: 'solus-api:org1' } })
+  })
+})
+
+describe('a custom link (docs/plans/custom-roles.md §4)', () => {
+  const session: ShareList = { ...base, resource: { kind: 'session', id: 's1' } }
+
+  test("a session's link starts as a custom role with the link defaults; a work's as viewers", () => {
+    // WHY: a sharer who reads no row must get the safe default: watch, see changes, suggest, attach.
+    const sessionLink = scopeOptions(session, directory, 'org1', 'you').find((option) => option.key === 'link')
+    expect(sessionLink?.scope).toEqual({ kind: 'link', role: 'custom', actions: [...DEFAULT_LINK_ACTIONS] })
+    expect(scopeRequestFor(sessionLink!.scope, session).link).toEqual({ role: 'custom', actions: [...DEFAULT_LINK_ACTIONS] })
+    const workLink = scopeOptions(base, directory, 'org1', 'you').find((option) => option.key === 'link')
+    expect(workLink?.scope).toEqual({ kind: 'link', role: 'viewer' })
+  })
+
+  test('the rows follow the same rules as the host: the transcript is locked on, and approve needs prompt', () => {
+    const rows = customActionRows(['read.transcript', 'drive.propose'])
+    expect(rows.find((row) => row.leaf === 'read.transcript')).toMatchObject({ isOn: true, isFixed: true })
+    expect(rows.find((row) => row.leaf === 'drive.approve')).toMatchObject({ isOn: false, isFixed: true })
+    expect(rows.find((row) => row.leaf === 'drive.attach')).toMatchObject({ isFixed: false })
+    // Turning prompt off takes approve with it, as the host would.
+    expect(toggledActions(['read.transcript', 'drive.prompt', 'drive.approve'], 'drive.prompt', false)).toEqual(['read.transcript'])
+    expect(toggledActions(['read.transcript'], 'read.files', true)).toEqual(['read.transcript', 'read.files'])
+  })
+
+  test('a list with a custom link reads as that link, leaves included, and a change of leaves is a link change', () => {
+    const custom: ShareList = { ...session, link: { role: 'custom', actions: ['read.transcript'], expiresAt: null, secret: 's'.repeat(43) } }
+    expect(scopeOf(custom)).toEqual({ kind: 'link', role: 'custom', actions: ['read.transcript'] })
+    expect(scopeRequestFor({ kind: 'link', role: 'custom', actions: ['read.transcript', 'read.diffs'] }, custom).link).toEqual({ role: 'custom', actions: ['read.transcript', 'read.diffs'] })
+    expect(scopeRequestFor({ kind: 'link', role: 'custom', actions: ['read.transcript'] }, custom).link).toBeUndefined()
+  })
+
+  test('the expiry line says how long is left, and never a negative time', () => {
+    const hour = 60 * 60 * 1000
+    expect(linkExpiryLabel(null, 0)).toBe('Never expires')
+    expect(linkExpiryLabel(5 * hour, 0)).toBe('Expires in 5 hours')
+    expect(linkExpiryLabel(7 * 24 * hour, 0)).toBe('Expires in 7 days')
+    expect(linkExpiryLabel(hour, 2 * hour)).toBe('Expired')
   })
 })

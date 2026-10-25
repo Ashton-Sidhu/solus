@@ -38,7 +38,7 @@ Status is the result of the last full run (2026-10-13). A failing scenario is th
 | [Cloud machines](./cloud-machines.md) | `cloud-machine`, `managed-bootstrap` | cloud; Lab issuer | PASS; PASS |
 | [Sign-out and delegations](./sign-out.md) | `sign-out`, `delegation-kept-alive` | cloud | PASS |
 | [Host admission](./admission.md) | `uplink-admission` | Lab issuer | PASS |
-| [Sharing and guests](./sharing.md) | `share-matrix`, `guest-revoke`, `ownership`, `cloud-sharing` | Lab issuer | PASS (the rows of [TRIAGE.md](./TRIAGE.md) are fixed) |
+| [Sharing and guests](./sharing.md) | `share-matrix`, `guest-revoke`, `guest-roles`, `ownership`, `cloud-sharing` | Lab issuer | PASS (the rows of [TRIAGE.md](./TRIAGE.md) are fixed) |
 | [Presence](./presence.md) | `presence` | Lab issuer | PASS |
 | [Seats](./seats.md) | `seats`, `host-auth` | Lab issuer | PASS |
 | [Organization work](./organization-work.md) | `organization-work`; `cloud-workspace`, `cloud-sessions` | cloud; Lab issuer | PASS; PASS; PASS |

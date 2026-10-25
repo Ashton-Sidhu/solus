@@ -1,9 +1,12 @@
 import { SvelteMap } from 'svelte/reactivity'
-import { roleAllows, type ResourceRef, type ResourceVerb } from '@solus/contracts/permissions'
+import { standingAllows, type ResourceActionPath, type ResourceRef, type ResourceStanding } from '@solus/contracts/permissions'
 import { shareResourceKindSchema, type ResourceRole, type ShareList, type ShareResource } from '@solus/contracts/sharing'
 
 /** What the composer says to a member who may read a shared session but not drive it. */
 export const VIEW_ONLY_REASON = 'Shared with you to view.'
+
+/** What the composer says to a guest whose link lets them suggest, not prompt (docs/plans/custom-roles.md §7). */
+export const SUGGEST_ONLY_REASON = 'Suggest a message. Someone who can prompt sends it.'
 
 /** Why a control that changes a resource is off: the reader's role on it does not allow the change. */
 export const NOT_YOURS_REASON = 'Only its owner or an administrator can change this.'
@@ -53,34 +56,59 @@ export function rememberRoles(serverId: string, resources: readonly ResourceRef[
  * host answers.
  */
 export function resourceRoleFor(serverId: string, resource: ResourceRef): ResourceRole | null {
-  if (resource.role) return resource.role
-  const listed = listedRoles.get(keyOf(serverId, resource)) ?? null
-  const kind = shareResourceKindSchema.safeParse(resource.kind)
-  const source = shares
-  if (!kind.success || !source) return listed
-  const shared: ShareResource = { kind: kind.data, id: resource.id }
-  const list = source.listFor(serverId, shared)
-  if (list) return list.callerRole
-  const key = keyOf(serverId, resource)
-  if (listed === null && !asked.has(key)) {
-    asked.add(key)
-    queueMicrotask(() => { void source.load(serverId, shared) })
-  }
-  return listed
+  return resourceStandingFor(serverId, resource)?.role ?? null
 }
 
 /**
- * Whether this client may do `verb` on a resource, by the same role table the
- * host gates with (`ROLE_VERBS`). Until the host answers, the client may, as it
- * does for its own resources; the host still refuses.
+ * This client's standing on one resource: its role and, for a custom role, the
+ * leaves it holds. A custom role's leaves come only with the resource or its share
+ * list, so a listed custom role asks for the share list once.
  */
-export function resourceMay(serverId: string | null | undefined, resource: ResourceRef | null | undefined, verb: ResourceVerb): boolean {
-  if (!serverId || !resource) return true
-  const role = resourceRoleFor(serverId, resource)
-  return role === null || roleAllows(role, verb)
+export function resourceStandingFor(serverId: string, resource: ResourceRef): ResourceStanding | null {
+  if (resource.role && (resource.role !== 'custom' || resource.actions)) return { role: resource.role, actions: resource.actions }
+  const listed = resource.role ?? listedRoles.get(keyOf(serverId, resource)) ?? null
+  const kind = shareResourceKindSchema.safeParse(resource.kind)
+  const source = shares
+  if (!kind.success || !source) return listed ? { role: listed } : null
+  const shared: ShareResource = { kind: kind.data, id: resource.id }
+  const list = source.listFor(serverId, shared)
+  if (list) return { role: list.callerRole, actions: list.callerActions }
+  const key = keyOf(serverId, resource)
+  if ((listed === null || listed === 'custom') && !asked.has(key)) {
+    asked.add(key)
+    queueMicrotask(() => { void source.load(serverId, shared) })
+  }
+  return listed ? { role: listed } : null
 }
 
-/** Whether this client may drive one session: prompt it, stop it, answer its cards. The question every composer and card asks. */
-export function canDriveSession(serverId: string | null | undefined, sessionId: string | null | undefined): boolean {
-  return resourceMay(serverId, sessionId ? { kind: 'session', id: sessionId } : null, 'drive')
+/**
+ * Whether this client may do `action` on a resource, by the same tables the
+ * host gates with (`ROLE_VERBS`, a custom role's leaves). Until the host answers,
+ * the client may, as it does for its own resources; the host still refuses.
+ */
+export function resourceMay(serverId: string | null | undefined, resource: ResourceRef | null | undefined, action: ResourceActionPath): boolean {
+  if (!serverId || !resource) return true
+  const standing = resourceStandingFor(serverId, resource)
+  return standing === null || standingAllows(standing, action)
+}
+
+/**
+ * Whether this client may do one session leaf: `drive.prompt` (the default) to
+ * prompt, stop, and change the queue; `drive.approve` to answer the agent's
+ * cards; `drive.propose` to suggest. The question every composer and card asks.
+ */
+export function canDriveSession(serverId: string | null | undefined, sessionId: string | null | undefined, action: ResourceActionPath = 'drive.prompt'): boolean {
+  return resourceMay(serverId, sessionId ? { kind: 'session', id: sessionId } : null, action)
+}
+
+/**
+ * What one session's composer is for this client: `prompt` sends turns,
+ * `suggest` sends suggestions that someone who may prompt decides
+ * (docs/plans/custom-roles.md §7), `view` sends nothing.
+ */
+export type SessionComposerMode = 'prompt' | 'suggest' | 'view'
+
+export function sessionComposerMode(serverId: string | null | undefined, sessionId: string | null | undefined): SessionComposerMode {
+  if (canDriveSession(serverId, sessionId, 'drive.prompt')) return 'prompt'
+  return canDriveSession(serverId, sessionId, 'drive.propose') ? 'suggest' : 'view'
 }

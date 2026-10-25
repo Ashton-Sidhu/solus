@@ -1,7 +1,8 @@
 # Custom roles and closed actions
 
-Status: proposed 2026-10-25. Changes `permissions.md` (§2, §3, §5) and
-`host-sharing.md` (§2, §4, §6). Read both first.
+Status: built 2026-10-25 (§14 says what was built and how it differs from the
+plan). Changes `permissions.md` (§2, §3, §5) and `host-sharing.md` (§2, §4, §6).
+Read both first.
 
 ## 0. Why
 
@@ -339,3 +340,60 @@ of the row.
 Decided 2026-10-25: works and tasks keep their flat verbs (`work.read`,
 `work.comment`, `work.edit`, …). A custom role applies to sessions only, and
 the share dialog of a work offers only the presets.
+
+## 14. As built (2026-10-25)
+
+Where the code differs from the sections above, the code and this section win.
+
+- **The tables stay two, and are closed together.** `PERMISSION_OF_METHOD` lists
+  every method that is not a resource method, with `host.use` written out, and
+  `RESOURCE_ACTION_OF_METHOD` lists the rest. `EVERY_METHOD_CLASSIFIED` in
+  `contracts/src/permissions.ts` fails the build and names each method that is in
+  neither table. `permissionOf` has no fallback. This is §6 without merging the
+  tables, which kept the change small and the meaning the same.
+- **Resource actions are relative paths.** A method names `read.transcript`,
+  `drive.approve`, `edit`, and so on; the locator gives the kind.
+  `standingAllows` applies the prefix rule (`permissionsAllow` uses the same one).
+  Presets keep `ROLE_VERBS`. `roleOf` stays for "how far" questions;
+  `standingOf` gives the role and a custom role's leaves, and is what the gate reads.
+- **The leaves** are `SESSION_ACTION_LEAVES` (§3 without `session.comment`: no
+  session method comments). Their rows, defaults, and rules are
+  `SHAREABLE_SESSION_ACTIONS` in `contracts/src/shareable-actions.ts`;
+  `customRoleActions` applies the rules on the host and in the dialog. A custom
+  link named without leaves gets `DEFAULT_LINK_ACTIONS`.
+- **Guest checkout reads.** `host.git.read` needs the link's `read.diffs` and
+  `host.files.read` its `read.files` (`GUEST_CHECKOUT_PERMISSIONS` in
+  `access-policy.ts`), checked live against the share rows.
+- **Suggestions** are `sessionSuggestions`, `sessionSuggest`,
+  `sessionSuggestionWithdraw`, and `sessionSuggestionDecide`, with the event
+  `session.suggestionsChanged`. They live in memory in `SessionSuggestions`
+  (`sharing/session-suggestions.ts`): a waiting suggestion does not survive a
+  host restart. Send calls the `prompt` handler as the decider, so the same gate
+  and path run as for a typed prompt.
+- **Expiry.** `acl_entry.expires_at`, `expiresInMs` on `shareSetLink` (host
+  clock), 24 h for a new link. A guest admitted before an expiry is set is ended
+  by a timer in `boot-server.ts` (`scheduleLinkExpiry`); one admitted after has
+  its socket end there.
+- **Links over plain HTTP.** `shareRoutesFor` offers the tunnel or the tailnet,
+  never a LAN address.
+- **Events** needed no new table: an event that names no resource never reaches
+  a guest (`eventVisibleTo`), and the checkout reaches a guest only through RPCs.
+  The transcript itself still shows what the agent's tools wrote, whatever the
+  leaves say.
+- **HTTP routes.** The signed-capability routes are minted over the RPC gate. A
+  guest's upload is held to `assertGuestAttachment` (an image's first bytes must
+  be its type; no SVG). The bearer routes (`/upload`, `/voice/transcribe`,
+  `/artifact`) were not reviewed in this change; they stay as they were.
+- **Clients.** Desktop and web: the share dialog's link row offers Custom for a
+  session, with one switch per leaf and a Lasts menu; the composer becomes
+  "Suggest a message" for a guest who may only propose (its toolbar is inert,
+  paste still attaches); the approval cards ask for `drive.approve`; suggestions
+  show under the queue with Send, Dismiss, and Withdraw. Mobile: the cards ask
+  for `drive.approve`, and suggestions show above the composer with Send and
+  Dismiss. Not built: a custom role for a named person in the dialog (the host
+  accepts one), link defaults in Settings, and a share sheet on mobile, which
+  had none before (`host-sharing.md` §8 step 5).
+- **Proof.** `tests/unit/access-policy.test.ts`, `share-manager.test.ts`,
+  `share-link-resolver.test.ts`, `session-suggestions.test.ts`,
+  `guest-attachments.test.ts`, `share-rows.test.ts`, `suggestion-rows.test.ts`,
+  `share-routes.test.ts`, and the Lab scenario `guest-roles` (both host flavors).

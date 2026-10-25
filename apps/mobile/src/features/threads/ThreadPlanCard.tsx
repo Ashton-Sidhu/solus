@@ -81,8 +81,8 @@ export function ThreadPlanCard(props: { readonly store: ConversationStore; reado
           {expanded ? "Show less" : "Show the whole plan"}
         </Text>
       </Pressable>
-      {pending && !props.store.controller.mayDrive ? <WaitingForEditor /> : null}
-      {pending && props.store.controller.mayDrive ? (
+      {pending && !props.store.controller.mayApprove ? <WaitingForEditor /> : null}
+      {pending && props.store.controller.mayApprove ? (
         <>
           <PlanNoteInput value={note} onChangeText={setNote} placeholder="Notes for the agent (optional)" />
           <View className="flex-row flex-wrap gap-2.5">
@@ -123,7 +123,7 @@ export function AgentPlanCard(props: { readonly store: ConversationStore; readon
       </Text>
       <Text className="font-t3-bold text-lg text-foreground">{props.plan.planTitle}</Text>
       {props.plan.content ? <ThreadMarkdown markdown={props.plan.content} tone="assistant" store={props.store} /> : null}
-      {!props.store.controller.mayDrive ? (
+      {!props.store.controller.mayApprove ? (
         <WaitingForEditor />
       ) : revising ? (
         <>

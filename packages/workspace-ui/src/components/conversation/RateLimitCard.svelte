@@ -43,7 +43,7 @@
 
   const isVisible = $derived(needsRateLimitDecision(sess));
   // The decision is an editor's; a member who may only read sees the limit.
-  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id));
+  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id, "drive.approve"));
   let now = $state(Date.now());
   const secondsLeft = $derived(
     resetsAt ? Math.max(0, Math.ceil(resetsAt - now / 1000)) : 0,

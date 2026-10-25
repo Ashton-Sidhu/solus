@@ -8,6 +8,7 @@
 import { z } from 'zod'
 import type { User } from './user'
 import { hostRouteSchema } from './host-routes'
+import { sessionActionLeafSchema } from './permissions'
 
 /**
  * What can be shared. A task's share reaches everything in it: the task page and
@@ -25,15 +26,23 @@ export type ShareResource = z.infer<typeof shareResourceSchema>
 
 /** `commenter` reads, comments, and gives a review decision on a work, but
  *  cannot edit it (docs/plans/work-review-and-live-editing.md). On a session
- *  or a task it is a viewer. */
-export const shareRoleSchema = z.enum(['viewer', 'commenter', 'editor'])
+ *  or a task it is a viewer. `custom` is a session's only: its entry lists the
+ *  actions it holds (docs/plans/custom-roles.md). */
+export const shareRoleSchema = z.enum(['viewer', 'commenter', 'editor', 'custom'])
 export type ShareRole = z.infer<typeof shareRoleSchema>
 
-/** What a principal may do with a resource, highest first. */
-export const resourceRoleSchema = z.enum(['none', 'viewer', 'commenter', 'editor', 'owner'])
+/**
+ * What a principal may do with a resource, highest first. `custom` sits above
+ * `none` and below `viewer`: it always reads the transcript, but no more unless its
+ * list says so, and it never shares.
+ */
+export const resourceRoleSchema = z.enum(['none', 'custom', 'viewer', 'commenter', 'editor', 'owner'])
 export type ResourceRole = z.infer<typeof resourceRoleSchema>
 
-const RESOURCE_ROLE_RANK = { none: 0, viewer: 1, commenter: 2, editor: 3, owner: 4 } as const satisfies Record<ResourceRole, number>
+const RESOURCE_ROLE_RANK = { none: 0, custom: 1, viewer: 2, commenter: 3, editor: 4, owner: 5 } as const satisfies Record<ResourceRole, number>
+
+/** The leaves a custom entry holds; absent for a preset. */
+const customActionsSchema = z.array(sessionActionLeafSchema).max(32)
 
 export function resourceRoleAtLeast(role: ResourceRole, required: ResourceRole): boolean {
   return RESOURCE_ROLE_RANK[role] >= RESOURCE_ROLE_RANK[required]
@@ -42,6 +51,11 @@ export function resourceRoleAtLeast(role: ResourceRole, required: ResourceRole):
 export function higherResourceRole(a: ResourceRole, b: ResourceRole): ResourceRole {
   return RESOURCE_ROLE_RANK[a] >= RESOURCE_ROLE_RANK[b] ? a : b
 }
+
+/** How long a link lasts from when it is written, or null for never: the dialog's choices. */
+export const LINK_LIFETIMES_MS = [60 * 60 * 1000, 24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000] as const
+export const DEFAULT_LINK_LIFETIME_MS = 24 * 60 * 60 * 1000
+const linkLifetimeSchema = z.number().int().positive().max(366 * 24 * 60 * 60 * 1000).nullable()
 
 /** A named subject: a person, a team, or the whole organization. */
 export const shareNamedSubjectSchema = z.discriminatedUnion('kind', [
@@ -66,6 +80,7 @@ export type ShareSubject = z.infer<typeof shareSubjectSchema>
 export const aclEntrySchema = z.object({
   subject: shareNamedSubjectSchema,
   role: shareRoleSchema,
+  actions: customActionsSchema.optional(),
   grantedByUserId: z.string().min(1),
   createdAt: z.number(),
 })
@@ -78,10 +93,18 @@ export const shareListSchema = z.object({
   entries: z.array(aclEntrySchema),
   /** The caller's own standing, so the client can hide what it cannot do. */
   callerRole: resourceRoleSchema,
+  /** The leaves the caller's custom entries give, beside `callerRole`. */
+  callerActions: customActionsSchema.optional(),
   /** A link exists (an `everyone` row). Its secret is here for the owner and editors, so
    *  the link is always at hand to copy; a viewer sees only that a link exists. Absent
-   *  on a row made before the host kept secrets: regenerate to get one. */
-  link: z.object({ role: shareRoleSchema, secret: z.string().min(1).optional() }).nullable(),
+   *  on a row made before the host kept secrets: regenerate to get one. `expiresAt` is
+   *  the host's clock; null never expires. */
+  link: z.object({
+    role: shareRoleSchema,
+    actions: customActionsSchema.optional(),
+    expiresAt: z.number().nullable(),
+    secret: z.string().min(1).optional(),
+  }).nullable(),
 })
 export type ShareList = z.infer<typeof shareListSchema>
 
@@ -94,15 +117,20 @@ export const shareSetRequestSchema = z.object({
   entries: z.array(z.object({
     subject: shareNamedSubjectSchema,
     role: shareRoleSchema,
+    actions: customActionsSchema.optional(),
   })).max(200),
-  link: z.object({ role: shareRoleSchema.nullable() }).optional(),
+  link: z.object({ role: shareRoleSchema.nullable(), actions: customActionsSchema.optional(), expiresInMs: linkLifetimeSchema.optional() }).optional(),
 })
 export type ShareSetRequest = z.infer<typeof shareSetRequestSchema>
 
-/** `shareSetLink`: `null` turns the link off; `regenerate` invalidates the old secret. */
+/** `shareSetLink`: `null` turns the link off; `regenerate` invalidates the old secret.
+ *  `expiresInMs` counts from the host's clock, never the client's; null never expires,
+ *  and absent keeps the link's expiry. A new link without it lasts `DEFAULT_LINK_LIFETIME_MS`. */
 export const shareSetLinkRequestSchema = z.object({
   resource: shareResourceSchema,
   role: shareRoleSchema.nullable(),
+  actions: customActionsSchema.optional(),
+  expiresInMs: linkLifetimeSchema.optional(),
   regenerate: z.boolean().optional(),
 })
 export type ShareSetLinkRequest = z.infer<typeof shareSetLinkRequestSchema>
@@ -110,6 +138,8 @@ export type ShareSetLinkRequest = z.infer<typeof shareSetLinkRequestSchema>
 /** The service stores the secret for editors to copy; admission compares its hash. */
 export const shareLinkSchema = z.object({
   role: shareRoleSchema,
+  actions: customActionsSchema.optional(),
+  expiresAt: z.number().nullable(),
   secret: z.string().min(1),
 })
 export type ShareLink = z.infer<typeof shareLinkSchema>
@@ -176,8 +206,8 @@ export const SHARE_LINK_UNKNOWN = 'SHARE_LINK_UNKNOWN'
  * guest with the link's role. So a link never gives a member less than a stranger.
  */
 export const shareLinkVisitorSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('member'), role: resourceRoleSchema }),
-  z.object({ kind: z.literal('guest'), role: shareRoleSchema }),
+  z.object({ kind: z.literal('member'), role: resourceRoleSchema, actions: customActionsSchema.optional() }),
+  z.object({ kind: z.literal('guest'), role: shareRoleSchema, actions: customActionsSchema.optional() }),
 ])
 export type ShareLinkVisitor = z.infer<typeof shareLinkVisitorSchema>
 

@@ -9,6 +9,10 @@ import type { ShareAccessError as ShareAccessErrorType, ShareChange, ShareManage
 import { hostUserKey } from '@solus/server/host/host-user'
 import { resetTestDatabase } from './helpers/test-db'
 import { seedResource } from './helpers/resource-rows'
+import { DEFAULT_LINK_LIFETIME_MS } from '@solus/contracts/sharing'
+
+/** A new link lasts a day from the manager's clock (`now: () => 1_000`). */
+const LINK_EXPIRES_AT = 1_000 + DEFAULT_LINK_LIFETIME_MS
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -406,11 +410,11 @@ describe('the link and guests', () => {
     const link = (await shares.setLink({ resource: session, role: 'viewer' }, member('alice')))!
     expect(link.secret.length).toBeGreaterThan(30)
     // The entry carries its resource's organization (organization-scope §3): the link a guest is admitted by names it.
-    expect(await shares.resolveLinkSecret(link.secret)).toEqual({ organizationId: 'org1', resource: session, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) })
+    expect(await shares.resolveLinkSecret(link.secret)).toEqual({ organizationId: 'org1', resource: session, role: 'viewer', expiresAt: LINK_EXPIRES_AT, sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) })
     expect(await shares.resolveLinkSecret('nope')).toBeNull()
-    expect((await shares.list(session, member('alice'))).link).toEqual({ role: 'viewer', secret: link.secret })
+    expect((await shares.list(session, member('alice'))).link).toEqual({ role: 'viewer', expiresAt: LINK_EXPIRES_AT, secret: link.secret })
     // Changing the role keeps the secret, and the answer is the link as it now stands.
-    expect(await shares.setLink({ resource: session, role: 'editor' }, member('alice'))).toEqual({ role: 'editor', secret: link.secret })
+    expect(await shares.setLink({ resource: session, role: 'editor' }, member('alice'))).toEqual({ role: 'editor', expiresAt: LINK_EXPIRES_AT, secret: link.secret })
     expect((await shares.resolveLinkSecret(link.secret))?.role).toBe('editor')
   })
 
@@ -428,7 +432,7 @@ describe('the link and guests', () => {
     expect(opened.share).toEqual((await shares.resolveLinkSecret(link.secret))!)
     expect(opened.runnerHostId).toBe('host-a')
     for (const principal of [member('alice'), member('bob', ['web']), member('carol'), member('dave'), member('erin', [], 'owner'), member('bob', ['web'], 'member', 'managed', 'org2')]) {
-      expect(opened.roleOf(principal)).toBe(await shares.roleFor(principal, session))
+      expect(opened.standingOf(principal)).toEqual(await shares.standingFor(principal, session))
     }
     expect(await shares.openLink('nope')).toBeNull()
 
@@ -436,7 +440,7 @@ describe('the link and guests', () => {
     const workLink = (await shares.setLink({ resource: { kind: 'work', id: 'w1' }, role: 'editor' }, member('alice')))!
     const work = (await shares.openLink(workLink.secret))!
     expect(work.runnerHostId).toBeNull()
-    expect(work.roleOf(member('alice'))).toBe('owner')
+    expect(work.standingOf(member('alice'))).toEqual({ role: 'owner' })
   })
 
   test('a guest is bound to its resource and loses access the moment the link is regenerated or removed', async () => {
@@ -471,22 +475,22 @@ describe('the link and guests', () => {
     await seed('work', 'w1', 'alice', 'org1')
     await shares.shareWithOrganization(work, member('alice'))
     const link = (await shares.setLink({ resource: work, role: 'viewer' }, member('alice')))!
-    expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'viewer', secret: link.secret })
-    expect((await shares.list(work, member('bob'))).link).toEqual({ role: 'viewer', secret: link.secret })
+    expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'viewer', expiresAt: LINK_EXPIRES_AT, secret: link.secret })
+    expect((await shares.list(work, member('bob'))).link).toEqual({ role: 'viewer', expiresAt: LINK_EXPIRES_AT, secret: link.secret })
     const viewingGuest: Principal = {
       kind: 'guest', guestId: 'g2', displayName: 'Vee', deviceId: 'g2', organizationId: 'org1',
       share: { resource: work, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) },
       expiresAt: 0, deviceLabel: 'Guest link',
     }
-    expect((await shares.list(work, viewingGuest)).link).toEqual({ role: 'viewer' })
-    expect(await shares.setLink({ resource: work, role: 'editor' }, member('alice'))).toEqual({ role: 'editor', secret: link.secret })
-    expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'editor', secret: link.secret })
+    expect((await shares.list(work, viewingGuest)).link).toEqual({ role: 'viewer', expiresAt: LINK_EXPIRES_AT })
+    expect(await shares.setLink({ resource: work, role: 'editor' }, member('alice'))).toEqual({ role: 'editor', expiresAt: LINK_EXPIRES_AT, secret: link.secret })
+    expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'editor', expiresAt: LINK_EXPIRES_AT, secret: link.secret })
     // An entry made before the host kept the secret answers that a link exists, and no more.
     const { aclEntry } = await import('@solus/server/sharing/schema')
     await database.getDatabase().run(sql`
       UPDATE ${aclEntry} SET link_secret = NULL WHERE resource_kind = 'work' AND resource_id = 'w1' AND subject_kind = 'everyone'
     `)
-    expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'editor' })
+    expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'editor', expiresAt: LINK_EXPIRES_AT })
   })
 
   test('a member never holds less than the link: the host raises or makes the organization entry', async () => {
@@ -541,6 +545,88 @@ describe('the link and guests', () => {
     await seed('session', 's1', 'alice', 'org1')
     expect(await shares.roleFor(member('alice'), { kind: 'session', id: 's1' })).toBe('owner')
     expect(await shares.homeOf({ kind: 'session', id: 'thread-1' })).toBeNull()
+  })
+})
+
+describe('custom roles and link expiry (docs/plans/custom-roles.md)', () => {
+  const customGuest = (secretHash: string): Principal => ({
+    kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', organizationId: 'org1',
+    share: { resource: { kind: 'session', id: 's1' }, role: 'custom', sharedByUserId: 'alice', linkSecretHash: secretHash },
+    expiresAt: 0, deviceLabel: 'Guest link',
+  })
+
+  test('a custom link holds what the rules allow: the transcript always, and attach or approve only with what they need', async () => {
+    // WHY (§4): the host applies the rows' rules, so a client cannot store a role
+    // that approves without prompting, or attaches with nothing to attach to.
+    const { shares } = manager()
+    const session = { kind: 'session', id: 's1' } as const
+    await seed('session', 's1', 'alice', 'org1')
+    const link = (await shares.setLink({ resource: session, role: 'custom', actions: ['drive.approve', 'drive.attach', 'read.diffs'] }, member('alice')))!
+    expect(link.actions).toEqual(['read.transcript', 'read.diffs'])
+    const maya = customGuest(hashLinkSecret(link.secret))
+    expect(await shares.standingFor(maya, session)).toEqual({ role: 'custom', actions: ['read.transcript', 'read.diffs'] })
+    // The list says the same to the sharer, with the expiry.
+    expect((await shares.list(session, member('alice'))).link).toMatchObject({ role: 'custom', actions: ['read.transcript', 'read.diffs'], expiresAt: LINK_EXPIRES_AT })
+    // Changing the leaves keeps the secret and its guests.
+    const widened = (await shares.setLink({ resource: session, role: 'custom', actions: ['drive.prompt', 'drive.approve'] }, member('alice')))!
+    expect(widened.secret).toBe(link.secret)
+    expect(await shares.standingFor(maya, session)).toEqual({ role: 'custom', actions: ['read.transcript', 'drive.prompt', 'drive.approve'] })
+  })
+
+  test('only a session has a custom role', async () => {
+    const { shares } = manager()
+    await seed('work', 'w1', 'alice', 'org1')
+    await expect(shares.setLink({ resource: { kind: 'work', id: 'w1' }, role: 'custom', actions: ['read.transcript'] }, member('alice'))).rejects.toThrow(/Only a session/)
+  })
+
+  test('an expired link opens nothing and admits no one; setting a new expiry opens it again with the same secret', async () => {
+    // WHY (§9): a link left in a chat must stop working on its own. The secret is
+    // the whole credential, so expiry is checked where it is resolved and where it is held.
+    let now = 1_000
+    const shares = new ShareManager({ db: database.getDatabase(), now: () => now })
+    const session = { kind: 'session', id: 's1' } as const
+    await seed('session', 's1', 'alice', 'org1')
+    const link = (await shares.setLink({ resource: session, role: 'viewer', expiresInMs: 60 * 60 * 1000 }, member('alice')))!
+    expect(link.expiresAt).toBe(1_000 + 60 * 60 * 1000)
+    const maya = customGuest(hashLinkSecret(link.secret))
+    expect(await shares.roleFor(maya, session)).toBe('viewer')
+    now += 60 * 60 * 1000
+    expect(await shares.resolveLinkSecret(link.secret)).toBeNull()
+    expect(await shares.openLink(link.secret)).toBeNull()
+    expect(await shares.roleFor(maya, session)).toBe('none')
+    expect(await shares.filterVisible(maya, 'session', [{ id: 's1' }], (row) => row.id)).toEqual([])
+    const reopened = (await shares.setLink({ resource: session, role: 'viewer', expiresInMs: null }, member('alice')))!
+    expect(reopened).toMatchObject({ secret: link.secret, expiresAt: null })
+    expect(await shares.roleFor(maya, session)).toBe('viewer')
+  })
+
+  test('a member is held at the least preset that covers a custom link: a link that drives makes the organization an editor', async () => {
+    // WHY: a member never holds less than a stranger with the link, and a member's
+    // standing is always a named role they can read in the dialog.
+    const { shares } = manager()
+    const session = { kind: 'session', id: 's1' } as const
+    await seed('session', 's1', 'alice', 'org1')
+    await shares.setLink({ resource: session, role: 'custom', actions: ['read.diffs'] }, member('alice'))
+    expect(await shares.roleFor(member('bob'), session)).toBe('viewer')
+    await shares.setLink({ resource: session, role: 'custom', actions: ['drive.propose'] }, member('alice'))
+    expect(await shares.roleFor(member('bob'), session)).toBe('editor')
+  })
+
+  test('the mirror carries the leaves and the expiry, and the Solus API holds them as the host does', async () => {
+    // WHY (host-sharing.md §2): the API admits a guest from its copy when the host is
+    // offline; a copy without the leaves would admit them as nothing, or as more.
+    const { shares } = manager()
+    const session = { kind: 'session', id: 's1' } as const
+    await seed('session', 's1', 'alice', 'org1')
+    const link = (await shares.setLink({ resource: session, role: 'custom', actions: ['drive.prompt'] }, member('alice')))!
+    const rows = await shares.mirroredRows(session)
+    expect(rows.find((row) => row.subjectKind === 'everyone')).toMatchObject({ role: 'custom', actions: ['read.transcript', 'drive.prompt'], expiresAt: LINK_EXPIRES_AT })
+    await seed('session', 's2', 'alice', 'org1')
+    const copy = { kind: 'session', id: 's2' } as const
+    await shares.applyMirroredRows('org1', { resource: copy, rows: rows.map((row) => row.subjectKind === 'everyone' ? { ...row, actions: [...(row.actions ?? []), 'drive.from-a-newer-host'] } : row) })
+    const guestOfCopy: Principal = { ...customGuest(hashLinkSecret(link.secret)), share: { resource: copy, role: 'custom', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) } }
+    // A leaf this build does not know is dropped, never held.
+    expect(await shares.standingFor(guestOfCopy, copy)).toEqual({ role: 'custom', actions: ['read.transcript', 'drive.prompt'] })
   })
 })
 

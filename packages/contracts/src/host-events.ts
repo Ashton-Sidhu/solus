@@ -54,6 +54,8 @@ export interface HostEventMap {
    *  mounted surface adopts the boundary so reading on one device clears the
    *  indicator on the rest. `viewedAt` is null when the session is unread. */
   'session.readStateChanged': { sessionId: string; viewedAt: number | null }
+  /** A suggestion on this session was made, sent, dismissed, or withdrawn. Clients read `sessionSuggestions`. */
+  'session.suggestionsChanged': { sessionId: string }
   /** The pull requests linked to this session changed, or PR sync saw one of
    *  them change. Clients read `sessionPullRequestsList` for the session. */
   'session.pullRequestsChanged': { sessionId: string }
@@ -222,6 +224,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.transcriptChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud transcript changed.' },
   'session.statusChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session changed live status.' },
   'session.readStateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was read or returned to unread on some client.' },
+  'session.suggestionsChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A suggestion on a session was made, sent, dismissed, or withdrawn.' },
   'setup.statusChanged': { owner: 'setup', category: 'targeted', recovery: 'reset', description: 'A host setup step changed status.' },
   'setup.logAppended': { owner: 'setup', category: 'stream', recovery: 'reset', description: 'A host setup step appended output.' },
   'voice.modelStatusChanged': { owner: 'voice', category: 'snapshot', recovery: 'reload', description: 'The host voice model changed status.' },

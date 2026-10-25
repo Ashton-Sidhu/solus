@@ -23,7 +23,7 @@ import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../execution/agents/agent-runner'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { linkSessionPullRequest, sessionsOfPullRequest } from '../../data/sessions/session-pull-requests'
-import { roleAllows } from '@solus/contracts/permissions'
+import { standingAllows } from '@solus/contracts/permissions'
 import type { ResourceAccess } from '../../admission/access-policy'
 import { completeTasksForMergedPullRequest } from '../../data/tasks/sync-engine'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
@@ -100,8 +100,8 @@ interface PullRequestCaller {
 async function assertMayChangePullRequest(caller: PullRequestCaller, repository: string, number: number): Promise<void> {
   const sessionIds = await sessionsOfPullRequest(repository, number)
   if (!sessionIds.length) return
-  const roles = await Promise.all(sessionIds.map((id) => caller.resources.roleFor(caller.principal, { kind: 'session', id })))
-  if (!roles.some((role) => roleAllows(role, 'edit'))) {
+  const standings = await Promise.all(sessionIds.map((id) => caller.resources.standingFor(caller.principal, { kind: 'session', id })))
+  if (!standings.some((standing) => standingAllows(standing, 'edit'))) {
     throw new Error('This pull request is part of a session you cannot change.')
   }
 }

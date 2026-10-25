@@ -21,7 +21,7 @@
   const api = $derived(session.apiFor(tabId));
   const sess = $derived(session.sessionFor(tabId));
   // The decision is an editor's; a member who may only read sees the plan alone.
-  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id));
+  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id, "drive.approve"));
 
   let revising = $state(false);
   let comment = $state("");

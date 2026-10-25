@@ -112,6 +112,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
       answer.displayName = principal.displayName
       answer.userId = principal.accountUserId
       answer.share = { resource: principal.share.resource, role: principal.share.role }
+      if (principal.share.actions) answer.share.actions = principal.share.actions
     }
     // A client that just came back after a drop learns if this host froze (docs/mobile-connections.md).
     const stall = recentEventLoopStall()

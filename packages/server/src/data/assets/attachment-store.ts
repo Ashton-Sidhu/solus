@@ -72,6 +72,34 @@ function safeFileName(name: string): string {
   return leaf.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 96) || 'attachment'
 }
 
+/** The first bytes of each image type a guest may upload. */
+const IMAGE_SIGNATURES: ReadonlyArray<{ mime: string; matches: (head: Uint8Array) => boolean }> = [
+  { mime: 'image/png', matches: (head) => [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((byte, index) => head[index] === byte) },
+  { mime: 'image/jpeg', matches: (head) => head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff },
+  { mime: 'image/gif', matches: (head) => head[0] === 0x47 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x38 },
+  { mime: 'image/webp', matches: (head) => String.fromCharCode(...head.slice(0, 4)) === 'RIFF' && String.fromCharCode(...head.slice(8, 12)) === 'WEBP' },
+]
+
+/**
+ * What a link guest may upload (docs/plans/custom-roles.md §8): an image only
+ * when its first bytes are the type it claims, and never an image type that can
+ * carry script, such as SVG. Any other file is stored as bytes; nothing on the
+ * host runs it, and assets are served with `nosniff` and a closed CSP.
+ */
+export function assertGuestAttachment(mime: string, head: Uint8Array): void {
+  const signature = guestImageSignature(mime)
+  if (signature && !signature.matches(head)) throw new Error('This file is not the image type it claims to be.')
+}
+
+/** The type check alone, before the bytes arrive: a guest's image must be one of the types it may send. */
+export function guestImageSignature(mime: string): (typeof IMAGE_SIGNATURES)[number] | null {
+  const type = mime.toLowerCase()
+  if (!type.startsWith('image/')) return null
+  const signature = IMAGE_SIGNATURES.find((candidate) => candidate.mime === type)
+  if (!signature) throw new Error('A guest can attach PNG, JPEG, GIF, or WebP images.')
+  return signature
+}
+
 export function assertAttachmentMime(mime: string): void {
   if (!/^[a-z0-9][a-z0-9!#$&^_.+/-]{0,126}$/i.test(mime)) {
     throw new Error('Invalid attachment MIME type.')

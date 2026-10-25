@@ -22,7 +22,7 @@ const auth = await import('@solus/server/admission/auth')
 // organization makes a member, so no page can name itself into another organization.
 
 const SECRET = 's'.repeat(32)
-const LINK: ResolvedLinkShare = { organizationId: 'org_a', resource: { kind: 'session', id: 'sess1' }, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: 'h' }
+const LINK: ResolvedLinkShare = { organizationId: 'org_a', resource: { kind: 'session', id: 'sess1' }, role: 'viewer', expiresAt: null, sharedByUserId: 'alice', linkSecretHash: 'h' }
 const now = Math.floor(Date.now() / 1000)
 const base = { iss: 'https://app.example.test', aud: SOLUS_API_AUDIENCE, jti: 'j', iat: now, exp: now + 300, client_id: 'solus-web' }
 const TOKENS: { [token: string]: AccessTokenClaims } = {
@@ -68,9 +68,9 @@ describe('the share link door', () => {
             ? {
                 share: LINK,
                 runnerHostId: 'host_a',
-                roleOf: (principal) => {
+                standingOf: (principal) => {
                   askedFor.push(principal)
-                  return 'editor'
+                  return { role: 'editor' }
                 },
               }
             : null),

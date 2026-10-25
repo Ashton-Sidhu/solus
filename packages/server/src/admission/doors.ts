@@ -95,6 +95,8 @@ export async function guestPrincipalFor(
 ): Promise<Admission> {
   const share = await resolveShareSecret(secret)
   if (!share) return { ok: false, reason: 'not-shared' }
+  const bound: Extract<Principal, { kind: 'guest' }>['share'] = { resource: share.resource, role: share.role, sharedByUserId: share.sharedByUserId, linkSecretHash: share.linkSecretHash }
+  if (share.actions) bound.actions = share.actions
   return {
     ok: true,
     principal: {
@@ -103,8 +105,9 @@ export async function guestPrincipalFor(
       guestId,
       displayName: normalizeDisplayName(displayName) ?? 'Guest',
       deviceId: guestId,
-      share: { resource: share.resource, role: share.role, sharedByUserId: share.sharedByUserId, linkSecretHash: share.linkSecretHash },
-      expiresAt: Date.now() + GUEST_VISIT_TTL_MS,
+      share: bound,
+      // The transport ends the socket here: at the end of the visit, or when the link expires first.
+      expiresAt: Math.min(Date.now() + GUEST_VISIT_TTL_MS, share.expiresAt ?? Number.POSITIVE_INFINITY),
       deviceLabel: GUEST_DEVICE_LABEL,
     },
   }

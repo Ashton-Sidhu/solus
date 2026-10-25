@@ -3,6 +3,10 @@
 Status: decided 2026-10-09; steps 1 to 4 of §8 done the same day, and the guest
 workspace (§10) with `permissions.md`; steps 5 and 6 open. Replaces `cloud-sharing.md` for sessions and the link rules of
 `organization-scope.md` §4. The decisions are in §9; §8 is the order.
+On 2026-10-25 a session link gained a custom role, an expiry, and suggestions,
+and lost LAN routes (`custom-roles.md`; its §14 is the current shape). Where
+this plan says a link has a viewer, commenter, or editor role, a session link
+can also have a custom one.
 
 Where it lives:
 
@@ -231,6 +235,11 @@ check moves to the named options inside the dialog. The task stays unshareable (
 Who may share: the owner and editors, as today (`callerRole`).
 
 ## 6. Roles and invites
+
+A session link's role can be `custom`: the sharer picks its leaves
+(`custom-roles.md` §3, §4). An email invite to a person outside the
+organization is out of scope (decided 2026-10-25, `custom-roles.md` §13); that
+person uses a link.
 
 A visitor's role is what `roleOf` gives them (`access-model.md` §2.3): `owner`
 when the resource's `owner_key` names them, else the best entry that admits

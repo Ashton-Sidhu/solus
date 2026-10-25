@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
+import { DEFAULT_LINK_ACTIONS } from '@solus/contracts/shareable-actions'
 import type { ResourceRole, ShareResource } from '@solus/contracts/sharing'
 import { GUEST_PERMISSIONS, RESOURCE_LOCATORS, RpcAccessError, assertRpcAccess, authorize, permissionsFor } from '@solus/server/admission/access-policy'
-import { RESOURCE_VERB_OF_METHOD, permissionsAllow, permissionOf, isResourceMethod } from '@solus/contracts/permissions'
+import { RESOURCE_ACTION_OF_METHOD, SESSION_ACTION_LEAVES, permissionsAllow, permissionOf, isResourceMethod, standingAllows, type ResourceMethod, type SessionActionLeaf } from '@solus/contracts/permissions'
 import type { Principal } from '@solus/server/admission/principal'
 import { resetApiModeForTests } from '@solus/server/host/api-mode'
 
@@ -20,7 +21,12 @@ const GUEST: Principal = { kind: 'guest', guestId: 'g1', displayName: 'Maya', de
 
 /** A share table in one line: `kind:id` → role for the calling principal. */
 function resources(roles: Record<string, ResourceRole>) {
-  return { roleFor: async (_principal: Principal, resource: ShareResource) => roles[`${resource.kind}:${resource.id}`] ?? 'none' }
+  return { standingFor: async (_principal: Principal, resource: ShareResource) => ({ role: roles[`${resource.kind}:${resource.id}`] ?? 'none' }) }
+}
+
+/** One session whose caller holds a custom role with these leaves. */
+function customOn(sessionId: string, actions: SessionActionLeaf[]) {
+  return { standingFor: async (_principal: Principal, resource: ShareResource) => (resource.kind === 'session' && resource.id === sessionId ? { role: 'custom' as const, actions } : { role: 'none' as const }) }
 }
 
 const ctx = (sessionId: string) => ({ session: { sessionId, provider: null, agentSessionId: null }, window: {}, settings: {}, statusBar: {} })
@@ -31,7 +37,7 @@ describe('the action tables', () => {
       // A resource method has a verb and a locator; a host method has an action and neither.
       expect(isResourceMethod(method) ? method in RESOURCE_LOCATORS && permissionOf(method) === null : typeof permissionOf(method) === 'string').toBe(true)
     }
-    expect(Object.keys(RESOURCE_LOCATORS).sort()).toEqual(Object.keys(RESOURCE_VERB_OF_METHOD).sort())
+    expect(Object.keys(RESOURCE_LOCATORS).sort()).toEqual(Object.keys(RESOURCE_ACTION_OF_METHOD).sort())
     // A method that names a session or a work in its name must carry a resource verb
     // unless it is a catalog read (listSessions, listWorks) or a creation. A workflow run is not a work.
     // `tasksPrepareForSession` binds a task before any session exists; the others list or create.
@@ -68,7 +74,7 @@ describe('authorize, the one decision', () => {
       ['configUpdate', MEMBER, [{}], 'host.admin', null],
       ['configUpdate', OWNER, [{}], 'host.admin', null],
       ['gitRunAction', GUEST, [ctx('s1')], 'host.git.write', null],
-      ['attachFiles', GUEST, [null], 'drive', null],
+      ['attachFiles', GUEST, [null], 'host.local.window', null],
     ]
     for (const [method, principal, args, action, resource] of cases) {
       const refusal = await authorize(principal, action, resource, { name: method, resources: table, managed: false })
@@ -182,6 +188,106 @@ describe('resource calls', () => {
   })
 })
 
+describe('custom roles (docs/plans/custom-roles.md)', () => {
+  const sessionMethods = (Object.keys(RESOURCE_ACTION_OF_METHOD) as ResourceMethod[]).filter((method) => RESOURCE_LOCATORS[method]([ctx('s1')])?.kind === 'session' || RESOURCE_ACTION_OF_METHOD[method].includes('.'))
+
+  test('every session method names a leaf, so a custom role reaches only what it lists', () => {
+    // WHY (§3): a method that named a parent such as `drive` would be held by every
+    // custom role that holds any leaf under it, or by none; either way the owner's
+    // choice would not decide.
+    for (const method of sessionMethods) {
+      const action = RESOURCE_ACTION_OF_METHOD[method]
+      if (['edit', 'share', 'own'].includes(action)) continue
+      expect(SESSION_ACTION_LEAVES as readonly string[]).toContain(action)
+    }
+  })
+
+  test('a link with the default role is refused every session method its role does not list, and passes every one it does', async () => {
+    // WHY: the default is what a sharer gets without reading the rows. It goes through
+    // the whole table, so a new session method is covered the day it is added.
+    const table = customOn('s1', [...DEFAULT_LINK_ACTIONS])
+    const defaultGuest: Principal = { ...GUEST, share: { ...GUEST.share, role: 'custom', actions: [...DEFAULT_LINK_ACTIONS] } }
+    for (const method of sessionMethods) {
+      const action = RESOURCE_ACTION_OF_METHOD[method]
+      const args = method === 'shareSet' || method === 'shareSetLink' || method === 'shareGet' || method === 'shareTransfer'
+        ? [{ resource: { kind: 'session', id: 's1' } }]
+        : [ctx('s1'), 's1']
+      const located = RESOURCE_LOCATORS[method](args)
+      if (located?.kind !== 'session' || located.id !== 's1') continue
+      const allowed = standingAllows({ role: 'custom', actions: DEFAULT_LINK_ACTIONS }, action)
+      const gate = assertRpcAccess(method, defaultGuest, args, table, false)
+      if (allowed) await expect(gate).resolves.toBeUndefined()
+      else await expect(gate).rejects.toThrow(RpcAccessError)
+    }
+    // The ones that matter most, by name.
+    for (const method of ['prompt', 'respondPermission', 'respondQuestion', 'acceptPlan', 'deviceOpen', 'mcpAppCallTool'] as const) {
+      await expect(assertRpcAccess(method, defaultGuest, [ctx('s1'), 's1'], table, false)).rejects.toThrow(RpcAccessError)
+    }
+    for (const method of ['watchSession', 'diff', 'sessionSuggest', 'attachUpload'] as const) {
+      await expect(assertRpcAccess(method, defaultGuest, method === 'watchSession' ? [{ sessionId: 's1' }] : [ctx('s1'), {}], table, false)).resolves.toBeUndefined()
+    }
+  })
+
+  test('approving the agent takes its own leaf: prompting alone never approves', async () => {
+    // WHY: an approval runs commands on the owner's machine. It is the owner's
+    // separate choice, so a guest who may prompt cannot approve its own tool call.
+    const prompts = customOn('s1', ['read.transcript', 'drive.prompt'])
+    await expect(assertRpcAccess('prompt', GUEST, [ctx('s1'), {}], prompts, false)).resolves.toBeUndefined()
+    await expect(assertRpcAccess('respondPermission', GUEST, [ctx('s1'), 's1', 'q', 'allow'], prompts, false)).rejects.toThrow(/session\.drive\.approve/)
+    const approves = customOn('s1', ['read.transcript', 'drive.prompt', 'drive.approve'])
+    await expect(assertRpcAccess('respondPermission', GUEST, [ctx('s1'), 's1', 'q', 'allow'], approves, false)).resolves.toBeUndefined()
+  })
+
+  test('a preset holds every leaf under its verbs, including one added later; a viewer drives nothing', () => {
+    // WHY (§4): members keep exactly what they had. An editor holds `drive`, so every
+    // drive leaf; a viewer holds `read`, so every read leaf and no drive leaf.
+    for (const leaf of SESSION_ACTION_LEAVES) {
+      expect(standingAllows({ role: 'editor' }, leaf)).toBe(true)
+      expect(standingAllows({ role: 'viewer' }, leaf)).toBe(leaf.startsWith('read.'))
+    }
+    expect(standingAllows({ role: 'viewer' }, 'drive.later-leaf' as SessionActionLeaf)).toBe(false)
+    expect(standingAllows({ role: 'editor' }, 'drive.later-leaf' as SessionActionLeaf)).toBe(true)
+    // A custom role holds only its listed leaves, never a later one.
+    expect(standingAllows({ role: 'custom', actions: ['read.transcript', 'drive.prompt'] }, 'drive.later-leaf' as SessionActionLeaf)).toBe(false)
+  })
+
+  test("a guest reads the shared checkout's files only when its link holds `read.files`, and its git only with `read.diffs`", async () => {
+    // WHY (§3): the checkout is the session's, so its link decides. A link that shows
+    // only the conversation must not open the files pane by another door.
+    const watchOnly = customOn('s1', ['read.transcript'])
+    for (const method of ['listProjectFiles', 'readProjectFile', 'searchFiles', 'gitRefreshState'] as const) {
+      await expect(assertRpcAccess(method, GUEST, [ctx('s1')], watchOnly, false)).rejects.toThrow(RpcAccessError)
+    }
+    const filesAndDiffs = customOn('s1', ['read.transcript', 'read.files', 'read.diffs'])
+    for (const method of ['listProjectFiles', 'readProjectFile', 'searchFiles', 'gitRefreshState'] as const) {
+      await expect(assertRpcAccess(method, GUEST, [ctx('s1')], filesAndDiffs, false)).resolves.toBeUndefined()
+    }
+    // A member's host permissions do not depend on any link.
+    await expect(assertRpcAccess('readProjectFile', MEMBER, [ctx('s1')], resources({}), false)).resolves.toBeUndefined()
+  })
+})
+
+describe('the host machine itself', () => {
+  test('a native picker, a host path, a screen capture, and a paste act on the host machine: only its local window may call them', async () => {
+    // WHY (custom-roles.md D5): these read the host's own screen and disk. A role on a
+    // session must never reach them, or a guest who may prompt could capture the owner's
+    // screen or read any image on their disk by naming the shared session.
+    const editor = resources({ 'session:s1': 'editor' })
+    const REMOTE_OWNER: Principal = { kind: 'owner', via: 'grant', userId: 'alice', deviceId: 'd2', expiresAt: 0, deviceLabel: 'iPhone' }
+    const calls: Array<[Parameters<typeof assertRpcAccess>[0], unknown[]]> = [
+      ['takeScreenshot', [ctx('s1')]], ['attachFiles', [ctx('s1')]],
+      ['attachFilePaths', [['/etc/hosts'], ctx('s1')]], ['pasteImage', ['data:image/png;base64,AA==', ctx('s1')]],
+    ]
+    for (const [method, args] of calls) {
+      expect(permissionOf(method)).toBe('host.local.window')
+      await expect(assertRpcAccess(method, GUEST, args, editor, false)).rejects.toThrow(RpcAccessError)
+      await expect(assertRpcAccess(method, MEMBER, args, editor, false)).rejects.toThrow(RpcAccessError)
+      await expect(assertRpcAccess(method, REMOTE_OWNER, args, editor, false)).rejects.toThrow(RpcAccessError)
+      await expect(assertRpcAccess(method, OWNER, args, editor, false)).resolves.toBeUndefined()
+    }
+  })
+})
+
 describe('guests', () => {
   test('a guest reaches its one resource with its role, the reads its workspace needs, and nothing else', async () => {
     // WHY (host-sharing.md, permissions.md): a guest gets the real workspace, so it reads the agents,
@@ -192,7 +298,7 @@ describe('guests', () => {
     for (const method of ['connectionsGetServerInfo', 'start', 'modelProfilesStatus', 'pinnedSessionsList', 'gitRefreshState', 'listProjectFiles', 'readProjectFile'] as const) {
       await expect(assertRpcAccess(method, GUEST, [], table)).resolves.toBeUndefined()
     }
-    for (const method of ['listWorks', 'listProjects', 'writeFile', 'mutateProjectFile', 'gitRunAction', 'openWorktreeTerminal', 'usageLimits', 'configGet', 'createHeadlessSession'] as const) {
+    for (const method of ['listProjects', 'writeFile', 'mutateProjectFile', 'gitRunAction', 'openWorktreeTerminal', 'usageLimits', 'configGet', 'createHeadlessSession'] as const) {
       await expect(assertRpcAccess(method, GUEST, [], table)).rejects.toThrow(/not available to a guest/)
     }
   })

@@ -7,7 +7,7 @@
   import InputBar from "./InputBar.svelte";
   import InputBarHeader from "./InputBarHeader.svelte";
   import InputToolbar from "./InputToolbar.svelte";
-  import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
+  import { sessionComposerMode, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
   import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import HostUnavailable from "../conversation/HostUnavailable.svelte";
@@ -49,10 +49,11 @@
   const sess = $derived(session.sessionFor(targetTabId));
   const started = $derived(hasSessionStarted(sess));
   // A member who may only read a shared session gets an inert toolbar too: the
-  // host refuses an attachment, a screenshot, or a run change from them.
+  // host refuses an attachment, a screenshot, or a run change from them. A guest
+  // who may only suggest types and pastes, but changes nothing about the run.
+  const composerMode = $derived(sess ? sessionComposerMode(runHost(sess.run), sess.id) : "prompt");
   const effectiveReadOnlyReason = $derived(
-    readOnlyReason ??
-      (sess && !canDriveSession(runHost(sess.run), sess.id) ? VIEW_ONLY_REASON : null),
+    readOnlyReason ?? (composerMode === "view" ? VIEW_ONLY_REASON : null),
   );
   let prompt = $derived(session.inputFor(targetTabId));
   const hostState = $derived(sess ? serversStore.readinessFor(runHost(sess.run)) : null);
@@ -141,7 +142,7 @@
           showDestination={false}
           tabId={targetTabId}
           {isPrimary}
-          readOnly={!!effectiveReadOnlyReason}
+          readOnly={!!effectiveReadOnlyReason || composerMode === "suggest"}
           {onAttachFile}
           {onScreenshot}
           {trailingActions}

@@ -46,6 +46,7 @@ import { PendingApprovalCard } from "./PendingApprovalCard";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { AgentPlanCard } from "./ThreadPlanCard";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
+import { ThreadSuggestionsCard } from "./ThreadSuggestionsCard";
 import { FLOATING_WORKING_CONTROL_COVERAGE, FloatingWorkingControl } from "./floating-working-control";
 import { backgroundFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
@@ -187,6 +188,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const turnActive = isSessionBusyStatus(meta.status);
   // A reader the session is shared with to view cannot prompt or stop it (docs/plans/access-model.md §2.7).
   const mayDrive = store.controller.mayDrive;
+  // Answering the agent's cards is its own action, apart from prompting (docs/plans/custom-roles.md §3).
+  const mayApprove = store.controller.mayApprove;
   // A settled turn can leave background work running; Stop ends it too.
   const canStop = mayDrive && (turnActive || meta.status === "background");
   const working = isWorkingStatus(meta.status);
@@ -587,6 +590,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 </Animated.View>
               ) : null}
               {meta.rateLimit && hostChrome.showsRequestCards ? <UsageLimitRecoveryCard store={store} rateLimit={meta.rateLimit} /> : null}
+              {activeUserInputRequestId === null ? <ThreadSuggestionsCard controller={store.controller} /> : null}
               {meta.agentPlans.length > 0 && activeUserInputRequestId === null && hostChrome.showsRequestCards ? (
                 <Animated.View
                   className="shrink-0 gap-3 px-4 pb-3"
@@ -614,7 +618,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     <PendingApprovalCard
                       approval={activePendingApproval}
                       respondingApprovalId={respondingRequestId}
-                      mayDrive={mayDrive}
+                      mayDrive={mayApprove}
                       onRespond={answerPermission}
                     />
                   ) : null}
@@ -628,7 +632,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       onToggleCollapsed={handleToggleUserInputCollapsed}
                       onStopThread={canStop ? stopThread : undefined}
                       responding={respondingRequestId === activePendingUserInput.questionId}
-                      mayDrive={mayDrive}
+                      mayDrive={mayApprove}
                       onSubmit={answerQuestion}
                       onUnsentRemarks={store.returnRemarksToDraft}
                     />

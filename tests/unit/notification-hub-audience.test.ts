@@ -1,4 +1,4 @@
-import { permissionOf, isResourceMethod, resourceVerbOf } from '@solus/contracts/permissions'
+import { permissionOf, isResourceMethod, resourceActionPathOf } from '@solus/contracts/permissions'
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { Principal } from '@solus/server/admission/principal'
@@ -49,7 +49,7 @@ describe('notification event audience', () => {
     // WHY (docs/plans/access-model.md §2.3.1): a notification is a personal resource; marking one takes its owner, the recipient.
     for (const method of ['notificationsSetRead', 'notificationsSetArchived'] as const) {
       expect(isResourceMethod(method)).toBe(true)
-      expect(resourceVerbOf(method)).toBe('edit')
+      expect(resourceActionPathOf(method)).toBe('edit')
     }
   })
 })

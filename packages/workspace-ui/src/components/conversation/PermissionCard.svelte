@@ -50,7 +50,7 @@
   const session = getWorkspaceContext()
   const sess = $derived(session.sessionFor(tabId))
   // A member who may only read the session sees the request, not the answers.
-  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id))
+  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id, "drive.approve"))
   let responded = $state(false)
   // The host closed it unanswered (its run ended), or this click was sent.
   const closed = $derived(responded || !!permission.expired)

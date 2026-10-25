@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { hostKindSchema, organizationRoleSchema, type AccessTokenClaims, type HostKind } from '@solus/contracts/uplink'
 import { shareResourceSchema, shareRoleSchema, type ShareResource, type ShareRole } from '@solus/contracts/sharing'
+import { sessionActionLeafSchema, type SessionActionLeaf } from '@solus/contracts/permissions'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../host/host-category'
 import { isOrganizationAttached } from '../host/organization-attachment'
@@ -65,7 +66,7 @@ export type Principal =
       /** The guestId: what the transport keys the client on. */
       deviceId: string
       /** A task resource reaches the task page and everything linked to it. */
-      share: { resource: ShareResource; role: ShareRole; sharedByUserId: string; linkSecretHash: string }
+      share: { resource: ShareResource; role: ShareRole; actions?: readonly SessionActionLeaf[]; sharedByUserId: string; linkSecretHash: string }
       expiresAt: number
       deviceLabel: string
     }
@@ -123,6 +124,7 @@ export const principalSchema: z.ZodType<Principal> = z.union([
     share: z.object({
       resource: shareResourceSchema,
       role: shareRoleSchema,
+      actions: z.array(sessionActionLeafSchema).optional(),
       sharedByUserId: z.string(),
       linkSecretHash: z.string(),
     }),

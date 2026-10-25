@@ -50,6 +50,10 @@ export const RPC_PLANES = {
   editQueuedPrompt: 'execution',
   sessionQueue: 'execution',
   sessionQueueChange: 'execution',
+  sessionSuggestions: 'execution',
+  sessionSuggest: 'execution',
+  sessionSuggestionWithdraw: 'execution',
+  sessionSuggestionDecide: 'execution',
   writePlanFile: 'execution',
 
   // Files / media
