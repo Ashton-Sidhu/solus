@@ -46,11 +46,13 @@ interface TestElementInput {
   source?: { file: string; line: number; column: number }
 }
 
-function overlay() {
+function overlay(contentType = 'text/html') {
   const dom = new JSDOM('<!doctype html><html><body><main></main></body></html>', {
     runScripts: 'outside-only',
   })
   const { window } = dom
+  // jsdom only builds HTML and XML documents; Chromium's PDF viewer page reports this.
+  Object.defineProperty(window.document, 'contentType', { value: contentType })
   Object.defineProperty(window, 'requestAnimationFrame', {
     value: (callback: FrameRequestCallback) => {
       callback(0)
@@ -345,6 +347,53 @@ describe('the rest of the annotation tools', () => {
     page.move(90, 90)
     page.up(90, 90)
     expect(page.arm('select').annotations).toHaveLength(0)
+  })
+})
+
+/**
+ * Chromium draws a PDF in its own viewer frame, and that frame takes every
+ * pointer event over it, so the overlay's window listeners never hear a
+ * gesture. A transparent layer over the viewer takes them while a marking tool
+ * is armed.
+ */
+describe('annotating a PDF', () => {
+  const inputLayer = (page: ReturnType<typeof overlay>) =>
+    page.window.document.querySelector('[data-solus-browser-annotation-input]')
+
+  test('a marking tool puts a layer over the viewer that takes the pointer', () => {
+    const page = overlay('application/pdf')
+    page.arm('draw')
+    const layer = inputLayer(page)
+    expect(layer).not.toBeNull()
+    // Outside the body, so a box selection never counts it as page content.
+    expect(layer?.parentElement).toBe(page.window.document.documentElement)
+    expect(page.window.getComputedStyle(layer as Element).pointerEvents).not.toBe('none')
+  })
+
+  test('a stroke drawn on the layer becomes a mark', () => {
+    const page = overlay('application/pdf')
+    page.arm('draw')
+    const layer = inputLayer(page)
+    for (const [type, x, y] of [['pointerdown', 10, 10], ['pointermove', 40, 40], ['pointerup', 40, 40]] as const) {
+      layer?.dispatchEvent(new page.window.MouseEvent(type, { clientX: x, clientY: y, bubbles: true, cancelable: true }))
+    }
+    expect(page.poll('draw').annotations.map((annotation) => annotation.tool)).toEqual(['draw'])
+  })
+
+  test('the layer goes away under select and when annotation ends, so the PDF scrolls again', () => {
+    const page = overlay('application/pdf')
+    page.arm('region')
+    page.arm('select')
+    expect(inputLayer(page)).toBeNull()
+    page.arm('draw')
+    page.arm(null)
+    expect(inputLayer(page)).toBeNull()
+  })
+
+  test('a page that is not a PDF gets no layer', () => {
+    const page = overlay()
+    page.arm('draw')
+    expect(inputLayer(page)).toBeNull()
   })
 })
 
