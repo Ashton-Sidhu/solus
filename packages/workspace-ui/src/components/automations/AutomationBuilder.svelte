@@ -113,7 +113,7 @@
   // machine is offered once it says it stores automations; a Solus-provisioned
   // machine that is not ready is listed with its state and cannot be chosen.
   const onlineMachines = $derived(
-    serversStore.executionServers.filter((machine) => machine.status === "online"),
+    serversStore.executionServers.filter((machine) => machine.readiness === "ready"),
   );
   const hostOptions = $derived(
     automationMachineOptions(serversStore.executionServers, (serverId) =>

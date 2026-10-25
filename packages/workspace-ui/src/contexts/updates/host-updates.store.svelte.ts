@@ -11,7 +11,7 @@ import type { SetupAgent } from '@solus/contracts/types'
 export interface HostUpdateItem { serverId: string; target: 'solus' | SetupAgent; version: string }
 type ManualOutcome = 'up-to-date' | 'error'
 
-type UpdateConnections = Pick<typeof serverConnections, 'resolveId' | 'phaseFor' | 'capabilitiesFor' | 'connectedServerIds' | 'onConnectionCreated' | 'onPhaseChange'> & {
+type UpdateConnections = Pick<typeof serverConnections, 'resolveId' | 'readinessFor' | 'capabilitiesFor' | 'connectedServerIds' | 'onConnectionCreated' | 'onReadinessChange'> & {
   apiFor(serverId: string): Pick<SolusAPI, 'hostUpdateStatus' | 'hostCheckForUpdates' | 'hostInstallUpdate' | 'hostCancelUpdate'>
   /** The dialed target's directory record; its `uplink.kind` says whether Solus cloud provisioned the host. */
   connectionFor(serverId: string): { target: { uplink?: { kind?: string } } } | undefined
@@ -50,9 +50,9 @@ export class HostUpdatesStore {
     if (this.started) return
     this.started = true
     subscribeAllHosts('host.updateStatusChanged', (serverId, status) => this.applyStatus(serverId, status))
-    this.connections.onConnectionCreated((connection) => { if (connection.link.phase === 'connected') void this.load(connection.serverId) })
-    this.connections.onPhaseChange((serverId, status) => {
-      if (status === 'connected') void this.load(serverId)
+    this.connections.onConnectionCreated((connection) => { if (connection.link.readiness === 'ready') void this.load(connection.serverId) })
+    this.connections.onReadinessChange((serverId, status) => {
+      if (status === 'ready') void this.load(serverId)
       else this.clear(serverId)
     })
     onServerRemoving((server) => {
@@ -65,7 +65,7 @@ export class HostUpdatesStore {
   }
 
   applyStatus(serverId: string, status: HostUpdateStatus): void {
-    if (this.connections.phaseFor(serverId) !== 'connected') return
+    if (this.connections.readinessFor(serverId).readiness !== 'ready') return
     this.invalidate(serverId)
     this.saveStatus(serverId, status)
     this.errors.delete(serverId)
@@ -87,7 +87,7 @@ export class HostUpdatesStore {
   private async update(serverId: string, method: 'hostInstallUpdate' | 'hostCancelUpdate'): Promise<string | null> {
     serverId = this.connections.resolveId(serverId)
     if (this.updateRequests.has(serverId)) return 'An update request is already in progress.'
-    if (this.connections.phaseFor(serverId) !== 'connected') return 'The host is not connected.'
+    if (this.connections.readinessFor(serverId).readiness !== 'ready') return 'The host is not connected.'
     if (!this.hostUpdateFor(serverId)?.serverUpdate?.supported) return 'Solus cannot be updated on this host from here.'
     this.updateRequests.add(serverId)
     this.errors.delete(serverId)
@@ -95,7 +95,7 @@ export class HostUpdatesStore {
     const generation = this.generations.get(serverId)
     try {
       const status = await this.connections.apiFor(serverId)[method]()
-      if ((this.epochs.get(serverId) ?? 0) === epoch && this.connections.phaseFor(serverId) === 'connected'
+      if ((this.epochs.get(serverId) ?? 0) === epoch && this.connections.readinessFor(serverId).readiness === 'ready'
         && this.generations.get(serverId) === generation) this.saveStatus(serverId, status)
       return null
     } catch (error) {
@@ -128,7 +128,7 @@ export class HostUpdatesStore {
         const capabilities = await this.connections.capabilitiesFor(serverId)
         if (!capabilities.hostUpdates) return
         const status = await this.connections.apiFor(serverId).hostUpdateStatus()
-        if (this.generations.get(serverId) === generation && this.connections.phaseFor(serverId) === 'connected') {
+        if (this.generations.get(serverId) === generation && this.connections.readinessFor(serverId).readiness === 'ready') {
           this.saveStatus(serverId, status)
           this.errors.delete(serverId)
         }
@@ -184,7 +184,7 @@ export class HostUpdatesStore {
 
   async check(serverId: string): Promise<void> {
     serverId = this.connections.resolveId(serverId)
-    if (this.connections.phaseFor(serverId) !== 'connected') return
+    if (this.connections.readinessFor(serverId).readiness !== 'ready') return
     this.outcomes.delete(serverId)
     // A reconnect invalidates this request; intermediate status events do not.
     const epoch = this.epochs.get(serverId) ?? 0
@@ -192,7 +192,7 @@ export class HostUpdatesStore {
       if (!(await this.connections.capabilitiesFor(serverId)).hostUpdates) return
       const generation = this.generations.get(serverId)
       const status = await this.connections.apiFor(serverId).hostCheckForUpdates()
-      if ((this.epochs.get(serverId) ?? 0) !== epoch || this.connections.phaseFor(serverId) !== 'connected') return
+      if ((this.epochs.get(serverId) ?? 0) !== epoch || this.connections.readinessFor(serverId).readiness !== 'ready') return
       if (this.generations.get(serverId) === generation) this.saveStatus(serverId, status)
       this.errors.delete(serverId)
       const current = this.statuses.get(serverId) ?? status
@@ -200,7 +200,7 @@ export class HostUpdatesStore {
       if (checks.some((check) => check.kind === 'error')) this.outcomes.set(serverId, 'error')
       else if (checks.some((check) => check.kind === 'up-to-date') && checks.every((check) => check.kind === 'up-to-date' || check.kind === 'idle')) this.outcomes.set(serverId, 'up-to-date')
     } catch (error) {
-      if ((this.epochs.get(serverId) ?? 0) !== epoch || this.connections.phaseFor(serverId) !== 'connected') return
+      if ((this.epochs.get(serverId) ?? 0) !== epoch || this.connections.readinessFor(serverId).readiness !== 'ready') return
       this.errors.set(serverId, error instanceof Error ? error.message : String(error))
       this.outcomes.set(serverId, 'error')
     }

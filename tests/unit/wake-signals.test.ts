@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { classifyVisibilityReturn, MEANINGFUL_SUSPENSION_MS } from '@solus/client-core/wake-signals'
+import { UNREACHABLE_AFTER_MS } from '@solus/client-core/host-readiness'
 import { HostSupervisor } from '@solus/client-core/host-supervisor'
 
 function harness() {
@@ -14,8 +15,11 @@ function harness() {
         probes += 1
         if (failProbe) throw new Error('probe timed out')
       },
+      setUnreachable: () => {},
     },
-    setTimeoutFn: ((handler: () => void) => {
+    setTimeoutFn: ((handler: () => void, delay: number) => {
+      // Only the retry ladder is under test here: the readiness grace never fires.
+      if (delay >= UNREACHABLE_AFTER_MS) return 0 as unknown as ReturnType<typeof setTimeout>
       pendingTimers.push(handler)
       return pendingTimers.length as unknown as ReturnType<typeof setTimeout>
     }) as typeof setTimeout,

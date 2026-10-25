@@ -13,9 +13,16 @@ export const DOWNLOADS: Record<DownloadPlatform, { name: string; filename: strin
 
 export const BREW_COMMAND = "brew install --cask Ashton-Sidhu/tap/solus";
 
-/** A Linux machine with no desktop runs the standalone server; this installs it and starts its service. */
-export const LINUX_SERVER_COMMAND =
+/** Installs the standalone server and starts its service; `install.sh` supports macOS and Linux. */
+export const SERVER_COMMAND =
 	"curl -fsSL https://github.com/Ashton-Sidhu/solus/releases/latest/download/install.sh | sh -s -- --setup";
+
+/** Where the server command runs for each visitor. Windows has no server build, so it runs in WSL or on a Linux machine. */
+export const SERVER_TARGETS: Record<DownloadPlatform, string> = {
+	mac: "Server on this Mac",
+	linux: "Server on this machine",
+	windows: "Server in WSL or on Linux",
+};
 
 export function isDownloadPlatform(value: string): value is DownloadPlatform {
 	return value in DOWNLOADS;

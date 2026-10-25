@@ -1,7 +1,8 @@
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { SvelteMap } from 'svelte/reactivity'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import type { ShareLink, ShareList, ShareResource, ShareResourceKind, ShareRole, ShareSetRequest } from '@solus/contracts/sharing'
+import type { ShareDialogLog, ShareLink, ShareList, ShareResource, ShareResourceKind, ShareRole, ShareSetRequest } from '@solus/contracts/sharing'
+import { localApi } from '@solus/client-core/local-api'
 import type { User } from '@solus/contracts/user'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
@@ -57,8 +58,25 @@ export interface HostIdentity {
   user: User | null
 }
 
+/** The directory key while the account works in no organization: there are no people to load. */
+const NO_ORGANIZATION = ''
+
 function listKey(serverId: string, resource: ShareResource): string {
   return `${serverId}|${resource.kind}|${resource.id}`
+}
+
+/** One step of opening the dialog, to the console and, on desktop, to `dev.log`. */
+export function logShareDialog(event: ShareDialogLog['event'], target: Pick<ShareDialogTarget, 'serverId' | 'resource'> | null, error?: string): void {
+  const row: ShareDialogLog = {
+    event,
+    serverId: target?.serverId,
+    resourceKind: target?.resource.kind,
+    resourceId: target?.resource.id,
+    error,
+  }
+  if (error === undefined) console.info('[Solus][ShareDialog]', row)
+  else console.warn('[Solus][ShareDialog]', row)
+  localApi.logShareDialog?.(row)
 }
 
 
@@ -66,7 +84,8 @@ function listKey(serverId: string, resource: ShareResource): string {
 export class SharesStore {
   readonly lists = new SvelteMap<string, ShareList>()
   readonly identities = new SvelteMap<string, HostIdentity>()
-  readonly directories = new SvelteMap<string, OrganizationPeople | null>()
+  /** The people of each organization, by organization id: one list serves every host; `NO_ORGANIZATION` holds the answer for an account without one. */
+  private readonly directories = new SvelteMap<string, OrganizationPeople | null>()
   dialog = $state<ShareDialogTarget | null>(null)
   busy = $state(false)
   /** Puts a Local work into an organization; a moved resource's old list is dropped. */
@@ -142,23 +161,41 @@ export class SharesStore {
     return identity
   }
 
+  /** The people of the account's organization as last loaded; null until they load, or when there are none. */
+  get directory(): OrganizationPeople | null {
+    return this.directories.get(serversStore.activeOrganizationId ?? NO_ORGANIZATION) ?? null
+  }
+
+  /** Whether the account's organization has answered with its people, or the account has no organization. */
+  get directoryLoaded(): boolean {
+    return this.directories.has(serversStore.activeOrganizationId ?? NO_ORGANIZATION)
+  }
+
   /**
-   * The people and teams of the account's organization, once per host; null when
-   * this client has no account or the account has no organization. Sharing names
-   * one organization everywhere: the one the account works in, never one the
-   * host or a saved directory row suggests. The one member list (plans/012 §6):
-   * the account plane's directory becomes `User`s here, once, and every people
-   * choice reads them. `refresh` reads it again and keeps the last answer until
-   * the new one arrives.
+   * The people and teams of the account's organization, once per organization;
+   * null when this client has no account or the account has no organization.
+   * Sharing names one organization everywhere: the one the account works in,
+   * never one the host or a saved directory row suggests, so every host reads
+   * the same list. The one member list (plans/012 §6): the account plane's
+   * directory becomes `User`s here, once, and every people choice reads them.
+   * `refresh` reads it again and keeps the last answer until the new one
+   * arrives. A failed read with no earlier answer is kept as no people, so
+   * nothing waits for them.
    */
-  async directoryFor(serverId: string, refresh = false): Promise<OrganizationPeople | null> {
-    if (!refresh && this.directories.has(serverId)) return this.directories.get(serverId) ?? null
+  async loadDirectory(refresh = false): Promise<OrganizationPeople | null> {
     const organizationId = serversStore.activeOrganizationId
+    const key = organizationId ?? NO_ORGANIZATION
+    if (!refresh && this.directories.has(key)) return this.directories.get(key) ?? null
     const source = uplinkAccountSource()
-    const directory = organizationId && source ? await source.loadOrganizationDirectory(organizationId) : null
-    const people = directory ? organizationPeople(directory) : null
-    this.directories.set(serverId, people)
-    return people
+    try {
+      const directory = organizationId && source ? await source.loadOrganizationDirectory(organizationId) : null
+      const people = directory ? organizationPeople(directory) : null
+      this.directories.set(key, people)
+      return people
+    } catch (error) {
+      if (!this.directories.has(key)) this.directories.set(key, null)
+      throw error
+    }
   }
 
   /**
@@ -209,10 +246,17 @@ export class SharesStore {
 
   /** Opens the dialog; resolves once it is on screen or the attempt was explained. */
   open(target: ShareDialogTarget): Promise<void> {
-    if (this.busy) return Promise.resolve()
+    if (this.busy) {
+      logShareDialog('share_dialog_open_skipped_busy', target)
+      return Promise.resolve()
+    }
+    logShareDialog('share_dialog_open_requested', target)
     this.busy = true
     return this.openTarget(target)
-      .catch((error) => { toasts.error(error instanceof Error ? error.message : 'Could not open cloud sharing') })
+      .catch((error) => {
+        logShareDialog('share_dialog_open_failed', target, error instanceof Error ? error.message : String(error))
+        toasts.error(error instanceof Error ? error.message : 'Could not open cloud sharing')
+      })
       .finally(() => { this.busy = false })
   }
 
@@ -249,6 +293,7 @@ export class SharesStore {
         status: { kind: 'pending' },
       },
     }
+    logShareDialog('share_dialog_target_set', this.dialog)
     void this.publishDialog(this.dialog)
   }
 
@@ -256,9 +301,8 @@ export class SharesStore {
   private async openList(serverId: string, target: ShareDialogTarget): Promise<void> {
     // The last answer stays on screen while a new one loads, so a person the
     // dialog already knows is never shown as a former member in between.
-    void this.directoryFor(serverId, true).catch(() => {
-      // No people to invite; the list still opens, and stops waiting for them.
-      if (!this.directories.has(serverId)) this.directories.set(serverId, null)
+    void this.loadDirectory(true).catch(() => {
+      // No people to invite; the list still opens.
     })
     if (!isSolusApiId(serverId)) {
       void this.loadLinkOrigin(serverId, target.resource)
@@ -272,6 +316,7 @@ export class SharesStore {
         : `This host could not open sharing for this ${target.resource.kind}.`)
     }
     this.dialog = { serverId, resource: target.resource, title: target.title }
+    logShareDialog('share_dialog_target_set', this.dialog)
   }
 
   /** The dialog's Retry after an upload that did not finish: the same destination, the same operation. */

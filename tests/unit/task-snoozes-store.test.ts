@@ -47,7 +47,7 @@ describe('the reader’s task snoozes', () => {
 
     // Snoozed again while this client was offline: the reconnect reads it.
     held.set('t1', { taskId: 't1', snoozedUntil: 2_000 })
-    connections.emitPhase('host-a', 'connected')
+    connections.emitReadiness('host-a', 'ready')
     await settle()
     expect(store.get('t1')?.snoozedUntil).toBe(2_000)
   })

@@ -262,7 +262,6 @@
   }
 
   function handleOpenAutoFocus() {
-    void serversStore.probeHosts();
     const path = checkoutGit(run)?.repoRoot ?? checkoutPlace(run).path;
     if (!locked && path && path !== "~") {
       const serverId = currentHostId;
@@ -294,7 +293,7 @@
 {#snippet serverRow(server: ServerItem)}
   {@const action = actionFor(server)}
   {@const isSelectedHost = action.kind === "current"}
-  {@const affinity = hostAffinityGlyph(server, server.status)}
+  {@const affinity = hostAffinityGlyph(server, serversStore.readinessFor(server.id))}
   <!-- A managed host that is not ready says its state and takes no work;
        every other row says what that host will use for this project. -->
   {@const subtitle =
@@ -333,7 +332,7 @@
     {/if}
     {#if isSelectedHost}
       <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
-    {:else if affinity && server.status !== "saved" && server.status !== "online"}
+    {:else if affinity && server.readiness !== "checking" && server.readiness !== "ready"}
       <!-- Online is the unmarked case; the glyph already reads it. Only a
            state worth stopping for is printed. -->
       <span class="shrink-0 text-[0.875em] text-(--solus-text-tertiary)"

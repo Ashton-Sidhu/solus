@@ -126,10 +126,15 @@ describe('starting a chat', () => {
   const prompted: IpcContext[] = []
   /** What the handlers asked of the share list, in order. ShareManager's own tests cover what each call writes. */
   const shareCalls: string[] = []
+  /** sessionId → the clients watching it, as the runtime keeps them. */
+  const watches = new Map<string, Set<string>>()
+  /** A claim waits for this before it lands, so a test can hold one open. */
+  let claimGate: Promise<void> = Promise.resolve()
 
   beforeAll(() => {
     const shares = {
       claimSession: async (sessionId: string, _principal: Principal, options: { shareWithOrganization?: boolean } = {}) => {
+        await claimGate
         shareCalls.push(`claim ${sessionId}${options.shareWithOrganization === false ? ' private' : ''}`)
       },
       shareWithOrganization: async (resource: Resource) => {
@@ -137,9 +142,13 @@ describe('starting a chat', () => {
       },
     }
     const sessionRuntime = {
-      isKnownSession: () => false,
+      isKnownSession: (sessionId: string) => watches.has(sessionId),
       watchers: {
-        watchSession: (input: { sessionId: string }) => ({ sessionId: input.sessionId }),
+        watches,
+        watchSession: (input: { sessionId: string }, clientId: string) => {
+          watches.set(input.sessionId, (watches.get(input.sessionId) ?? new Set()).add(clientId))
+          return { sessionId: input.sessionId }
+        },
         bindRuntimeSession: () => null,
       },
       dispatch: {
@@ -159,6 +168,7 @@ describe('starting a chat', () => {
 
   afterEach(() => {
     shareCalls.length = 0
+    claimGate = Promise.resolve()
   })
 
   /** What a client does to start a session: watch it, then send the first prompt. */
@@ -207,6 +217,42 @@ describe('starting a chat', () => {
     const ctx = { session: { sessionId: 'project-2', workingDirectory: project, projectPath: project }, settings: {}, statusBar: {} } as IpcContext
     await handlers.get('prompt')!([ctx, { prompt: 'again' }], { clientId: 'ws:project-2', principal: alice })
     expect(shareCalls).toEqual(['claim project-2'])
+  })
+
+  test('a prompt sent without waiting for its watch reply waits for the watch\'s claim before it shares the session', async () => {
+    const alice = member('alice')
+    const project = join(hostRoot, 'alice', 'solus')
+    const handlerCtx = { clientId: 'ws:project-3', principal: alice }
+    let openGate = (): void => {}
+    claimGate = new Promise((resolve) => { openGate = resolve })
+    // The client sends both at once; the host handles them at the same time.
+    const watched = handlers.get('watchSession')!([{ sessionId: 'project-3' }], handlerCtx)
+    const ctx = { session: { sessionId: 'project-3', workingDirectory: project, projectPath: project }, settings: {}, statusBar: {} } as IpcContext
+    const promptedNow = handlers.get('prompt')!([ctx, { prompt: 'hello' }], handlerCtx)
+    await Promise.resolve()
+    // Sharing before the owner is named would find no owner and grant nothing.
+    expect(shareCalls).toEqual([])
+    openGate()
+    await Promise.all([watched, promptedNow])
+    expect(shareCalls).toEqual(['claim project-3 private', 'share project-3'])
+  })
+
+  test('a prompt makes its sender a watcher, so the run\'s events reach it before any watch reply', async () => {
+    const project = join(hostRoot, 'solus')
+    const ctx = { session: { sessionId: 'project-4', workingDirectory: project, projectPath: project }, settings: {}, statusBar: {} } as IpcContext
+    await handlers.get('prompt')!([ctx, { prompt: 'hello' }], { clientId: 'ws:phone', principal: OWNER })
+    expect([...watches.get('project-4') ?? []]).toEqual(['ws:phone'])
+  })
+
+  test('a watch that lands after its prompt does not decide the owner again', async () => {
+    const alice = member('alice')
+    const handlerCtx = { clientId: 'ws:chat-3', principal: alice }
+    const ctx = { session: { sessionId: 'chat-3', workingDirectory: NEW_CHAT_DIRECTORY, projectPath: '' }, settings: {}, statusBar: {} } as IpcContext
+    await handlers.get('prompt')!([ctx, { prompt: 'hello' }], handlerCtx)
+    await handlers.get('watchSession')!([{ sessionId: 'chat-3' }], handlerCtx)
+    // The prompt named a chat, so it claimed the session private. The late watch
+    // only claims an owned session, which changes nothing, and grants nothing.
+    expect(shareCalls).toEqual(['claim chat-3 private', 'claim chat-3'])
   })
 
   test('a chat that binds without a watch first also starts private', async () => {

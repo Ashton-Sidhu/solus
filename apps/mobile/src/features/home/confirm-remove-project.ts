@@ -18,7 +18,7 @@ export function confirmRemoveProject(
   if (!scope) return
   const remove = async () => {
     const result = await removeProjectCheckouts(scope.projects, (hostId) =>
-      app.connections.state(hostId)?.phase === 'connected' ? (app.connections.connection(hostId)?.api ?? null) : null)
+      app.connections.state(hostId)?.readiness === 'ready' ? (app.connections.connection(hostId)?.api ?? null) : null)
     await Promise.all(result.changedHostIds.map((hostId) => app.threads.load(hostId)))
     const failure = projectRemovalFailure(scope, result)
     if (failure) Alert.alert(failure.title, failure.message)

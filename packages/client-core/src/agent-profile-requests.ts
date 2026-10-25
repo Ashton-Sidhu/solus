@@ -14,7 +14,7 @@ import {
   type VaultDisconnectRequest,
 } from '@solus/contracts/vault'
 import type { AccountAgentProfileResult, AccountVaultConnectResult, AccountVaultResult, NativeSolusAPI, SettingsRequestFailure } from '@solus/contracts/host-api'
-import { SOLUS_PROTOCOL, SOLUS_PROTOCOL_HEADER, uplinkErrorBodySchema } from '@solus/contracts/uplink'
+import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
 import type { OAuthSession } from './oauth-session'
 
 /**
@@ -123,7 +123,7 @@ export function webAgentProfileRequests(origin: string, session: Pick<OAuthSessi
   return agentProfileCloudRequests(async (request) => {
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return 'signed-out'
-    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}`, [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL) })
+    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
     if (request.body) headers.set('content-type', 'application/json')
     try {
       return await fetchImpl(`${origin}${request.path}`, {

@@ -29,7 +29,7 @@ import {
   type ListRowSpec,
   type ListTint,
 } from '../../ui/list-page/list-page'
-import { Clock, CircleAlert, CircleMinus, BookOpen, BookOpenCheck, Aperture } from '@lucide/svelte'
+import { Clock, CircleAlert, CircleMinus, ClipboardCheck, Aperture } from '@lucide/svelte'
 import { relativeTime, type PrSortMode } from './pr-utils'
 import { hasMergeConflicts } from '../../pr-review/lib/merge-readiness'
 import { PR_STATUS_TONE } from './pr-row-styles'
@@ -128,7 +128,7 @@ function guideChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
     failed: { label: 'Review guide generation failed', statusIcon: CircleAlert, tint: 'failure' },
     cancelled: { label: 'Review guide generation cancelled', statusIcon: CircleMinus, tint: 'neutral' },
   } satisfies Record<PrGuideStatus, { label: string; statusIcon: ListIcon | undefined; tint: ListTint }>
-  return [{ ...states[status], icon: status === 'ready' ? BookOpenCheck : BookOpen, iconOnly: true, pulsing: status === 'generating' }]
+  return [{ ...states[status], icon: ClipboardCheck, iconOnly: true, pulsing: status === 'generating' }]
 
 }
 

@@ -36,7 +36,6 @@ import {
   type HostCredential,
   type PrivateJwk,
 } from './host-credential'
-import { fetchAccountPlane } from './account-plane'
 
 const log = createLogger('main', 'host-registration')
 
@@ -453,7 +452,7 @@ export class HostRegistrar {
   }
 
   private request(url: string, init: RequestInit): Promise<Response> {
-    return fetchAccountPlane(this.deps.fetchImpl, url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }).catch((err) => {
+    return (this.deps.fetchImpl ?? fetch)(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }).catch((err) => {
       throw new HostRegistrationError('control-plane-unreachable', `Solus cloud is not reachable: ${err instanceof Error ? err.message : String(err)}`)
     })
   }

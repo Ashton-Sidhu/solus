@@ -10,8 +10,6 @@ import {
   accountResponseSchema,
   enrollmentTicketResponseSchema,
   parseLinkCode,
-  SOLUS_PROTOCOL,
-  SOLUS_PROTOCOL_HEADER,
   uplinkStatusSchema,
   type AccountOrganization,
   type EnrollmentTicketRequest,
@@ -195,7 +193,7 @@ async function accountToken(session: OAuthSession): Promise<string> {
 
 async function accountOrganizations(cloudOrigin: string, accessToken: string): Promise<AccountOrganization[]> {
   const response = await fetch(`${cloudOrigin}/v1/account`, {
-    headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json', [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL) },
+    headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
     redirect: 'error',
   })
   if (!response.ok) throw new Error(`Solus Cloud could not read your organizations (${response.status})`)
@@ -205,7 +203,7 @@ async function accountOrganizations(cloudOrigin: string, accessToken: string): P
 async function issueEnrollmentTicket(cloudOrigin: string, accessToken: string, body: EnrollmentTicketRequest): Promise<string> {
   const response = await fetch(`${cloudOrigin}/v1/enrollment-tickets`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json', 'content-type': 'application/json', [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL) },
+    headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json', 'content-type': 'application/json' },
     body: JSON.stringify(body),
     redirect: 'error',
   })

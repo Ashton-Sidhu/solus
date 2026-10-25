@@ -6,7 +6,7 @@ import { ConversationController } from '../../apps/mobile/src/features/conversat
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
 import { resolveComposerSendPresentation } from '../../apps/mobile/src/features/threads/composerSendPresentation'
-import { backgroundFloatingStatus, connectionFloatingStatus, formatWorkingDuration } from '../../apps/mobile/src/features/threads/floating-working-status'
+import { backgroundFloatingStatus, formatWorkingDuration } from '../../apps/mobile/src/features/threads/floating-working-status'
 import {
   buildProviderGroups,
   modelMatchesCatalogQuery,
@@ -46,15 +46,6 @@ describe('native composer send button', () => {
 })
 
 describe('native floating working pill', () => {
-  const onReconnect = () => undefined
-
-  test('a connected host frees the pill for working state; any other phase names the host', () => {
-    expect(connectionFloatingStatus({ connectionState: 'connected', hostLabel: 'Studio', onReconnect })).toBeNull()
-    expect(connectionFloatingStatus({ connectionState: 'reconnecting', hostLabel: 'Studio', onReconnect })).toMatchObject({ kind: 'connection', tone: 'reconnecting', label: 'Reconnecting to Studio...' })
-    expect(connectionFloatingStatus({ connectionState: 'offline', hostLabel: 'Studio', onReconnect })).toMatchObject({ tone: 'unavailable', label: 'Studio is offline' })
-    expect(connectionFloatingStatus({ connectionState: null, hostLabel: null, onReconnect })).toMatchObject({ label: 'Host is not connected' })
-  })
-
   test('background work carries its own Stop, pending until the host takes it, and closed to a viewer', () => {
     // T3 Code #21395: the composer shows Send, not Stop, while it holds a draft, so the pill must offer Stop.
     let stops = 0

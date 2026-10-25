@@ -1,88 +1,46 @@
 import { describe, expect, test } from 'bun:test'
-import type { HostConnectionState } from '../../apps/mobile/src/features/hosts/host-connections'
-import type { NativeHost } from '../../apps/mobile/src/features/hosts/host-registry'
-import {
-  connectHostAction,
-  connectHostHeadline,
-  newTaskHostGate,
-} from '../../apps/mobile/src/features/threads/new-task-host-gate'
+import type { HostReadiness } from '@solus/client-core/host-readiness'
+import { newTaskHostGate } from '../../apps/mobile/src/features/threads/lib/new-task-host-gate'
 
-// The new-task sheet shows the connect-a-host screen in place of its composer
-// when no host can run the task (docs/plans/draft-connect-host.md). It must
-// never take the composer away on a guess: only the supervisor's "offline"
-// after its retry ladder, or no host at all, counts.
+// The new-task sheet shows the connect-a-host page in place of its composer
+// when no host can run the task (docs/plans/host-readiness.md "Draft gate").
+// It must never take the composer away on a guess: only a host that is away
+// (past the grace, refused, or removed), or no host at all, counts.
 
-const host = (overrides: Partial<NativeHost> = {}): NativeHost => ({
-  id: 'bills',
-  label: 'Bills',
-  routes: [{ kind: 'direct', url: 'http://10.0.0.8:51234' }],
-  lastConnected: 0,
-  paired: true,
-  ...overrides,
-})
-
-const state = (phase: HostConnectionState['phase']): HostConnectionState => ({
-  phase,
-  attempt: 0,
-  blockedReason: null,
-  sessionGeneration: 0,
-})
+const host = (readiness: HostReadiness, away = readiness === 'unreachable' || readiness === 'refused' || readiness === 'gone') => ({ readiness, away })
 
 describe('the new-task host gate', () => {
-  test('one connected host is enough to compose', () => {
-    expect(newTaskHostGate(['offline', 'connected'], 'compose')).toBe('compose')
+  test('one ready host is enough to compose', () => {
+    expect(newTaskHostGate([host('unreachable'), host('ready')], 'compose')).toBe('compose')
   })
 
   test('no host at all asks for one', () => {
     expect(newTaskHostGate([], 'compose')).toBe('connect')
   })
 
-  test('every host offline, stopped, or refused asks for one', () => {
-    expect(newTaskHostGate(['offline', 'blocked', 'waiting-for-compute', 'no-route'], 'compose')).toBe('connect')
+  test('every host unreachable, refused, or removed asks for one', () => {
+    expect(newTaskHostGate([host('unreachable'), host('refused'), host('gone')], 'compose')).toBe('connect')
   })
 
-  test('a host still dialing keeps the composer', () => {
-    expect(newTaskHostGate(['offline', 'reconnecting'], 'compose')).toBe('compose')
+  test('a host inside the grace keeps the composer, so a short drop does not take it away', () => {
+    expect(newTaskHostGate([host('unreachable'), host('reconnecting')], 'compose')).toBe('compose')
+    expect(newTaskHostGate([host('checking')], 'compose')).toBe('compose')
   })
 
-  test('a host not yet dialed keeps the composer, because nothing is known yet', () => {
-    expect(newTaskHostGate([null], 'compose')).toBe('compose')
+  test('a host that is away and dialed again does not open the composer', () => {
+    // WHY: a retry from a thread leaves the host away; the sheet opened during
+    // that dial must not offer a composer the host may never answer.
+    expect(newTaskHostGate([host('checking', true)], 'compose')).toBe('connect')
   })
 
-  test('a retry from the connect screen keeps the screen while the host dials', () => {
-    expect(newTaskHostGate(['connecting'], 'connect')).toBe('connect')
+  test('a retry from the connect page keeps the page while the host dials', () => {
+    // WHY: the composer must not flash back for a dial that then fails. A
+    // retried refused host has a new link that is not away yet.
+    expect(newTaskHostGate([host('checking')], 'connect')).toBe('connect')
+    expect(newTaskHostGate([host('reconnecting')], 'connect')).toBe('connect')
   })
 
-  test('the composer comes back from the connect screen once a host connects', () => {
-    expect(newTaskHostGate(['offline', 'connected'], 'connect')).toBe('compose')
-  })
-})
-
-describe('a host card on the connect screen', () => {
-  test('an offline host offers a retry', () => {
-    expect(connectHostAction(host(), state('offline'))).toBe('retry')
-  })
-
-  test('a dialing host has nothing to do but wait', () => {
-    expect(connectHostAction(host(), state('connecting'))).toBeNull()
-  })
-
-  test('a stopped cloud host offers to start it, not to retry it', () => {
-    const stopped = host({ uplink: { kind: 'managed', hostId: 'h1', directoryUrl: 'https://app.solus.sh', managedState: 'stopped' } })
-    expect(connectHostAction(stopped, state('waiting-for-compute'))).toBe('start')
-  })
-
-  test('a refused host must be paired again', () => {
-    expect(connectHostAction(host(), state('blocked'))).toBe('pair-again')
-  })
-})
-
-describe('the connect screen headline', () => {
-  test('names a single offline host so the person knows which machine to wake', () => {
-    expect(connectHostHeadline([host()], null)).toBe('Bills is offline')
-  })
-
-  test('asks for a first host when none is saved', () => {
-    expect(connectHostHeadline([], null)).toBe('Connect a host to start')
+  test('the composer comes back from the connect page once a host is ready', () => {
+    expect(newTaskHostGate([host('unreachable'), host('ready')], 'connect')).toBe('compose')
   })
 })

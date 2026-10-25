@@ -7,22 +7,11 @@ import { useApp, useListened } from "../../app/app-context";
 import { AppText as Text } from "../../components/AppText";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { cn } from "../../lib/cn";
-import { cloudHostState, type CloudHostState } from "../account/lib/host-scope";
+import { hostReadinessCopy } from "@solus/client-core/host-readiness";
 import type { NativeHost } from "../hosts/host-registry";
-import { ConnectionStatusDot } from "./ConnectionStatusDot";
-import {
-  hostConnectionStatus,
-  hostMachineKind,
-  type HostConnectionStatus,
-} from "./lib/host-connection-status";
+import { ConnectionStatusDot, isHostReadinessFailure } from "./ConnectionStatusDot";
+import { hostMachineKind } from "./lib/host-machine";
 import { hostStallLine } from "./lib/host-stall-line";
-
-const STATE_STATUS = {
-  stopped: { dot: "available", text: "Stopped", failed: false, retrying: false },
-  starting: { dot: "connecting", text: "Starting…", failed: false, retrying: true },
-  unavailable: { dot: "error", text: "Unavailable", failed: true, retrying: false },
-  "no-route": { dot: "available", text: "Not reachable yet", failed: false, retrying: false },
-} as const satisfies Record<Exclude<CloudHostState, "ready">, HostConnectionStatus>;
 
 /**
  * "Solus Cloud" section: the hosts the signed-in account's directory lists,
@@ -107,14 +96,13 @@ function CloudEnvironmentRow(props: {
   readonly onOpen: (() => void) | undefined;
 }) {
   const app = useApp();
-  const connection = useListened(app.connections.changes, () =>
-    app.connections.state(props.host.id),
+  // Readiness reads the directory's managed state too: a stopped host is `unreachable`, `not-running`.
+  const state = useListened(app.connections.changes, () =>
+    app.connections.readiness(props.host.id),
   );
   const [starting, setStarting] = useState(false);
-  const state = cloudHostState(props.host);
-  const status =
-    state === "ready" ? hostConnectionStatus(props.host, connection) : STATE_STATUS[state];
-  const statusText = [status.text, props.host.uplink?.ownerName].filter(Boolean).join(" · ");
+  const copy = hostReadinessCopy(state, props.host.label);
+  const statusText = [copy.label, props.host.uplink?.ownerName].filter(Boolean).join(" · ");
   const stallLine = useListened(app.connections.changes, () =>
     hostStallLine(app.connections, props.host),
   );
@@ -129,7 +117,7 @@ function CloudEnvironmentRow(props: {
       <View collapsable={false} className="flex-row items-center gap-3 bg-grouped-card px-4 py-3.5">
         <View className="min-w-0 flex-1 gap-0.5">
           <View className="min-w-0 flex-row items-center gap-2">
-            <ConnectionStatusDot state={status.dot} pulse={status.retrying} size={7} />
+            <ConnectionStatusDot state={state} size={7} />
             <EnvironmentMachineSymbol
               kind={hostMachineKind(props.host)}
               size={14}
@@ -145,7 +133,7 @@ function CloudEnvironmentRow(props: {
           <Text
             className={cn(
               "min-w-0 text-xs",
-              status.failed ? "text-danger-foreground" : "text-foreground-muted",
+              isHostReadinessFailure(state) ? "text-danger-foreground" : "text-foreground-muted",
             )}
             numberOfLines={1}
           >
@@ -157,7 +145,7 @@ function CloudEnvironmentRow(props: {
             </Text>
           ) : null}
         </View>
-        {state === "stopped" ? (
+        {copy.action === "start" ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Start ${props.host.label}`}

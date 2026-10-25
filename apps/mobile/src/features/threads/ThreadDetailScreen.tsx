@@ -6,6 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../navigation/routes";
 import * as Haptics from "expo-haptics";
+import { hostReadinessCopy, type HostReadinessState } from "@solus/client-core/host-readiness";
 import { isSessionBusyStatus, type SessionOrigin, type SessionStatus } from "@solus/contracts/types";
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -39,7 +40,6 @@ import type { ComposerEditorHandle } from "../../components/ComposerEditor";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import type { LayoutVariant } from "../../lib/layout";
 import type { ViewInstance } from "react-native";
-import type { HostConnectionPhase } from "../hosts/host-connections";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import { PendingApprovalCard } from "./PendingApprovalCard";
@@ -47,7 +47,7 @@ import { PendingUserInputCard } from "./PendingUserInputCard";
 import { AgentPlanCard } from "./ThreadPlanCard";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { FLOATING_WORKING_CONTROL_COVERAGE, FloatingWorkingControl } from "./floating-working-control";
-import { backgroundFloatingStatus, connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
+import { backgroundFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
 import {
@@ -63,6 +63,9 @@ import { useAgentRoster } from "./ThreadAgents";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { endQueuedMessageEdit, useQueuedMessageEdit } from "./queued-message-edit";
 import { agentsPillLabel } from "./agent-card-presentation";
+import { threadHostChrome } from "./lib/thread-host-chrome";
+import { HostGraceWhisper } from "./ThreadHostLines";
+import { HostAsleepVeil } from "../hosts/HostAsleepVeil";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
 import { IntegrationConnectSheet } from "../conversation/components/IntegrationConnectSheet";
 
@@ -75,12 +78,12 @@ export interface ThreadDetailScreenProps {
   readonly draftKey: string;
   readonly contentPresentation: ThreadContentPresentation;
   readonly hostLabel: string | null;
-  readonly connectionState: HostConnectionPhase | null;
+  /** The readiness of this thread's host, not of any other host. */
+  readonly hostReadiness: HostReadinessState;
   readonly historyControls?: ThreadFeedHistoryControls;
   readonly startedBy?: SessionOrigin | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
-  readonly onReconnectHost: () => void;
 }
 
 /** A turn is producing output: the live slot and the working timer show. */
@@ -188,13 +191,16 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const canStop = mayDrive && (turnActive || meta.status === "background");
   const working = isWorkingStatus(meta.status);
   const activeWorkStartedAt = workStartedAt(store, working);
-  const activePendingApproval = meta.permissions[0] ?? null;
-  const activePendingUserInput = meta.questions[0] ?? null;
+  const hostChrome = threadHostChrome(props.hostReadiness);
+  const hostLabel = props.hostLabel ?? "This host";
+  // Nobody can answer a request while the host is away: its cards come back with the host.
+  const activePendingApproval = hostChrome.showsRequestCards ? (meta.permissions[0] ?? null) : null;
+  const activePendingUserInput = hostChrome.showsRequestCards ? (meta.questions[0] ?? null) : null;
   const queuedCount = meta.queue.entries.length;
   // The Agents pill: the newest turn's agents and earlier ones still running.
   // Rows are added rarely; an agent's status changes its own item only.
   const agentRows = useAgentRoster(store);
-  const agentsPill = agentsPillLabel(agentRows, turnActive);
+  const agentsPill = hostChrome.showsAgentsPill ? agentsPillLabel(agentRows, turnActive) : null;
   // The pill's Stop is pending until the host takes the request; it is released
   // after, so a stop that left work running can be tried again. Keyed by the
   // session, so another thread's pill is not shown as stopping.
@@ -208,17 +214,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       .stopBackgroundWork()
       .finally(() => setStoppingBackgroundKey((current) => (current === threadKey ? null : current)));
   };
-  // One floating pill above the composer: the connection while disconnected,
-  // the sync state while messages load, then the working timer.
+  const isHostReady = props.hostReadiness.readiness === "ready";
+  // One floating pill above the composer: the sync state while messages load,
+  // then the working timer. A host that is not ready has no status pill: the
+  // grace whisper or the host footer says its state.
   const floatingStatus = ((): FloatingWorkingStatus | null => {
-    const connectionStatus = connectionFloatingStatus({
-      connectionState: props.connectionState,
-      hostLabel: props.hostLabel,
-      onReconnect: props.onReconnectHost,
-    });
-    if (connectionStatus !== null) {
-      return connectionStatus;
-    }
+    if (!isHostReady) return null;
     if (activePendingApproval !== null || activePendingUserInput !== null) {
       return null;
     }
@@ -234,7 +235,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     return null;
   })();
   const showFloatingStatus =
-    floatingStatus !== null || queuedCount > 0 || agentsPill !== null || props.connectionState !== "connected";
+    floatingStatus !== null || queuedCount > 0 || agentsPill !== null;
+  // The composer is hidden, not unmounted, while the host is away: its
+  // keyboard must not stay up over the host footer.
+  useEffect(() => {
+    if (!hostChrome.showsComposer) Keyboard.dismiss();
+  }, [hostChrome.showsComposer]);
   const composerChrome = composerExpanded ? COMPOSER_EXPANDED_CHROME : COMPOSER_COLLAPSED_CHROME;
   const composerOverlapHeight = composerChrome + composerBottomInset;
   // While a question is pending, the questionnaire owns the composer slot.
@@ -431,7 +437,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     [activeUserInputRequestId, store],
   );
 
-  const showScrollToEndButton = contentPresentationKind === "ready" && !endFollowEnabled;
+  // A sleeping thread takes no touch, so it offers no jump to its end.
+  const showScrollToEndButton = contentPresentationKind === "ready" && !endFollowEnabled && !hostChrome.isAsleep;
   const { themeAppearance } = useAppearancePreferences();
   const isDarkMode = themeAppearance === "dark";
 
@@ -482,39 +489,64 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               : "absolute inset-0 bg-screen"
           }
         />
-        <RenderErrorBoundary
-          key={props.threadKey}
-          renderFallback={(fallback) => (
-            <RenderFailureView
-              {...fallback}
-              title="The conversation couldn't be displayed"
-              bottomInset={estimatedOverlayHeight}
-            />
-          )}
+        {/* While the host is away the thread sleeps under a scrim: it takes no
+            touch and no screen reader focus. */}
+        <View
+          className="flex-1"
+          pointerEvents={hostChrome.isAsleep ? "none" : "auto"}
+          accessibilityElementsHidden={hostChrome.isAsleep}
+          importantForAccessibility={hostChrome.isAsleep ? "no-hide-descendants" : "auto"}
         >
-          <QuoteInReplyContext value={store.quoteInReply}>
-            <ThreadFeed
-              store={store}
-              threadKey={props.threadKey}
-              contentPresentation={props.contentPresentation}
-              turnActive={turnActive}
-              working={working}
-              listRef={listRef}
-              freeze={freeze}
-              submittedMessageId={submittedMessageId}
-              contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
-              contentBottomInset={
-                estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
+          <RenderErrorBoundary
+            key={props.threadKey}
+            renderFallback={(fallback) => (
+              <RenderFailureView
+                {...fallback}
+                title="The conversation couldn't be displayed"
+                bottomInset={estimatedOverlayHeight}
+              />
+            )}
+          >
+            <QuoteInReplyContext value={store.quoteInReply}>
+              <ThreadFeed
+                store={store}
+                threadKey={props.threadKey}
+                contentPresentation={props.contentPresentation}
+                turnActive={turnActive}
+                working={working}
+                listRef={listRef}
+                freeze={freeze}
+                submittedMessageId={submittedMessageId}
+                contentInsetEndAdjustment={combinedContentInsetEndAdjustment}
+                contentBottomInset={
+                  estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
+                }
+                historyControls={props.historyControls}
+                startedBy={props.startedBy}
+                handoffPending={meta.handoffPending}
+                isHostAsleep={hostChrome.isAsleep}
+                layoutVariant={props.layoutVariant}
+                usesAutomaticContentInsets={props.usesAutomaticContentInsets}
+                onEndFollowEnabledChange={setEndFollowEnabled}
+              />
+            </QuoteInReplyContext>
+          </RenderErrorBoundary>
+        </View>
+        {hostChrome.isAsleep ? (
+          <View className="absolute inset-0">
+            {/* A scrim in the canvas colour: a faint trace of the thread stays,
+                and nothing in it reads through the statement or its details. */}
+            <View
+              pointerEvents="none"
+              className={
+                Platform.OS === "android"
+                  ? "absolute inset-0 bg-thread-canvas opacity-90"
+                  : "absolute inset-0 bg-screen opacity-90"
               }
-              historyControls={props.historyControls}
-              startedBy={props.startedBy}
-              handoffPending={meta.handoffPending}
-              layoutVariant={props.layoutVariant}
-              usesAutomaticContentInsets={props.usesAutomaticContentInsets}
-              onEndFollowEnabledChange={setEndFollowEnabled}
             />
-          </QuoteInReplyContext>
-        </RenderErrorBoundary>
+            <HostAsleepVeil hostId={store.controller.hostId} bottomInset={composerBottomInset} />
+          </View>
+        ) : null}
       </View>
 
       {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
@@ -554,8 +586,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                   <ComposerQueuedEditBanner saving={queuedEdit.saving} onCancel={() => endQueuedMessageEdit(store)} />
                 </Animated.View>
               ) : null}
-              {meta.rateLimit ? <UsageLimitRecoveryCard store={store} rateLimit={meta.rateLimit} /> : null}
-              {meta.agentPlans.length > 0 && activeUserInputRequestId === null ? (
+              {meta.rateLimit && hostChrome.showsRequestCards ? <UsageLimitRecoveryCard store={store} rateLimit={meta.rateLimit} /> : null}
+              {meta.agentPlans.length > 0 && activeUserInputRequestId === null && hostChrome.showsRequestCards ? (
                 <Animated.View
                   className="shrink-0 gap-3 px-4 pb-3"
                   entering={FadeInDown.duration(220)}
@@ -605,22 +637,29 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               ) : null}
             </View>
 
-            {/* Hidden (not unmounted) while a question owns the composer slot,
-                so the draft and editor state survive. */}
-            <View style={activeUserInputRequestId !== null ? { display: "none" } : undefined}>
+            {hostChrome.showsGraceWhisper ? (
+              <HostGraceWhisper headline={hostReadinessCopy(props.hostReadiness, hostLabel).headline} />
+            ) : null}
+            {/* Hidden (not unmounted) while a question owns the composer slot
+                or the host is away, so the draft and editor state survive. */}
+            <View
+              style={
+                activeUserInputRequestId !== null || !hostChrome.showsComposer ? { display: "none" } : undefined
+              }
+            >
               <ThreadComposer
                 store={store}
                 meta={meta}
                 draftKey={props.draftKey}
                 editorRef={composerEditorRef}
                 placeholder="Ask the repo agent, or run a command…"
-                    connected={props.connectionState === "connected"}
+                    connected={isHostReady}
                 sendBlockedReason={
                   meta.phase.kind === "error"
                     ? "Conversation unavailable"
                     : meta.phase.kind === "loading"
                       ? "Loading conversation"
-                      : props.connectionState === "blocked"
+                      : props.hostReadiness.readiness === "refused"
                         ? "Host unavailable"
                         : mayDrive
                           ? null

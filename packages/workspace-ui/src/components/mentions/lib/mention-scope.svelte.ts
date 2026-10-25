@@ -26,13 +26,15 @@ export function clearMentionScope(): void {
 
 /** The record organization's people, as `sharesStore` last loaded them. */
 export function mentionDirectory(scope: MentionScope | null): OrganizationPeople | null {
-  return hasOrganization(scope) ? scopeDirectory(scope, sharesStore.directories.get(scope.serverId)) : null
+  return hasOrganization(scope) ? scopeDirectory(scope, sharesStore.directory) : null
 }
 
 /** Asks the host, through `sharesStore`, for what mentions read: the people and the share lists. */
 export function warmMentionSources(scope: MentionScope | null): void {
   if (!hasOrganization(scope)) return
-  void sharesStore.directoryFor(scope.serverId)
+  void sharesStore.loadDirectory().catch(() => {
+    // No people to name; mentions read none.
+  })
   void sharesStore.load(scope.serverId, scope.resource)
 }
 

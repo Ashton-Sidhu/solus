@@ -16,9 +16,10 @@ describe('remote dispatch conversation card', () => {
     expect(card.steps.map((step) => [step.id, step.status])).toEqual([
       ['connection', 'done'],
       ['repository', 'active'],
-      ['worktree', 'pending'],
-      ['workspace', 'pending'],
-      ['session', 'pending'],
+      ['fetch', 'pending'],
+      ['checkout', 'pending'],
+      ['submodules', 'pending'],
+      ['agent', 'pending'],
     ])
   })
 
@@ -37,23 +38,35 @@ describe('remote dispatch conversation card', () => {
     })
   })
 
-  test('a clone that failed for want of the account’s GitHub offers the Connections page', () => {
-    const card = buildRemoteDispatchCard({
-      tabId: 'tab-1',
-      hostLabel: 'Cloud · Acme',
-      phase: 'repository',
-      error: { step: 'repository', message: 'GitHub is not connected.', connectGithubUrl: 'https://app.solus.sh/connections' },
+  test('the host copying the repository takes over the repository step', () => {
+    // WHY: the host now reports the clone on its own card, with its progress
+    // and its errors. A second, client-side repository step would say the
+    // copy is done while the host is still making it.
+    const waiting = buildRemoteDispatchCard({ tabId: 'tab-1', hostLabel: 'Studio', phase: 'repository' })
+    const merged = mergeRemoteDispatchProgress(waiting, {
+      id: 'worktree-session-1',
+      title: 'Repository setup failed',
+      icon: 'git-branch',
+      status: 'error',
+      recovery: 'connect-github',
+      recoveryUrl: 'https://app.solus.sh/connections',
+      steps: [
+        { id: 'repository', label: 'Preparing repository', status: 'error', detail: 'GitHub is not connected.' },
+        { id: 'fetch', label: 'Fetch base branch', status: 'pending' },
+        { id: 'checkout', label: 'Check out files', status: 'pending' },
+        { id: 'submodules', label: 'Init submodules', status: 'pending' },
+        { id: 'agent', label: 'Start agent', status: 'pending' },
+      ],
     })
-    expect(card).toMatchObject({ status: 'error', recovery: 'connect-github', recoveryUrl: 'https://app.solus.sh/connections' })
-
-    // Any other failure keeps the plain error: no action it cannot honour.
-    const plain = buildRemoteDispatchCard({
-      tabId: 'tab-1',
-      hostLabel: 'Cloud · Acme',
-      phase: 'repository',
-      error: { step: 'repository', message: 'Disk full.' },
-    })
-    expect(plain.recovery).toBeUndefined()
+    expect(merged.steps.map((step) => [step.id, step.status])).toEqual([
+      ['connection', 'done'],
+      ['repository', 'error'],
+      ['fetch', 'pending'],
+      ['checkout', 'pending'],
+      ['submodules', 'pending'],
+      ['agent', 'pending'],
+    ])
+    expect(merged).toMatchObject({ title: 'Repository setup failed', status: 'error', recovery: 'connect-github', recoveryUrl: 'https://app.solus.sh/connections' })
   })
 
   test('preserves preparation steps when backend worktree progress begins', () => {
@@ -68,9 +81,10 @@ describe('remote dispatch conversation card', () => {
       icon: 'git-branch',
       status: 'active',
       steps: [
-        { id: 'worktree', label: 'Creating branch & worktree', status: 'active' },
-        { id: 'workspace', label: 'Linking workspace', status: 'pending' },
-        { id: 'session', label: 'Starting agent session', status: 'pending' },
+        { id: 'fetch', label: 'Fetch base branch', status: 'active' },
+        { id: 'checkout', label: 'Check out files', status: 'pending' },
+        { id: 'submodules', label: 'Init submodules', status: 'pending' },
+        { id: 'agent', label: 'Start agent', status: 'pending' },
       ],
     })
 
@@ -79,9 +93,10 @@ describe('remote dispatch conversation card', () => {
     expect(merged.steps.map((step) => step.id)).toEqual([
       'connection',
       'repository',
-      'worktree',
-      'workspace',
-      'session',
+      'fetch',
+      'checkout',
+      'submodules',
+      'agent',
     ])
   })
 })

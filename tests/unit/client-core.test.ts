@@ -6,7 +6,7 @@ import { normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer }
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { encodeQrByteMode } from '@solus/client-core/qr'
 import {
-  shouldRejectQueuedRequest,
+  HostUnreachableError,
   TransportDisconnectedError,
   WsTransport,
 } from '@solus/client-core/ws-transport'
@@ -174,10 +174,25 @@ describe('client core transport helpers', () => {
     }
   })
 
-  test('expires outage-queued requests after 15s but never ages out the boot queue', () => {
-    expect(shouldRejectQueuedRequest(1_000, false, 16_001)).toBe(true)
-    expect(shouldRejectQueuedRequest(1_000, false, 16_000)).toBe(false)
-    expect(shouldRejectQueuedRequest(1_000, true, 60_000)).toBe(false)
+  test('an unreachable host fails queued and new calls at once, and queues again after', async () => {
+    // WHY: a call to a host that is down must settle, or its loader shows a
+    // skeleton for as long as the host is away (docs/plans/host-readiness.md).
+    const transport = new WsTransport({ serverUrl: 'http://localhost:3000', sessionToken: '', serverId: 'raiders' })
+    try {
+      const queued = transport.invoke('connectionsGetServerInfo', [])
+      transport.setUnreachable(true)
+      const queuedError = await queued.catch((error: Error) => error)
+      expect(queuedError).toBeInstanceOf(HostUnreachableError)
+      // The send outbox keeps a prompt that fails this way.
+      expect(queuedError).toBeInstanceOf(TransportDisconnectedError)
+      expect(await transport.invoke('connectionsGetServerInfo', []).catch((error: Error) => error)).toBeInstanceOf(HostUnreachableError)
+
+      transport.setUnreachable(false)
+      void transport.invoke('connectionsGetServerInfo', []).catch(() => {})
+      expect((transport as unknown as { requests: Map<string, unknown> }).requests.size).toBe(1)
+    } finally {
+      transport.destroy()
+    }
   })
 
   test('keeps host RPCs on WebSocket but opens external links on the client device', () => {

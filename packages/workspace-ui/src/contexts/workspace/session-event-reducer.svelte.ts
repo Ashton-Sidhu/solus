@@ -13,7 +13,7 @@ import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationCards } from './agent-conversation-cards'
-import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitAttachedFiles, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests, dropBlockingQuestions } from './session.utils'
+import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitSentAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests, dropBlockingQuestions } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
@@ -23,7 +23,7 @@ import { showsActivity } from '../../components/activity/lib/activity-line'
 import { restoredModelConfig } from './model-options'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
 import { canDriveSession } from '../sharing/resource-roles'
-import { adoptGit, checkoutGit, checkoutPlace, projectHome, projectRoot, runHost, workingPlace } from './run-location'
+import { adoptGit, checkoutGit, checkoutPlace, landClone, pendingClone, projectHome, projectRoot, runHost, workingPlace } from './run-location'
 
 type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
 
@@ -762,7 +762,10 @@ export class SessionEventReducer {
         session.statusCard = mergeRemoteDispatchProgress(session.statusCard, event.card)
         break
 
-      case 'git_context':
+      case 'git_context': {
+        // The host made the clone Send asked for: the run works in it from now on.
+        const clonedPath = pendingClone(session.run) ? event.gitContext.worktreePath ?? event.gitContext.repoRoot : undefined
+        if (clonedPath) session.run.location = landClone(session.run.location, clonedPath)
         // A worktree the host made is where the session works now, so it no
         // longer asks for one.
         session.run.location = adoptGit(session.run.location, workingPlace(session.run), event.gitContext, event.gitContext.worktreePath ? null : undefined)
@@ -785,6 +788,7 @@ export class SessionEventReducer {
           }
         }
         break
+      }
 
       case 'git_status':
         // Pushed live from the main-process git watcher — lands in the same
@@ -842,7 +846,7 @@ export class SessionEventReducer {
         }
         // A prompt this client did not compose (another agent's send_session)
         // carries its files as the composer's `[Attached file: …]` lines.
-        const attached = outbound ? null : splitAttachedFiles(event.text, runHost(session.run))
+        const attached = outbound ? null : splitSentAttachments(event.text, runHost(session.run))
         if (attached?.attachments.length) message.content = attached.text
         if (outbound?.attachments?.length) {
           message.attachments = outbound.attachments

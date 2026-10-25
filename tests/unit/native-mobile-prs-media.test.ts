@@ -10,7 +10,7 @@ import { pullRequestMediaUrl } from '../../apps/mobile/src/features/prs/pull-req
 const ctx = projectContext('/work/app', null)
 const UPLOAD = 'https://github.com/user-attachments/assets/abc-123'
 
-function fakeConnection(hostId: string, options: { githubMediaUrls?: boolean; expiresIn?: number; refuse?: boolean; phase?: string } = {}) {
+function fakeConnection(hostId: string, options: { githubMediaUrls?: boolean; expiresIn?: number; refuse?: boolean; readiness?: string } = {}) {
   let minted = 0
   const prMediaUrl = mock(async () => {
     if (options.refuse) throw new Error('This host only collaborates.')
@@ -18,7 +18,7 @@ function fakeConnection(hostId: string, options: { githubMediaUrls?: boolean; ex
   })
   const connection = {
     hostId,
-    state: { phase: options.phase ?? 'connected' },
+    state: { readiness: options.readiness ?? 'ready' },
     api: { prMediaUrl },
     transport: { serverUrl: 'https://host.example:4000/socket' },
     facts: { when: async () => ({ githubMediaUrls: options.githubMediaUrls ?? true }) },
@@ -61,7 +61,7 @@ describe('pull request media URLs', () => {
     const refusing = fakeConnection('media-f', { refuse: true })
     expect(await pullRequestMediaUrl(refusing.connection, UPLOAD, ctx)).toBe(UPLOAD)
 
-    const offline = fakeConnection('media-g', { phase: 'reconnecting' })
+    const offline = fakeConnection('media-g', { readiness: 'reconnecting' })
     expect(await pullRequestMediaUrl(offline.connection, UPLOAD, ctx)).toBe(UPLOAD)
     expect(await pullRequestMediaUrl(null, UPLOAD, ctx)).toBe(UPLOAD)
   })

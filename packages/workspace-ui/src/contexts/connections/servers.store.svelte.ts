@@ -1,4 +1,5 @@
-import type { BlockedReason, HostPhase } from '@solus/client-core/host-supervisor'
+import { hostReadinessCopy, type HostReadiness, type HostReadinessState } from '@solus/client-core/host-readiness'
+import type { HostDiagnostics } from '@solus/client-core/host-diagnostics'
 import {
   dismissSkew,
   forgetSkewDismissals,
@@ -52,25 +53,7 @@ import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 import { DIRECTORY_FOCUS_GAP_MS, directoryRefreshDelayMs } from './directory-refresh'
 import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
 
-export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved' | 'different-server'
-
 const DISCOVERY_INTERVAL_MS = 30_000
-const HOST_PROBE_STALE_MS = 30_000
-interface ServerConnectionState {
-  /** The supervisor's word on this host, when one supervises it: the one status source. */
-  phase?: HostPhase
-  /** Why a blocked host is blocked. */
-  blockedReason: BlockedReason | null
-  probeStatus?: Extract<ServerItemStatus, 'online' | 'offline'>
-  /** What `/health` reported, for a host with no saved entry to carry it. */
-  os?: HostOperatingSystem
-  attempt: number
-  hasConnected: boolean
-  /** When this host last stopped being connected, for the reconnect counter. */
-  offlineSince: number | null
-  /** When this host last came back after a drop — null on a first connect. */
-  lastReconnectAt: number | null
-}
 
 export interface ServerItem {
   id: string
@@ -79,7 +62,8 @@ export interface ServerItem {
   installationId?: string
   os?: HostOperatingSystem
   local: boolean
-  status: ServerItemStatus
+  /** Whether this client can do work on the host now (docs/plans/host-readiness.md). */
+  readiness: HostReadiness
   /** Every way this client knows to reach the host (direct-first dialing, C3). */
   routes: HostRoute[]
   /** Set when the owner's cloud directory lists the host. */
@@ -131,9 +115,11 @@ class ServersStore {
   private directoryRefreshInFlight = false
   private directoryRefreshTimer: ReturnType<typeof setTimeout> | null = null
   private lastDirectoryReadAt = 0
-  private connectionStatesByServer = $state<Record<string, ServerConnectionState>>({})
+  /** Bumps on every readiness change: `readinessFor` reads the connections through it. */
+  private readinessVersion = $state(0)
+  /** What `/health` reported, for a host with no saved entry to carry it. */
+  private osByServer = $state<Record<string, HostOperatingSystem>>({})
   projectIdentitiesByServer = $state<Record<string, ProjectIdentity[]>>({})
-  probingHosts = $state(false)
   readonly nearby = new SvelteMap<string, NearbyHost>()
 
   private initialized = false
@@ -141,7 +127,6 @@ class ServersStore {
   private discoveryTimer: ReturnType<typeof setInterval> | null = null
   private scanInFlight = false
   private lastDiscoveryScanAt = 0
-  private lastHostProbeAt = 0
 
   /** The workspace service connections this account holds, one per organization. */
   get cloudConnections(): ServerItem[] {
@@ -152,7 +137,7 @@ class ServersStore {
         label: target.label,
         url: target.url,
         local: false,
-        status: this.statusFor(target.id),
+        readiness: this.readinessFor(target.id).readiness,
         routes: target.routes ?? [],
       }
     })
@@ -180,7 +165,7 @@ class ServersStore {
         installationId: this.local.installationId,
         os: this.localIdentity?.os,
         local: true,
-        status: this.statusFor(LOCAL_SERVER_ID),
+        readiness: this.readinessFor(LOCAL_SERVER_ID).readiness,
         routes: [{ kind: 'direct', url }],
       })
     }
@@ -194,7 +179,7 @@ class ServersStore {
         installationId: server.installationId,
         os: server.os,
         local: false,
-        status: this.statusFor(server.id),
+        readiness: this.readinessFor(server.id).readiness,
         routes: savedServerRoutes(server),
       }
       if (server.uplink) row.uplink = server.uplink
@@ -209,9 +194,9 @@ class ServersStore {
         label: hostRowLabel(target, hosts.get(serverId)?.capabilityRecord?.name),
         url: target.url,
         installationId: target.installationId,
-        os: this.connectionStatesByServer[serverId]?.os,
+        os: this.osByServer[serverId],
         local: false,
-        status: this.statusFor(serverId),
+        readiness: this.readinessFor(serverId).readiness,
         routes: target.routes ?? savedServerRoutes({ url: target.url }),
       })
     }
@@ -228,13 +213,9 @@ class ServersStore {
     return this.servers.filter((server) => hosts.hasExecution(server.id))
   }
 
-  /**
-   * Remotes reachable right now, not merely saved. A host answers a health
-   * probe or holds a live transport before it counts, so the run-on picker
-   * only offers machines a session could actually start on.
-   */
+  /** Remotes ready now, not merely saved: the run-on picker only offers machines a session could start on. */
   get connectedRemotes(): ServerItem[] {
-    return this.executionServers.filter((server) => !server.local && server.status === 'online')
+    return this.executionServers.filter((server) => !server.local && server.readiness === 'ready')
   }
 
   /**
@@ -305,40 +286,21 @@ class ServersStore {
     return localApi.getPlatform?.() === 'web'
   }
 
+  /**
+   * The host whose state is the whole window's: the one that serves a web
+   * client, shown by the connection overlay. Null on desktop, whose own host
+   * runs beside the window (docs/plans/host-readiness.md).
+   */
+  get windowHostId(): string | null {
+    return this.isWebClient ? this.activeServerId : null
+  }
+
   get activeServer(): ServerItem | null {
     return this.servers.find((server) => server.id === this.activeServerId) ?? this.servers[0] ?? null
   }
 
   get activeTarget(): SolusServerTarget | null {
     return serverConnections.connectionFor(this.activeServerId)?.target ?? null
-  }
-
-  /** Where the active host's connection stands. */
-  get connectionPhase(): HostPhase {
-    return this.connectionStatesByServer[this.activeServerId]?.phase ?? 'connecting'
-  }
-
-  /** Why the active host is blocked; null while it is not. */
-  get blockedReason(): BlockedReason | null {
-    return this.connectionStatesByServer[this.activeServerId]?.blockedReason ?? null
-  }
-
-  get reconnectAttempt(): number {
-    return this.connectionStatesByServer[this.activeServerId]?.attempt ?? 0
-  }
-
-  get hasConnected(): boolean {
-    return this.connectionStatesByServer[this.activeServerId]?.hasConnected ?? false
-  }
-
-  /** Null while the active host is connected. */
-  get offlineSince(): number | null {
-    return this.connectionStatesByServer[this.activeServerId]?.offlineSince ?? null
-  }
-
-  /** Null until the active host has recovered from at least one drop. */
-  get lastReconnectAt(): number | null {
-    return this.connectionStatesByServer[this.activeServerId]?.lastReconnectAt ?? null
   }
 
   get nearbyHosts(): NearbyHost[] {
@@ -351,8 +313,7 @@ class ServersStore {
   }
 
   /**
-   * Mirror every host's supervisor phase into this store,
-   * which is what `statusFor` and the transcript's reachability row read. Part of
+   * Follows every host's readiness, which `readinessFor` reads. Part of
    * `init()`; the guest shell (docs/plans/multiplayer-sharing.md §4.2) calls it
    * alone, because it has one host and no catalog, discovery, or directory.
    */
@@ -369,18 +330,21 @@ class ServersStore {
     serverConnections.onPrimaryChange(followPrimary)
     followPrimary()
 
-    serverConnections.onPhaseChange((serverId, phase, attempt) => {
-      this.setConnectionPhase(serverId, phase, attempt)
+    serverConnections.onReadinessChange((serverId, readiness) => {
+      this.readinessVersion += 1
+      if (readiness === 'ready') void this.readOperatingSystem(serverId)
       if (serverId === this.activeServerId) onActiveChange?.()
     })
+    serverConnections.onConnectionCreated(() => { this.readinessVersion += 1 })
+    // A failed dial moves the attempts and the last error a host's diagnostics show.
+    serverConnections.onDialOutcome(() => { this.readinessVersion += 1 })
+  }
 
-    // Boot dials every saved host before the app mounts, so a fast host can
-    // connect before these listeners exist and never announce it again. Read
-    // where each connection stands now.
-    for (const serverId of serverConnections.connectedServerIds()) {
-      const connection = serverConnections.connectionFor(serverId)
-      if (connection) this.setConnectionPhase(serverId, connection.link.phase, connection.link.attempt)
-    }
+  /** A host this client has no saved entry for learns its OS from `/health` once it is ready. */
+  private async readOperatingSystem(serverId: string): Promise<void> {
+    if (serverId === LOCAL_SERVER_ID || this.osByServer[serverId] || this.remotes.some((server) => server.id === serverId)) return
+    const health = await serverConnections.probeHealth(serverId).catch(() => null)
+    if (health?.os) this.osByServer[serverId] = health.os
   }
 
   init(): void {
@@ -507,7 +471,7 @@ class ServersStore {
    * cannot start it, it failed, or it did not come up in time.
    */
   async startManagedHost(serverId: string, opts: { timeoutMs?: number; pollMs?: number } = {}): Promise<boolean> {
-    if (this.statusFor(serverId) === 'online') return true
+    if (this.readinessFor(serverId).readiness === 'ready') return true
     const hostId = this.remotes.find((server) => server.id === serverId)?.uplink?.hostId
     const source = uplinkAccountSource()
     if (!hostId || !source) return false
@@ -520,7 +484,7 @@ class ServersStore {
     let dialedReady = false
     while (Date.now() < deadline) {
       await this.refreshDirectory()
-      if (this.statusFor(serverId) === 'online') return true
+      if (this.readinessFor(serverId).readiness === 'ready') return true
       const state = this.remotes.find((server) => server.id === serverId)?.uplink?.managedState
       if (state === 'failed' || state === 'deleting') return false
       // Dials made while the host was still starting left the ladder backed off for
@@ -531,7 +495,7 @@ class ServersStore {
       }
       await new Promise((resolve) => setTimeout(resolve, opts.pollMs ?? 3_000))
     }
-    return this.statusFor(serverId) === 'online'
+    return this.readinessFor(serverId).readiness === 'ready'
   }
 
   /**
@@ -540,12 +504,12 @@ class ServersStore {
    * directory knows a machine is listed, only a connection says it answers.
    */
   async connectNow(serverId: string, opts: { timeoutMs?: number; pollMs?: number } = {}): Promise<boolean> {
-    if (this.statusFor(serverId) === 'online') return true
+    if (this.readinessFor(serverId).readiness === 'ready') return true
     serverConnections.dialNow(serverId)
     const deadline = Date.now() + (opts.timeoutMs ?? 30_000)
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, opts.pollMs ?? 500))
-      if (this.statusFor(serverId) === 'online') return true
+      if (this.readinessFor(serverId).readiness === 'ready') return true
     }
     return false
   }
@@ -606,12 +570,8 @@ class ServersStore {
     this.scanInFlight = true
     this.discoveryBusy = true
     try {
-      if (this.isWebClient && !serverConnections.defaultServerId()) {
-        // Without a connected host the stub RPC never resolves. Saved remotes
-        // can still answer health checks directly, so retain their reachability.
-        await Promise.all(this.remotes.map((server) => this.checkReachable(server.id)))
-        return { newServers: 0 }
-      }
+      // Without a connected host the stub RPC never resolves, so a web client has nothing to scan with.
+      if (this.isWebClient && !serverConnections.defaultServerId()) return { newServers: 0 }
       // Discovery runs where a network can be scanned: the local app on
       // desktop, and the connected default host's own network on web — so a
       // phone still sees the hosts sitting next to the machine it is paired with.
@@ -705,57 +665,12 @@ class ServersStore {
   }
 
   /**
-   * Dials the active host again without discarding the window. Reloading was
-   * the old retry, and it threw away every mounted pane to recover from what is
-   * usually a few seconds of missing network.
+   * Dials one host again now: the ladder resets and its grace restarts. A
+   * surface retries the host it shows, never the window's active one.
    */
-  retryActive(): void {
-    // The supervisor owns the ladder: a user retry resets it and dials now.
-    serverConnections.dialNow(this.activeServerId)
+  retry(serverId: string): void {
+    serverConnections.dialNow(serverId)
     requestInputFocus()
-  }
-
-  /** Falls back to the local host when a remote one cannot be recovered. */
-  useLocalHost(): void {
-    // Only a client with a machine of its own has a local host to fall back
-    // to; the web recovery surfaces offer re-pairing instead.
-    if (!serverConnections.localServerId()) return
-    this.switchTo(LOCAL_SERVER_ID)
-  }
-
-  /**
-   * Dials one host and records the verdict. The single probe path, so the host
-   * list and the host page can never disagree about whether a host is up.
-   */
-  async checkReachable(serverId: string): Promise<boolean> {
-    if (!serverConnections.localServerId() && serverId === LOCAL_SERVER_ID) {
-      this.connectionStateFor(serverId).probeStatus = 'offline'
-      return false
-    }
-    let health = null
-    try {
-      health = await serverConnections.probeHealth(serverId, true)
-    } catch {}
-    if (health?.os) {
-      // The host a web client booted against is never saved, so its OS lives
-      // on the connection state rather than a remote entry.
-      this.connectionStateFor(serverId).os = health.os
-      const remote = this.remotes.find((server) => server.id === serverId)
-      if (remote) remote.os = health.os
-    }
-    this.connectionStateFor(serverId).probeStatus = health ? 'online' : 'offline'
-    return !!health
-  }
-
-  async probeHosts(): Promise<void> {
-    if (this.probingHosts || Date.now() - this.lastHostProbeAt < HOST_PROBE_STALE_MS) return
-    this.probingHosts = true
-    try {
-      await Promise.all(this.servers.map((server) => this.checkReachable(server.id)))
-    } finally {
-      this.probingHosts = false
-      this.lastHostProbeAt = Date.now()
-    }
   }
 
   /** Loads repository identity only from the host that owns the source path. */
@@ -794,7 +709,7 @@ class ServersStore {
     if (isSolusApiId(serverId)) return null
     const host = this.hostFor(serverId)
     if (!host || host.local) return null
-    return hostAffinityGlyph(host, this.statusFor(host.id))
+    return hostAffinityGlyph(host, this.readinessFor(host.id))
   }
 
   /** The address shown beside a machine's name when another machine has the same name; null when its name is its own. */
@@ -814,62 +729,29 @@ class ServersStore {
     return { id: serverId, label: 'Removed host', local: false, unknown: true }
   }
 
-  statusFor(serverId: string): ServerItemStatus {
-        const state = this.connectionStatesByServer[serverId]
-    // The supervisor's phase is authoritative for a supervised host: `offline`
-    // is a real phase now, so the perpetual-"connecting" reading is gone.
-    switch (state?.phase) {
-      case 'connected': return 'online'
-      case 'offline': return 'offline'
-      // A host the last probe found off reads offline while its ladder keeps dialing:
-      // the picker must not promise a powered-off machine is about to connect.
-      case 'connecting':
-      case 'reconnecting': return state.probeStatus === 'offline' ? 'offline' : 'connecting'
-      case 'blocked':
-        return state.blockedReason === 'identity-mismatch' ? 'different-server' : 'offline'
-    }
-    if (state?.probeStatus) return state.probeStatus
-    return serverId === this.activeServerId ? 'connecting' : 'saved'
+  /**
+   * Whether this client can do work on the host now (docs/plans/host-readiness.md):
+   * the one answer every surface reads. Never opens a connection.
+   */
+  readinessFor(serverId: string): HostReadinessState {
+    // Presence follows the saved lists; the rest follows the connections.
+    void this.readinessVersion
+    void this.remotes
+    void this.workspaces
+    return serverConnections.readinessFor(serverId)
+  }
+  /** What a person needs to see why a host is not ready, or to send to support. */
+  diagnosticsFor(serverId: string): HostDiagnostics {
+    void this.readinessVersion
+    void this.remotes
+    return serverConnections.diagnosticsFor(serverId)
   }
 
-  /** When this host last stopped being connected; null while it is up or before it was dialed. */
-  offlineSinceFor(serverId: string): number | null {
-    return this.connectionStatesByServer[serverId]?.offlineSince ?? null
+  /** The host's readiness in one word, as a host list shows it: "Online", "Offline". */
+  readinessLabelFor(serverId: string): string {
+    return hostReadinessCopy(this.readinessFor(serverId), '').label
   }
 
-  setConnectionPhase(serverId: string, phase: HostPhase, attempt = 0, blockedReason = serverConnections.blockedReasonFor(serverId)): void {
-    const state = this.connectionStateFor(serverId)
-    state.phase = phase
-    state.attempt = attempt
-    state.blockedReason = phase === 'blocked' ? blockedReason : null
-    if (phase === 'connected') {
-      // Only a host that had already been up can have *re*connected. A first
-      // connect must not announce a recovery that never happened.
-      if (state.hasConnected) state.lastReconnectAt = Date.now()
-      state.hasConnected = true
-      state.offlineSince = null
-      // A host that just answered has plainly not stayed offline, and the stale
-      // probe would otherwise keep the picker showing it as unreachable.
-      state.probeStatus = 'online'
-    } else if (state.offlineSince === null) {
-      state.offlineSince = Date.now()
-    }
-  }
-
-  private connectionStateFor(serverId: string): ServerConnectionState {
-    let state = this.connectionStatesByServer[serverId]
-    if (!state) {
-      state = {
-        blockedReason: null,
-        attempt: 0,
-        hasConnected: false,
-        offlineSince: null,
-        lastReconnectAt: null,
-      }
-      this.connectionStatesByServer[serverId] = state
-    }
-    return state
-  }
 
   private updateAutoDiscovery(): void {
     if (!this.shouldAutoDiscover()) {

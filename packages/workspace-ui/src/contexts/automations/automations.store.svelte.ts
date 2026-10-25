@@ -47,9 +47,9 @@ export class AutomationsStore {
     let watch = this.hostWatches.get(hostId)
     if (!watch) {
       const stopEvents = serverConnections.eventsFor(hostId).subscribe('automation.changed', (event) => this.applyChange(hostId, event))
-      const stopStatus = serverConnections.onPhaseChange((changedHostId, status) => {
+      const stopStatus = serverConnections.onReadinessChange((changedHostId, status) => {
         if (changedHostId !== hostId) return
-        if (status === 'connected') void this.loadAll(hostId)
+        if (status === 'ready') void this.loadAll(hostId)
         else this.loadErrors.set(hostId, 'Host disconnected. Schedule state may be out of date.')
       })
       watch = { count: 0, stop: () => { stopEvents(); stopStatus() } }

@@ -1,36 +1,49 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  HostSupervisor,
-  ladderDelayMs,
-  OFFLINE_AFTER_ATTEMPTS,
-  type HostPhase,
-} from '@solus/client-core/host-supervisor'
+import { HostSupervisor, ladderDelayMs } from '@solus/client-core/host-supervisor'
+import { UNREACHABLE_AFTER_MS, type LinkReadiness } from '@solus/client-core/host-readiness'
 
+interface FakeTimer { at: number; run: () => void; cleared: boolean }
+
+/** A supervisor on a fake clock: `advance` runs every timer that comes due. */
 function harness() {
+  let now = 1_000
   const dials: number[] = []
-  const phases: Array<{ phase: HostPhase; attempt: number }> = []
-  const pendingTimers: Array<() => void> = []
+  const readings: LinkReadiness[] = []
+  const unreachableCalls: boolean[] = []
+  const timers: FakeTimer[] = []
   const supervisor = new HostSupervisor({
     transport: {
       start: () => dials.push(dials.length + 1),
       probe: async () => {},
+      setUnreachable: (unreachable) => unreachableCalls.push(unreachable),
     },
-    onPhaseChange: (phase, attempt) => phases.push({ phase, attempt }),
-    setTimeoutFn: ((handler: () => void) => {
-      pendingTimers.push(handler)
-      return pendingTimers.length as unknown as ReturnType<typeof setTimeout>
+    onReadinessChange: (readiness) => readings.push(readiness),
+    setTimeoutFn: ((handler: () => void, delay: number) => {
+      const timer: FakeTimer = { at: now + delay, run: handler, cleared: false }
+      timers.push(timer)
+      return timer as unknown as ReturnType<typeof setTimeout>
     }) as typeof setTimeout,
-    clearTimeoutFn: (() => {}) as typeof clearTimeout,
+    clearTimeoutFn: ((timer: FakeTimer) => { timer.cleared = true }) as unknown as typeof clearTimeout,
     random: () => 0.5,
+    now: () => now,
   })
-  const runNextTimer = () => pendingTimers.shift()?.()
-  return { supervisor, dials, phases, runNextTimer, pendingTimers: () => pendingTimers.length }
+  const advance = (ms: number) => {
+    const until = now + ms
+    for (;;) {
+      const due = timers.filter((timer) => !timer.cleared && timer.at <= until).sort((a, b) => a.at - b.at)[0]
+      if (!due) break
+      now = due.at
+      due.cleared = true
+      due.run()
+    }
+    now = until
+  }
+  return { supervisor, dials, readings, unreachableCalls, advance, now: () => now }
 }
 
 describe('host supervisor', () => {
   test('the ladder is the old socket.io curve: doubling, capped, jittered', () => {
-    // WHY: PR 1 is a behavior-identical port — retry pacing must not change
-    // out from under users the day ownership moves.
+    // WHY: retry pacing must not change out from under users when ownership moves.
     expect(ladderDelayMs(1, () => 0.5)).toBe(1_000)
     expect(ladderDelayMs(2, () => 0.5)).toBe(2_000)
     expect(ladderDelayMs(6, () => 0.5)).toBe(30_000)
@@ -39,97 +52,152 @@ describe('host supervisor', () => {
     expect(ladderDelayMs(20, () => 1)).toBe(30_000)
   })
 
-  test('a drop schedules exactly one redial; acceptance resets the ladder', () => {
-    const { supervisor, dials, runNextTimer } = harness()
+  test('a host never ready is checking, then unreachable after the grace', () => {
+    // WHY: a loader waits only while the host may still answer. Past the grace
+    // the surface must show the host's state, not a skeleton that never ends.
+    const { supervisor, advance } = harness()
     supervisor.start()
-    expect(dials.length).toBe(1)
-
-    supervisor.report({ kind: 'accepted', recovered: false })
-    expect(supervisor.phase).toBe('connected')
-
-    supervisor.report({ kind: 'dropped' })
-    expect(supervisor.phase).toBe('reconnecting')
-    expect(supervisor.attempt).toBe(1)
-    runNextTimer()
-    expect(dials.length).toBe(2)
-
-    supervisor.report({ kind: 'accepted', recovered: false })
-    expect(supervisor.attempt).toBe(0)
-    expect(supervisor.phase).toBe('connected')
-  })
-
-  test('a host that speaks another protocol is blocked as needing an update, and no dial is scheduled', () => {
-    // WHY (simplify-auth-and-sync §4.6): an old install can never be admitted; retrying on
-    // the ladder would read as "Reconnecting" forever instead of "Update Solus".
-    const { supervisor, dials, pendingTimers } = harness()
-    supervisor.start()
-    supervisor.report({ kind: 'update-required' })
-    expect(supervisor.phase).toBe('blocked')
-    expect(supervisor.blockedReason).toBe('update-required')
-    expect(pendingTimers()).toBe(0)
-    expect(dials.length).toBe(1)
-    // A user retry (after updating) dials again.
-    supervisor.dialNow()
-    expect(dials.length).toBe(2)
-    expect(supervisor.blockedReason).toBeNull()
-  })
-
-  test('offline is a presentation of the running ladder, never a stop', () => {
-    // WHY: the plan's phase machine — after N straight failures the row reads
-    // offline, but the supervisor keeps dialling at the ladder cap.
-    const { supervisor, dials, runNextTimer } = harness()
-    supervisor.start()
-    for (let i = 0; i < OFFLINE_AFTER_ATTEMPTS; i += 1) {
-      supervisor.report({ kind: 'dial-failed' })
-      runNextTimer()
-    }
-    expect(supervisor.phase).toBe('offline')
-    const dialsAtOffline = dials.length
+    expect(supervisor.readiness).toBe('checking')
     supervisor.report({ kind: 'dial-failed' })
-    runNextTimer()
-    expect(dials.length).toBe(dialsAtOffline + 1)
+    expect(supervisor.readiness).toBe('checking')
+    advance(UNREACHABLE_AFTER_MS - 1)
+    expect(supervisor.readiness).toBe('checking')
+    advance(1)
+    expect(supervisor.readiness).toBe('unreachable')
+    expect(supervisor.lastSeenAt).toBeNull()
   })
 
-  test('auth block stops the ladder; dialNow is the way back', () => {
-    const { supervisor, dials, runNextTimer } = harness()
+  test('a slow first dial that never reports is unreachable after the grace too', () => {
+    // WHY: a dial can hang without an outcome; time alone ends the wait.
+    const { supervisor, advance } = harness()
+    supervisor.start()
+    advance(UNREACHABLE_AFTER_MS)
+    expect(supervisor.readiness).toBe('unreachable')
+  })
+
+  test('a drop reconnects for the grace, then is unreachable; the ladder keeps dialing', () => {
+    const { supervisor, dials, advance, now } = harness()
+    supervisor.start()
+    supervisor.report({ kind: 'accepted', recovered: false })
+    expect(supervisor.readiness).toBe('ready')
+    const droppedAt = now()
+    supervisor.report({ kind: 'dropped' })
+    expect(supervisor.readiness).toBe('reconnecting')
+    expect(supervisor.lastSeenAt).toBe(droppedAt)
+    advance(UNREACHABLE_AFTER_MS)
+    expect(supervisor.readiness).toBe('unreachable')
+    const dialsAtUnreachable = dials.length
+    supervisor.report({ kind: 'dial-failed' })
+    advance(30_000)
+    // Unreachable is a reading, not a stop: dials go on and do not flicker it.
+    expect(dials.length).toBeGreaterThan(dialsAtUnreachable)
+    expect(supervisor.readiness).toBe('unreachable')
+  })
+
+  test('a drop shorter than the grace never reads unreachable', () => {
+    const { supervisor, readings, advance } = harness()
+    supervisor.start()
+    supervisor.report({ kind: 'accepted', recovered: false })
+    supervisor.report({ kind: 'dropped' })
+    advance(2_000)
+    supervisor.report({ kind: 'accepted', recovered: true })
+    advance(UNREACHABLE_AFTER_MS * 2)
+    expect(readings).not.toContain('unreachable')
+    expect(supervisor.readiness).toBe('ready')
+  })
+
+  test('the transport fails calls only while the host is unreachable', () => {
+    // WHY: queued calls must reject when the host is past its grace, and queue
+    // again once a retry or a reconnect gives the host another chance.
+    const { supervisor, unreachableCalls, advance } = harness()
+    supervisor.start()
+    advance(UNREACHABLE_AFTER_MS)
+    expect(unreachableCalls).toEqual([true])
+    supervisor.dialNow()
+    expect(unreachableCalls).toEqual([true, false])
+    supervisor.report({ kind: 'accepted', recovered: false })
+    expect(unreachableCalls).toEqual([true, false])
+  })
+
+  test('a user retry restarts the grace and shows the dial', () => {
+    const { supervisor, dials, advance } = harness()
+    supervisor.start()
+    supervisor.report({ kind: 'accepted', recovered: false })
+    supervisor.report({ kind: 'dropped' })
+    advance(UNREACHABLE_AFTER_MS)
+    expect(supervisor.readiness).toBe('unreachable')
+    const before = dials.length
+    supervisor.dialNow()
+    expect(dials.length).toBe(before + 1)
+    expect(supervisor.attempt).toBe(0)
+    expect(supervisor.readiness).toBe('reconnecting')
+    supervisor.report({ kind: 'dial-failed' })
+    expect(supervisor.readiness).toBe('reconnecting')
+    advance(UNREACHABLE_AFTER_MS)
+    expect(supervisor.readiness).toBe('unreachable')
+  })
+
+  test('a host stays away through a retry until it answers', () => {
+    // WHY: a surface hides the composer of a host that is away. A retry must
+    // not bring it back for the length of a grace and then hide it again.
+    const { supervisor, advance } = harness()
+    supervisor.start()
+    expect(supervisor.away).toBe(false)
+    advance(UNREACHABLE_AFTER_MS)
+    expect(supervisor.away).toBe(true)
+    supervisor.dialNow()
+    expect(supervisor.readiness).toBe('checking')
+    expect(supervisor.away).toBe(true)
+    supervisor.report({ kind: 'accepted', recovered: false })
+    expect(supervisor.away).toBe(false)
+    supervisor.report({ kind: 'dropped' })
+    // A drop inside the grace is not away.
+    expect(supervisor.away).toBe(false)
+  })
+
+  test('an auth refusal stops the ladder; dialNow is the way back', () => {
+    const { supervisor, dials, advance } = harness()
     supervisor.start()
     supervisor.report({ kind: 'auth-blocked' })
-    expect(supervisor.phase).toBe('blocked')
-    expect(supervisor.blockedReason).toBe('auth')
-    runNextTimer()
+    expect(supervisor.readiness).toBe('refused')
+    expect(supervisor.refusedReason).toBe('auth')
+    advance(UNREACHABLE_AFTER_MS * 3)
     expect(dials.length).toBe(1)
+    expect(supervisor.readiness).toBe('refused')
 
     supervisor.dialNow()
     expect(dials.length).toBe(2)
     expect(supervisor.attempt).toBe(0)
+    expect(supervisor.readiness).toBe('checking')
   })
 
-  test('an identity mismatch stays blocked even through dialNow', () => {
+  test('an identity mismatch stays refused even through dialNow', () => {
     // WHY: dialling again cannot change who answers at that address — only
     // re-pairing can. A retry that "fixes" this would mask a hijacked host.
     const { supervisor, dials } = harness()
     supervisor.start()
     supervisor.report({ kind: 'identity-mismatch' })
     supervisor.dialNow()
-    expect(supervisor.blockedReason).toBe('identity-mismatch')
+    expect(supervisor.refusedReason).toBe('identity-mismatch')
+    expect(supervisor.readiness).toBe('refused')
     expect(dials.length).toBe(1)
   })
 
   test('the session generation bumps only on accepted, non-recovered connects', () => {
     // WHY: domain caches refetch on this edge. A recovered socket is the same
     // server session continuing — refetching would punish every network blip.
-    const { supervisor, runNextTimer } = harness()
+    const { supervisor, advance } = harness()
     supervisor.start()
     supervisor.report({ kind: 'accepted', recovered: false })
     expect(supervisor.sessionGeneration).toBe(0)
 
     supervisor.report({ kind: 'dropped' })
-    runNextTimer()
+    advance(1_000)
     supervisor.report({ kind: 'accepted', recovered: true })
     expect(supervisor.sessionGeneration).toBe(0)
 
     supervisor.report({ kind: 'dropped' })
-    runNextTimer()
+    advance(1_000)
     supervisor.report({ kind: 'accepted', recovered: false })
     expect(supervisor.sessionGeneration).toBe(1)
   })
@@ -139,7 +207,7 @@ describe('host supervisor', () => {
     // keep their answers on a recovered one, and clear capabilities on a drop.
     const changes: string[] = []
     const supervisor = new HostSupervisor({
-      transport: { start: () => {}, probe: async () => {} },
+      transport: { start: () => {}, probe: async () => {}, setUnreachable: () => {} },
       onSessionChange: (change) => changes.push(change),
       setTimeoutFn: (() => 0 as unknown as ReturnType<typeof setTimeout>) as unknown as typeof setTimeout,
       clearTimeoutFn: (() => {}) as typeof clearTimeout,

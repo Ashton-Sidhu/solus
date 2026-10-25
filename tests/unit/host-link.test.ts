@@ -23,6 +23,7 @@ class FakeTransport implements LinkTransport {
   async probe(): Promise<void> {}
   switchServerUrl(serverUrl: string): void { this.serverUrl = serverUrl }
   attachDialOutcomeReporter(report: (outcome: DialOutcome) => void): void { this.report = report }
+  setUnreachable(): void {}
   destroy(): void { this.isDestroyed = true }
 }
 

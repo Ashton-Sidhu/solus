@@ -36,6 +36,12 @@ export interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'
   organizationId?: string
 }
 
+/** The repository a client's prompt asks this host to copy first, with the device that asked. */
+function repositoryRunOf(ctx: IpcContext, deviceId: string | undefined): Pick<SessionRunRequest, 'repository'> {
+  const repository = ctx.session.repository
+  return repository ? { repository: deviceId ? { repository, deviceId } : { repository } } : {}
+}
+
 function buildCreatedSessionPromptOptions(request: CreateSessionRequest): PromptOptions {
   const options: PromptOptions = {
     prompt: request.prompt,
@@ -142,6 +148,7 @@ export class PromptDispatch {
         sessionId,
         sourceClientId: origin?.clientId,
         actor: origin?.actor,
+        ...repositoryRunOf(ctx, origin?.deviceId),
         options: {
           ...options,
           promptSource: ctx.session.origin === 'dispatch' ? 'dispatch' : 'typed',
@@ -465,7 +472,7 @@ export class PromptDispatch {
 
   /** Re-submit the same prompt. If the session is dead, drop its provider
    *  thread so a fresh one starts. */
-  async retry(ctx: IpcContext, options: PromptOptions, clientId: string | undefined, actor: Actor): Promise<void> {
+  async retry(ctx: IpcContext, options: PromptOptions, clientId: string | undefined, actor: Actor, deviceId?: string): Promise<void> {
     const sessionId = this.rt.sessionIdForCtx(ctx)
     if (!sessionId) throw new Error('No session to retry')
     options = this.rt.launcher.failedSetupPrompts.get(sessionId) ?? options
@@ -503,12 +510,14 @@ export class PromptDispatch {
         options,
         tools,
         actor,
+        // A clone that a dead launch never made is made now.
+        ...repositoryRunOf(ctx, deviceId),
       }
     } else {
       const agentSessionId = session?.agentSessionId ?? ctx.session.agentSessionId
       request = !input.forked && agentSessionId
         ? { input, target: { kind: 'session', sessionId }, sessionId, sourceClientId, options, tools, actor }
-        : { input, target: { kind: 'new-session' }, sessionId, sourceClientId, options, tools, actor }
+        : { input, target: { kind: 'new-session' }, sessionId, sourceClientId, options, tools, actor, ...repositoryRunOf(ctx, deviceId) }
     }
 
     const lifecycle = await this.rt.runTurn(request)

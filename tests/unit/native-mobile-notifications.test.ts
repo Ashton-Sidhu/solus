@@ -31,7 +31,7 @@ function world(hostIds: string[]): FakeWorld {
   const registry = { changes: registryChanges, hosts: () => hostIds.map((id) => ({ id, label: id })) } as unknown as HostRegistry
   const connections = {
     changes: connectionChanges,
-    state: (id: string) => ({ phase: connected.has(id) ? 'connected' : 'offline' }),
+    state: (id: string) => ({ readiness: connected.has(id) ? 'ready' : 'unreachable' }),
     connection: (id: string) => {
       if (!connected.has(id)) return null
       const link = sources[id]!.link()

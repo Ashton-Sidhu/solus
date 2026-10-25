@@ -27,6 +27,7 @@ import { TranscriptModel, type TranscriptItem } from './lib/transcript-model'
 import { isHandoffPending } from './lib/provider-handoff'
 import type { QueueAttachment, SessionQueueMutation, SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import { parseAgentAuthCommand } from '@solus/contracts/agent-auth'
+import { mayWorkLocallyDuringSetup } from '@solus/contracts/setup-card'
 import { seatProviderSchema } from '@solus/contracts/seats'
 import { AgentAuthFlow } from './agent-auth-flow'
 import type { IntegrationConnectNeeded } from '@solus/contracts/integration-types'
@@ -124,6 +125,10 @@ export class ConversationController {
   /** The prompt that started a new session, until the host names the session from it. */
   private openingPrompt: string | null = null
   private watching = false
+  /** A watch sent beside a prompt, until its reply comes. */
+  private watchBesidePrompt: Promise<void> | null = null
+  /** Counts live events, so a watch reply knows if the stream moved past it. */
+  private liveEvents = 0
   private closed = false
   private readonly cleanups: Array<() => void> = []
   /** Saved artifact reads in flight, per transcript: a rebuilt transcript reads again. */
@@ -490,10 +495,22 @@ export class ConversationController {
     await this.drainOutbox(true)
   }
 
-  /** The host retains the failed prompt; a retry keeps its original branch. */
+  /** The host retains the failed prompt; a retry keeps its original branch.
+   *  While the host still makes the worktree, working locally stops it and
+   *  starts the same prompt in the project folder. */
   async recoverWorktreeSetup(id: string, workLocally: boolean): Promise<void> {
     const item = this.model.items.get(id)
-    if (!this.mayDrive || item?.kind !== 'setup' || item.card.status !== 'error' || item.card.recovery !== 'worktree') return
+    if (!this.mayDrive || item?.kind !== 'setup') return
+    if (workLocally && mayWorkLocallyDuringSetup(item.card)) {
+      try {
+        await this.deps.connection.api.continueSetupLocally(this.run.sessionId)
+      } catch (error) {
+        this.model.addNotice(`Could not work locally: ${(error instanceof Error ? error.message : String(error))}`, 'error')
+        this.flush()
+      }
+      return
+    }
+    if (item.card.status !== 'error' || item.card.recovery !== 'worktree') return
     await this.callWithContext((ctx) => {
       ctx.session.worktreeBaseBranch = workLocally ? null : item.card.worktreeBaseBranch ?? null
       return this.deps.connection.api.retry(ctx, { prompt: '' })
@@ -719,6 +736,7 @@ export class ConversationController {
   // ─── Internals ───
 
   private receive(event: WireNormalizedEvent): void {
+    this.liveEvents += 1
     if (this.held) {
       this.held.push(event)
       return
@@ -757,6 +775,25 @@ export class ConversationController {
     })
     this.watching = true
     return watched
+  }
+
+  /**
+   * Watches without holding the prompt that goes next: the host makes the
+   * sender a watcher before the prompt runs, as on desktop (`promptTab`). The
+   * prompt carries the run settings this conversation has; the reply applies
+   * when it comes. A reply for an older load is dropped, as in `load`, and so
+   * is a reply that live events passed: they are newer than its snapshot. A
+   * failed watch leaves `watching` false, so the next send tries again.
+   */
+  private watchBeside(): void {
+    if (this.watchBesidePrompt) return
+    const generation = this.loadGeneration
+    const eventsAtSend = this.liveEvents
+    this.watchBesidePrompt = this.watch().then((watched) => {
+      if (generation !== this.loadGeneration || this.closed || this.liveEvents !== eventsAtSend) return
+      this.applyWatch(watched)
+      this.flush(true)
+    }, () => undefined).finally(() => { this.watchBesidePrompt = null })
   }
 
   private applyWatch(watched: WatchSessionResult): void {
@@ -805,7 +842,7 @@ export class ConversationController {
       await this.deps.outbox.drain(this.outboxKey, async (record) => {
         this.model.markDelivery(record.clientPromptId, 'sending')
         this.flush()
-        if (!this.watching) this.applyWatch(await this.watch())
+        if (!this.watching) this.watchBeside()
         const ctx = this.context()
         const result = await this.deps.connection.api.prompt(ctx, {
           prompt: record.payload?.prompt ?? record.text,

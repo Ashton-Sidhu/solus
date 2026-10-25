@@ -87,6 +87,7 @@ export const RPC_INVOKE_METHODS = [
   'retry',
   'stopSession',
   'stopBackgroundTasks',
+  'continueSetupLocally',
   'resetSession',
   'acceptPlan',
   // Deprecated (plans/021): a prompt on another provider hands the session off
@@ -336,7 +337,6 @@ export const RPC_INVOKE_METHODS = [
   'setupInstallAgentCli',
   'setupCheckAgentAuth',
   'setupListGithubRepos',
-  'setupPrepareProject',
   'setupCloneProject',
   'setupSyncProject',
   'setupAdoptProject',

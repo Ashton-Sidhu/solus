@@ -14,9 +14,9 @@ import type { IpcContext } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { HostPhase } from '@solus/client-core/host-supervisor'
+import type { LinkReadiness } from '@solus/client-core/host-readiness'
 
-type ConnectionListener = (serverId: string, phase: HostPhase, attempt: number) => void
+type ConnectionListener = (serverId: string, readiness: LinkReadiness, attempt: number) => void
 type LensEventListener = (serverId: string, event: ReviewLensChangedEvent) => void
 type PullRequestIdentity = Pick<Extract<ReviewTarget, { kind: 'pr' }>, 'host' | 'owner' | 'repo' | 'number'>
 
@@ -88,7 +88,7 @@ export class ReviewLensStore {
 
   constructor(
     private readonly subscribeEvents: (listener: LensEventListener) => () => void = (listener) => subscribeAllHosts('review.lensChanged', listener),
-    private readonly watchConnections: (listener: ConnectionListener) => () => void = (listener) => serverConnections.onPhaseChange(listener),
+    private readonly watchConnections: (listener: ConnectionListener) => () => void = (listener) => serverConnections.onReadinessChange(listener),
   ) {}
 
   /** Follow `review.lensChanged` on every host. The app shell calls it once;
@@ -252,7 +252,7 @@ export class ReviewLensStore {
   private bind(serverId: string): void {
     this.connectionUnsubscribe ??= this.watchConnections((host, status) => {
       if (!this.subscribed.has(host)) return
-      if (status !== 'connected') {
+      if (status !== 'ready') {
         this.disconnected.set(host, true)
         return
       }

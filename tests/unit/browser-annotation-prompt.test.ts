@@ -10,6 +10,9 @@ import {
   mergeAnnotationAttachment,
 } from '@solus/workspace-ui/components/browser/lib/annotation-attachment'
 import { defaultViewport, type BrowserAnnotation, type BrowserPage } from '@solus/contracts/browser-types'
+import { composeAttachmentContext } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
+import { splitSentAttachments } from '@solus/workspace-ui/contexts/workspace/session.utils'
+import { browserMarkChips } from '@solus/workspace-ui/lib/browser-annotation'
 
 /**
  * What the user's marks become.
@@ -267,5 +270,51 @@ describe('annotation prompt', () => {
       state: { browserPageId: 'browser_1', annotations: [PICKED] },
       serverId: 'host-1',
     })).toBeNull()
+  })
+})
+
+describe('a sent annotation, reloaded from history', () => {
+  // WHY: provider history keeps a sent annotation only as the words the
+  // composer wrote. A reload must show the same chips the sender saw, not the
+  // raw context above the typed text.
+  const marks: BrowserAnnotation[] = [
+    { ...PICKED, number: 1, note: 'the "Save" label — too tight' },
+    {
+      id: 'an2', tool: 'region', number: 3, rect: { x: 0, y: 40, width: 300, height: 80 }, createdAt: 2,
+      note: 'align these',
+      elements: [
+        { role: 'link', label: 'Docs; guides', identifier: 'docs-link', rect: { x: 0, y: 40, width: 50, height: 20 }, ref: 'r2', source: { file: 'src/Nav.svelte', line: 7, column: 1 } },
+        { role: 'link', label: 'Blog', rect: { x: 60, y: 40, width: 50, height: 20 }, ref: 'r3' },
+      ],
+    },
+    { id: 'an3', tool: 'draw', number: 4, rect: { x: 5, y: 6, width: 70, height: 80 }, createdAt: 3, note: 'odd gap' },
+  ]
+  const sent = createAnnotationAttachment({
+    page: { ...page(), appearance: 'dark' },
+    state: { browserPageId: 'browser_1', annotations: marks },
+    serverId: 'host-1',
+    evidence: { browserPageId: 'browser_1', assetId: 'asset-1', hostPath: '/h/.solus/assets/capture.png', attachedTo: 'the composer' },
+  })!
+  const content = `${composeAttachmentContext([sent], 'host-1')}\n\nfix these please`
+
+  test('the chips come back as they were sent, with only the typed text left', () => {
+    const { text, attachments } = splitSentAttachments(content, 'host-1')
+    expect(text).toBe('fix these please')
+    expect(attachments).toHaveLength(1)
+    const strip = (chips: ReturnType<typeof browserMarkChips>) => chips.map(({ id: _id, ...chip }) => chip)
+    expect(strip(browserMarkChips(attachments[0]!))).toEqual(strip(browserMarkChips(sent)))
+    expect(attachments[0]!.hostPath).toBe('/h/.solus/assets/capture.png')
+  })
+
+  test('an annotation beside a file keeps both', () => {
+    const file = { id: 'f', type: 'file' as const, name: 'a.txt', path: '/h/a.txt', hostPath: '/h/a.txt' }
+    const { text, attachments } = splitSentAttachments(`${composeAttachmentContext([file, sent], 'host-1')}\n\nhi`, 'host-1')
+    expect(text).toBe('hi')
+    expect(attachments.map((attachment) => attachment.type)).toEqual(['file', 'design-selection'])
+  })
+
+  test('text the user typed in the same shape stays text', () => {
+    const typed = '[Browser annotation: mine]\nnot what the composer writes\n\nhello'
+    expect(splitSentAttachments(typed, 'host-1')).toEqual({ text: typed, attachments: [] })
   })
 })

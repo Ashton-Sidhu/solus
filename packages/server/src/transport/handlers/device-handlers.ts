@@ -18,7 +18,7 @@ import {
 } from '@solus/contracts/device-types'
 import { userKey } from '@solus/contracts/user'
 import type { HandlerCtx, SolusServer } from '../server'
-import type { DeviceDomain } from '../../devices/device-domain'
+import { configureDevices, type DeviceDomain } from '../../devices/device-domain'
 import { DeviceDomainError } from '../../devices/device-errors'
 import { DeviceProjectDetector } from '../../devices/device-project'
 import { runDeviceCommand } from '../../devices/device-process'
@@ -77,9 +77,7 @@ export function registerDeviceHandlers(
   })
 
   server.register('deviceConfigure', (args) => {
-    const request = parse(deviceConfigureRequestSchema, args[0])
-    if (request.enabled === false) deps.domain.runs.dispose()
-    return manager.configure(request)
+    return configureDevices(deps.domain, parse(deviceConfigureRequestSchema, args[0]))
   })
   server.register('deviceHostSave', async (args) => {
     const config = parse(sshDeviceHostConfigSchema, args[0])

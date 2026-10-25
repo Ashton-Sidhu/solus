@@ -29,7 +29,7 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
   const app = useApp();
   const connectedGeneration = useListened(app.connections.changes, () => {
     const state = app.connections.state(props.environmentId);
-    return state?.phase === "connected" ? state.sessionGeneration : null;
+    return state?.readiness === "ready" ? state.sessionGeneration : null;
   });
   const renderableFaviconUrl = useProjectFaviconUrl(
     props.workspaceRoot ? app.connections.connection(props.environmentId) : null,

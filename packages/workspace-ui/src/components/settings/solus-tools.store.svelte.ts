@@ -25,9 +25,9 @@ class SolusToolsStore {
         // The event carries no person's key; a key saved from another window may be this person's.
         void this.loadKeyStatus(serverId)
       })
-      const stopStatus = serverConnections.onPhaseChange((hostId, status) => {
+      const stopStatus = serverConnections.onReadinessChange((hostId, status) => {
         if (hostId !== serverId) return
-        if (status === 'connected') void this.load(serverId)
+        if (status === 'ready') void this.load(serverId)
         else {
           const state = this.states.get(serverId)
           if (state) this.states.set(serverId, { ...state, error: 'Host disconnected.', revision: state.revision + 1 })

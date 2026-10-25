@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
   import {
-    BookOpenText as BookOpenTextIcon,
+    ClipboardCheck as GuideIcon,
     LoaderCircle as CircleNotchIcon,
     Play as PlayIcon,
   } from "@lucide/svelte";
@@ -49,7 +49,7 @@
     {#if guidesInFlight > 0}
       <CircleNotchIcon size={12} class="shrink-0 animate-spin [animation-duration:0.9s]" />
     {:else}
-      <BookOpenTextIcon size={12} class="shrink-0" />
+      <GuideIcon size={12} class="shrink-0" />
     {/if}
     <span>Guides</span>
   </Button>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, type Snippet } from "svelte";
-	import { BREW_COMMAND, DOWNLOADS, LINUX_SERVER_COMMAND, detectPlatform, type DownloadPlatform } from "./download";
+	import { BREW_COMMAND, DOWNLOADS, SERVER_COMMAND, SERVER_TARGETS, detectPlatform, type DownloadPlatform } from "./download";
 
 	// The download call to action for the visitor's OS: the desktop app for
 	// macOS, Windows, or Linux. The page is prerendered, so it shows macOS until
@@ -10,6 +10,7 @@
 		compact = false,
 		showOthers = false,
 		showBrew = false,
+		showServer = false,
 		class: className = "",
 		secondary,
 	}: {
@@ -18,6 +19,8 @@
 		compact?: boolean;
 		/** A line under the button with download links for the other platforms. */
 		showOthers?: boolean;
+		/** A pill that copies the server install command for this OS. */
+		showServer?: boolean;
 		/** On macOS, a second button that copies the Homebrew command. */
 		showBrew?: boolean;
 		/** Alignment of the button and the lines under it, such as "items-start". */
@@ -40,6 +43,10 @@
 	const sizeClass = $derived(size === "sm" ? "btn-sm" : size === "lg" ? "h-12 px-6 text-[16px]" : "");
 	const others = $derived((Object.keys(DOWNLOADS) as DownloadPlatform[]).filter((other) => other !== platform));
 </script>
+
+{#snippet copyIcon()}
+	<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
+{/snippet}
 
 {#snippet checkIcon()}
 	<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
@@ -69,12 +76,21 @@
 					{DOWNLOADS[other].name}
 				</a>
 			{/each}
-			{#if platform === "linux"}
-				<span aria-hidden="true">·</span>
-				<button type="button" onclick={() => copy(LINUX_SERVER_COMMAND, "server")} class="cursor-pointer font-medium text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink" title={LINUX_SERVER_COMMAND}>
-					{copied === "server" ? "Server install command copied" : "No desktop? Copy the server install command"}
+			{#if showServer}
+				<!-- The server install command for this OS: one click copies it. -->
+				<button
+					type="button"
+					onclick={() => copy(SERVER_COMMAND, "server")}
+					class="ml-1 inline-flex cursor-pointer items-center gap-2 rounded-full bg-surface py-1 pr-2.5 pl-3 font-mono text-[12.5px] text-ink-2 transition-colors hover:bg-[#e6e4dd] hover:text-ink"
+					title="{SERVER_TARGETS[platform]}: {SERVER_COMMAND}"
+					aria-label="Copy the server install command"
+				>
+					<span class="font-sans font-medium">Server</span>
+					<span class="text-ink-3">$</span>curl -fsSL …/install.sh | sh
+					{#if copied === "server"}{@render checkIcon()}{:else}{@render copyIcon()}{/if}
 				</button>
 			{/if}
 		</span>
+
 	{/if}
 </div>

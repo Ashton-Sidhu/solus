@@ -8,8 +8,8 @@ tokens), §3 (desktop sign-in through the device grant), and the "unchanged" lis
 refresh gives one token for our own servers (`aud: [account, api]`); a token for a
 host comes from a token exchange, never a refresh; there is one host audience (the
 host-reach audience is gone); the Solus API has no OAuth client of its own; a socket
-presents one credential in its handshake and no ws-ticket exists; every client and
-host speaks `SOLUS_PROTOCOL`, and an older one gets `update_required`. Rules 3, 6
+presents one credential in its handshake and no ws-ticket exists. There is no
+protocol version check (`SOLUS_PROTOCOL` was removed 2026-10-23). Rules 3, 6
 and 7 and §2.3 below are changed to match. Sections after §2 keep their history.
 
 ## 1. Context
@@ -85,8 +85,13 @@ standard exists.
    client's access token for that host (RFC 8693). The delegation carries the
    client grant's `grant_id`, and the cloud refuses it when that grant is revoked. It is
    the same path for the owner and for a member. The scope is one organization or
-   `personal`. A delegation can also exchange for a token for another host the
-   person reaches, with that host's one audience (amended 2026-10-23).
+   `personal`. **A delegation is a row on the account plane, not a refresh token**
+   (amended 2026-10-24, `host_delegation`): the exchange makes the row and holds no
+   refresh token on the host. The host asks for each token with its own control token
+   (`POST /v1/hosts/:hostId/delegation-token`: the Solus API, the account plane, or
+   another host the person reaches); one statement checks that the row exists, its grant
+   is alive, and the person still stands, then the account plane signs the token. A
+   sign-out, a removal, or deleting the host refuses the next token.
 7. **Every call to the account plane for a person uses `Authorization: Bearer`**:
    the person's own token for our servers, or a host's delegated token. No token goes
    in a body. No host token or service key goes beside it.
@@ -132,7 +137,7 @@ tokens), and the tunnel token. WebSocket tickets are gone (2026-10-23): a socket
 presents its one credential in the socket.io handshake, the socket's first message and
 never a header or a URL — an access token, a pairing session token, or a share secret
 with the guest's name — and the server builds the principal from it directly
-(`admission/doors.ts`). A handshake with another `protocol` gets `update_required`.
+(`admission/doors.ts`).
 
 ## 3. Interfaces
 

@@ -2,7 +2,7 @@ import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import type { HostCapabilities } from '@solus/contracts/types'
-import type { HostPhase } from '@solus/client-core/host-supervisor'
+import type { HostReadinessState, LinkReadiness } from '@solus/client-core/host-readiness'
 import { BrowserFrameSubscriber } from '@solus/client-core/browser-frame-subscriber'
 import { HostFacts } from '@solus/client-core/host-facts'
 
@@ -33,8 +33,8 @@ export function singleHostServerConnections() {
   const eventsByServerId = new Map<string, HostEventSubscriber>()
   const framesByServerId = new Map<string, BrowserFrameSubscriber>()
   const factsByServerId = new Map<string, HostFacts>()
-  const phaseListeners = new Set<(serverId: string, phase: HostPhase, attempt: number) => void>()
-  const phases = new Map<string, HostPhase>()
+  const readinessListeners = new Set<(serverId: string, readiness: LinkReadiness, attempt: number) => void>()
+  const readinessByServerId = new Map<string, LinkReadiness>()
   const api = (serverId = primaryServerId) => apis.get(serverId) ?? currentApi()
   const events = (serverId = primaryServerId) => {
     let subscriber = eventsByServerId.get(serverId)
@@ -60,7 +60,7 @@ export function singleHostServerConnections() {
     transport: { destroy: () => {}, events: events(serverId) },
     api: api(serverId),
     events: events(serverId),
-    link: { phase: phases.get(serverId) ?? 'connected', attempt: 0 },
+    link: { readiness: readinessByServerId.get(serverId) ?? 'ready', attempt: 0 },
     facts: facts(serverId),
   })
   const frames = (serverId = primaryServerId) => {
@@ -93,8 +93,8 @@ export function singleHostServerConnections() {
       framesByServerId.clear()
       for (const hostFacts of factsByServerId.values()) hostFacts.dispose()
       factsByServerId.clear()
-      phaseListeners.clear()
-      phases.clear()
+      readinessListeners.clear()
+      readinessByServerId.clear()
     },
     resolveId: (serverId: string) => serverId === 'local' ? primaryServerId : serverId,
     ensure: (serverId: string) => connection(serverId),
@@ -116,17 +116,26 @@ export function singleHostServerConnections() {
     connectionFor: (serverId?: string) => connection(serverId),
     httpOriginFor: (serverId: string) => new URL(connection(serverId).target.url).origin,
     onConnectionCreated: () => () => {},
+    onDialOutcome: () => () => {},
     onPrimaryChange: () => () => {},
-    onPhaseChange: (listener: (serverId: string, phase: HostPhase, attempt: number) => void) => {
-      phaseListeners.add(listener)
-      return () => phaseListeners.delete(listener)
+    onReadinessChange: (listener: (serverId: string, readiness: LinkReadiness, attempt: number) => void) => {
+      readinessListeners.add(listener)
+      return () => readinessListeners.delete(listener)
     },
-    phaseFor: (serverId: string): HostPhase => phases.get(serverId) ?? 'connected',
-    blockedReasonFor: () => null,
-    /** Move one host's supervisor phase, as a drop or a reconnect does. */
-    emitPhase: (serverId: string, phase: HostPhase) => {
-      phases.set(serverId, phase)
-      for (const listener of phaseListeners) listener(serverId, phase, 0)
+    readinessFor: (serverId: string): HostReadinessState => {
+      const readiness = readinessByServerId.get(serverId) ?? 'ready'
+      return {
+        readiness,
+        away: readiness === 'unreachable' || readiness === 'refused',
+        unreachableReason: readiness === 'unreachable' ? 'no-answer' : null,
+        refusedReason: readiness === 'refused' ? 'auth' : null,
+        lastSeenAt: null,
+      }
+    },
+    /** Move one host's readiness, as a drop or a reconnect does. */
+    emitReadiness: (serverId: string, readiness: LinkReadiness) => {
+      readinessByServerId.set(serverId, readiness)
+      for (const listener of readinessListeners) listener(serverId, readiness, 0)
     },
     dialNow: () => {},
     startCatalogSupervisors: () => {},

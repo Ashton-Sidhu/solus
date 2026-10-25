@@ -140,6 +140,26 @@ export class PersonalSettingsStore {
     return true
   }
 
+  /** Several keys changed here at once (an agent's `update_config`). Refused whole when one value fails its schema. */
+  setMany(patch: PersonalSettingsDocument): boolean {
+    const change: PersonalChange = { set: {}, reset: [] }
+    for (const key of PERSONAL_SETTING_KEYS) {
+      if (!Object.hasOwn(patch, key)) continue
+      const value = parseKey(key, patch[key])
+      if (value === undefined) return false
+      if (!Object.hasOwn(this.document, key) || !sameValue(this.document[key], value)) Object.assign(change.set, { [key]: value })
+    }
+    const changed = PERSONAL_SETTING_KEYS.filter((key) => Object.hasOwn(change.set, key))
+    if (changed.length === 0) return true
+    for (const key of changed) {
+      const value = parseKey(key, change.set[key])
+      if (value !== undefined) this.write(key, value)
+    }
+    this.persist()
+    this.emit(structuredClone(change), 'local')
+    return true
+  }
+
   setNotifications(next: NotificationPreferences): boolean {
     return this.set('notifications', next)
   }

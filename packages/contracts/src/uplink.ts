@@ -94,17 +94,6 @@ export const TOKEN_EXCHANGE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:token
 export const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token'
 
 /**
- * The protocol a Solus client or host speaks with a Solus server and the account
- * plane (docs/plans/simplify-auth-and-sync.md §4.6). A server refuses a missing or
- * other value with `UPDATE_REQUIRED`: a socket ends its handshake with it as the
- * error message, and an HTTP route answers 426 with `{ error: UPDATE_REQUIRED }`.
- * Sent as the handshake's `protocol` and as the `SOLUS_PROTOCOL_HEADER` header.
- */
-export const SOLUS_PROTOCOL = 2
-export const SOLUS_PROTOCOL_HEADER = 'solus-protocol'
-export const UPDATE_REQUIRED = 'update_required'
-
-/**
  * A socket's one credential, in its handshake (plan §3 rule 4). The server builds the
  * principal from it directly:
  * - `access-token`: a person's token for this host, or a host's delegated token; with
@@ -128,9 +117,8 @@ export const handshakeCredentialSchema = z.discriminatedUnion('kind', [
 ])
 export type HandshakeCredential = z.infer<typeof handshakeCredentialSchema>
 
-/** A socket's handshake: the protocol it speaks, its one credential, and the client instance. */
+/** A socket's handshake: its one credential, and the client instance. */
 export const socketHandshakeSchema = z.object({
-  protocol: z.number().int(),
   credential: handshakeCredentialSchema.optional(),
   clientInstanceId: z.string().regex(/^[a-zA-Z0-9_-]{16,128}$/).optional(),
 })
@@ -932,6 +920,72 @@ export const hostCredentialResponseSchema = z.object({
   oauthClient: z.object({ clientId: z.string().min(1) }),
 })
 export type HostCredentialResponse = z.infer<typeof hostCredentialResponseSchema>
+
+// ── Host delegations ─────────────────────────────────────────────────────────
+
+/**
+ * A host's delegation for a person is a row on the account plane (ADR 0001 §2.2 rule 6):
+ * this host may act for this person in this scope, bound to the client grant it was
+ * made from. The token exchange makes or replaces it and answers one access token for
+ * the Solus API, with no refresh token. Deleting the host or registering it again
+ * removes its rows; a sign-out ends them at the next request.
+ */
+export const delegationScopeSchema = z.union([z.literal('personal'), z.object({ organizationId: z.string().min(1) })])
+export type DelegationScope = z.infer<typeof delegationScopeSchema>
+
+/** A token the delegation-token route or the exchange gives lives one hour. */
+export const DELEGATION_TOKEN_TTL_SECONDS = 60 * 60
+
+/**
+ * `POST /v1/hosts/:hostId/delegation-token`, with the host's own control token as
+ * `Authorization: Bearer`: one access token for a delegation the host holds, for one
+ * resource — the Solus API, the account plane, or another host the person reaches
+ * within the delegation's scope (`hostAudience`). Each request is the live check.
+ */
+export const hostDelegationTokenRequestSchema = z.object({
+  userId: z.string().min(1),
+  scope: delegationScopeSchema,
+  resource: z.string().min(1).refine(
+    (resource) => resource === SOLUS_API_AUDIENCE || resource === ACCOUNT_AUDIENCE || hostIdOfAudience(resource) !== null,
+    'The Solus API, the account plane, or one host.',
+  ),
+})
+export type HostDelegationTokenRequest = z.infer<typeof hostDelegationTokenRequestSchema>
+
+export const hostDelegationTokenResponseSchema = z.object({
+  access_token: z.string().min(1),
+  token_type: z.literal('Bearer'),
+  expires_in: z.number().int().positive(),
+})
+export type HostDelegationTokenResponse = z.infer<typeof hostDelegationTokenResponseSchema>
+
+/**
+ * Why the account plane gives a host no token for a person. 401 with
+ * `invalid_host_credential`: the control token is not of this host's current
+ * registration (`host_not_registered`). 403 with `invalid_grant` for the rest. A
+ * refusal of another host (`host_not_reachable`, `host_outside_organization`,
+ * `host_not_ready`) refuses that host only; the delegation stands. `no_delegation`: the
+ * account plane holds no row; the person's client presents again to make one.
+ */
+export const delegationRefusalSchema = z.enum([
+  'host_not_registered',
+  'no_delegation',
+  'grant_revoked',
+  'not_the_owner',
+  'not_a_member',
+  'host_not_in_organization',
+  'personal_hosts_not_allowed',
+  'host_not_reachable',
+  'host_outside_organization',
+  'host_not_ready',
+])
+export type DelegationRefusalCode = z.infer<typeof delegationRefusalSchema>
+
+export const delegationRefusalBodySchema = z.object({
+  error: z.string(),
+  error_description: z.string().optional(),
+  solus_refusal: delegationRefusalSchema.optional(),
+})
 
 export const uplinkErrorCodeSchema = z.enum([
   'invalid_request',

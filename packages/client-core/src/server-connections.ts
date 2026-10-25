@@ -7,6 +7,7 @@ import {
   chooseRunOnHost,
   loadServers,
   LOCAL_SERVER_ID,
+  managedHostNeedsStart,
   savedServerRoutes,
   stampHostOperatingSystem,
 } from './server-registry'
@@ -15,7 +16,10 @@ import { solusApiId } from '@solus/contracts/uplink'
 import type { WsTransport } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import type { BrowserFrameSubscriber } from './browser-frame-subscriber'
-import type { BlockedReason, HostPhase, HostSupervisor } from './host-supervisor'
+import type { HostSupervisor } from './host-supervisor'
+import { CHECKING_HOST, GONE_HOST, type HostReadinessState, type LinkReadiness } from './host-readiness'
+import type { HostDiagnostics } from './host-diagnostics'
+import { CLIENT_VERSION } from './version-skew'
 import { onWakeSignal } from './wake-signals'
 import { asHostApi, type HostApi } from './host-api'
 import type { HostCapabilities } from '@solus/contracts/types'
@@ -47,7 +51,7 @@ export interface ManagedConnection {
 }
 
 type ConnectionListener = (connection: ManagedConnection) => void
-type PhaseListener = (serverId: string, phase: HostPhase, attempt: number) => void
+type ReadinessListener = (serverId: string, readiness: LinkReadiness, attempt: number) => void
 
 interface CacheEntry<T> {
   value: T
@@ -70,7 +74,12 @@ export class ServerConnections {
   private readonly targets = new Map<string, SolusServerTarget>()
   private readonly localBridges = new Map<string, { refreshSessionToken: () => Promise<string>; nativeApi: NativeSolusAPI }>()
   private readonly connectionListeners = new Set<ConnectionListener>()
-  private readonly phaseListeners = new Set<PhaseListener>()
+  private readonly readinessListeners = new Set<ReadinessListener>()
+  /** Every dial outcome: a host's diagnostics (attempts, last error) moved. */
+  private readonly dialListeners = new Set<(serverId: string) => void>()
+  /** Each host's Solus version when it was last read. A drop clears the host's
+   *  capabilities, but its diagnostics still need the version it ran. */
+  private readonly lastHostVersions = new Map<string, string>()
   /** Introduces the hosts this client owns to each other (docs/plans/host-reach.md §4). */
   private readonly introducer = new HostIntroducer(() => this.ownedHosts())
   private readonly primaryListeners = new Set<() => void>()
@@ -129,19 +138,58 @@ export class ServerConnections {
     }
   }
 
-  /** Where a host's connection stands: the one status every surface reads. */
-  phaseFor(serverId: string): HostPhase | undefined {
-    return this.connections.get(this.resolveId(serverId))?.link.phase
+  /**
+   * Whether this client can do work on the host now: the one answer every
+   * surface reads (docs/plans/host-readiness.md). Never opens a connection.
+   */
+  readinessFor(serverId: string): HostReadinessState {
+    const resolvedId = this.resolveId(serverId)
+    if (this.presenceOf(resolvedId) === 'gone') return GONE_HOST
+    const link = this.connections.get(resolvedId)?.link
+    if (!link) return CHECKING_HOST
+    if (this.undialedServerIds.has(resolvedId)) {
+      const managedState = loadServers().find((server) => server.id === resolvedId)?.uplink?.managedState
+      return managedHostNeedsStart(managedState)
+        ? { readiness: 'unreachable', away: true, unreachableReason: 'not-running', refusedReason: null, lastSeenAt: link.lastSeenAt }
+        : CHECKING_HOST
+    }
+    return {
+      readiness: link.readiness,
+      away: link.away,
+      unreachableReason: link.readiness === 'unreachable' ? 'no-answer' : null,
+      refusedReason: link.readiness === 'refused' ? link.refusedReason : null,
+      lastSeenAt: link.lastSeenAt,
+    }
   }
 
-  /** Why a blocked host is blocked; null for one that is not. */
-  blockedReasonFor(serverId: string): BlockedReason | null {
-    return this.connections.get(this.resolveId(serverId))?.link.blockedReason ?? null
+  /** What a person needs to see why a host is not ready, or to send to support. Never opens a connection. */
+  diagnosticsFor(serverId: string): HostDiagnostics {
+    const resolvedId = this.resolveId(serverId)
+    const connection = this.connections.get(resolvedId)
+    const target = connection?.target ?? this.resolveTarget(resolvedId)
+    const saved = loadServers().find((server) => server.id === resolvedId)
+    return {
+      hostId: resolvedId,
+      label: target?.label ?? resolvedId,
+      installationId: saved?.installationId ?? target?.installationId ?? null,
+      state: this.readinessFor(resolvedId),
+      dialedUrl: connection?.transport.serverUrl ?? target?.url ?? null,
+      routes: target?.routes ?? [],
+      attempt: connection?.link.attempt ?? 0,
+      lastDialError: connection?.transport.lastDialError ?? null,
+      hostVersion: connection?.facts.value('capabilities')?.version ?? this.lastHostVersions.get(resolvedId) ?? null,
+      clientVersion: CLIENT_VERSION,
+    }
   }
 
-  onPhaseChange(listener: PhaseListener): () => void {
-    this.phaseListeners.add(listener)
-    return () => this.phaseListeners.delete(listener)
+  onDialOutcome(listener: (serverId: string) => void): () => void {
+    this.dialListeners.add(listener)
+    return () => this.dialListeners.delete(listener)
+  }
+
+  onReadinessChange(listener: ReadinessListener): () => void {
+    this.readinessListeners.add(listener)
+    return () => this.readinessListeners.delete(listener)
   }
 
   /** User retry: reset the host's ladder and dial now. */
@@ -154,7 +202,7 @@ export class ServerConnections {
   /** The account holds a sign-in again: every host blocked on sign-in dials now. */
   dialHostsBlockedOnSignIn(): void {
     for (const connection of this.connections.values()) {
-      if (connection.link.blockedReason === 'auth') connection.link.dialNow()
+      if (connection.link.refusedReason === 'auth') connection.link.dialNow()
     }
   }
 
@@ -273,7 +321,7 @@ export class ServerConnections {
   }
 
   private managedConnection(serverId: string, target: SolusServerTarget, transport: WsTransport, api: SolusAPI, presence: HostPresence): ManagedConnection {
-    let wasConnected = false
+    let wasReady = false
     const link = new HostLink({
       hostId: serverId,
       transport,
@@ -287,12 +335,19 @@ export class ServerConnections {
         target.url = url
         this.healthCache.delete(serverId)
       },
-      onPhaseChange: (phase, attempt) => {
-        if (wasConnected && phase !== 'connected') this.clearConnectionReads(serverId)
-        wasConnected = phase === 'connected'
-        for (const listener of this.phaseListeners) listener(serverId, phase, attempt)
-        if (phase === 'connected') this.introducer.run()
+      onOutcome: () => {
+        for (const listener of this.dialListeners) listener(serverId)
       },
+      onReadinessChange: (readiness, attempt) => {
+        if (wasReady && readiness !== 'ready') this.clearConnectionReads(serverId)
+        wasReady = readiness === 'ready'
+        for (const listener of this.readinessListeners) listener(serverId, readiness, attempt)
+        if (readiness === 'ready') this.introducer.run()
+      },
+    })
+    link.facts.subscribe((key) => {
+      const version = key === 'capabilities' ? link.facts.value('capabilities')?.version : undefined
+      if (version) this.lastHostVersions.set(serverId, version)
     })
     return { serverId, presence, target, link, transport, api, events: link.events, supervisor: link.supervisor, facts: link.facts }
   }
@@ -341,7 +396,7 @@ export class ServerConnections {
       localId: this.localServerId(),
       saved: loadServers(),
       activeOrganizationId: activeWorkspace(loadWorkspaces())?.organizationId ?? null,
-      isConnected: (serverId) => this.connections.get(serverId)?.supervisor.phase === 'connected',
+      isConnected: (serverId) => this.connections.get(serverId)?.supervisor.readiness === 'ready',
     })
   }
 
@@ -409,7 +464,7 @@ export class ServerConnections {
 
   /** The connected hosts where this client is the local owner: only they take part in introductions. */
   private async ownedHosts(): Promise<IntroducerHost[]> {
-    const connected = [...this.connections.values()].filter((connection) => connection.presence === 'present' && connection.link.phase === 'connected')
+    const connected = [...this.connections.values()].filter((connection) => connection.presence === 'present' && connection.link.readiness === 'ready')
     const hosts = await Promise.all(connected.map(async (connection): Promise<IntroducerHost | null> => {
       const info = await connection.facts.when('serverInfo').catch(() => null)
       if (info?.principal !== 'local-owner') return null

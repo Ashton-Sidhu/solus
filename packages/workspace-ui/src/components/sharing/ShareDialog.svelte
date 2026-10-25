@@ -7,6 +7,7 @@
   import BottomSheet from "../ui/bottom-sheet/bottom-sheet.svelte";
   import { accountStore, runtime, serversStore, sharesStore } from "../../contexts";
   import { uplinkStore } from "../../contexts/connections/uplink.store.svelte";
+  import { logShareDialog } from "../../contexts/sharing/shares.store.svelte";
   import { isSolusApiId } from "@solus/contracts/uplink";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -33,9 +34,9 @@
     publication && target ? publishProblemMessage(publication.status, target.resource.kind, publication.organizationName) : null,
   );
   const list = $derived(target ? sharesStore.listFor(target.serverId, target.resource) : undefined);
-  const directory = $derived(target ? (sharesStore.directories.get(target.serverId) ?? null) : null);
+  const directory = $derived(target ? sharesStore.directory : null);
   /** Until the first answer, a person the list names cannot be told from a former member. */
-  const peopleLoaded = $derived(target ? sharesStore.directories.has(target.serverId) : false);
+  const peopleLoaded = $derived(target ? sharesStore.directoryLoaded : false);
   const identity = $derived(target ? sharesStore.identities.get(target.serverId) : undefined);
   const canShare = $derived(list?.callerRole === "editor" || list?.callerRole === "owner");
   const useSheet = $derived(runtime.isTouchDevice && !runtime.hasKeyboardPointer);
@@ -45,6 +46,11 @@
   /** The modal card: the menus portal into it so they paint above its own scrim. */
   let dialogEl = $state<HTMLElement | null>(null);
   const menuPortal = $derived(dialogEl ? { to: dialogEl } : undefined);
+
+  $effect(() => {
+    // Runs after the dialog's markup is in the DOM for this target.
+    if (target) logShareDialog("share_dialog_shown", target);
+  });
 
   $effect(() => {
     // A new target starts clean.
@@ -58,6 +64,8 @@
   /** A member reaches a host with an account token, which needs the host registered (not linked); the Solus API is reached as itself. Assumed until the host answers. */
   const membersReachable = $derived(!target || isSolusApiId(target.serverId) || uplinkStore.statusFor(target.serverId)?.registration.registered !== false);
   const canInvite = $derived(!!directory && directory.members.length > 1 && membersReachable);
+  /** The field is on screen while the organization's people load, so the row does not move when they arrive. */
+  const peopleLoading = $derived(!peopleLoaded && !!serversStore.activeOrganizationId && membersReachable);
 
   const options = $derived(list ? scopeOptions(list, directory, serversStore.activeOrganizationId, ownerLabel(list, directory), { membersReachable }) : []);
   const selectedKey = $derived(list ? scopeKey(scopeOf(list)) : "private");
@@ -187,15 +195,16 @@
          The URL itself never needs to be read, so it is not shown. -->
     {#if canShare}
       <div class="flex items-start gap-3">
-        {#if canInvite}
+        {#if canInvite || peopleLoading}
           <div class="relative min-w-0 flex-1">
             <Input
               bind:value={query}
-              placeholder="Add people by name or email"
+              placeholder={peopleLoading ? "Loading people…" : "Add people by name or email"}
               aria-label="Add people"
+              aria-busy={peopleLoading}
               data-testid="share-add-people"
               class="h-10 rounded-xl bg-muted/40 px-3.5 text-workspace-chrome pointer-coarse:h-11"
-              disabled={sharesStore.busy}
+              disabled={sharesStore.busy || peopleLoading}
             />
             {#if query.trim() && candidates.length}
               <ul class="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-lg border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-1 shadow-[shadow:var(--solus-popover-shadow)]" role="listbox" aria-label="People to add">

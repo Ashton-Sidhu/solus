@@ -1,13 +1,18 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { CircleCheck as CheckCircleIcon, Link2 as LinkSimpleIcon, X as XIcon } from "@lucide/svelte";
+  import { Link2 as LinkSimpleIcon, X as XIcon } from "@lucide/svelte";
   import { normalizeServerUrl, pairServer, parsePairLink } from "@solus/client-core/pairing";
   import { defaultDeviceLabel } from "@solus/client-core/device-label";
+  import { localApi } from "@solus/client-core/local-api";
   import type { SavedServer } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import * as Tabs from "../ui/tabs";
   import { Input } from "../ui/input";
+  import PairingBridge from "./PairingBridge.svelte";
+  import { landInHostList } from "./lib/land-in-host-list";
+  import { pairingPhase, thisDevice, type BridgeMachine } from "./lib/pairing-bridge";
+  import { useHostLookup } from "./lib/host-lookup.svelte";
   import { messageFor } from "./lib/setup-rpc";
 
   type Mode = "link" | "manual";
@@ -19,31 +24,25 @@
   let label = $state("");
   let busy = $state(false);
   let paired = $state<SavedServer | null>(null);
+  let failedUrl = $state<string | null>(null);
   let linkInput: HTMLInputElement | null = $state(null);
   let urlInput: HTMLInputElement | null = $state(null);
+  let doneButton: HTMLButtonElement | null = $state(null);
+  let dialog: HTMLDivElement | null = $state(null);
   let wasOpen = false;
 
-  $effect(() => {
-    const isOpen = serversStore.addServerOpen;
-    if (!isOpen) {
-      wasOpen = false;
-      return;
-    }
-    if (wasOpen) return;
-    wasOpen = true;
-    untrack(() => {
-      if (serversStore.addServerUrl) {
-        mode = "manual";
-        serverUrl = serversStore.addServerUrl;
-        // The name field stays empty on purpose: pre-filling the address makes a
-        // derived label look chosen, and a chosen one outranks the host's own name.
-      }
-      void tick().then(() => {
-        if (mode === "link") linkInput?.focus();
-        else urlInput?.focus();
-      });
-    });
-  });
+  const device = thisDevice(localApi.getPlatform(), navigator.userAgent);
+  const targetUrl = $derived(
+    mode === "link" ? (parsePairLink(pairLink)?.url ?? "") : normalizeServerUrl(serverUrl),
+  );
+  const hostLookup = useHostLookup(() => targetUrl);
+  const lookedUpHost = $derived(hostLookup.host);
+  const bridgeHost = $derived<BridgeMachine | null>(
+    paired ? { name: paired.label, os: paired.os } : lookedUpHost,
+  );
+  const phase = $derived(
+    pairingPhase({ targetUrl, host: lookedUpHost, isPairing: busy, isPaired: !!paired, failedUrl }),
+  );
 
   function reset() {
     pairLink = "";
@@ -51,11 +50,13 @@
     pairCode = "";
     label = "";
     paired = null;
+    failedUrl = null;
     busy = false;
     mode = "link";
   }
 
   function close() {
+    if (paired && dialog) landInHostList(dialog, paired.id);
     reset();
     serversStore.closeAddServer();
   }
@@ -89,10 +90,13 @@
         pairToken,
         deviceLabel: defaultDeviceLabel(),
         serverLabel: label.trim(),
+        reportedName: lookedUpHost?.name,
       });
       serversStore.savePairedServer(result.server);
       paired = result.server;
+      void tick().then(() => doneButton?.focus());
     } catch (err) {
+      failedUrl = targetUrl;
       toasts.error("Couldn't pair server", { description: messageFor(err) });
     } finally {
       busy = false;
@@ -114,6 +118,7 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-server-title"
+      bind:this={dialog}
       class="w-full max-w-[28rem] overflow-hidden rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-(--solus-popover-shadow) backdrop-blur-xl"
     >
       <header class="flex items-center justify-between gap-3 border-b border-(--solus-popover-border) px-4 py-3">
@@ -131,23 +136,16 @@
         </button>
       </header>
 
+      <div class="px-4 pt-4">
+        <PairingBridge {phase} {device} host={bridgeHost} />
+      </div>
+
       {#if paired}
-        <div class="space-y-4 px-4 py-4">
-          <div class="flex items-start gap-3 rounded-2xl bg-(--solus-accent-light) p-3 text-(--solus-text-primary)">
-            <CheckCircleIcon size={18} class="mt-0.5 shrink-0 text-(--solus-status-complete)" />
-            <div class="min-w-0">
-              <div class="font-medium">Server paired</div>
-              <div class="mt-1 break-all text-xs text-(--solus-text-tertiary)">
-                {paired.installationId ?? paired.id}
-              </div>
-            </div>
-          </div>
-          <div class="flex justify-end gap-2">
-            <button type="button" class="rounded-lg bg-(--solus-accent) px-3 py-2  font-medium text-(--solus-text-on-accent) transition-transform active:scale-[0.96]" onclick={close}>Done</button>
-          </div>
+        <div class="flex justify-end gap-2 px-4 pt-2 pb-4">
+          <button bind:this={doneButton} type="button" class="rounded-lg bg-(--solus-accent) px-3 py-2  font-medium text-(--solus-text-on-accent) transition-transform active:scale-[0.96]" onclick={close}>Done</button>
         </div>
       {:else}
-        <div class="px-4 py-4">
+        <div class="px-4 pt-3 pb-4">
           <Tabs.Root
             value={mode}
             class="gap-0"
@@ -180,7 +178,7 @@
 
             <label class="block">
               <span class="text-xs font-medium text-(--solus-text-secondary)">Server name</span>
-              <Input bind:value={label} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2  text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder="Studio Mac" autocomplete="off" />
+              <Input bind:value={label} class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2  text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]" placeholder={lookedUpHost?.name ?? "Studio Mac"} autocomplete="off" />
             </label>
 
             <div class="flex justify-end gap-2 pt-1">

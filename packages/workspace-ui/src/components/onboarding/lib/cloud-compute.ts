@@ -1,3 +1,4 @@
+import { isWaitingForHost, type HostReadiness } from '@solus/client-core/host-readiness'
 import { awaitsManagedCompute, hostInOrganization, type SavedServerUplink } from '@solus/client-core/server-registry'
 import {
   MANAGED_HOST_PACKAGE_PATTERN,
@@ -21,7 +22,7 @@ import { managedHostStateLabel } from '../../servers/lib/managed-host'
 export interface ComputeHost {
   id: string
   label: string
-  status: string
+  readiness: HostReadiness
   uplink?: SavedServerUplink
 }
 
@@ -59,7 +60,7 @@ export function computeChoices<T extends ComputeHost>(
  * reach does not win over a machine that answers.
  */
 export function defaultComputeHost<T extends ComputeHost>(choices: ComputeChoices<T>): T | null {
-  const online = (server: T) => server.status === 'online'
+  const online = (server: T) => server.readiness === 'ready'
   const { cloudHost } = choices
   if (cloudHost && (online(cloudHost) || awaitsManagedCompute(cloudHost.uplink))) return cloudHost
   return choices.ownMachines.find(online) ?? choices.sharedMachines.find(online) ?? cloudHost
@@ -79,15 +80,8 @@ export function isSharedWith(server: ComputeHost, organizationId: string | null)
 export function reachability(server: ComputeHost): string {
   const state = managedHostStateLabel(server.uplink)
   if (state) return state
-  switch (server.status) {
-    case 'online':
-      return 'Ready'
-    case 'offline':
-    case 'different-server':
-      return 'Can’t reach it'
-    default:
-      return 'Connecting…'
-  }
+  if (server.readiness === 'ready') return 'Ready'
+  return isWaitingForHost(server.readiness) ? 'Connecting…' : 'Can’t reach it'
 }
 
 /** The detail line of the cloud host row: its state, and who can use it. */

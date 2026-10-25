@@ -3,6 +3,7 @@ import type { AccountState } from '@solus/contracts/account-types'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from '@solus/contracts/notification-types'
+import type { ShareDialogLog } from '@solus/contracts/sharing'
 import type { AccountSettingsPatchRequest, OrganizationSettingsPatchRequest } from '@solus/contracts/settings'
 import type { AccountAgentProfilePatchRequest } from '@solus/contracts/agent-profile'
 import type { VaultSaveKeyRequest, VaultConnectRequest, VaultDisconnectRequest } from '@solus/contracts/vault'
@@ -64,6 +65,8 @@ const nativeApi: NativeSolusAPI = {
     ipcRenderer.invoke('solus:show-notification', request),
   logNotificationSound: (row: NotificationSoundLog) =>
     ipcRenderer.send('solus:log-notification-sound', row),
+  logShareDialog: (row: ShareDialogLog) =>
+    ipcRenderer.send('solus:log-share-dialog', row),
   rendererReady: () => ipcRenderer.send('solus:renderer-ready'),
   rendererMounted: () => ipcRenderer.send('solus:renderer-mounted'),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),

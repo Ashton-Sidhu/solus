@@ -34,3 +34,12 @@ export class HostGoneError extends TransportDisconnectedError {
     this.name = 'HostGoneError'
   }
 }
+
+/** A call to a host past its grace (docs/plans/host-readiness.md). The send
+ *  outbox treats it as transient: the host may answer again. */
+export class HostUnreachableError extends TransportDisconnectedError {
+  constructor(readonly serverId: string) {
+    super(`The host ${serverId} is unreachable`)
+    this.name = 'HostUnreachableError'
+  }
+}

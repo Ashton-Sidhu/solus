@@ -375,7 +375,7 @@ export class PullRequestDirectory {
     const key = notificationRepositoryKey(pr)
     for (const hostId of hostIds) {
       const connection = this.connectionFor(hostId)
-      if (!connection || connection.state.phase !== 'connected') continue
+      if (!connection || connection.state.readiness !== 'ready') continue
       const projects = await connection.api.listProjects().catch(() => [])
       const project = projects.find((candidate) => candidate.repositoryKey === key)
       if (project) return { hostId, projectPath: project.path, number: pr.number }

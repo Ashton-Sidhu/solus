@@ -124,7 +124,7 @@ export function FileScreen({ navigation, route }: ScreenProps<'File'>) {
   const { hostId, projectPath, path } = route.params
   const app = useApp()
   const { appearance, setCodeWordBreak } = useAppearancePreferences()
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const [view, setView] = useState<FileView>({ kind: 'loading' })
   const [markdownMode, setMarkdownMode] = useState<'source' | 'preview'>('source')
   const contents = view.kind === 'loaded' && view.file.ok && view.file.kind === 'text' ? view.file.contents : null
@@ -141,8 +141,8 @@ export function FileScreen({ navigation, route }: ScreenProps<'File'>) {
   }, [app, hostId, path, projectPath])
 
   useEffect(() => {
-    if (phase === 'connected') read()
-  }, [phase, read])
+    if (readiness === 'ready') read()
+  }, [readiness, read])
 
   useLayoutEffect(() => {
     const actions = [

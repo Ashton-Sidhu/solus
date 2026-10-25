@@ -163,8 +163,8 @@ export class BrowserStore {
       subscribeAllHosts('browser.profilesChanged', (serverId, { profiles }) => {
         this.adopt(serverId, profiles)
       }),
-      serverConnections.onPhaseChange((serverId, status) => {
-        if (status !== 'connected') return
+      serverConnections.onReadinessChange((serverId, status) => {
+        if (status !== 'ready') return
         void this.loadPages(serverId).catch(() => {})
         this.restoreFrameSubscriptions(serverId)
       }),

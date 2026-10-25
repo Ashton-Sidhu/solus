@@ -1,6 +1,6 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
-import type { GithubDelegatedCredential, IpcContext, ProjectIdentity, RunLocation, Session } from '@solus/contracts/types'
+import type { CloneCheckout, DispatchRepository, GithubDelegatedCredential, IpcContext, ProjectIdentity, RunLocation, Session } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import { runHost, startsWorktree, workingPlace } from '../../contexts/workspace/run-location'
@@ -105,11 +105,6 @@ export function repoKeyForPath(identities: ProjectIdentity[], path: string | nul
   return identities.find((identity) => identity.path === path)?.repoKey ?? null
 }
 
-export interface PreparedHostCheckout {
-  path: string
-  action: 'updated' | 'cloned'
-}
-
 /** Turns the normalized repository identity into a credential-free clone URL. */
 export function cloneUrlForRepoKey(repoKey: string): string | null {
   const [host, ...repoPath] = repoKey.split('/').filter(Boolean)
@@ -118,41 +113,36 @@ export function cloneUrlForRepoKey(repoKey: string): string | null {
 }
 
 /**
- * Makes the selected host ready before the tab moves: a known checkout is
- * fast-forwarded, while a missing checkout is cloned under that host's projects
- * root. The caller moves the tab only after this resolves, so a failed preparation
- * can never send the prompt to a stale or half-created directory.
+ * What the run host copies before a clone run starts (docs/run-on.md), or null
+ * when the repository has no remote to clone. The credential is added at Send.
  */
-export async function prepareHostCheckout(
-  apis: {
-    target: Pick<SolusAPI, 'setupPrepareProject'>
-    local: Pick<SolusAPI, 'githubExportCredential'>
-  },
+export function dispatchRepository(clone: CloneCheckout): DispatchRepository | null {
+  const cloneUrl = cloneUrlForRepoKey(clone.repoKey)
+  if (!cloneUrl) return null
+  const { start } = clone
+  if (start.kind === 'worktree') return { cloneUrl, worktreePath: start.path }
+  // An origin branch is worked on: in the checkout when it holds the branch,
+  // else in the branch's own worktree. With none, the host makes a new worktree.
+  if (start.kind === 'new-worktree') return start.baseBranch ? { cloneUrl, baseBranch: start.baseBranch } : { cloneUrl, newWorktree: true }
+  return clone.defaultBranch ? { cloneUrl, baseBranch: clone.defaultBranch } : { cloneUrl }
+}
+
+/**
+ * The client machine's GitHub credential, lent to the run host so a clone there
+ * clones, fetches, and pushes as the person who sent it. A web client has no
+ * machine (and no credential store) of its own, and a send to this machine
+ * needs none, so the run host then uses its own token.
+ */
+export async function delegatedGithubCredential(
   serverId: string,
-  repoKey: string,
-  worktreePath?: string,
-  baseBranch?: string,
-): Promise<PreparedHostCheckout> {
-  const cloneUrl = cloneUrlForRepoKey(repoKey)
-  if (!cloneUrl) throw new Error('This repository does not have a cloneable remote.')
-  // Credential delegation carries the client machine's GitHub token to the
-  // dispatch target. A web client has no machine (and no credential store) of
-  // its own, so the target host uses its own token as before.
+  local: Pick<SolusAPI, 'githubExportCredential'> = serverConnections.apiFor(LOCAL_SERVER_ID),
+): Promise<GithubDelegatedCredential | undefined> {
   const clientMachineServerId = serverConnections.localServerId()
-  let credential: GithubDelegatedCredential | undefined
-  if (clientMachineServerId && clientMachineServerId !== serverId) {
-    try {
-      credential = await apis.local.githubExportCredential()
-    } catch (error) {
-      console.warn('[Solus] GitHub credential delegation failed; using the target host credential.', error)
-    }
+  if (!clientMachineServerId || clientMachineServerId === serverId) return undefined
+  try {
+    return await local.githubExportCredential()
+  } catch (error) {
+    console.warn('[Solus] GitHub credential delegation failed; using the target host credential.', error)
+    return undefined
   }
-  const request = {
-    cloneUrl,
-  }
-  if (credential) Object.assign(request, { credential })
-  if (worktreePath) Object.assign(request, { worktreePath })
-  if (baseBranch) Object.assign(request, { baseBranch })
-  const result = await apis.target.setupPrepareProject(request)
-  return { path: result.path, action: result.action }
 }

@@ -1,5 +1,4 @@
 import type { Context, Env, Hono } from 'hono'
-import { SOLUS_PROTOCOL, SOLUS_PROTOCOL_HEADER, UPDATE_REQUIRED } from '@solus/contracts/uplink'
 import type { TokenVerdict } from '../admission/access-tokens'
 import { runnerPrincipalFor, type Principal } from '../admission/principal'
 import { createLogger } from '../logger'
@@ -48,7 +47,6 @@ export function registerRunnerRoutes<E extends Env>(app: Hono<E>, opts: {
   }
 
   app.post(RUNNER_DELIVER_PATH, async (c) => {
-    if (c.req.header(SOLUS_PROTOCOL_HEADER) !== String(SOLUS_PROTOCOL)) return c.json({ error: UPDATE_REQUIRED }, 426)
     const principal = await admitRunner(c)
     if (!principal) return c.json({ error: 'Unauthorized' }, 401)
     const parsed = runnerDeliverRequestSchema.safeParse(await c.req.json().catch(() => null))

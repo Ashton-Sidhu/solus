@@ -13,7 +13,6 @@
   import { untrack } from "svelte";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   import { Download as DownloadSimpleIcon } from "@lucide/svelte";
-  import ConnectionStatusOverlay from "@solus/workspace-ui/components/servers/ConnectionStatusOverlay.svelte";
   import FatalErrorScene from "@solus/workspace-ui/components/servers/FatalErrorScene.svelte";
   import LazyDialog from "@solus/workspace-ui/components/pickers/LazyDialog.svelte";
   import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
@@ -26,7 +25,7 @@
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
 
-  import { hosts, serversStore, sharesStore } from "@solus/workspace-ui/contexts";
+  import { hosts, logShareDialog, serversStore, sharesStore } from "@solus/workspace-ui/contexts";
 
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
@@ -92,6 +91,14 @@
   $effect(() => {
     if (sharesStore.dialog) ui.hasMountedShareDialog = true;
   });
+
+  /** The share dialog's module; a failed load is logged, then shown by the `{:catch}` below. */
+  function loadShareDialog() {
+    return import("@solus/workspace-ui/components/sharing/ShareDialog.svelte").catch((error) => {
+      logShareDialog("share_dialog_import_failed", sharesStore.dialog, error instanceof Error ? error.stack ?? error.message : String(error));
+      throw error;
+    });
+  }
 
   // Warm the dialogs a keystroke can summon (go to file, find in files, open
   // project), so their first open only shows them. Mounting is what pulls the
@@ -424,8 +431,6 @@
       {/await}
     {/if}
 
-    <ConnectionStatusOverlay />
-
     <LazyDialog
       open={serversStore.addServerOpen}
       load={() => import("@solus/workspace-ui/components/servers/AddServerModal.svelte")}
@@ -499,9 +504,11 @@
     {/if}
 
     {#if ui.hasMountedShareDialog}
-      {#await import("@solus/workspace-ui/components/sharing/ShareDialog.svelte") then module}
+      {#await loadShareDialog() then module}
         {@const ShareDialog = module.default}
-        <ShareDialog />
+        <svelte:boundary onerror={(error) => logShareDialog("share_dialog_render_failed", sharesStore.dialog, error instanceof Error ? error.stack ?? error.message : String(error))}>
+          <ShareDialog />
+        </svelte:boundary>
       {:catch}
         {#if sharesStore.dialog}
           <p role="alert">Could not load the share dialog.</p>

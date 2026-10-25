@@ -215,8 +215,8 @@
   });
 
   $effect(() =>
-    serverConnections.onPhaseChange((serverId, phase) => {
-      if (phase !== "connected" || !open) return;
+    serverConnections.onReadinessChange((serverId, readiness) => {
+      if (readiness !== "ready" || !open) return;
       if (workspace) void projectsStore.loadRecentProjects(serverId);
       void session.worksStore.loadAll();
     }),

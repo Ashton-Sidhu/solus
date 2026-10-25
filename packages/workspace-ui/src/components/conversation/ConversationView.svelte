@@ -12,7 +12,6 @@
   import { tick, untrack } from "svelte";
   import { modelLabelFor } from "@solus/contracts/types";
   import {
-    HardDrive as DesktopTowerIcon,
     FileText as FileTextIcon,
   } from "@lucide/svelte";
   import { computeCurrentActivity } from "../../contexts/workspace/session.utils";
@@ -39,7 +38,7 @@
   import ComposingLine from "../presence/ComposingLine.svelte";
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import StatusCard from "./StatusCard.svelte";
-  import TranscriptStatusRow from "./TranscriptStatusRow.svelte";
+  import HostUnavailable from "./HostUnavailable.svelte";
 
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import DiffSummaryCard from "./DiffSummaryCard.svelte";
@@ -67,7 +66,6 @@
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { setMarkdownImageContext } from "./lib/markdown-image";
@@ -171,16 +169,10 @@
   // this conversation's host and project rather than the active tab's.
   setHtmlBlockOrigin(() => ({ tabId, linkContext }));
   const sessionHostId = $derived(runHost(sess?.run));
-  const remoteServer = $derived(
-    sessionHostId && sessionHostId !== LOCAL_SERVER_ID
-      ? serversStore.servers.find((server) => server.id === sessionHostId)
-      : null,
-  );
-  const remoteStatus = $derived(
-    sessionHostId && sessionHostId !== LOCAL_SERVER_ID
-      ? serversStore.statusFor(sessionHostId)
-      : "online",
-  );
+  const hostState = $derived(sessionHostId ? serversStore.readinessFor(sessionHostId) : null);
+  /** Past its grace and not back yet: what needs the host (composer, actions) is
+   *  hidden, and the host's state and diagnostics take its place. */
+  const isHostAway = $derived(!!hostState?.away);
   // ─── Breadcrumb room ───
   // The band that says where you are belongs to the pane, not to this
   // transcript: `WorkspaceBody` draws it over the leading pane and
@@ -440,7 +432,7 @@
   // Running, stopped and failed are all reported by the turn's own activity row
   // (§16, §17) — the strip only carries what no turn can express.
   const showActivityStrip = $derived(!!sess && isAwaitingPlan);
-  const showSessionActions = $derived(!!tab && showActions);
+  const showSessionActions = $derived(!!tab && showActions && !isHostAway);
   let activityReservedWidth = $state(0);
 
   const turns = $derived(transcript.turns);
@@ -661,45 +653,11 @@
 <!-- No container: assistant prose sits directly on the canvas. Cards, code and
      tables are the only boxes it may draw. -->
 
-<!-- §13 — the machine's reachability belongs to the host, not to a turn, so it
-     is a row: the condition, the host, and the one thing the user can do. -->
-{#if runHost(sess?.run) !== LOCAL_SERVER_ID && remoteStatus !== "online"}
-  <div class="mx-4 mt-2 shrink-0">
-    <TranscriptStatusRow
-      tone={remoteStatus === "connecting" ? "warning" : "destructive"}
-      progress={remoteStatus === "connecting" ? null : undefined}
-      data-testid="host-status-row"
-    >
-      {#snippet glyph()}
-        <DesktopTowerIcon size={13} />
-      {/snippet}
-      {remoteStatus === "connecting" ? "Reconnecting to" : "Can’t reach"}
-      <span class="font-mono text-xs"
-        >{remoteServer?.label ?? "remote host"}</span
-      >
-      {#snippet actions()}
-        {#if remoteStatus !== "connecting"}
-          <button
-            type="button"
-            class="status-row-action"
-            onclick={() => serversStore.retryActive()}
-          >
-            Reconnect
-          </button>
-          <button
-            type="button"
-            class="status-row-action text-"
-            onclick={() => serversStore.useLocalHost()}
-          >
-            Run locally
-          </button>
-        {/if}
-      {/snippet}
-    </TranscriptStatusRow>
-  </div>
-{/if}
-
-{#if tab && sess && sess.loadingHistory}
+<!-- A host that is away has nothing to load: the pane sleeps under its
+     state rather than a skeleton that never ends. -->
+{#if tab && sess && sessionHostId && sess.messages.length === 0 && isHostAway}
+  <HostUnavailable serverId={sessionHostId} variant="veil" />
+{:else if tab && sess && sess.loadingHistory}
   <ConversationSkeleton />
 {:else if tab && sess}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -710,6 +668,14 @@
     class="flex h-full min-h-0 flex-col"
   >
     <div class="cv-root relative min-h-0 flex-1">
+      <!-- Past the grace the conversation sleeps: it dims under the host's state. -->
+      {#if sessionHostId && isHostAway}
+        <!-- A scrim in the page colour: the transcript sleeps under it, and the
+             statement on it always reads cleanly over whatever text is below. -->
+        <div class="absolute inset-0 z-10 bg-background/90">
+          <HostUnavailable serverId={sessionHostId} variant="veil" />
+        </div>
+      {/if}
       {#if find.isOpen}
         <div
           class="absolute right-3 z-20"
@@ -734,7 +700,9 @@
         bind:this={scrollEl}
         data-conversation-tab-id={tabId}
         class:outer-scroll-source={!!outerScrollbar}
-        class="conversation-selectable h-full overflow-y-auto overflow-x-hidden px-4 pt-1 pb-[var(--solus-composer-inset,0px)]"
+        class="conversation-selectable h-full overflow-y-auto overflow-x-hidden px-4 pt-1 pb-[var(--solus-composer-inset,0px)] transition-opacity duration-300 motion-reduce:transition-none"
+        class:host-asleep={isHostAway}
+        inert={isHostAway}
         style="overscroll-behavior-y:contain"
         onscroll={handleScroll}
       >
@@ -800,6 +768,9 @@
               navigateToSourceSession={navigateToSourceSession} />
           {/snippet}
 
+          <!-- Every card below asks the host for something. While the host is
+               away none of them can work, so the host panel stands alone. -->
+          {#if !isHostAway}
           {#if sess.statusCard}
             <StatusCard
               card={sess.statusCard}
@@ -853,6 +824,7 @@
           <!-- A sign-in this conversation asked for with /design-login or /mcp login. -->
           {#if agentAuthStore.visibleFor(runHost(sess.run), sess.id)}
             <AgentAuthCard />
+          {/if}
           {/if}
           <QueuedPromptGroup tabId={tab.id} />
           <!-- Someone else's prompt is on its way: it lands here, so the notice does too. -->
@@ -950,6 +922,11 @@
 {/if}
 
 <style>
+  /* The conversation asleep under its host's state: still there, plainly not live. */
+  .host-asleep {
+    filter: saturate(0.4);
+  }
+
   /* Match the scroll area's 1rem side gutters before applying the reading
      width cap. This keeps the activity label and orb on the same horizontal
      bounds as the message column in narrow split panes. */

@@ -1,7 +1,12 @@
-import { RECONNECT_ESCALATE_MS } from '@solus/client-core/connection-display'
+import {
+  hostReadinessCopy,
+  isWaitingForHost,
+  lastSeenText,
+  type HostReadinessAction,
+  type HostReadinessState,
+} from '@solus/client-core/host-readiness'
 import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/server-registry'
 import type { ServerItem } from '../../../contexts/connections/servers.store.svelte'
-import { relativeTime } from '../../../lib/relative-time'
 import { managedHostStateLabel } from '../../servers/lib/managed-host'
 
 /**
@@ -11,15 +16,15 @@ import { managedHostStateLabel } from '../../servers/lib/managed-host'
  */
 
 export interface GatedHost extends ServerItem {
-  /** When the host last stopped being connected; null while up or before it was dialed. */
-  offlineSince: number | null
+  /** The host's readiness with its reason and last-seen time (docs/plans/host-readiness.md). */
+  state: HostReadinessState
   /** The host is still making this person's Linux user and folders (docs/plans/member-isolation.md §8.1). */
   isPreparing: boolean
 }
 
-/** A host that can run the draft now: connected, and done setting this person up. */
+/** A host that can run the draft now: ready, and done setting this person up. */
 function isUsable(host: GatedHost): boolean {
-  return host.status === 'online' && !host.isPreparing
+  return host.readiness === 'ready' && !host.isPreparing
 }
 
 /**
@@ -27,46 +32,31 @@ function isUsable(host: GatedHost): boolean {
  * the page says so instead of asking for a host. It names no host.
  */
 export function isSettingUpWorkspace(hosts: readonly GatedHost[]): boolean {
-  return !hosts.some(isUsable) && hosts.some((host) => host.status === 'online' && host.isPreparing)
+  return !hosts.some(isUsable) && hosts.some((host) => host.readiness === 'ready' && host.isPreparing)
 }
 
 export type DraftHostGate = 'compose' | 'connect'
 
 /**
- * One host online is enough to compose. The page replaces the composer only on
- * a known answer: a host still dialing within the reconnect grace, or one never
- * checked, keeps the composer, so a short drop or a slow first connect does not
- * swap the page out from under the person typing. Once the page shows, only a
- * host that answers brings the composer back: a Retry dials again, and that
- * dial must not show the composer until it is answered.
+ * One ready host is enough to compose. The page replaces the composer only on
+ * a known answer: a host still `checking` or `reconnecting` keeps the composer,
+ * so a short drop or a slow first connect does not swap the page out from
+ * under the person typing. Once the page shows, only a host that answers
+ * brings the composer back: a Retry dials again, and that dial must not show
+ * the composer until it is answered.
  */
-export function draftHostGate(hosts: readonly GatedHost[], now: number, previous: DraftHostGate): DraftHostGate {
+export function draftHostGate(hosts: readonly GatedHost[], previous: DraftHostGate): DraftHostGate {
   if (hosts.some(isUsable)) return 'compose'
   if (previous === 'connect' || isSettingUpWorkspace(hosts)) return 'connect'
-  const isUndecided = hosts.some(
-    (host) =>
-      host.status === 'saved' ||
-      (host.status === 'connecting' &&
-        (host.offlineSince === null || now - host.offlineSince < RECONNECT_ESCALATE_MS)),
-  )
-  return isUndecided ? 'compose' : 'connect'
+  return hosts.some((host) => isWaitingForHost(host.readiness)) ? 'compose' : 'connect'
 }
-
-/** The one thing a host's card does when chosen; null when there is nothing to do but wait. */
-export type ConnectHostAction = 'retry' | 'start' | 'pair-again'
 
 export interface ConnectHostRow {
   hostId: string
   label: string
   detail: string
-  action: ConnectHostAction | null
+  action: HostReadinessAction | null
 }
-
-export const CONNECT_HOST_ACTION_LABELS = {
-  retry: 'Retry',
-  start: 'Start',
-  'pair-again': 'Pair again',
-} satisfies Record<ConnectHostAction, string>
 
 export function connectHostRow(host: GatedHost, now: number): ConnectHostRow {
   const row = { hostId: host.id, label: host.label }
@@ -78,15 +68,13 @@ export function connectHostRow(host: GatedHost, now: number): ConnectHostRow {
       action: managedHostNeedsStart(host.uplink?.managedState) ? 'start' : null,
     }
   }
-  if (host.status === 'connecting') return { ...row, detail: 'Connecting…', action: null }
-  if (host.status === 'different-server') {
-    return { ...row, detail: 'Different server than expected', action: 'pair-again' }
-  }
-  return {
-    ...row,
-    detail: host.offlineSince === null ? 'Offline' : `Offline · last seen ${relativeTime(host.offlineSince, now)}`,
-    action: 'retry',
-  }
+  const copy = hostReadinessCopy(host.state, host.label, now)
+  if (isWaitingForHost(host.readiness)) return { ...row, detail: `${copy.label}…`, action: null }
+  const lastSeenAt = host.state.lastSeenAt
+  const detail = host.state.unreachableReason === 'no-answer' && lastSeenAt !== null
+    ? `${copy.label} · last seen ${lastSeenText(lastSeenAt, now)}`
+    : copy.label
+  return { ...row, detail, action: copy.action }
 }
 
 /** The headline names the host when there is only one, so the person knows which machine to wake. */

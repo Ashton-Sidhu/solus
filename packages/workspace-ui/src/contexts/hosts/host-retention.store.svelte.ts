@@ -25,9 +25,9 @@ export class HostRetentionStore {
         const state = this.states.get(serverId)
         this.states.set(serverId, { days: config[this.key], saving: state?.saving ?? false, error: '', revision: (state?.revision ?? 0) + 1 })
       })
-      const stopStatus = serverConnections.onPhaseChange((hostId, status) => {
+      const stopStatus = serverConnections.onReadinessChange((hostId, status) => {
         if (hostId !== serverId) return
-        if (status === 'connected') void this.load(serverId)
+        if (status === 'ready') void this.load(serverId)
         else {
           const state = this.states.get(serverId)
           if (state) this.states.set(serverId, { ...state, error: 'Host disconnected.', revision: state.revision + 1 })

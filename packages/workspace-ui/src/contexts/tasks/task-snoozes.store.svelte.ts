@@ -26,8 +26,8 @@ export class TaskSnoozesStore {
     this.isStarted = true
     for (const serverId of serverConnections.connectedServerIds()) this.watchHost(serverId)
     serverConnections.onConnectionCreated((connection) => this.watchHost(connection.serverId))
-    serverConnections.onPhaseChange((serverId, phase) => {
-      if (phase === 'connected') void this.reload(serverId)
+    serverConnections.onReadinessChange((serverId, readiness) => {
+      if (readiness === 'ready') void this.reload(serverId)
     })
   }
 

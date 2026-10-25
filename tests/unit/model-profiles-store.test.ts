@@ -25,9 +25,9 @@ function remote(modelId: string, fetchedAt: number): ModelProfilesStatus {
 async function fixture(refresh: () => Promise<ModelProfilesStatus>) {
   const { ModelProfilesStore } = await import('@solus/workspace-ui/contexts/updates/model-profiles.store.svelte')
   return new ModelProfilesStore({
-    phaseFor: () => 'connected', capabilitiesFor: async () => ({ modelProfiles: true }),
+    readinessFor: () => ({ readiness: 'ready', away: false, unreachableReason: null, refusedReason: null, lastSeenAt: null }), capabilitiesFor: async () => ({ modelProfiles: true }),
     apiFor: () => ({ modelProfilesStatus: refresh, modelProfilesRefresh: refresh }),
-    connectedServerIds: () => [], onConnectionCreated: () => () => {}, onPhaseChange: () => () => {},
+    connectedServerIds: () => [], onConnectionCreated: () => () => {}, onReadinessChange: () => () => {},
   })
 }
 

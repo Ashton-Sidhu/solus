@@ -1,5 +1,5 @@
 import type { SessionMeta } from '@solus/contracts/types'
-import type { HostPhase } from '@solus/client-core/host-supervisor'
+import { hostReadinessCopy, isWaitingForHost, type HostReadinessState } from '@solus/client-core/host-readiness'
 import { conversationProjectLabel, conversationTitle } from '../../unified-picker/lib/picker-rows'
 import { relativeTime } from '../../../../lib/relative-time'
 import { agentLabel } from '../../../../lib/agentAvailability'
@@ -28,14 +28,22 @@ export function sessionRecordHeader(meta: SessionMeta): SessionRecordHeader {
 }
 
 /**
- * Whether the record page is waiting on its runner (docs/plans/instant-share-open.md):
- * `connecting` while this client is dialing the machine the record names, or has
- * reached it and is opening the live session; `away` when this client keeps no such
- * machine, does not dial it, or its dials failed or were refused. Only `away` is read
- * only: a page that says so while the runner is coming is a stale label.
+ * Whether the record page waits on its runner, and what it says in place of a
+ * prompt (docs/plans/instant-share-open.md, docs/plans/host-readiness.md). It
+ * waits while this client keeps the machine the record names and that machine
+ * is ready or inside its grace: a ready one is opening the live session. Any
+ * other state is read only, and the note says the runner's state.
  */
-export type RecordRunnerState = 'connecting' | 'away'
+export interface RecordRunner {
+  waits: boolean
+  note: string
+}
 
-export function recordRunnerState(savedRunnerId: string | null, phase: HostPhase | undefined): RecordRunnerState {
-  return savedRunnerId && (phase === 'connecting' || phase === 'reconnecting' || phase === 'connected') ? 'connecting' : 'away'
+export function recordRunner(runner: { label: string; state: HostReadinessState } | null): RecordRunner {
+  if (!runner) return { waits: false, note: 'Read only: the machine that ran this session is not on this device.' }
+  const { readiness } = runner.state
+  if (readiness === 'ready' || isWaitingForHost(readiness)) {
+    return { waits: true, note: `Opening this session on ${runner.label}…` }
+  }
+  return { waits: false, note: `Read only: ${hostReadinessCopy(runner.state, runner.label).headline}.` }
 }

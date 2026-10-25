@@ -533,7 +533,7 @@ export class PlanStore {
     // API is connected too, but it is not a machine and has no plans to list.
     const catalogServerIds = serverConnections.connectedServerIds().filter((serverId) => !isSolusApiId(serverId))
     const serverIds = catalogServerIds.filter(
-      (serverId) => serverConnections.phaseFor(serverId) === 'connected',
+      (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready',
     )
     const failedServerIds = new Set(
       catalogServerIds.filter((serverId) => !serverIds.includes(serverId)),

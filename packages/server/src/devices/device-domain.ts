@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import type { DeviceState, SshDeviceHostConfig } from '@solus/contracts/device-types'
+import type { DeviceConfigureRequest, DeviceState, SshDeviceHostConfig } from '@solus/contracts/device-types'
 import { writeAssetBytes } from '../data/assets/assets'
 import { dataDir } from '../platform/paths'
 import { DeviceAgentBridge } from './device-agent-bridge'
@@ -94,6 +94,12 @@ export function initDeviceDomain(options: DeviceDomainOptions): DeviceDomain {
 }
 
 /** The process's device domain, for agent tools. Null before boot composes it. */
+/** Device support changes the same way from Settings and from an agent: turning it off ends the runs first. */
+export function configureDevices(domain: DeviceDomain, request: DeviceConfigureRequest): Promise<DeviceState> {
+  if (request.enabled === false) domain.runs.dispose()
+  return domain.manager.configure(request)
+}
+
 export function deviceDomain(): DeviceDomain | null {
   return current
 }

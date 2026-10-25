@@ -114,6 +114,8 @@ export interface ThreadFeedProps {
   readonly startedBy?: SessionOrigin | null;
   /** The composer picked another provider; the next prompt hands off (plans/021). */
   readonly handoffPending?: boolean;
+  /** The host is away and the thread sleeps under its veil (`threadHostChrome`): no placeholder shows. */
+  readonly isHostAsleep?: boolean;
   readonly contentMaxWidth?: number;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
@@ -964,6 +966,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   );
 
   if (props.contentPresentation.kind === "unavailable") {
+    if (props.isHostAsleep) return null;
     return (
       <ThreadFeedPlaceholder
         title={props.contentPresentation.title}
@@ -1036,12 +1039,13 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           />
         </MarkdownImageAvailableWidthContext>
       </View>
-      {props.contentPresentation.kind === "loading" && presentedFeed.length === 0 ? (
+      {/* While the host is away an empty thread shows only the veil. */}
+      {props.contentPresentation.kind === "loading" && presentedFeed.length === 0 && !props.isHostAsleep ? (
         <View pointerEvents="none" style={StyleSheet.absoluteFill} className="items-center justify-center">
           <ActivityIndicator accessibilityLabel="Loading messages" colorClassName="accent-icon-muted" />
         </View>
       ) : null}
-      {presentedFeed.length === 0 && props.contentPresentation.kind === "ready" ? (
+      {presentedFeed.length === 0 && props.contentPresentation.kind === "ready" && !props.isHostAsleep ? (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           <ThreadFeedPlaceholder
             title="No conversation yet"

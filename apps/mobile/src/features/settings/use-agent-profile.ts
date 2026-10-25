@@ -44,7 +44,7 @@ export function useAgentProfileHosts() {
   const registered = useListened(app.registry.changes, app.registry.hosts)
   // A joined string, so the snapshot is stable while no host changes phase.
   const connectedIds = useListened(app.connections.changes, () =>
-    registered.filter((host) => app.connections.state(host.id)?.phase === 'connected').map((host) => host.id).join('\0'))
+    registered.filter((host) => app.connections.state(host.id)?.readiness === 'ready').map((host) => host.id).join('\0'))
   const hosts = useMemo<AgentProfileHostRow[]>(() => {
     const connected = new Set(connectedIds.split('\0').filter(Boolean))
     const addresses = sameNameHostAddresses(registered.map((host) => ({ id: host.id, label: host.label, url: host.routes[0]?.url ?? '' })))

@@ -336,8 +336,8 @@ describe('signed in means synced, and hosts pull after this device writes', () =
     app.connections.connection('inst-a')
     app.connections.connection('inst-b')
     await transports[0]!.accept()
-    expect(app.connections.state('inst-a')?.phase).toBe('connected')
-    expect(app.connections.state('inst-b')?.phase).not.toBe('connected')
+    expect(app.connections.state('inst-a')?.readiness).toBe('ready')
+    expect(app.connections.state('inst-b')?.readiness).not.toBe('ready')
 
     // Signed in from an earlier run: no choice is asked; the start is already waiting on the account.
     expect(app.account.isSignedIn).toBe(true)

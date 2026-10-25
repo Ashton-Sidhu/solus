@@ -3,6 +3,7 @@ import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollVie
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Linking, Platform, StyleSheet, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp } from "../../app/app-context";
@@ -21,7 +22,15 @@ import {
   type HostPreview,
   type PairInput,
 } from "./lib/pair-input";
-import { NearbyHostsSection, OS_LABELS } from "./NearbyHostsSection";
+import {
+  isPairingBusy,
+  OS_LABELS,
+  pairedHoldMs,
+  pairingPhase,
+  type PairingStep,
+} from "./lib/pairing-bridge";
+import { NearbyHostsSection } from "./NearbyHostsSection";
+import { PairingBridge } from "./PairingBridge";
 import { nearbyHostUrl, useNearbyHosts } from "./use-nearby-hosts";
 
 type PairTarget = { preview: HostPreview; pairToken: string | null };
@@ -44,30 +53,36 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
   const [label, setLabel] = useState("");
   const [showScanner, setShowScanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [step, setStep] = useState<PairingStep>("idle");
   const [target, setTarget] = useState<PairTarget | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const scannerLocked = useRef(false);
 
   const headerIconColor = useUniwindTheme()["--color-icon"];
   const nearby = useNearbyHosts();
+  const reduceMotion = useReducedMotion();
+  const isBusy = isPairingBusy(step);
 
   // A failure stays on the host's page with the reason, so the person can add a code or try again.
+  // Success holds the paired bridge for a moment, so the person sees it land before Home.
   const pairWith = useCallback(
     async (next: PairTarget, name: string | undefined) => {
-      setIsSubmitting(true);
+      setTarget(next);
+      setStep("pairing");
       setError(null);
       try {
         await app.pair(next.preview, next.pairToken ?? undefined, name);
-        navigation.reset({ index: 0, routes: [{ name: "Home" }] });
       } catch (failure) {
-        setTarget(next);
+        setStep("failed");
         setError(pairFailureMessage(failure instanceof Error ? failure : new Error(String(failure))));
-      } finally {
-        setIsSubmitting(false);
+        return;
       }
+      setStep("paired");
+      const hold = pairedHoldMs(reduceMotion);
+      if (hold > 0) await new Promise((resolve) => setTimeout(resolve, hold));
+      navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     },
-    [app, navigation],
+    [app, navigation, reduceMotion],
   );
 
   const inspect = useCallback(
@@ -76,10 +91,10 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
         setError(input.message);
         return;
       }
-      setIsSubmitting(true);
+      setStep("looking");
       setError(null);
       const result = await app.preview(input.url);
-      setIsSubmitting(false);
+      setStep("idle");
       if (result.kind === "unreachable") {
         setError(
           "The host did not answer. Check the address and that this device is on a network that can reach it.",
@@ -160,7 +175,7 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
     await pairWith(target, label.trim() || undefined);
   }, [label, pairWith, target]);
 
-  const connectDisabled = isSubmitting || hostInput.trim().length === 0;
+  const connectDisabled = isBusy || hostInput.trim().length === 0;
 
   return (
     <SettingsScreen
@@ -201,6 +216,9 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
         }}
       >
         <View collapsable={false} className="gap-5">
+          {showScanner && !target ? null : (
+            <PairingBridge phase={pairingPhase(step, target !== null)} host={target?.preview ?? null} />
+          )}
           {target ? (
             <View collapsable={false} className="gap-5">
               <PairTargetHeading preview={target.preview} />
@@ -233,8 +251,8 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
               <View className="gap-2 android:flex-row android:justify-end">
                 <ConnectionSheetButton
                   icon="checkmark"
-                  label={pairActionLabel(isSubmitting, target.preview, target.pairToken)}
-                  disabled={isSubmitting}
+                  label={pairActionLabel(step, target.preview, target.pairToken)}
+                  disabled={isBusy}
                   tone="primary"
                   onPress={() => {
                     void pair();
@@ -243,11 +261,12 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
                 <ConnectionSheetButton
                   icon="arrow.left"
                   label="Choose another host"
-                  disabled={isSubmitting}
+                  disabled={isBusy}
                   tone="secondary"
                   onPress={() => {
                     setTarget(null);
                     setError(null);
+                    setStep("idle");
                   }}
                 />
               </View>
@@ -320,7 +339,7 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
                 <View className="android:flex-row android:justify-end">
                   <ConnectionSheetButton
                     icon="arrow.right"
-                    label={isSubmitting ? "Checking…" : "Continue"}
+                    label={step === "looking" ? "Checking…" : "Continue"}
                     disabled={connectDisabled}
                     tone="primary"
                     onPress={() => {
@@ -360,7 +379,8 @@ function PairTargetHeading({ preview }: { readonly preview: HostPreview }) {
   );
 }
 
-function pairActionLabel(isSubmitting: boolean, preview: HostPreview, pairToken: string | null): string {
-  if (isSubmitting) return "Pairing…";
+function pairActionLabel(step: PairingStep, preview: HostPreview, pairToken: string | null): string {
+  if (step === "paired") return "Paired";
+  if (step === "pairing") return "Pairing…";
   return preview.trusted && !pairToken ? "Connect" : "Pair";
 }

@@ -2,7 +2,8 @@ import type { GitCheckout, IpcContext, PrReviewContext, RunConfig, Session, Sess
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
-import { checkoutGit, checkoutPlace, isDispatch, runHost, worktreeBaseBranch } from './run-location'
+import { checkoutGit, checkoutPlace, isDispatch, pendingClone, runHost, worktreeBaseBranch } from './run-location'
+import { dispatchRepository } from '../../components/servers/run-on'
 
 export interface IpcContextBuilderDeps {
   sessionFor(tabId: string): Session | undefined
@@ -136,6 +137,14 @@ export class IpcContextBuilder {
       ...sessionExtras,
     }
     if (ownRun && isDispatch(ownRun)) context.origin = 'dispatch'
+    // A clone Send has not made yet: the run's host copies the repository first,
+    // and the repository says where the run starts in it.
+    const clone = pendingClone(ownRun)
+    const repository = clone && dispatchRepository(clone)
+    if (repository) {
+      context.repository = repository
+      context.worktreeBaseBranch = null
+    }
     // A draft names itself so host-side per-conversation storage — attachment
     // uploads — has a bucket before a session id exists.
     if (!session && sourceId && this.deps.hasDraft(sourceId)) context.draftId = sourceId

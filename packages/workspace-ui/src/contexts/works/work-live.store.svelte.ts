@@ -20,12 +20,12 @@ function liveHost(serverId: string): LiveHost {
   return {
     api: () => serverConnections.apiFor(serverId),
     subscribe: (type, listener) => serverConnections.eventsFor(serverId).subscribe(type, listener),
-    onConnection: (listener) => serverConnections.onPhaseChange((changed, status) => {
+    onConnection: (listener) => serverConnections.onReadinessChange((changed, readiness) => {
       if (changed !== serverId) return
-      if (status === 'connected') listener(true)
-      else if (status === 'reconnecting' || status === 'offline' || status === 'blocked') listener(false)
+      if (readiness === 'ready') listener(true)
+      else if (readiness === 'reconnecting' || readiness === 'unreachable' || readiness === 'refused') listener(false)
     }),
-    isConnected: () => serverConnections.phaseFor(serverId) === 'connected',
+    isConnected: () => serverConnections.readinessFor(serverId).readiness === 'ready',
   }
 }
 

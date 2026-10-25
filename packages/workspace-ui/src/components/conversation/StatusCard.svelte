@@ -7,10 +7,15 @@
   import type { StatusCardState } from "@solus/contracts/types";
   import TranscriptCard from "./TranscriptCard.svelte";
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
-  import { SetupStepTiming, formatStepDuration } from "./lib/setup-timing.svelte";
+  import { SetupStepTiming } from "./lib/setup-timing.svelte";
   import { statusCardLine } from "./lib/status-card";
-  import WorktreeSetupCard from "./WorktreeSetupCard.svelte";
-  import { isWorktreeSetupCard } from "@solus/contracts/setup-card";
+  import {
+    formatStepDuration,
+    isWorktreeSetupCard,
+    mayWorkLocallyDuringSetup,
+    setupOutputWindow,
+    stepDurationMs,
+  } from "@solus/contracts/setup-card";
 
   interface Props {
     card: StatusCardState;
@@ -22,14 +27,18 @@
 
   let { card, skipMotion = false, onRetry, onWorkLocally, onCancel }: Props = $props();
 
+  // A card the client makes has no host times: its step times are what this
+  // client sees as the steps change. A host card's steps carry their own.
   const timing = new SetupStepTiming();
-  // Transitions can only be observed as they arrive; nothing about "how long did
-  // the user wait" is derivable from the current payload alone.
   $effect(() => timing.observe(card, Date.now()));
 
   const isDone = $derived(card.status === "done");
   const isError = $derived(card.status === "error");
   const line = $derived(statusCardLine(card, timing.totalMs));
+  // Only the host's worktree setup can be stopped, through the run it belongs to.
+  const canCancel = $derived(card.status === "active" && isWorktreeSetupCard(card) && !!onCancel);
+  // While the host makes the worktree, the person can stop it and work in the project folder.
+  const canWorkLocally = $derived(mayWorkLocallyDuringSetup(card) && !!onWorkLocally);
 
   // The steps show while setup runs or fails. Once everything has finished the
   // card collapses to its line, unless the user chose otherwise.
@@ -37,11 +46,6 @@
   const expanded = $derived(userExpanded ?? !isDone);
 </script>
 
-<!-- The host's worktree setup has its own card; client-side git cards
-     (continue in a worktree, PR checkout, conflict resolution) keep this one. -->
-{#if isWorktreeSetupCard(card)}
-  <WorktreeSetupCard {card} {onRetry} {onWorkLocally} {onCancel} />
-{:else}
 <div role="status" aria-live="polite">
   <TranscriptCard
     title={card.title}
@@ -74,12 +78,18 @@
         {#if onWorkLocally}<TranscriptCardAction kind="ghost" onclick={onWorkLocally}>Work locally</TranscriptCardAction>{/if}
         {#if onRetry}<TranscriptCardAction kind="primary" onclick={onRetry}>Retry setup</TranscriptCardAction>{/if}
       {/if}
+      {#if canWorkLocally}
+        <TranscriptCardAction kind="ghost" onclick={onWorkLocally}>Work locally</TranscriptCardAction>
+      {/if}
+      {#if canCancel}
+        <TranscriptCardAction kind="ghost" onclick={onCancel}>Cancel</TranscriptCardAction>
+      {/if}
     {/snippet}
     {#snippet body()}
       <!-- Compact rows, no dividers, no filled discs. -->
       <ul class="flex flex-col" role="list">
         {#each card.steps as step (step.id)}
-          {@const stepMs = timing.msFor(step.id)}
+          {@const stepMs = stepDurationMs(step) ?? timing.msFor(step.id)}
           <li
             class="setup-step flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem]"
             class:is-active={step.status === "active"}
@@ -88,6 +98,10 @@
               <CheckIcon size={12} class="shrink-0 text-[color:color-mix(in_oklch,var(--chart-3)_62%,var(--foreground))]" aria-hidden="true" />
             {:else if step.status === "error"}
               <span class="setup-dot setup-dot--error" aria-hidden="true"></span>
+            {:else if step.status === "warning"}
+              <WarningIcon size={12} class="shrink-0 text-[color:var(--warning)]" aria-hidden="true" />
+            {:else if step.status === "skipped"}
+              <span class="setup-dash shrink-0" aria-hidden="true"></span>
             {:else if step.status === "active"}
               <!-- The same indeterminate hairline used everywhere else, not a
                    spinner. -->
@@ -100,25 +114,35 @@
               class="min-w-0 flex-1 truncate text-transcript-card"
               class:setup-label--done={step.status === "done"}
               class:setup-label--active={step.status === "active"}
-              class:setup-label--pending={step.status === "pending"}
+              class:setup-label--pending={step.status === "pending" || step.status === "skipped"}
               class:setup-label--error={step.status === "error"}
+              class:setup-label--warning={step.status === "warning"}
             >
               {step.label}
             </span>
 
             {#if step.status === "active"}
-              <span class="setup-elapsed shrink-0">running</span>
+              <span class="setup-elapsed shrink-0">{step.percent === undefined ? "running" : `${step.percent}%`}</span>
+            {:else if step.status === "skipped"}
+              <span class="setup-elapsed shrink-0">skipped</span>
             {:else if stepMs}
               <span class="setup-elapsed shrink-0">{formatStepDuration(stepMs)}</span>
             {/if}
           </li>
-          {#if step.detail && step.status === "error"}
-            <li class="setup-detail px-2 pb-1.5">
+          {#if step.detail && (step.status === "error" || step.status === "warning")}
+            <li class="setup-detail px-2 pb-1.5" class:setup-detail--warning={step.status === "warning"}>
               {step.detail}
             </li>
           {/if}
         {/each}
       </ul>
+      {#if isError && card.output?.length}
+        <!-- The last four lines of the host's output, in a window that does not
+             change height. -->
+        <pre
+          aria-label="Setup output"
+          class="mx-2 mt-1 mb-1.5 overflow-hidden rounded-md bg-muted px-2.5 py-1.5 font-mono text-transcript-meta leading-relaxed text-muted-foreground">{#each setupOutputWindow(card.output) as outputLine, slot (slot)}<div class="truncate whitespace-pre">{outputLine}</div>{/each}</pre>
+      {/if}
     {/snippet}
     {#snippet seam()}
       <!-- Progress is the card's own state, so it runs along its bottom edge
@@ -134,7 +158,6 @@
     {/snippet}
   </TranscriptCard>
 </div>
-{/if}
 
 <style>
   .setup-step.is-active {
@@ -153,6 +176,14 @@
   .setup-dot--error {
     box-shadow: inset 0 0 0 0.09375rem
       color-mix(in oklch, var(--destructive) 55%, transparent);
+  }
+
+  /* Skipped: a short dash, the step had no work. */
+  .setup-dash {
+    width: 0.75rem;
+    height: 0.09375rem;
+    border-radius: 9999px;
+    background: color-mix(in oklch, var(--foreground) 22%, transparent);
   }
 
   .setup-indet {
@@ -189,6 +220,9 @@
   .setup-label--error {
     color: var(--destructive);
   }
+  .setup-label--warning {
+    color: var(--solus-text-primary);
+  }
 
   .setup-elapsed {
     font-size: var(--text-transcript-meta);
@@ -201,6 +235,9 @@
     line-height: 1.5;
     color: var(--muted-foreground);
     text-wrap: pretty;
+  }
+  .setup-detail--warning {
+    color: color-mix(in oklch, var(--warning) 70%, var(--foreground));
   }
 
   @keyframes setup-indet {

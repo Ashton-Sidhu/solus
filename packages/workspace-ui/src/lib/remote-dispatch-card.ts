@@ -1,4 +1,5 @@
 import type { StatusCardState, StatusCardStep } from '@solus/contracts/types'
+import { AGENT_SETUP_STEP, WORKTREE_SETUP_STEPS } from '@solus/contracts/setup-card'
 
 export type RemoteDispatchPhase = 'connecting' | 'repository' | 'ready'
 
@@ -9,16 +10,11 @@ export interface RemoteDispatchCardOptions {
   error?: {
     step: 'connection' | 'repository'
     message: string
-    /** The account's Connections page, when the host had no GitHub connection to clone with. */
-    connectGithubUrl?: string
   }
 }
 
-const FUTURE_STEPS: StatusCardStep[] = [
-  { id: 'worktree', label: 'Creating branch & worktree', status: 'pending' },
-  { id: 'workspace', label: 'Linking workspace', status: 'pending' },
-  { id: 'session', label: 'Starting agent session', status: 'pending' },
-]
+/** The host's own steps, which its card reports once the prompt reaches it. */
+const FUTURE_STEPS: StatusCardStep[] = [...WORKTREE_SETUP_STEPS, AGENT_SETUP_STEP].map((step): StatusCardStep => ({ ...step, status: 'pending' }))
 
 /** One card that begins in the host picker and hands off to backend setup. */
 export function buildRemoteDispatchCard(options: RemoteDispatchCardOptions): StatusCardState {
@@ -55,17 +51,14 @@ export function buildRemoteDispatchCard(options: RemoteDispatchCardOptions): Sta
     status: error ? 'error' : 'active',
     steps,
   }
-  if (error?.connectGithubUrl) {
-    card.recovery = 'connect-github'
-    card.recoveryUrl = error.connectGithubUrl
-  }
   return card
 }
 
 /**
- * Worktree progress originates in main after the prompt is sent. Preserve the
- * already-completed host/repository steps so the conversation shows one
- * continuous operation instead of replacing it halfway through.
+ * The host's setup card arrives after the prompt is sent. Preserve the steps
+ * the client already finished so the conversation shows one continuous
+ * operation instead of replacing it halfway through. A host card that copies
+ * the repository reports that step itself, so only the connection is kept.
  */
 export function mergeRemoteDispatchProgress(
   current: StatusCardState | null,
@@ -74,8 +67,9 @@ export function mergeRemoteDispatchProgress(
   if (!current?.id.startsWith('remote-dispatch-') || !incoming.id.startsWith('worktree-')) {
     return incoming
   }
+  const hostPreparesRepository = incoming.steps.some((step) => step.id === 'repository')
   const preparationSteps = current.steps
-    .filter((step) => step.id === 'connection' || step.id === 'repository')
+    .filter((step) => step.id === 'connection' || (step.id === 'repository' && !hostPreparesRepository))
     .map((step) => ({ ...step, status: 'done' as const, detail: undefined }))
   return {
     ...incoming,

@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -6,6 +7,7 @@ import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationToolS
 import { resourceAllows } from "@solus/contracts/permissions";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
+import { T3_CODE_BRAND_MARK_SOURCE } from "../../components/brandAssets";
 import { showTextInputDialog } from "../../components/ConfirmDialogHost";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { ScreenScrollView } from "../../components/ScreenScrollView";
@@ -581,7 +583,7 @@ function AddRow(props: {
 /** Marks an entry the Solus catalog lists, not the integrations.sh feed (§13.5). */
 function SolusMark(props: { readonly shown?: boolean }) {
   if (!props.shown) return null
-  return <Text className="rounded-full border border-border-subtle px-1.5 text-xs text-foreground-muted">Solus</Text>
+  return <Image source={T3_CODE_BRAND_MARK_SOURCE} accessibilityLabel="Listed by Solus" accessibilityIgnoresInvertColors style={{ width: 19, height: 19 }} contentFit="contain" />
 }
 
 function PillButton(props: { readonly label: string; readonly accessibilityLabel?: string; readonly disabled?: boolean; readonly onPress: () => void }) {

@@ -196,10 +196,12 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   onMount(() => initializeRuntime(session, sessionSidebarStore));
 
   const detectReconnect = createReconnectDetector(
-    serversStore.connectionPhase,
+    serversStore.readinessFor(serversStore.activeServerId).readiness,
   );
   $effect(() => {
-    const reconnected = detectReconnect(serversStore.connectionPhase);
+    const reconnected = detectReconnect(
+      serversStore.readinessFor(serversStore.activeServerId).readiness,
+    );
     untrack(() => {
       if (reconnected) {
         refreshTheme(settings.setSystemTheme.bind(settings));

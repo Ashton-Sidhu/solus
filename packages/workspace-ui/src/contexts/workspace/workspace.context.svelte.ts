@@ -76,6 +76,7 @@ import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import { prioritizeTabHydration } from './session-bootstrap'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { isWaitingForHost } from '@solus/client-core/host-readiness'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { HostApi } from '@solus/client-core/host-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
@@ -498,7 +499,7 @@ export class WorkspaceContext implements SurfaceContext {
   readonly projectScopeOptions: ListProjectOption[] = $derived.by(() =>
     projectScopeOptions(
       this.logicalProjects,
-      (serverId) => serversStore.statusFor(serverId) === 'online',
+      (serverId) => serversStore.readinessFor(serverId).readiness === 'ready',
       serversStore.activeCloudServerId,
     ),
   )
@@ -507,7 +508,7 @@ export class WorkspaceContext implements SurfaceContext {
     return projectOptionsFor(
       projectKeys,
       this.logicalProjects,
-      (serverId) => serversStore.statusFor(serverId) === 'online',
+      (serverId) => serversStore.readinessFor(serverId).readiness === 'ready',
       serversStore.activeCloudServerId,
     )
   }
@@ -515,7 +516,7 @@ export class WorkspaceContext implements SurfaceContext {
   scopePageToProject(projectKey: string): void {
     const project = this.logicalProjects.find((candidate) => candidate.key === projectKey)
     this.setProjectPageScope(project
-      ? scopeForProject(project, (serverId) => serversStore.statusFor(serverId) === 'online')
+      ? scopeForProject(project, (serverId) => serversStore.readinessFor(serverId).readiness === 'ready')
       : { kind: 'project', key: projectKey, checkout: null })
   }
 
@@ -1177,8 +1178,10 @@ export class WorkspaceContext implements SurfaceContext {
     const project = defaultStartProject(
       this.settings.lastProject,
       // A remembered host that is gone is down too.
-      (serverId) => serverConnections.presenceOf(serverId) === 'gone'
-        || ['offline', 'different-server'].includes(serversStore.statusFor(serverId)),
+      (serverId) => {
+        const { readiness } = serversStore.readinessFor(serverId)
+        return readiness !== 'ready' && !isWaitingForHost(readiness)
+      },
       { serverId: this.fallbackServerId, directory: NEW_CHAT_DIRECTORY },
     )
     return {

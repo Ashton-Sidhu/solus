@@ -1,157 +1,74 @@
 <script lang="ts">
-  import { RotateCw as ArrowClockwiseIcon, Check as CheckIcon, WifiOff as WifiXIcon } from "@lucide/svelte";
+  import { RotateCw as ArrowClockwiseIcon, WifiOff as WifiXIcon } from "@lucide/svelte";
   import { fly } from "svelte/transition";
-  import { formatElapsed } from "@solus/client-core/connection-display";
+  import {
+    HOST_READINESS_ACTION_LABELS,
+    hostReadinessCopy,
+    type HostReadinessAction,
+  } from "@solus/client-core/host-readiness";
   import { serversStore } from "../../contexts";
   import { connectionOverlayMode } from "./lib/connection-overlay";
-  import { liveActivityClock } from "../../lib/shared-clock";
 
+  /**
+   * The state of the host that serves this web window. Everything in the window
+   * depends on it, so its state is the window's (docs/plans/host-readiness.md).
+   * Content on another host shows that host's state where it is drawn.
+   */
   const reduceMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
 
-  const host = $derived(serversStore.activeServer);
-  const isRemote = $derived(!!host && !host.local);
-
-  /**
-   * A counter that only advances while it means something. Ticking every second
-   * for the whole session would invalidate every reader of this component.
-   */
-  let now = $state(Date.now());
-  $effect(() => {
-    if (!serversStore.offlineSince) return;
-    return liveActivityClock.subscribe((value) => { now = value; });
-  });
-
-  const mode = $derived(
-    connectionOverlayMode({
-      phase: serversStore.connectionPhase,
-      blockedReason: serversStore.blockedReason,
-      offlineSince: serversStore.offlineSince,
-      now,
-      isRemote,
-    }),
+  const host = $derived(
+    serversStore.servers.find((server) => server.id === serversStore.windowHostId) ?? null,
   );
+  const readiness = $derived(host ? serversStore.readinessFor(host.id) : null);
+  const mode = $derived(readiness ? connectionOverlayMode(readiness.readiness) : "hidden");
+  const copy = $derived(readiness && host ? hostReadinessCopy(readiness, host.label) : null);
 
-  const elapsed = $derived(
-    serversStore.offlineSince
-      ? formatElapsed(now - serversStore.offlineSince)
-      : "",
-  );
-
-  /**
-   * App mount does not wait on the socket, so this overlay covers a slow first
-   * connect as well as a drop. They are the same shape but not the same event —
-   * nothing has been lost yet on a first connect.
-   */
-  const verb = $derived(
-    serversStore.hasConnected ? "reconnecting" : "connecting",
-  );
-
-  /**
-   * Confirming recovery closes the loop the status card opened. Leaving it up would
-   * turn a resolved problem into permanent chrome, so it retires itself.
-   */
-  let confirmingReconnect = $state(false);
-  $effect(() => {
-    if (!serversStore.lastReconnectAt) return;
-    confirmingReconnect = true;
-    const timer = setTimeout(() => (confirmingReconnect = false), 3200);
-    return () => clearTimeout(timer);
-  });
-  const cardCopy = $derived(
-    mode === "update-required"
-      ? {
-          title: "Update Solus",
-          body: `${host?.label} speaks another version of Solus. Update Solus here and on that host, then retry.`,
-          primary: "Retry now",
-        }
-      : mode === "identity-mismatch"
-      ? {
-          title: "Different server than expected",
-          body: `The address saved for ${host?.label} answered as another Solus server. Pair again only if you intend to replace the saved host.`,
-          primary: "Pair this server",
-        }
-      : mode === "blocked"
-      ? {
-          title: `${host?.label} needs pairing again`,
-          body: "The saved session token was rejected. Your work is safe — pair with this host again to keep going.",
-          primary: "Pair again",
-        }
-      : {
-          title: `Still trying to reach ${host?.label}`,
-          body: `No answer for ${elapsed}. Anything you send is queued and will deliver as soon as it answers.`,
-          primary: "Retry now",
-        },
-  );
-
-  function runPrimary(): void {
-    if (mode === "blocked" || mode === "identity-mismatch") serversStore.openAddServer(host?.url ?? "");
-    else serversStore.retryActive();
+  function act(action: HostReadinessAction): void {
+    if (!host) return;
+    if (action === "retry") serversStore.retry(host.id);
+    else if (action === "start") void serversStore.startManagedHost(host.id);
+    else serversStore.openAddServer(host.url);
   }
 </script>
 
-{#if mode === "reconnecting"}
+{#if mode === "waiting" && host && copy}
   <div
-    class="text-xs pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) py-1.5 pl-3 pr-2 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
+    class="pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) py-1.5 pl-3 pr-2 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow)"
     role="status"
     transition:fly={{ y: -8, duration: reduceMotion ? 0 : 260 }}
   >
     <WifiXIcon size={14} class="shrink-0 text-(--solus-accent)" />
-    <span class="max-w-[14rem] truncate">
-      <span class="text-(--solus-text-primary)">{host?.label}</span>
-      {verb}
-    </span>
-    <span class="tabular-nums text-(--solus-text-tertiary)">{elapsed}</span>
+    <span class="max-w-[16rem] truncate">{copy.headline}</span>
     <span class="h-3 w-px bg-(--solus-menu-hairline)"></span>
     <button
       type="button"
-      class="flex items-center gap-1 rounded-full bg-(--solus-accent-soft) px-2 py-0.5  text-(--solus-accent) transition-colors hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-      onclick={() => serversStore.retryActive()}
+      class="flex items-center gap-1 rounded-full bg-(--solus-accent-soft) px-2 py-0.5 text-(--solus-accent) transition-colors hover:bg-(--solus-accent-light) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+      onclick={() => act("retry")}
     >
       <ArrowClockwiseIcon size={11} />
-      Retry now
+      {HOST_READINESS_ACTION_LABELS.retry}
     </button>
   </div>
-{:else if mode === "escalated" || mode === "blocked" || mode === "identity-mismatch" || mode === "update-required"}
+{:else if mode === "card" && copy}
   <div
-    class="text-xs pointer-events-auto fixed left-1/2 top-3 z-[10018] w-[19rem] -translate-x-1/2 rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-3.5 font-secondary shadow-(--solus-popover-shadow) backdrop-blur-xl"
+    class="pointer-events-auto fixed left-1/2 top-3 z-[10018] w-[19rem] -translate-x-1/2 rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) p-3.5 text-xs font-secondary shadow-(--solus-popover-shadow)"
     role="alert"
     transition:fly={{ y: -8, duration: reduceMotion ? 0 : 300 }}
   >
-    <div class="text-sm text-(--solus-text-primary)">{cardCopy.title}</div>
-    <p class="mt-1  leading-relaxed text-(--solus-text-tertiary)">
-      {cardCopy.body}
-    </p>
-    <div class="mt-3 flex gap-2">
+    <div class="text-sm text-(--solus-text-primary)">{copy.headline}</div>
+    {#if copy.detail}
+      <p class="mt-1 leading-relaxed text-(--solus-text-tertiary)">{copy.detail}</p>
+    {/if}
+    {#if copy.action}
       <button
         type="button"
-        class="rounded-md bg-(--solus-accent) px-2.5 py-1  text-white transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-        onclick={runPrimary}
+        class="mt-3 rounded-md bg-(--solus-accent) px-2.5 py-1 text-white transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+        onclick={() => copy.action && act(copy.action)}
       >
-        {cardCopy.primary}
+        {HOST_READINESS_ACTION_LABELS[copy.action]}
       </button>
-      <!-- A web client has no machine of its own to fall back to. -->
-      {#if serversStore.local}
-        <button
-          type="button"
-          class="rounded-md border border-(--solus-input-border) px-2.5 py-1  text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-          onclick={() => serversStore.useLocalHost()}
-        >
-          Use this Mac
-        </button>
-      {/if}
-    </div>
-  </div>
-{:else if confirmingReconnect}
-  <div
-    class="text-xs pointer-events-none fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) px-3 py-1.5 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
-    role="status"
-    transition:fly={{ y: -8, duration: reduceMotion ? 0 : 260 }}
-  >
-    <CheckIcon size={13} class="shrink-0 text-(--solus-status-live)" />
-    <span>
-      <span class="text-(--solus-status-live)">Reconnected</span> to {host?.label}
-    </span>
+    {/if}
   </div>
 {/if}

@@ -131,3 +131,26 @@ test('an answer from a host that no longer owns the work is ignored', async () =
   store.acceptSaved({ ...artifact, organizationId: 'org-a', contentVersion: 1, updatedAt: '2026-09-22T00:00:00.000Z', content: '<p>cloud</p>' }, 'cloud')
   expect(store.savedWork('chart')!.content).toBe('<p>cloud</p>')
 })
+
+
+test('lists each host as it answers and keeps a failed host’s last works', async () => {
+  const slow = Promise.withResolvers<Work[]>()
+  const healthy = { ...artifact, id: 'healthy' }
+  const stale = { ...artifact, id: 'stale' }
+  connections.registerPrimary('local', {
+    listWorks: async () => [healthy], workReviewInbox: async () => [], workReviewStates: async () => [],
+  })
+  connections.registerHost('slow', { listWorks: () => slow.promise })
+  const store = await newStore()
+  store.acceptCreated(stale, 'slow')
+  const load = store.loadAll()
+  await Promise.resolve()
+  expect(store.get('healthy')?.title).toBe(artifact.title)
+  expect(store.get('stale')).toBeDefined()
+  expect(store.listLoading).toBe(true)
+  slow.reject(new Error('Host request timed out'))
+  await load
+  expect(store.get('healthy')).toBeDefined()
+  expect(store.get('stale')).toBeDefined()
+  expect(store.listLoading).toBe(false)
+})

@@ -23,7 +23,7 @@ export function usePullRequestHostFallback(
   // A string, so an unchanged set of connected hosts does not compute again.
   const connectedKey = useListened(app.connections.changes, () =>
     Array.from(new Set(checkouts.map((checkout) => checkout.hostId)))
-      .filter((hostId) => app.connections.state(hostId)?.phase === 'connected')
+      .filter((hostId) => app.connections.state(hostId)?.readiness === 'ready')
       .join('\u0000'))
   const fallback = useMemo(
     () => pullRequestFallbackHost(ref, repositoryKey, checkouts, new Set(connectedKey.split('\u0000'))),

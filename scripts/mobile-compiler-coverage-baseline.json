@@ -766,6 +766,13 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/hosts/HostAsleepVeil.tsx": {
+      "compiled": [
+        "CopyHostDetailsButton",
+        "HostAsleepVeil"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/hosts/HostsScreen.tsx": {
       "compiled": [
         "HostsScreen"
@@ -784,6 +791,12 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/hosts/OsLogo.tsx": {
+      "compiled": [
+        "OsLogo"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/hosts/PairHostScreen.tsx": {
       "compiled": [
         "PairTargetHeading"
@@ -796,6 +809,15 @@
           ]
         }
       ]
+    },
+    "apps/mobile/src/features/hosts/PairingBridge.tsx": {
+      "compiled": [
+        "BridgeColumn",
+        "BridgeTile",
+        "PairingBridge",
+        "TileGlint"
+      ],
+      "skipped": []
     },
     "apps/mobile/src/features/hosts/use-nearby-hosts.ts": {
       "compiled": [
@@ -1779,6 +1801,12 @@
         "ThreadFeedPlaceholder",
         "UserMessageRow",
         "WorktreeOfferRow"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/threads/ThreadHostLines.tsx": {
+      "compiled": [
+        "HostGraceWhisper"
       ],
       "skipped": []
     },

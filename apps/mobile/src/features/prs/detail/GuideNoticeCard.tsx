@@ -26,7 +26,7 @@ function GuideNoticeBody(props: GuideNoticeProps & { readonly notice: GuideNotic
   return (
     <View className={props.compact ? 'rounded-2xl bg-grouped-card p-4' : 'rounded-2xl bg-grouped-card p-5'} accessibilityLiveRegion="polite" accessibilityState={{ busy }}>
       <View className="flex-row items-center gap-3">
-        <SymbolView name={failed ? 'exclamationmark.circle' : busy ? 'clock' : 'list.number'} size={19} tintColorClassName={failed ? 'accent-danger-foreground' : 'accent-icon-muted'} />
+        <SymbolView name={failed ? 'exclamationmark.circle' : busy ? 'clock' : 'list.clipboard'} size={19} tintColorClassName={failed ? 'accent-danger-foreground' : 'accent-icon-muted'} />
         <Text className="text-base font-t3-semibold">{notice.title}</Text>
       </View>
       <View style={props.compact ? undefined : { minHeight: 72 }} className="pt-3 pb-4">

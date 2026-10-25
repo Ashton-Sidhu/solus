@@ -32,7 +32,7 @@ for (const client of ['desktop', 'web'] as const) {
         registerTarget() {},
         presenceOf: () => 'present',
         setPrimary: () => ({ api: {} }),
-        onPhaseChange: () => () => {},
+        onReadinessChange: () => () => {},
         resolveId: (serverId: string) => serverId,
         ensure() {},
         startCatalogSupervisors() {},

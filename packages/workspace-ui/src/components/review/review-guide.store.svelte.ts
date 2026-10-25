@@ -5,13 +5,13 @@ import { worktreeProjectRoot, type AgentId, type IpcContext, type ReasoningEffor
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { HostPhase } from '@solus/client-core/host-supervisor'
+import type { LinkReadiness } from '@solus/client-core/host-readiness'
 import { checkoutGit } from '../../contexts/workspace/run-location'
 
 type SolusApi = HostApi
 type ReviewScope = 'branch' | 'session'
 type ReadyListener = (serverId: string, event: ReviewGuideStatusEvent) => void
-type ConnectionListener = (serverId: string, phase: HostPhase, attempt: number) => void
+type ConnectionListener = (serverId: string, readiness: LinkReadiness, attempt: number) => void
 
 interface TrackedGuide {
   api: HostApi
@@ -157,7 +157,7 @@ export class ReviewGuideStore {
 
   constructor(
     private readonly eventsFor: (serverId: string) => HostEventSubscriber = (serverId) => serverConnections.eventsFor(serverId),
-    private readonly watchConnections: (listener: ConnectionListener) => () => void = (listener) => serverConnections.onPhaseChange(listener),
+    private readonly watchConnections: (listener: ConnectionListener) => () => void = (listener) => serverConnections.onReadinessChange(listener),
   ) {}
 
   bind(serverId: string): void {
@@ -165,7 +165,7 @@ export class ReviewGuideStore {
     this.subscribedServerIds.add(serverId)
     this.connectionUnsubscribe ??= this.watchConnections((host, status) => {
       if (!this.subscribedServerIds.has(host)) return
-      if (status !== 'connected') {
+      if (status !== 'ready') {
         this.disconnectedServers.add(host)
         return
       }

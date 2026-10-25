@@ -10,7 +10,7 @@ import { checkoutPlace, folderLocation } from '@solus/workspace-ui/contexts/work
  */
 
 mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () => ({
-  serversStore: { statusFor: () => 'online' },
+  serversStore: { readinessFor: () => ({ readiness: 'ready', away: false, unreachableReason: null, refusedReason: null, lastSeenAt: null }) },
 }))
 mock.module('@solus/workspace-ui/lib/git-actions.svelte', () => ({ disposeGitActions: () => {} }))
 mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', dismiss: () => {} }) }))

@@ -1,7 +1,7 @@
 import { afterPaint } from '../../lib/after-paint'
 import { sessionListStore } from '../workspace/session-list.store.svelte'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
-import type { HostPhase } from '@solus/client-core/host-supervisor'
+import type { HostReadiness } from '@solus/client-core/host-readiness'
 import { bootstrapRuntimeTabs, prioritizeTabHydration } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -92,8 +92,8 @@ export function initializeRuntime(
 
   // The durable send outbox drains when a host's supervisor reports live:
   // queued work survives a dead host and delivers on the next session.
-  const stopPhases = serverConnections.onPhaseChange((serverId, phase) => {
-    if (phase !== 'connected') return
+  const stopReadiness = serverConnections.onReadinessChange((serverId, readiness) => {
+    if (readiness !== 'ready') return
     void sendOutbox.drain(serverId, (record) => session.dispatch.redeliverOutboxPrompt(serverId, record))
     // A window that booted with no machine (the account origin) reads the
     // agents once one connects; a no-op while the Run on host is unchanged.
@@ -103,6 +103,9 @@ export function initializeRuntime(
     session.drafts.rereadStartTargets(serverId)
     // Work left on a gone machine while there was nowhere to move it moves now.
     reconcileGoneMachines(session)
+    // A shown conversation whose transcript read failed while its host was away
+    // reads again now (docs/plans/host-readiness.md); a loaded one is left as it is.
+    session.loadShownConversations()
   })
 
   // A host that dropped because it froze says so when it comes back.
@@ -113,23 +116,23 @@ export function initializeRuntime(
   return () => {
     stopDirectory()
     stopConnections()
-    stopPhases()
+    stopReadiness()
     stopStallToasts()
   }
 }
 
-/** Detect reconnect edges after the first connected state has been observed. */
+/** Detect reconnect edges after the first ready state has been observed. */
 export function createReconnectDetector(
-  initialStatus: HostPhase,
-): (status: HostPhase) => boolean {
-  let previousStatus = initialStatus
-  let hasObservedConnected = initialStatus === 'connected'
+  initialReadiness: HostReadiness,
+): (readiness: HostReadiness) => boolean {
+  let previousReadiness = initialReadiness
+  let hasObservedReady = initialReadiness === 'ready'
 
-  return (status) => {
+  return (readiness) => {
     const reconnected =
-      status === 'connected' && previousStatus !== 'connected' && hasObservedConnected
-    previousStatus = status
-    if (status === 'connected') hasObservedConnected = true
+      readiness === 'ready' && previousReadiness !== 'ready' && hasObservedReady
+    previousReadiness = readiness
+    if (readiness === 'ready') hasObservedReady = true
     return reconnected
   }
 }

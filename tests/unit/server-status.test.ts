@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { serverConnections } from '@solus/client-core/server-connections'
+import type { HostReadinessState } from '@solus/client-core/host-readiness'
 
 mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', info: () => '', dismiss: () => {} }) }))
 mock.module('@solus/workspace-ui/contexts/notifications/notifications.store.svelte', () => ({
@@ -68,84 +69,57 @@ afterAll(() => {
   }
 })
 
-describe('server status', () => {
-  test('every host surface follows the same connection transition', () => {
-    // WHY: a page mounted while a socket is connecting must advance with the
-    // status-bar picker instead of retaining a different snapshot forever.
-    serversStore.setConnectionPhase('remote', 'connecting')
+type ReadinessListener = Parameters<typeof serverConnections.onReadinessChange>[0]
 
-    expect(serversStore.statusFor('remote')).toBe('connecting')
-    expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('connecting')
+function state(readiness: HostReadinessState['readiness'], refusedReason: HostReadinessState['refusedReason'] = null): HostReadinessState {
+  return { readiness, away: readiness === 'unreachable' || readiness === 'refused' || readiness === 'gone', unreachableReason: readiness === 'unreachable' ? 'no-answer' : null, refusedReason, lastSeenAt: null }
+}
 
-    serversStore.setConnectionPhase('remote', 'connected')
+/** Answer `readinessFor` from `answers` for the length of `run`, as the host links would. */
+async function withReadiness(answers: Record<string, HostReadinessState>, run: () => void | Promise<void>): Promise<void> {
+  const original = serverConnections.readinessFor
+  serverConnections.readinessFor = (serverId) => answers[serverId] ?? original.call(serverConnections, serverId)
+  try {
+    await run()
+  } finally {
+    serverConnections.readinessFor = original
+  }
+}
 
-    expect(serversStore.statusFor('remote')).toBe('online')
-    expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('online')
+describe('server readiness', () => {
+  test('a host row and readinessFor give the same answer as the host moves', async () => {
+    // WHY: a page mounted while a host is dialed must advance with the picker
+    // instead of keeping a different copy of the host's state.
+    const answers: Record<string, HostReadinessState> = { remote: state('checking') }
+    await withReadiness(answers, () => {
+      expect(serversStore.readinessFor('remote').readiness).toBe('checking')
+      expect(serversStore.servers.find((server) => server.id === 'remote')?.readiness).toBe('checking')
+
+      answers.remote = state('ready')
+      expect(serversStore.readinessFor('remote').readiness).toBe('ready')
+      expect(serversStore.servers.find((server) => server.id === 'remote')?.readiness).toBe('ready')
+    })
   })
 
-  test('a fresh failed probe settles a retrying host as offline', async () => {
-    // WHY: the socket intentionally retries a saved host forever, but the host
-    // picker must not imply that a powered-off machine is about to connect.
-    const originalProbeHealth = serverConnections.probeHealth
-    let forced = false
-    serverConnections.probeHealth = async (_serverId, force) => {
-      forced = force === true
-      return null
-    }
-
-    try {
-      serversStore.setConnectionPhase('remote', 'connecting')
-      await serversStore.probeHosts()
-
-      expect(forced).toBe(true)
-      expect(serversStore.statusFor('remote')).toBe('offline')
-      expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('offline')
-    } finally {
-      serverConnections.probeHealth = originalProbeHealth
-    }
-  })
-
-  test('a connected socket wins over an older failed probe', () => {
-    // WHY: recovering the host must immediately turn it green; users should not
-    // have to wait for the next picker probe to clear a stale offline result.
-    serversStore.setConnectionPhase('remote', 'connected')
-
-    expect(serversStore.statusFor('remote')).toBe('online')
-  })
-
-  test('an identity mismatch is distinct from an offline host', () => {
+  test('an identity mismatch is distinct from an offline host', async () => {
     // WHY: retrying cannot fix an address that now reaches a different Solus
     // installation. The host row must tell the user to pair deliberately.
-    serversStore.setConnectionPhase('remote', 'blocked', 0, 'identity-mismatch')
-
-    expect(serversStore.statusFor('remote')).toBe('different-server')
-    expect(serversStore.servers.find((server) => server.id === 'remote')?.status).toBe('different-server')
+    await withReadiness({ remote: state('refused', 'identity-mismatch') }, () => {
+      expect(serversStore.readinessFor('remote')).toMatchObject({ readiness: 'refused', refusedReason: 'identity-mismatch' })
+      expect(serversStore.servers.find((server) => server.id === 'remote')?.readiness).toBe('refused')
+    })
   })
 
-  test('a host that connected before tracking began still reads as online', () => {
-    // WHY: boot dials saved hosts before the app mounts. A host that connects in
-    // that gap never re-announces itself, and the Run on picker only appears for
-    // an online remote — so the store must read the state it missed.
-    const originalIds = serverConnections.connectedServerIds
-    const originalConnectionFor = serverConnections.connectionFor
-    const early = {
-      link: { phase: 'connected', attempt: 0 },
-    } as unknown as ReturnType<typeof serverConnections.connectionFor>
-    serverConnections.connectedServerIds = () => ['early-host']
-    serverConnections.connectionFor = (serverId) => serverId === 'early-host' ? early : undefined
-
-    try {
-      // The failed probe above also reached this host, as a health probe can
-      // fail for a host whose socket is up.
-      expect(serversStore.statusFor('early-host')).not.toBe('online')
+  test('a host that was ready before tracking began still reads as ready', async () => {
+    // WHY: boot dials saved hosts before the app mounts. A host that is ready in
+    // that gap never announces it again, and the Run on picker only appears for
+    // a ready remote — so the store reads the link, not a copy it tracked.
+    await withReadiness({ 'early-host': state('ready') }, () => {
       serversStore.trackConnections()
 
-      expect(serversStore.statusFor('early-host')).toBe('online')
+      expect(serversStore.readinessFor('early-host').readiness).toBe('ready')
       expect(serversStore.connectedRemotes.map((server) => server.id)).toContain('early-host')
-    } finally {
-      serverConnections.connectedServerIds = originalIds
-      serverConnections.connectionFor = originalConnectionFor
-    }
+    })
   })
 
   test('the host a web client booted against wears its operating system', async () => {
@@ -156,7 +130,7 @@ describe('server status', () => {
     const originalConnectionFor = serverConnections.connectionFor
     const originalProbeHealth = serverConnections.probeHealth
     const serving = {
-      link: { phase: 'connected', attempt: 0 },
+      link: { readiness: 'ready', attempt: 0 },
       target: { id: 'serving-host', label: 'Mac mini', url: 'https://mac-mini.example', local: false },
     } as unknown as ReturnType<typeof serverConnections.connectionFor>
     serverConnections.connectedServerIds = () => ['serving-host']
@@ -164,7 +138,11 @@ describe('server status', () => {
     serverConnections.probeHealth = async () => ({ ok: true, installationId: 'serving-host', name: 'Mac mini', os: 'macos' })
 
     try {
-      await serversStore.checkReachable('serving-host')
+      serversStore.trackConnections()
+      // SAFETY: the listener set is the one a host link reports into; calling it is a readiness change.
+      const listeners = (serverConnections as unknown as { readinessListeners: Set<ReadinessListener> }).readinessListeners
+      for (const listener of listeners) listener('serving-host', 'ready', 0)
+      await new Promise((resolve) => setTimeout(resolve, 0))
 
       expect(serversStore.servers.find((server) => server.id === 'serving-host')?.os).toBe('macos')
     } finally {

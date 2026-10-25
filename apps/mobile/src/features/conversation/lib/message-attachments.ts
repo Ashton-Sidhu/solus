@@ -28,7 +28,7 @@ function fileAttachment(hostPath: string, index: number, name?: string): Message
  * it carried. A file exists in provider history only as the
  * `[Attached file: <path>]` lines the composer puts before the text, then a
  * blank line; without that shape the person typed the bracket themselves.
- * The desktop rule (`splitAttachedFiles`), kept in step by a test.
+ * The desktop rule (`splitSentAttachments`), kept in step by a test.
  */
 export interface SentPromptParts {
   readonly text: string

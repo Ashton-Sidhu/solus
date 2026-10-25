@@ -21,7 +21,6 @@ import type {
   TaskProviderStatus,
   TaskSessionLink,
   TaskSidebarSnapshot,
-  TaskSidebarPrLink,
 } from '@solus/contracts/task-types'
 import { MAX_SIDEBAR_TASK_IDS } from '@solus/contracts/task-types'
 import { Task } from './task.svelte'
@@ -301,17 +300,16 @@ export class TasksStore {
       if (this.subscribedServerIds.has(connection.serverId)) return
       this.watchHost(connection.serverId)
       this.hostGeneration++
-      // `load` shares its in-flight promise, but checks this generation before
-      // publishing. A host restored during the cold read therefore makes that
-      // same operation retry instead of exposing an incomplete sidebar frame.
+      // Include a host restored during an in-flight read on the next pass.
+      // Responses from the current hosts can already appear.
       void this.load()
     })
     // A catalog host exists before its socket is accepted. Its RPC queue can
     // wait through the whole retry ladder, so including it in a federated read
     // would keep healthy hosts out of the sidebar. Read it only after this edge,
     // then merge its rows into the snapshot already on screen.
-    serverConnections.onPhaseChange((serverId, phase) => {
-      if (phase !== 'connected') {
+    serverConnections.onReadinessChange((serverId, readiness) => {
+      if (readiness !== 'ready') {
         this.forgetRunningSessions(serverId)
         return
       }
@@ -371,8 +369,7 @@ export class TasksStore {
    * list too.
    */
   private async reloadHost(serverId: string): Promise<void> {
-    // A cold read in flight has not listed this host: it retries with it. With
-    // no complete list on screen yet, a federated read is the only honest one.
+    // Include a newly connected host in the current load's next pass.
     if (this.loadPromise) {
       this.hostGeneration++
       return
@@ -427,7 +424,7 @@ export class TasksStore {
    * Merge a narrowed snapshot. Each named task takes its row, attempts, and pull
    * request links from the answer; a named task the answer leaves out was
    * deleted or is no longer visible, so it leaves the list. A task another host
-   * already lists stays with that host, as in `applySnapshots`.
+   * already lists stays with that host, as in a whole-host snapshot.
    */
   private applyTaskRows(serverId: string, taskIds: string[], snapshot: TaskSidebarSnapshot): void {
     const answered = new Set<string>()
@@ -770,28 +767,30 @@ export class TasksStore {
           // A host must serve the collaboration plane to hold tasks at all
           // (docs/plans/cloud-service-model.md).
           const serverIds = serverConnections.connectedServerIds().filter(
-            (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hosts.hasCollaboration(serverId),
+            (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready' && hosts.hasCollaboration(serverId),
           )
           const snapshots = await Promise.all(
             serverIds.map(async (serverId) => {
               try {
-                return { serverId, snapshot: await serverConnections.apiFor(serverId).tasksSidebarSnapshot() }
+                const snapshot = await serverConnections.apiFor(serverId).tasksSidebarSnapshot()
+                this.applyHostSnapshot(serverId, snapshot, serverIds)
+                this.loaded = true
+                this.refreshedAt = Date.now()
+                return { serverId }
               } catch (err) {
                 console.error('tasks sidebar snapshot load failed', serverId, err)
                 return { serverId, error: err }
               }
             }),
           )
-          // Materializing restored tabs can add their remote hosts while this
-          // read is pending. Discard the partial result before it reaches any
-          // reactive state; the sidebar keeps its skeleton until the host set
-          // and its task lifecycles are complete.
+          // A finished pass ends the loading state, even when every host in it
+          // failed: an unreachable host rejects, and must not hold the skeleton.
+          this.loaded = true
+          // Restored tabs can add hosts during this read. Include them on the
+          // next pass without holding back responses already received.
           if (hostGeneration !== this.hostGeneration) continue
 
           const failed = snapshots.filter((entry) => 'error' in entry)
-          const ok = snapshots.filter((entry): entry is { serverId: string; snapshot: TaskSidebarSnapshot } => 'snapshot' in entry)
-          this.applySnapshots(ok)
-          this.loaded = true
           this.refreshedAt = Date.now()
           this.error = failed.length
             ? `Couldn't read tasks from ${failed.length} host${failed.length === 1 ? '' : 's'}.`
@@ -814,60 +813,24 @@ export class TasksStore {
     return load
   }
 
-  /**
-   * Merge every host's snapshot into the collection.
-   *
-   * Pull request links and session attempts are replaced wholesale rather than
-   * merged: the snapshot is the authority on both, so a link removed on the host
-   * has to disappear here, and a task absent from it holds neither.
-   */
-  private applySnapshots(ok: Array<{ serverId: string; snapshot: TaskSidebarSnapshot }>): void {
-    const claimedIds = new Set<string>()
-    const listed: Task[] = []
-    const sessionsById = new Map<string, TaskSessionLink[]>()
-    const prLinksById = new Map<string, TaskSidebarPrLink[]>()
-
-    for (const { serverId, snapshot } of ok) {
-      for (const record of snapshot.tasks) {
-        // Two catalog hosts can serve one task store — a desktop host and a
-        // standalone server over the same data directory both report the same
-        // ULIDs. The task is one task: it belongs to the host that claimed it
-        // first (the primary leads `connectedServerIds`), and listing it twice
-        // would route its writes by the losing host and break the sidebar's
-        // keyed rows outright.
-        if (claimedIds.has(record.id)) continue
-        claimedIds.add(record.id)
-        const task = this.get(record.id)
-        task.serverId = serverId
-        if (task.hiddenForUndo) continue
-        task.hydrate(record)
-        listed.push(task)
-      }
-      // Sessions and pull request links follow the task to the host that won
-      // it, so a row never shows one host's attempts under another host's task.
-      for (const [taskId, links] of Object.entries(snapshot.sessionsByTask)) {
-        if (!sessionsById.has(taskId)) sessionsById.set(taskId, links)
-      }
-      for (const [taskId, links] of Object.entries(snapshot.prLinkListsByTask ?? {})) {
-        if (!prLinksById.has(taskId)) prLinksById.set(taskId, links)
-      }
+  /** Apply one whole host response, including its session and PR links.
+   *  Other hosts keep their rows until they answer. If two hosts serve the
+   *  same store, catalog order decides ownership regardless of response order. */
+  private applyHostSnapshot(serverId: string, snapshot: TaskSidebarSnapshot, serverIds: string[]): void {
+    const taskIds = new Set(snapshot.tasks.map((record) => record.id))
+    for (const task of this.listedTasks) if (task.serverId === serverId) taskIds.add(task.id)
+    for (const record of snapshot.tasks) {
+      const task = this.byId.get(record.id)
+      if (!task?.serverId || task.serverId === serverId) continue
+      const ownerIndex = serverIds.indexOf(task.serverId)
+      if (ownerIndex !== -1 && ownerIndex < serverIds.indexOf(serverId)) continue
+      // A preferred host answered after a mirror. Move the one task object
+      // before applying its links so writes follow the preferred host too.
+      task.serverId = serverId
     }
-
-    this.listedTasks.splice(0, this.listedTasks.length, ...listed)
-    // A host this read left out lost its rows, so its next reconnect cannot resume.
-    this.revisionByServerId.clear()
-    for (const { serverId, snapshot } of ok) if (snapshot.revision) this.revisionByServerId.set(serverId, snapshot.revision)
-    this.taskIdBySessionId.clear()
-    for (const taskId of new Set([...this.byId.keys(), ...sessionsById.keys(), ...prLinksById.keys()])) {
-      const task = this.get(taskId)
-      task.replaceSessions(sessionsById.get(taskId) ?? [])
-      task.applyPrLinks(prLinksById.get(taskId) ?? [])
-      // Only the owner claims the session: a `referenced` link is a relationship
-      // the task page lists, and must not answer `taskForSession`.
-      for (const link of task.sessions) {
-        if (link.role !== 'referenced') this.taskIdBySessionId.set(link.sessionId, taskId)
-      }
-    }
+    this.applyTaskRows(serverId, [...taskIds], snapshot)
+    if (snapshot.revision) this.revisionByServerId.set(serverId, snapshot.revision)
+    else this.revisionByServerId.delete(serverId)
   }
 
   /** Fetch a project's upstream tickets from the live provider. A project with no upstream provider

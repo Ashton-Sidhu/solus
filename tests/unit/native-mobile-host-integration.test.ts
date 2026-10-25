@@ -109,7 +109,7 @@ afterAll(async () => {
 function untilConnected(app: SolusApp, hostId: string): Promise<void> {
   return new Promise((resolve) => {
     const check = () => {
-      if (app.connections.state(hostId)?.phase !== 'connected') return
+      if (app.connections.state(hostId)?.readiness !== 'ready') return
       stop()
       resolve()
     }

@@ -10,12 +10,9 @@ import { MaterialButton } from "../../components/MaterialButton";
 import { MaterialIconButton } from "../../components/MaterialIconButton";
 import { cn } from "../../lib/cn";
 import type { NativeHost } from "../hosts/host-registry";
-import { ConnectionStatusDot } from "./ConnectionStatusDot";
-import {
-  hostConnectionStatus,
-  hostDisplayAddress,
-  hostMachineKind,
-} from "./lib/host-connection-status";
+import { hostReadinessCopy } from "@solus/client-core/host-readiness";
+import { ConnectionStatusDot, isHostReadinessFailure } from "./ConnectionStatusDot";
+import { hostDisplayAddress, hostMachineKind } from "./lib/host-machine";
 import { hostStallLine } from "./lib/host-stall-line";
 
 /**
@@ -32,8 +29,10 @@ export function ConnectionEnvironmentRow(props: {
   readonly onRemove: (host: NativeHost) => void;
 }) {
   const app = useApp();
-  const state = useListened(app.connections.changes, () => app.connections.state(props.host.id));
-  const status = hostConnectionStatus(props.host, state);
+  const state = useListened(app.connections.changes, () => app.connections.readiness(props.host.id));
+  const copy = hostReadinessCopy(state, props.host.label);
+  // Dialing again now can help only a host that does not answer.
+  const isRetryable = copy.action === "retry";
   const stallLine = useListened(app.connections.changes, () =>
     hostStallLine(app.connections, props.host),
   );
@@ -44,11 +43,11 @@ export function ConnectionEnvironmentRow(props: {
       <Pressable
         className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-70"
         accessibilityRole="button"
-        accessibilityLabel={[props.host.label, status.text, stallLine].filter(Boolean).join(", ")}
+        accessibilityLabel={[props.host.label, copy.label, stallLine].filter(Boolean).join(", ")}
         accessibilityHint={props.opensDetails ? "Opens the host's settings" : undefined}
         // The row is one accessible element, so its inline Try again is offered as an action.
         accessibilityActions={
-          props.opensDetails && status.retryable ? [{ name: "retry", label: "Try again" }] : undefined
+          props.opensDetails && isRetryable ? [{ name: "retry", label: "Try again" }] : undefined
         }
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === "retry") props.onReconnect(props.host.id);
@@ -57,7 +56,7 @@ export function ConnectionEnvironmentRow(props: {
       >
         <View className="flex-1 gap-0.5">
           <View className="flex-row items-center gap-1.5">
-            <ConnectionStatusDot state={status.dot} pulse={status.retrying} size={8} />
+            <ConnectionStatusDot state={state} size={8} />
             <EnvironmentMachineSymbol
               kind={hostMachineKind(props.host)}
               size={14}
@@ -78,12 +77,12 @@ export function ConnectionEnvironmentRow(props: {
           <Text
             className={cn(
               "text-xs",
-              status.failed ? "text-danger-foreground" : "text-foreground-muted",
+              isHostReadinessFailure(state) ? "text-danger-foreground" : "text-foreground-muted",
             )}
             numberOfLines={props.expanded ? undefined : 1}
             selectable={props.expanded}
           >
-            {status.text}
+            {copy.label}
           </Text>
           {stallLine ? (
             <Text
@@ -95,7 +94,7 @@ export function ConnectionEnvironmentRow(props: {
           ) : null}
         </View>
 
-        {props.opensDetails && status.retryable ? (
+        {props.opensDetails && isRetryable ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Try ${props.host.label} again`}

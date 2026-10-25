@@ -7,6 +7,7 @@ import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { videoMimeType } from '@solus/contracts/media-types'
 import { z } from 'zod'
 import { pendingHandoffProvider } from '../../components/conversation/lib/pending-handoff'
+import { readAnnotationPrompt } from '../../components/browser/lib/annotation-prompt'
 
 let msgCounter = 0
 export const nextMsgId = () => `msg-${++msgCounter}`
@@ -389,40 +390,99 @@ export function imageRefAttachments(refs: PromptImageRef[] | undefined): Message
 }
 
 const ATTACHED_FILE_LINE = /^\[Attached file: (.+)\]$/
+const ANNOTATION_LINE = /^\[Browser annotation: (.+)\]$/
+const ANNOTATION_CAPTURE_LINE = /^Annotated capture: (.+)$/
+const ANNOTATION_MARK_LINE = /^\d+\. /
 /** The slot and random prefix the host puts before an uploaded file's name. */
 const UPLOAD_NAME_PREFIX = /^\d+-[0-9a-f]{12}-/
 
+function isHostPath(path: string): boolean {
+  return path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(path)
+}
+
+function attachedFile(path: string, index: number, serverId: string | undefined): Attachment {
+  const name = (path.split(/[\\/]/).pop() || path).replace(UPLOAD_NAME_PREFIX, '')
+  const attachment: Attachment = { id: `history-file-${index}-${path}`, type: 'file', name, path }
+  if (isHostPath(path)) {
+    attachment.hostPath = path
+    if (serverId) attachment.hostServerId = serverId
+  }
+  const mimeType = videoMimeType({ name })
+  if (mimeType) attachment.mimeType = mimeType
+  return attachment
+}
+
+/** One `[Browser annotation: …]` entry from `lines[start]`, as the chips it was
+ *  sent with. Null when the lines are not the shape the composer writes. */
+function attachedAnnotation(
+  lines: string[],
+  start: number,
+  index: number,
+  serverId: string | undefined,
+): { attachment: Attachment; end: number } | null {
+  const name = ANNOTATION_LINE.exec(lines[start])?.[1]
+  if (!name) return null
+  let line = start + 1
+  const capture = ANNOTATION_CAPTURE_LINE.exec(lines[line] ?? '')?.[1]
+  if (capture) line++
+  // The page line, a blank line, the heading, then one line per mark.
+  let end = line + 3
+  while (end < lines.length && ANNOTATION_MARK_LINE.test(lines[end])) end++
+  const contextLines = lines.slice(line, end)
+  const read = readAnnotationPrompt(contextLines)
+  if (!read) return null
+  const attachment: Attachment = {
+    id: `history-annotation-${index}`,
+    type: 'design-selection',
+    name,
+    path: capture ?? read.pageURL,
+    designData: {
+      screenshot: '',
+      pageURL: read.pageURL,
+      viewport: read.viewport,
+      browserMarks: read.marks,
+      browserAppearance: read.appearance,
+      annotationContext: contextLines.join('\n'),
+    },
+  }
+  if (capture && isHostPath(capture)) {
+    attachment.hostPath = capture
+    attachment.mimeType = 'image/png'
+    if (serverId) attachment.hostServerId = serverId
+  }
+  return { attachment, end }
+}
+
 /**
  * A reloaded user turn, split the way the live bubble shows it: the typed text,
- * and the files it carried. A sent file exists in provider history only as the
- * `[Attached file: <path>]` lines `composeAttachmentContext` puts before the
- * typed text; the live bubble keeps the attachments and shows only the text.
+ * and what it carried. A sent attachment exists in provider history only as
+ * the lines `composeAttachmentContext` puts before the typed text — a
+ * `[Attached file: <path>]` line per file, a `[Browser annotation: …]` entry per
+ * annotation — and the live bubble keeps the attachments and shows only the
+ * text. An annotation comes back as its chips, read from its own words.
  */
-export function splitAttachedFiles(
+export function splitSentAttachments(
   content: string,
   serverId: string | undefined,
 ) {
   const lines = content.split('\n')
-  const paths: string[] = []
-  while (paths.length < lines.length) {
-    const match = ATTACHED_FILE_LINE.exec(lines[paths.length])
-    if (!match) break
-    paths.push(match[1])
+  const attachments: Attachment[] = []
+  let line = 0
+  while (line < lines.length) {
+    const path = ATTACHED_FILE_LINE.exec(lines[line])?.[1]
+    if (path) {
+      attachments.push(attachedFile(path, attachments.length, serverId))
+      line++
+      continue
+    }
+    const annotation = attachedAnnotation(lines, line, attachments.length, serverId)
+    if (!annotation) break
+    attachments.push(annotation.attachment)
+    line = annotation.end
   }
   // The composer separates the lines from the text with a blank line. Without
   // one, the user typed the bracket themselves.
-  const isComposed = paths.length > 0 && (paths.length === lines.length || lines[paths.length] === '')
-  const attachments = (isComposed ? paths : []).map((path, index): Attachment => {
-    const name = (path.split(/[\\/]/).pop() || path).replace(UPLOAD_NAME_PREFIX, '')
-    const attachment: Attachment = { id: `history-file-${index}-${path}`, type: 'file', name, path }
-    if (path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(path)) {
-      attachment.hostPath = path
-      if (serverId) attachment.hostServerId = serverId
-    }
-    const mimeType = videoMimeType({ name })
-    if (mimeType) attachment.mimeType = mimeType
-    return attachment
-  })
-  const text = isComposed ? lines.slice(paths.length).join('\n').replace(/^\n+/, '') : content
-  return { text, attachments }
+  const isComposed = attachments.length > 0 && (line === lines.length || lines[line] === '')
+  if (!isComposed) return { text: content, attachments: [] }
+  return { text: lines.slice(line).join('\n').replace(/^\n+/, ''), attachments }
 }

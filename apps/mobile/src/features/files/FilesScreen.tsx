@@ -64,7 +64,7 @@ export function FilesScreen({ navigation, route }: ScreenProps<'Files'>) {
   const { hostId, projectPath, folderPath } = route.params
   const app = useApp()
   const state = useListened(app.files.changes, () => app.files.stateOf(hostId, projectPath))
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(() => new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const projectName = projectPath.slice(projectPath.lastIndexOf('/') + 1) || projectPath
@@ -84,8 +84,8 @@ export function FilesScreen({ navigation, route }: ScreenProps<'Files'>) {
   }, [folderPath, navigation, projectName])
 
   useEffect(() => {
-    if (phase === 'connected' && state.kind === 'idle') reload()
-  }, [phase, reload, state.kind])
+    if (readiness === 'ready' && state.kind === 'idle') reload()
+  }, [readiness, reload, state.kind])
 
   // The tree re-reads on return: a file an agent added shows without a pull.
   useFocusEffect(reload)

@@ -34,6 +34,7 @@ import {
 import { GLYPH, KINDS, kindFor, type RefKind } from "./unified-autocomplete/kinds";
 import {
   buildRows,
+  fileMenuItem,
   ghostFor,
   isSelectable,
   sessionPreviewFor,
@@ -232,7 +233,7 @@ export class UnifiedAutocompleteController {
       this.deps.session.sessions.byId,
       this.deps.sessionId?.(),
     );
-    return touched.slice(0, 8).map((path) => this.#fileItem(path, false));
+    return touched.slice(0, 8).map((path) => fileMenuItem(path, false));
   });
 
   #worktreeFileItems = $derived.by((): MenuItem[] => {
@@ -240,7 +241,7 @@ export class UnifiedAutocompleteController {
     return this.#fileResults
       .map((file) => {
         const path = this.deps.useRelativeFilePaths() ? file.display : file.path;
-        return this.#fileItem(
+        return fileMenuItem(
           file.isDir ? `${path}/` : path,
           file.isDir,
           file.isDir ? file.path : undefined,
@@ -248,23 +249,6 @@ export class UnifiedAutocompleteController {
       })
       .filter((item) => !open.has(item.token.kind === "file" ? item.token.path : ""));
   });
-
-  #fileItem(path: string, isDir: boolean, directoryPath?: string): MenuItem {
-    const trimmed = path.replace(/\/$/, "");
-    const cut = trimmed.lastIndexOf("/");
-    const name = trimmed.slice(cut + 1);
-    return {
-      id: `file:${path}`,
-      title: isDir ? `${name}/` : name,
-      meta: trimmed.slice(0, cut + 1),
-      when: "",
-      icon: isDir ? GLYPH.folder : GLYPH.file,
-      mono: true,
-      monoMeta: true,
-      token: { kind: "file", path, name },
-      directoryPath,
-    };
-  }
 
   // ─── Everything else (`#`) ───
 

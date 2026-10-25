@@ -70,7 +70,7 @@ function AppContent() {
       // which also brings in sessions started outside Solus. A host that
       // reconnects reads it in `useThreadListRefresh`.
       for (const host of app.registry.hosts()) {
-        if (app.connections.state(host.id)?.phase === 'connected') void app.threads.load(host.id)
+        if (app.connections.state(host.id)?.readiness === 'ready') void app.threads.load(host.id)
       }
     })
     const stopUiRuntimeGc = collectUiRuntimeGarbageOnMemoryWarning()

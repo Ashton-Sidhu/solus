@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts";
   import CopyButton from "../ui/CopyButton.svelte";
 
@@ -66,11 +67,11 @@
       >
         Reload Solus
       </button>
-      {#if host && !host.local}
+      {#if host && !host.local && serversStore.local}
         <button
           type="button"
           class="rounded-lg border border-(--solus-input-border) px-3.5 py-1.5  text-(--solus-text-secondary) transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-          onclick={() => serversStore.useLocalHost()}
+          onclick={() => serversStore.switchTo(LOCAL_SERVER_ID)}
         >
           Use this Mac
         </button>

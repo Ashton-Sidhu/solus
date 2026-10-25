@@ -1,3 +1,4 @@
+import type { HostReadiness } from './host-readiness'
 import { serverConnections } from './server-connections'
 import { loadServers, type SavedServer } from './server-registry'
 
@@ -15,12 +16,12 @@ export function savedRunnerFor(
   return saved.find((server) => server.uplink?.hostId === runnerHostId)?.id ?? null
 }
 
-/** The saved runner (`savedRunnerFor`) when this client is connected to it; null otherwise. */
+/** The saved runner (`savedRunnerFor`) when it is ready on this client; null otherwise. */
 export function connectedRunnerFor(
   runnerHostId: string,
   saved: readonly Pick<SavedServer, 'id' | 'uplink'>[] = loadServers(),
-  phaseFor: (serverId: string) => string | undefined = (serverId) => serverConnections.phaseFor(serverId),
+  readinessFor: (serverId: string) => HostReadiness = (serverId) => serverConnections.readinessFor(serverId).readiness,
 ): string | null {
   const runnerId = savedRunnerFor(runnerHostId, saved)
-  return runnerId && phaseFor(runnerId) === 'connected' ? runnerId : null
+  return runnerId && readinessFor(runnerId) === 'ready' ? runnerId : null
 }

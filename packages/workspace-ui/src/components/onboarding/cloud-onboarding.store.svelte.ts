@@ -244,7 +244,7 @@ class CloudOnboardingStore {
    */
   dialMachines(): void {
     for (const server of this.machines) {
-      if (server.status === 'online' || awaitsManagedCompute(server.uplink)) continue
+      if (server.readiness === 'ready' || awaitsManagedCompute(server.uplink)) continue
       serverConnections.dialNow(server.id)
     }
   }

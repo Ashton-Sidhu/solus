@@ -17,7 +17,7 @@ import { secretStore } from '../platform/secrets'
  * made itself. The account plane keeps only the public half, as the `jwks` of the
  * host's OAuth client. The host signs a client assertion (RFC 7523, `private_key_jwt`)
  * at the token endpoint: to get its own control token (client credentials, for its
- * link routes) and to act for a person (token exchange and refresh, `Delegations`).
+ * link routes and a person's delegated tokens) and to make a delegation (token exchange, `Delegations`).
  * The Solus API holds the same kind of key, its service credential (§6.2).
  */
 export interface HostCredential {

@@ -54,10 +54,11 @@ function baseApi(): FakeApi {
     .on('prompt', () => ({ disposition: 'started' }))
 }
 
-/** The conversation's own calls, without the per-connection capability and agent reads
- *  and the run-option read beside history. */
+/** The conversation's own calls, without the per-connection capability, server-info
+ *  (the host introducer's read of a ready host), and agent reads, and the run-option
+ *  read beside history. */
 const conversationCalls = (api: FakeApi) => api.calls.map((call) => call.method)
-  .filter((method) => method !== 'serverGetCapabilities' && method !== 'start' && method !== 'configGet' && method !== 'setSessionReadState')
+  .filter((method) => method !== 'serverGetCapabilities' && method !== 'connectionsGetServerInfo' && method !== 'start' && method !== 'configGet' && method !== 'setSessionReadState')
 
 const texts = (controller: ConversationController) => controller.model.order.map((id) => {
   const item = controller.model.items.get(id)
@@ -294,6 +295,74 @@ describe('native conversation: sending', () => {
     await controller.retry('client-1')
     expect(api.callsOf('prompt').map((call) => (call[1] as PromptOptions).clientPromptId)).toEqual(['client-1', 'client-1'])
     expect(controller.model.items.get('client-1')).toMatchObject({ delivery: 'sent' })
+  })
+
+  // The host makes a prompt's sender a watcher before the run can publish, so a
+  // send that must still watch does not wait for the watch reply (as desktop's promptTab).
+  test('a send that must watch sends the prompt before the watch answers, then applies the watch', async () => {
+    let watchFails = true
+    let answerWatch: (result: object) => void = () => {}
+    const api = baseApi().on('watchSession', () => {
+      if (watchFails) throw new TransportDisconnectedError()
+      return new Promise((resolve) => { answerWatch = resolve })
+    })
+    const { controller } = await open({ api })
+    await controller.load()
+    expect(controller.phase.kind).toBe('error')
+
+    watchFails = false
+    await controller.send('ship it')
+    expect(conversationCalls(api).slice(-2)).toEqual(['watchSession', 'prompt'])
+    expect(controller.model.items.get('client-1')).toMatchObject({ delivery: 'sent' })
+
+    answerWatch({
+      pendingQuestions: [{ questionId: 'q1', questions: [{ question: 'Which?', options: [{ label: 'A' }], multiSelect: false }] }],
+      runtime: { status: 'running', modelConfig: { modelId: 'claude-opus-4-5', reasoningEffort: 'high' }, permissionMode: 'plan', queuedPrompts: [], rateLimitInfo: null },
+    })
+    await flushPromises()
+    expect(controller.run.preferredModel).toBe('claude-opus-4-5')
+    expect(controller.run.permissionMode).toBe('plan')
+    expect(controller.model.status).toBe('running')
+    expect(controller.model.questions.map((question) => question.questionId)).toEqual(['q1'])
+
+    // The watch is in place: the next send does not watch again.
+    await controller.send('and this')
+    expect(api.callsOf('watchSession')).toHaveLength(2)
+  })
+
+  test('a watch reply that live events passed is not applied over them', async () => {
+    let watchFails = true
+    let answerWatch: (result: object) => void = () => {}
+    const api = baseApi().on('watchSession', () => {
+      if (watchFails) throw new TransportDisconnectedError()
+      return new Promise((resolve) => { answerWatch = resolve })
+    })
+    const { controller, transport } = await open({ api })
+    await controller.load()
+    watchFails = false
+    await controller.send('ship it')
+    transport.emitSession('thread-1', { type: 'status_change', status: 'running' })
+    answerWatch({ runtime: null })
+    await flushPromises()
+    expect(controller.model.status).toBe('running')
+  })
+
+  test('a failed watch beside a send neither blocks nor fails the prompt, and the next send watches again', async () => {
+    let watchFails = true
+    const api = baseApi().on('watchSession', () => {
+      if (watchFails) throw new Error('watch refused')
+      return { runtime: null }
+    })
+    const { controller } = await open({ api })
+    await controller.load()
+    await controller.send('ship it')
+    await flushPromises()
+    expect(api.callsOf('prompt')).toHaveLength(1)
+    expect(controller.model.items.get('client-1')).toMatchObject({ delivery: 'sent' })
+
+    watchFails = false
+    await controller.send('again')
+    expect(api.callsOf('watchSession')).toHaveLength(3)
   })
 
   test('an unconfirmed prompt stays visible across an app restart', async () => {

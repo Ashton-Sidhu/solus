@@ -60,6 +60,7 @@ export function registerAgentIntercept(backend: DemoBackend, store: DemoStore): 
 
   backend.register('stopSession', () => true)
   backend.register('stopBackgroundTasks', () => true)
+  backend.register('continueSetupLocally', () => false)
   backend.register('decideSessionPlan', () => false)
   backend.register('respondQuestion', () => true)
   backend.register('rateLimitDecision', () => true)

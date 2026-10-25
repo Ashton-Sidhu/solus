@@ -24,9 +24,9 @@ export class BrowserRuntimeStore {
     if (!watch) {
       watch = {
         count: 0,
-        stop: serverConnections.onPhaseChange((hostId, status) => {
+        stop: serverConnections.onReadinessChange((hostId, status) => {
           if (hostId !== serverId) return
-          if (status === 'connected') void this.refresh(serverId)
+          if (status === 'ready') void this.refresh(serverId)
           else {
             clearTimeout(this.watches.get(serverId)?.timer)
             const entry = this.entries.get(serverId)

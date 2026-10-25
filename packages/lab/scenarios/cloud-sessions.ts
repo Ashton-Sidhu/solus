@@ -137,7 +137,7 @@ async function restartStep(proof: Proof, dataDir: string, alice: LabClient, sess
   const runner = await bootRunner(ctx, dataDir)
   const owner = await ownerClient(proof, runner)
   await expectOk(ctx, `${tag} the owner prompts the session on the runner`, prompt(owner, ctx, sessionId, SECOND_PROMPT))
-  // The refresh token survived the restart: no second exchange.
+  // The record of whom it acts for survived the restart: no second exchange.
   ctx.check(`${tag} the restarted runner still acts for alice without a new exchange`, delegationsHeld(runner) === 0, String(delegationsHeld(runner)))
   const grown = await until(() => transcriptOn(alice, sessionId), (rows) => rows.some((row) => row.content.includes(SECOND_PROMPT)) && rows.some(isAnswer), 20_000)
   ctx.check(`${tag} the new turn's rows reached the service`, grown.some((row) => row.role === 'user' && row.content.includes(SECOND_PROMPT)) && grown.some(isAnswer), rowsOf(grown))

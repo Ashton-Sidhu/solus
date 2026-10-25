@@ -12,7 +12,7 @@ import type { HostConnection } from '../hosts/host-connections'
  */
 export async function pullRequestMediaUrl(connection: HostConnection | null, url: string, ctx: IpcContext, refresh = false): Promise<string> {
   const githubMediaUrl = githubMediaFetchUrl(url)
-  if (!githubMediaUrl || !connection || connection.state.phase !== 'connected') return url
+  if (!githubMediaUrl || !connection || connection.state.readiness !== 'ready') return url
   try {
     return await resolveHostMediaUrl(connection, { githubMediaUrl, ctx }, refresh)
   } catch {

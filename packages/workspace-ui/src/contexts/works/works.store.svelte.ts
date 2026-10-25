@@ -282,10 +282,10 @@ export class WorksStore {
       serverId,
       api: serverConnections.apiFor(serverId),
       subscribe: (type, listener) => serverConnections.eventsFor(serverId).subscribe(type, (payload) => listener(payload)),
-      onPhaseChange: (listener) => serverConnections.onPhaseChange((changedServerId, phase) => {
-        if (changedServerId === resolved) listener(phase)
+      onReadinessChange: (listener) => serverConnections.onReadinessChange((changedServerId, readiness) => {
+        if (changedServerId === resolved) listener(readiness)
       }),
-      phase: () => serverConnections.phaseFor(serverId),
+      readiness: () => serverConnections.readinessFor(serverId).readiness,
     }
   }
 
@@ -483,23 +483,21 @@ export class WorksStore {
         // Every connected host that serves the collaboration plane: a runner
         // without it (docs/plans/cloud-service-model.md) holds no works.
         const serverIds = serverConnections.connectedServerIds().filter(
-          (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hosts.hasCollaboration(serverId),
+          (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready' && hosts.hasCollaboration(serverId),
         )
-        const results = await Promise.all(serverIds.map(async (serverId) => {
+        await Promise.all(serverIds.map(async (serverId) => {
+          let metas: WorkListing[]
           try {
-            return { serverId, metas: await serverConnections.apiFor(serverId).listWorks() }
+            metas = await serverConnections.apiFor(serverId).listWorks()
           } catch (error) {
             logWorkLoad('error', 'work list host load failed', { serverId, error: formatError(error) })
-            return { serverId, error }
+            return
           }
-        }))
-        for (const result of results) {
-          if (!result.metas) continue
-          void this.reviews.loadHost(result.serverId)
+          void this.reviews.loadHost(serverId)
           const liveIds = new Set<string>()
-          for (const meta of result.metas) {
+          for (const meta of metas) {
             liveIds.add(meta.id)
-            this.hostByWorkId.set(meta.id, result.serverId)
+            this.hostByWorkId.set(meta.id, serverId)
             const listing = this.works[meta.id]
             if (!listing) this.works[meta.id] = listingOf(meta)
             else if (Date.parse(meta.updatedAt) >= Date.parse(listing.updatedAt)) applyMeta(listing, meta)
@@ -511,7 +509,7 @@ export class WorksStore {
           // host contributes nothing and cannot evict another host's works.
           // An open work is asked again: its panes show it as unavailable.
           for (const id of Object.keys(this.works)) {
-            if (this.hostByWorkId.get(id) !== result.serverId || liveIds.has(id) || this.streaming[id]) continue
+            if (this.hostByWorkId.get(id) !== serverId || liveIds.has(id) || this.streaming[id]) continue
             const open = this.openWorks.get(id)
             if (open) {
               void open.refresh()
@@ -519,7 +517,7 @@ export class WorksStore {
             }
             this.forget(id)
           }
-        }
+        }))
       } catch (err) {
         logWorkLoad('error', 'work list load failed', { error: formatError(err) })
       } finally {

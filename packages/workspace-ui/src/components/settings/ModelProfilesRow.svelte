@@ -14,7 +14,7 @@
 {#if hosts.get(host.id)?.supports('modelProfiles')}
   <SettingsRow label="Model list" description={modelProfilesLine(status)} bodyVisible={!!error}>
     {#snippet control()}
-      <Button variant="outline" size="sm" disabled={host.status !== 'online' || busy} onclick={() => void modelProfilesStore.refresh(host.id)}>
+      <Button variant="outline" size="sm" disabled={host.readiness !== 'ready' || busy} onclick={() => void modelProfilesStore.refresh(host.id)}>
         {busy ? 'Refreshing…' : 'Clear cache and refresh'}
       </Button>
     {/snippet}

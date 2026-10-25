@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { Aperture as ApertureIcon, Check as CheckIcon, LoaderCircle as SpinnerIcon } from "@lucide/svelte";
+  import { Aperture as ApertureIcon, ClipboardCheck as ClipboardCheckIcon, Check as CheckIcon, LoaderCircle as SpinnerIcon } from "@lucide/svelte";
   import type { ReviewProgressStep } from "@solus/contracts/review";
 
   import { Button } from "../ui/button";
-  import ReviewGuideGlyph from "./ReviewGuideGlyph.svelte";
   import {
     REVIEW_PROGRESS_COPY,
     progressFraction,
@@ -56,7 +55,7 @@
         {#if subject === "lens"}
           <ApertureIcon size={20} />
         {:else}
-          <ReviewGuideGlyph size={20} />
+          <ClipboardCheckIcon size={20} />
         {/if}
       </span>
     </span>

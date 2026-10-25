@@ -183,7 +183,7 @@ export class SessionDrafts {
     // while that host is up; when it is not, the run-on rule picks another
     // checkout of the project (docs/plans/project-model.md §6). New session in
     // task keeps everything.
-    if (options.freshTask && !options.serverId && serversStore.statusFor(runHost(run)) !== 'online') {
+    if (options.freshTask && !options.serverId && serversStore.readinessFor(runHost(run)).readiness !== 'ready') {
       this.workspace.opening.moveToRunOnHost(run)
     }
     const draft = this.newDraft(run)

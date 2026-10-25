@@ -32,6 +32,7 @@ import { HostCloudLink } from '../features/settings/host-cloud-link'
 import { HostAccess } from '../features/settings/host-access'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
+import { answerAgentSettingsRequests } from '@solus/client-core/agent-settings-requests'
 import { AgentProfileLocalStore } from '../features/settings/agent-profile-local'
 import { AccountSync, alwaysOnlineEnvironment, timerClock, type ReachableHost } from '../features/account/account-sync'
 import { OrganizationSettingsStore } from '../features/settings/organization-settings'
@@ -165,12 +166,18 @@ export class SolusApp {
     })
     this.connections = new HostConnections({
       registry: this.registry,
-      createTransport: platform.createTransport,
+      createTransport: (options) => {
+        const transport = platform.createTransport(options)
+        // An agent on this host reads and changes the person's settings through this phone (docs/settings.md).
+        answerAgentSettingsRequests(transport, { current: () => this.personal.current(), apply: (patch) => this.personal.set(patch) === 'saved' })
+        return transport
+      },
       hostAccessToken: (host, options) => this.account.hostAccessToken(host, options),
       isSignedOut: () => this.account.isSignedOut(),
       dialOrganizationId: (host) => this.account.dialOrganizationId(host),
       organizationId: () => this.account.organizationId,
       fetch: platform.fetch,
+      clientVersion: platform.appVersion ?? 'unknown',
     })
     this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId))
     this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
@@ -388,7 +395,7 @@ export class SolusApp {
   private reachableHosts(): ReachableHost[] {
     const hosts: ReachableHost[] = []
     for (const host of this.registry.hosts()) {
-      if (this.connections.state(host.id)?.phase !== 'connected') continue
+      if (this.connections.state(host.id)?.readiness !== 'ready') continue
       const connection = this.connections.connection(host.id)
       if (connection) hosts.push({ hostId: host.id, api: connection.api })
     }

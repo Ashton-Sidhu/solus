@@ -17,9 +17,10 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 //
 // plans/010-standard-oauth.md: the host acts for a person with its own OAuth client
 // and its key (docs/adr/0001-standard-authentication.md §3.4) — one token exchange
-// with the token their client presented, then refreshes, each the account plane's
-// live check; nothing per prompt. A refused refresh ends the
-// person's work here. The Solus API the link named is the only one it sends to.
+// with the token their client presented makes a delegation the account plane keeps;
+// each later token is asked with the host's control token, the account plane's live
+// check; nothing per prompt. A refused token ends the person's work here. The Solus
+// API the link named is the only one it sends to.
 
 const DIRECTORY = 'https://app.example.test'
 /** The host's key, as its link manager holds it. */
@@ -177,8 +178,9 @@ describe('the host acting for a person', () => {
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
 
-  /** The account plane's token endpoint and the Solus API. Every request is recorded; form bodies are read as forms. */
-  function cloud(options: { token?: (form: URLSearchParams) => Response | Promise<Response>; admit?: () => Response } = {}) {
+  const DELEGATION_TOKEN_URL = `${DIRECTORY}/v1/hosts/${HOST_ID}/delegation-token`
+  /** The account plane's token endpoint, its delegation-token route, and the Solus API. Every request is recorded; form bodies are read as forms. */
+  function cloud(options: { token?: () => Response | Promise<Response>; admit?: () => Response } = {}) {
     let issued = 0
     const calls: Array<{ url: string; authorization: string | null; form: URLSearchParams | null; body: unknown }> = []
     const fetchImpl = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -187,9 +189,13 @@ describe('the host acting for a person', () => {
       const form = init?.body instanceof URLSearchParams ? init.body : null
       calls.push({ url, authorization: headers.get('authorization'), form, body: form ? null : init?.body ? JSON.parse(String(init.body)) : null })
       if (url === TOKEN_URL) {
-        if (options.token) return options.token(form!)
         issued += 1
-        return Response.json({ access_token: `access-${issued}`, refresh_token: `refresh-${issued}`, expires_in: 300, token_type: 'Bearer' })
+        return Response.json({ access_token: `access-${issued}`, expires_in: 3600, token_type: 'Bearer' })
+      }
+      if (url === DELEGATION_TOKEN_URL) {
+        if (options.token) return options.token()
+        issued += 1
+        return Response.json({ access_token: `access-${issued}`, expires_in: 3600, token_type: 'Bearer' })
       }
       if (url === `${API}/v1/session-admissions`) return options.admit?.() ?? Response.json({ sessionId: 'solus-1', organizationId: 'org_a', ownerKey: 'bob', hostId: HOST_ID, admittedAt: new Date(0).toISOString() }, { status: 201 })
       return new Response('not found', { status: 404 })
@@ -201,6 +207,7 @@ describe('the host acting for a person', () => {
     return new delegationsModule.Delegations({
       registration: () => LINK,
       credential: () => credential,
+      controlToken: async () => 'control-token',
       onRevoked: (userId, scope) => { options.revoked?.push([userId, scope === 'personal' ? scope : scope.organizationId]) },
       fetchImpl,
       now: options.now,
@@ -245,35 +252,35 @@ describe('the host acting for a person', () => {
     expect(plane.calls).toEqual([])
   })
 
-  test('a token about to run out is refreshed, as the host, and the rotated refresh token survives a restart', async () => {
+  test('a token about to run out is asked for again with the host\'s control token, and a restart needs nobody to connect', async () => {
     // WHY: runs and automations continue after every client closed and after the host restarts.
     let now = 1_000_000
     const plane = cloud()
     const held = delegations(plane.fetchImpl, { now: () => now })
     await held.establish(BOBS_TOKEN, { organizationId: 'org_a' })
-    now += 290_000
+    now += 3600_000 - 30_000
     expect(await held.accessToken('bob', { organizationId: 'org_a' }, { kind: 'api' })).toBe('access-2')
-    expect(grantOf(plane.calls[1]!.form!)).toEqual({ grant_type: 'refresh_token', refresh_token: 'refresh-1', resource: 'urn:solus:api' })
-    // A new process, and nobody connected: the stored refresh token is enough.
+    expect(plane.calls[1]).toMatchObject({ url: DELEGATION_TOKEN_URL, authorization: 'Bearer control-token', body: { userId: 'bob', scope: { organizationId: 'org_a' }, resource: 'urn:solus:api' } })
+    // A new process, and nobody connected: the record of whom it acts for is enough.
     const restarted = delegations(plane.fetchImpl, { now: () => now })
     expect(restarted.has('bob', { organizationId: 'org_a' })).toBe(true)
     expect(await restarted.accessToken('bob', { organizationId: 'org_a' }, { kind: 'api' })).toBe('access-3')
-    expect(grantOf(plane.calls[2]!.form!)).toEqual({ grant_type: 'refresh_token', refresh_token: 'refresh-2', resource: 'urn:solus:api' })
+    expect(plane.calls.map((call) => call.url)).toEqual([TOKEN_URL, DELEGATION_TOKEN_URL, DELEGATION_TOKEN_URL])
   })
 
-  test('a refused refresh ends the person\'s work here; an outage keeps a continuation going, never a new session', async () => {
+  test('a refused token ends the person\'s work here; an outage keeps a continuation going, never a new session', async () => {
     let now = 1_000_000
     let mode: 'ok' | 'down' | 'refused' = 'ok'
-    const plane = cloud({ token: (form) => {
+    const plane = cloud({ token: () => {
       if (mode === 'down') throw new TypeError('fetch failed')
-      if (mode === 'refused') return Response.json({ error: 'invalid_grant', error_description: 'The person is not a member of the organization.' }, { status: 400 })
-      return Response.json({ access_token: `access-${form.get('grant_type')}`, refresh_token: 'refresh-x', expires_in: 300 })
+      if (mode === 'refused') return Response.json({ error: 'access_denied', solus_refusal: 'not_a_member', error_description: 'The person is not a member of the organization.' }, { status: 403 })
+      return Response.json({ access_token: 'access-later', expires_in: 3600 })
     } })
     const revoked: Array<[string, string]> = []
     const held = delegations(plane.fetchImpl, { now: () => now, revoked })
     await held.establish(BOBS_TOKEN, { organizationId: 'org_a' })
     await held.actFor({ sessionId: 'solus-1', userId: 'bob', organizationId: 'org_a', admit: false })
-    now += 400_000
+    now += 2 * 3600_000
     mode = 'down'
     await held.actFor({ sessionId: 'solus-1', userId: 'bob', organizationId: 'org_a', admit: false })
     await expect(held.actFor({ sessionId: 'solus-new', userId: 'bob', organizationId: 'org_a', admit: true })).rejects.toMatchObject({ code: 'ORGANIZATION_API_UNAVAILABLE' })

@@ -26,7 +26,7 @@ export function PullRequestReviewersScreen({ navigation, route }: ScreenProps<'P
   const app = useApp()
   const state = useListened(app.pullRequests.changes, () => app.pullRequests.detailOf(ref))
   const viewerLogin = useListened(app.pullRequests.changes, () => shownValue(app.pullRequests.hostOf(hostId))?.viewerLogin ?? null)
-  const connected = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase === 'connected')
+  const connected = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness === 'ready')
   const detail = shownValue(state)
   const permissions = pullRequestPermissions(detail?.overview.pullRequest ?? null, viewerLogin, connected)
   const [candidates, setCandidates] = useState<{ kind: 'loading' } | { kind: 'loaded'; users: UserCandidate[] } | { kind: 'error'; message: string }>({ kind: 'loading' })

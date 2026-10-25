@@ -187,10 +187,7 @@ function ThreadRouteContent(props: {
   const meta = useListened(store.meta, store.metaSnapshotOf);
   const runTitle = useListened(store.meta, () => store.controller.run.title);
   const hasRows = useListened(store.order, () => store.orderSnapshot().length > 0);
-  const connectionState = useListened(
-    app.connections.changes,
-    () => app.connections.state(hostId)?.phase ?? null,
-  );
+  const hostReadiness = useListened(app.connections.changes, () => app.connections.readiness(hostId));
   const window = useWindowDimensions();
   const layout = deriveLayout(window);
   const hasLinkedPullRequests = useListened(
@@ -273,12 +270,11 @@ function ThreadRouteContent(props: {
             draftKey={props.sessionId}
             contentPresentation={contentPresentation}
             hostLabel={props.hostLabel}
-            connectionState={connectionState}
+            hostReadiness={hostReadiness}
             historyControls={historyControls}
             startedBy={meta.startedBy}
             layoutVariant={layout.variant}
             usesAutomaticContentInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
-            onReconnectHost={() => app.connections.retry(hostId)}
           />
         )}
       </View>

@@ -19,6 +19,7 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { hostKey } from "@solus/client-core/host-key";
+  import { isWaitingForHost } from "@solus/client-core/host-readiness";
   import { Button } from "../ui/button";
   import {
     ListEmpty,
@@ -220,7 +221,7 @@
   // claiming there is nothing to read.
   const hostsConnecting = $derived(
     pageScope.projectOptions.some(
-      (option) => serversStore.statusFor(option.serverId) === "connecting",
+      (option) => isWaitingForHost(serversStore.readinessFor(option.serverId).readiness),
     ),
   );
   // Is the scope in view reading right now — a first load, a refresh, or a

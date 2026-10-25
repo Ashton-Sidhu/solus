@@ -32,8 +32,6 @@ same pattern: a second or third mechanism beside the first, not in place of it.
 
 - **No backward compatibility.** No dual paths, no data migration of tokens or
   queues. Every person signs in again once; every host makes its delegation again.
-- **Old installs fail clearly.** A client or host that does not speak this
-  protocol gets `update_required` and says "Update Solus" (§4.6).
 - **LAN pairing stays** (pair code, pairing session token, `/auth/refresh`). It
   moves onto the shared signed-token code.
 
@@ -159,10 +157,9 @@ same pattern: a second or third mechanism beside the first, not in place of it.
 
 ### 4.6 Update required
 
-- `SOLUS_PROTOCOL` in `packages/contracts`. Clients and hosts send it in the
-  socket handshake, on `/runner/deliver`, and as a header on account `/v1`
-  calls. A server answers a missing or other value with `update_required`
-  (socket error code, or HTTP 426). Clients show "Update Solus".
+- Removed 2026-10-23. `SOLUS_PROTOCOL`, the `solus-protocol` header, and the
+  `update_required` answer are gone: Solus keeps no backward compatibility, so
+  clients, hosts, and the cloud ship together and need no version check.
 
 ### 4.7 Structure
 
@@ -170,6 +167,18 @@ same pattern: a second or third mechanism beside the first, not in place of it.
   directory and reach, owner operations, and host-control routes.
 - `/v1` routes by resource, not by caller: one vault route, one agent-profile
   route, one seats route, now that one token shape reaches each.
+
+### 4.8 Delegations are rows (2026-10-24)
+
+A host's delegation for a person was its own rotating refresh token: 9 queries in 8
+waits for each token (Better Auth's confidential-client refresh), a lock that serialized
+refreshes, and refresh tokens in the host's secret store. Now the exchange makes a
+`host_delegation` row (host, person, scope, grant) and the host asks for each token with
+its control token at `POST /v1/hosts/:hostId/delegation-token`: one statement, one wait.
+The host keeps only whom it acts for (`delegations.json`, no secret). The live checks of
+a host's call for a person (grant, standing, row) are one statement, and a host's vault
+read runs them beside the credential read: one wait. Migration `0014_host_delegation`
+deletes every host refresh and access token; each host makes its delegations again.
 
 ## 5. Data reset
 
@@ -203,8 +212,7 @@ Each rule has a test that fails when the rule breaks:
    who cannot reach a host gets no token for it; a sign-out refuses the next
    exchange.
 3. A delegation refresh is refused after its grant ends.
-4. A socket admits each credential kind from its handshake alone; an
-   `update_required` answer reaches a client that sends an old protocol.
+4. A socket admits each credential kind from its handshake alone.
 5. For every host and person in a fixture, the directory lists a host if and
    only if the exchange gives a token for it; a managed host's creator is not its
    owner.

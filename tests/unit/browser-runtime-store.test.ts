@@ -20,7 +20,7 @@ mock.module('@solus/client-core/server-connections', () => ({
       browserRuntimeStatus: () => read(hostId),
       browserRuntimeInstall: async () => { installs.push(hostId); return ready },
     }),
-    onPhaseChange: (listener: typeof connectionChanged) => { connectionChanged = listener; return () => {} },
+    onReadinessChange: (listener: typeof connectionChanged) => { connectionChanged = listener; return () => {} },
   },
 }))
 const { BrowserRuntimeStore } = await import('@solus/workspace-ui/components/connections/browser-runtime.store.svelte')
@@ -46,7 +46,7 @@ test('disconnect invalidates an old status reply and reconnect reads current hos
   expect(store.entries.get('remote-host')?.error).toContain('disconnected')
   expect(store.entries.get('remote-host')?.status?.phase).toBe('ready')
   read = async () => ready
-  connectionChanged('remote-host', 'connected')
+  connectionChanged('remote-host', 'ready')
   await Promise.resolve()
   expect(store.entries.get('remote-host')?.error).toBe('')
   stop()

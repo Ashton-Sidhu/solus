@@ -71,19 +71,14 @@ export function normalizeOtelSettings(otel: Partial<OtelSettings> | undefined): 
 }
 
 /**
- * One row per key: how a patch value validates, what the key is before anyone
- * sets it, and whether an agent may write it. A stored file heals one bad key to
+ * One row per key: how a patch value validates, and what the key is before
+ * anyone sets it. A stored file heals one bad key to
  * its default (`.catch`) rather than losing the whole config; a key where a wrong
  * value is worse than a refused one (`solusTools`, retention) does not heal.
- *
- * Only `continueSessionsAfterHostRestart` is open to agents. The others configure
- * the machine's security, data retention, or consent, and `otel` is never sent to
- * an agent at all.
  */
 interface HostConfigField<Value, Patch> {
   patch: z.ZodType<Patch, unknown>
   default: Value
-  agentWritable: boolean
 }
 
 type HostConfigFieldTable = { [K in keyof HostConfig]: HostConfigField<HostConfig[K], unknown> }
@@ -91,19 +86,18 @@ type HostConfigFieldTable = { [K in keyof HostConfig]: HostConfigField<HostConfi
 function field<const Value, Patch>(
   patch: z.ZodType<Patch, unknown>,
   defaultValue: Value,
-  agentWritable: boolean,
 ): HostConfigField<Value, Patch> {
-  return { patch, default: defaultValue, agentWritable }
+  return { patch, default: defaultValue }
 }
 
 export const HOST_CONFIG_FIELDS = {
-  solusTools: field(z.record(z.string(), z.boolean()).transform(withoutRetiredSolusTools).pipe(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean())), {}, false),
-  continueSessionsAfterHostRestart: field(z.boolean().catch(true), true, true),
-  reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}), {}, false),
-  archivedAutomationRetentionDays: field(z.number().int().min(1).max(3650), 30, false),
-  unfiledRecordingRetentionDays: field(z.number().int().min(1).max(3650), 30, false),
-  otel: field(otelPatchSchema.catch({}), DEFAULT_OTEL_SETTINGS, false),
-  analyticsEnabled: field(z.boolean().catch(true), true, false),
+  solusTools: field(z.record(z.string(), z.boolean()).transform(withoutRetiredSolusTools).pipe(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean())), {}),
+  continueSessionsAfterHostRestart: field(z.boolean().catch(true), true),
+  reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}), {}),
+  archivedAutomationRetentionDays: field(z.number().int().min(1).max(3650), 30),
+  unfiledRecordingRetentionDays: field(z.number().int().min(1).max(3650), 30),
+  otel: field(otelPatchSchema.catch({}), DEFAULT_OTEL_SETTINGS),
+  analyticsEnabled: field(z.boolean().catch(true), true),
 } satisfies HostConfigFieldTable
 
 export type HostConfigKey = keyof typeof HOST_CONFIG_FIELDS
@@ -131,26 +125,14 @@ export type HostConfigPatch = z.infer<typeof hostConfigPatchSchema>
 
 export const DEFAULT_HOST_CONFIG: HostConfig = column('default')
 
-export const HOST_CONFIG_AGENT_WRITABLE: Record<HostConfigKey, boolean> = column('agentWritable')
-
 /**
  * Never sent to an agent in any form. `otel.headers` carries the credentials
  * for the operator's collector, so the whole key is withheld.
  */
 export const HOST_CONFIG_AGENT_HIDDEN_KEYS: readonly HostConfigKey[] = ['otel']
 
-const AGENT_WRITABLE_KEYS: ReadonlySet<string> = new Set(
-  Object.entries(HOST_CONFIG_AGENT_WRITABLE)
-    .filter(([, writable]) => writable)
-    .map(([key]) => key),
-)
-
-export function isAgentWritableHostConfigKey(key: string): key is HostConfigKey {
-  return AGENT_WRITABLE_KEYS.has(key)
-}
-
-/** The writable keys, for a tool that has to tell an agent what it may set. */
-export const AGENT_WRITABLE_HOST_CONFIG_KEYS: readonly string[] = [...AGENT_WRITABLE_KEYS].sort()
+/** What an agent may change: every key it is shown. */
+export const agentHostConfigPatchSchema = hostConfigPatchSchema.omit({ otel: true })
 
 /**
  * The caller's own TypeSafe key (docs/plans/access-model.md §2.6). Contains no

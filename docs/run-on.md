@@ -36,6 +36,28 @@ what that host will use for the project:
 | none, with a check | The session runs on this host. |
 | **Uses its checkout** | The session runs in the checkout that host already has. The session points there when you select the row; Send connects to the host first if it is not online. |
 | **Copies the repository** | The host makes a partial clone of the repository (every branch and its full history; file contents are fetched when a checkout or diff first needs them), then runs the session in a new worktree by default. A checkout that an earlier version cloned without history gets its full history once, the next time work is sent to it; its files, commits, and HEAD stay as they are. The copy belongs to the device that sent the work; it never shows as a project. |
+
+### What Send does for a copy
+
+Send connects to the host and then sends the prompt. The prompt carries the
+repository, so the client does not wait for the copy. On desktop, the prompt
+also carries your GitHub credential, so the host clones as you.
+
+The host copies the repository before the run starts. It uses the copy it
+already has for your device, or it makes a new one. The host, not the client,
+decides the folder of the copy. It decides the folder when the prompt arrives,
+so the session's owner, its organization, and its first record name that
+folder before the copy starts. The conversation shows one
+setup card for all of the work: **Connecting to** the host, **Preparing
+repository**, the worktree steps when the session asked for a worktree (**Fetch
+base branch**, **Check out files**, and **Init submodules**, see
+[worktree names](worktree-names.md#start-point)), and **Start agent**. While git receives the
+repository, the repository step shows the percentage that git reports. The
+card updates at most four times each second.
+
+If the copy fails, the repository step shows the error and nothing starts.
+When the host clones with your Solus account and the account has no GitHub
+connection, the card shows **Connect GitHub**.
 | **Choose a folder** | The project has no Git remote, so you pick a folder on that host. |
 
 A cloud host that is not ready shows its state and takes no work. **Add a

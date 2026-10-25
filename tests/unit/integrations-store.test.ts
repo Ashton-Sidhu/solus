@@ -69,12 +69,12 @@ describe('integrations store', () => {
     let answer!: (value: Integration[]) => void
     connections.registerHost('reconnect', { integrationList: () => new Promise<Integration[]>((resolve) => { answer = resolve }) })
     const stop = store.watch('reconnect')
-    connections.emitPhase('reconnect', 'reconnecting')
+    connections.emitReadiness('reconnect', 'reconnecting')
     answer([integration('stale')])
     await flush()
     expect(store.states.get('reconnect')?.isDisconnected).toBe(true)
     expect(store.states.get('reconnect')?.integrations).toBeNull()
-    connections.emitPhase('reconnect', 'connected')
+    connections.emitReadiness('reconnect', 'ready')
     answer([integration('fresh')])
     await flush()
     expect(store.states.get('reconnect')?.integrations?.map((item) => item.id)).toEqual(['fresh'])
@@ -244,7 +244,7 @@ describe('integrations store: sign-in', () => {
     try {
       await flush()
       await store.connect('drop', 'linear')
-      connections.emitPhase('drop', 'reconnecting')
+      connections.emitReadiness('drop', 'reconnecting')
       expect(store.connectFlow('drop', 'linear')).toBeNull()
     } finally {
       pages.restore()

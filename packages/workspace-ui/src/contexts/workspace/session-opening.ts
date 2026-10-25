@@ -651,7 +651,7 @@ export class SessionOpening {
   private get runOnHosts(): RunOnHost[] {
     return serversStore.executionServers.map((host) => ({
       serverId: host.id,
-      online: host.status === 'online',
+      online: host.readiness === 'ready',
       managed: hostIsManaged(host),
     }))
   }

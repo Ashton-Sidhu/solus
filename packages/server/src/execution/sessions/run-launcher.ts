@@ -25,7 +25,7 @@ import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { ANSWERING_ANOTHER_SESSION } from '../orchestration/session-orchestrator'
 import type { RunHandle } from '../agents/agent-backend'
-import type { BackendSession, SessionStatus, NormalizedEvent, GitCheckout, PromptOptions, PromptDelivery, SessionRunInput, StatusCardState, StatusCardStep } from '@solus/contracts/types'
+import type { BackendSession, SessionStatus, NormalizedEvent, GitCheckout, PromptOptions, PromptDelivery, SessionRunInput, StatusCardState, StatusCardStep, StatusCardStepStatus } from '@solus/contracts/types'
 import { gitCheckoutFromState, projectScopeOf } from '@solus/contracts/types'
 import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observability/session-emitter'
 import { shareTurnTranscripts } from '../seats/member-transcripts'
@@ -35,7 +35,11 @@ import { integrationAgentTools } from '../../integrations/integration-tools'
 import { typeSafeKey } from '../../typesafe/credentials'
 import { withActorScope } from '../seats/acting-identity'
 import { userKey } from '@solus/contracts/user'
-import { worktreeSetupCardId } from '@solus/contracts/setup-card'
+import { AGENT_SETUP_STEP, WORKTREE_SETUP_STEPS, worktreeSetupCardId } from '@solus/contracts/setup-card'
+import { GithubConnectionRequiredError } from '../../providers/github/connection-required'
+import { getDefaultBranch } from '../../git/worktree-manager'
+import { accountConnectionsUrl } from '../../vault/account-reads'
+import { progressPercent, progressThrottle, type DispatchCheckoutPathOf, type PrepareDispatchCheckout } from './dispatch-repository'
 import { SPAN_SERVICES } from '../../data/insights/registries'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
 import { taskOfTurn, linkPreparedTask, taskSystemContext, logNewSessionPrompt } from './run-task-context'
@@ -71,6 +75,17 @@ interface StartedRun {
   run: SessionRunRequest
 }
 
+/** The reason a worktree setup stops when the person chose to work in the
+ *  project folder: the prompt goes on there, and the turn does not fail. */
+class WorkLocallyRequest extends Error {
+  constructor() { super('Working in the project folder') }
+}
+
+/** One change to a setup step. */
+interface SetupStepUpdate extends Pick<StatusCardStep, 'percent' | 'detail'> {
+  status: StatusCardStepStatus
+}
+
 /**
  * Starting a run: worktree and model setup, the provider launch, steering
  * into a turn that is open, and the lifecycle a caller waits on.
@@ -80,10 +95,29 @@ export class RunLauncher {
   /** Worktree setup begins before an agent RunHandle exists, so it needs its
    *  own cancellation path for Stop/Ctrl-C. */
   pendingSetupControllers = new Map<string, AbortController>()
+  /** The controllers in `pendingSetupControllers` that make a worktree now. */
+  private readonly worktreeSetupControllers = new WeakSet<AbortController>()
   /** Full prompt retained until a failed setup is retried or cancelled on any client. */
   failedSetupPrompts = new Map<string, PromptOptions>()
+  /** Copies a Run on send's repository; the setup domain gives it at boot. */
+  prepareDispatchCheckout: PrepareDispatchCheckout | null = null
+  /** The folder that copy makes, read before the turn is admitted; given with it. */
+  dispatchCheckoutPathOf: DispatchCheckoutPathOf | null = null
 
   constructor(private readonly rt: SessionRuntime) {}
+
+  /**
+   * Stops the worktree setup that runs now for `sessionId`. Its half-made
+   * worktree and branch are removed, and the same prompt starts in the project
+   * folder — for a Run on clone, the clone itself. False when no worktree setup runs.
+   */
+  continueSetupLocally(sessionId: string): boolean {
+    const controller = this.pendingSetupControllers.get(sessionId)
+    if (!controller || controller.signal.aborted || !this.worktreeSetupControllers.has(controller)) return false
+    log.info('worktree_setup_work_locally', { sessionId })
+    controller.abort(new WorkLocallyRequest())
+    return true
+  }
 
   /** The transcript echo for a prompt whose sender is waiting on us to render
    *  it — every other client gets the same event from the run itself. */
@@ -464,8 +498,151 @@ export class RunLauncher {
       await this.rt.recordActivity({ kind: 'session', id: sessionId }, request.actor ?? HOST_ACTOR, forkedFrom(input.agentSessionId, input.forkExcludeLatestTurn))
     }
     const sessionGitContext = isForkingInput ? null : existingSession?.gitContext
-    const resolvedProjectPath = projectScopeOf(input)
     let effectiveGitCtx = sessionGitContext ?? incoming ?? null
+
+    // A Run on send to a host with no checkout yet copies the repository first
+    // (docs/run-on.md), on the same setup card as the worktree that may follow.
+    const repositoryRun = request.repository
+    let worktreeBaseBranch = input.worktreeBaseBranch
+    // A clone in an existing worktree, or in its checkout, makes no worktree.
+    const makesWorktree = !(repositoryRun && (repositoryRun.repository.worktreePath || (!worktreeBaseBranch && !repositoryRun.repository.newWorktree)))
+    const setupSteps: StatusCardStep[] = [
+      ...(repositoryRun ? [{ id: 'repository', label: 'Preparing repository' }] : []),
+      ...(makesWorktree ? WORKTREE_SETUP_STEPS : []),
+      AGENT_SETUP_STEP,
+    ].map((step): StatusCardStep => ({ ...step, status: 'pending' }))
+    // Inline status card mirroring the pre-run setup. The renderer clears it
+    // once the session leaves 'connecting'; a failed card is kept until the
+    // user retries setup or explicitly chooses the project directory.
+    let setupCardActive = false
+    // The person stopped the worktree setup to work in the project folder.
+    let worksLocally = false
+    let createdWorktreePath: string | undefined
+    const setupOutput: string[] = []
+    const stepFor = (id: string) => setupSteps.find((step) => step.id === id)
+    // The host's clock times each step: it starts at its first active update
+    // and ends at its last. A skipped step did no work, so it has no times.
+    const setStep = (id: string, update: SetupStepUpdate): void => {
+      const step = stepFor(id)
+      if (!step) return
+      const now = Date.now()
+      if (update.status === 'skipped') {
+        delete step.startedAt
+        delete step.endedAt
+      } else if (update.status !== 'pending') {
+        step.startedAt ??= now
+        if (update.status !== 'active') step.endedAt = now
+      }
+      step.status = update.status
+      if (update.status !== 'active') delete step.percent
+      else if (update.percent !== undefined) step.percent = update.percent
+      if (update.detail) step.detail = update.detail
+    }
+    // The next step shows as active before its work starts, with no time yet:
+    // the client's card at Send shows the same.
+    const announceStep = (id: string): void => {
+      const step = stepFor(id)
+      if (step?.status === 'pending') step.status = 'active'
+    }
+    const buildSetupCard = (): StatusCardState => {
+      const failedStep = setupSteps.find((step) => step.status === 'error')
+      const isWorktree = makesWorktree && !worksLocally
+      return {
+        id: worktreeSetupCardId(sessionId),
+        title: failedStep
+          ? (failedStep.id === 'repository' ? 'Repository setup failed' : 'Worktree setup failed')
+          : stepFor('repository')?.status === 'active' ? 'Preparing repository…' : isWorktree ? 'Preparing worktree…' : 'Starting session…',
+        icon: isWorktree ? 'git-branch' : 'server',
+        status: failedStep ? 'error' : 'active',
+        // Bounded: at most 100 lines of at most 2,048 characters each.
+        output: setupOutput
+          .flatMap((line) => line.split('\n'))
+          .slice(-100)
+          .map((line) => line.slice(0, 2048)),
+        worktreeBaseBranch: worksLocally ? undefined : worktreeBaseBranch ?? undefined,
+        steps: setupSteps.map((step) => ({ ...step })),
+      }
+    }
+    const publishSetupCard = (card = buildSetupCard()): void => this.rt.publish(sessionId, { type: 'status_card', card })
+    if (repositoryRun) {
+      const prepareCheckout = this.prepareDispatchCheckout
+      if (!prepareCheckout) throw new Error('This host cannot copy a repository.')
+      const setupController = new AbortController()
+      this.pendingSetupControllers.get(sessionId)?.abort(new Error('Interrupted'))
+      this.pendingSetupControllers.set(sessionId, setupController)
+      setupCardActive = true
+      setupOutput.push(`Preparing ${repositoryRun.repository.cloneUrl}`)
+      setStep('repository', { status: 'active' })
+      publishSetupCard()
+      // Git rewrites its transfer line many times a second; a reader needs a few.
+      const mayPublish = progressThrottle(250)
+      let lastLineIsProgress = false
+      try {
+        const path = await dispatchStep(
+          'repository_prepare',
+          { cloneUrl: repositoryRun.repository.cloneUrl, fn: 'prepareDispatchCheckout', file: 'run-launcher.ts' },
+          async (annotate) => {
+            const prepared = await prepareCheckout(
+              repositoryRun.repository,
+              { principal: (request.actor ?? HOST_ACTOR).principal, deviceId: repositoryRun.deviceId },
+              {
+                signal: setupController.signal,
+                onOutput: (line, isProgress) => {
+                  // A rewritten transfer line replaces the one before it.
+                  if (isProgress && lastLineIsProgress) setupOutput[setupOutput.length - 1] = line
+                  else setupOutput.push(line)
+                  lastLineIsProgress = isProgress
+                  setStep('repository', { status: 'active', percent: progressPercent(line) ?? undefined })
+                  if (mayPublish()) publishSetupCard()
+                },
+              },
+            )
+            annotate({ path: prepared })
+            return prepared
+          },
+        )
+        const checkout = (await this.rt.checkouts.refresh(path)).checkout
+        input.workingDirectory = path
+        input.projectPath = checkout?.repoRoot ?? path
+        effectiveGitCtx = checkout
+        // A run that names no base for its new worktree starts from the default branch.
+        if (makesWorktree && !worktreeBaseBranch) worktreeBaseBranch = checkout?.targetBranch ?? await getDefaultBranch(path)
+        // The client moves the run to the folder it reads here.
+        if (checkout) this.rt.publish(sessionId, { type: 'git_context', gitContext: checkout })
+        setupOutput.push(`Repository ready at ${path}`)
+        log.info('repository_prepared', { sessionId, path })
+        setStep('repository', { status: 'done' })
+        announceStep(setupSteps[1].id)
+        publishSetupCard()
+      } catch (e) {
+        if (setupController.signal.aborted) {
+          log.info('repository_setup_interrupted', { sessionId })
+          throw setupController.signal.reason instanceof Error
+            ? setupController.signal.reason
+            : new Error('Interrupted')
+        }
+        log.error('repository_prepare_failed', { sessionId, error: String(e) })
+        const message = e instanceof Error ? e.message : String(e)
+        setupOutput.push(message)
+        setStep('repository', { status: 'error', detail: message })
+        const card = buildSetupCard()
+        const connectionsUrl = e instanceof GithubConnectionRequiredError ? accountConnectionsUrl() : null
+        if (connectionsUrl) {
+          card.recovery = 'connect-github'
+          card.recoveryUrl = connectionsUrl
+        }
+        this.failedSetupPrompts.set(sessionId, options)
+        this.rt.statuses.setStatus(sessionId, 'failed')
+        this.rt.publish(sessionId, { type: 'status_card', card })
+        throw e
+      } finally {
+        if (this.pendingSetupControllers.get(sessionId) === setupController) {
+          this.pendingSetupControllers.delete(sessionId)
+        }
+      }
+    }
+
+    const resolvedProjectPath = projectScopeOf(input)
     annotateDispatch({
       provider,
       projectRoot: resolvedProjectPath ?? '',
@@ -475,7 +652,7 @@ export class RunLauncher {
       hasPendingHandoff: !!pendingHandoff,
     })
 
-    if (!effectiveGitCtx?.worktreePath && resolvedProjectPath && resolvedProjectPath !== '~') {
+    if (!repositoryRun && !effectiveGitCtx?.worktreePath && resolvedProjectPath && resolvedProjectPath !== '~') {
       const statusGitCtx = await dispatchStep(
         'git_state',
         { projectPath: resolvedProjectPath, fn: 'computeGitState', file: 'run-launcher.ts' },
@@ -489,46 +666,32 @@ export class RunLauncher {
       if (existingSession) existingSession.gitContext = statusGitCtx ?? undefined
     }
 
-    const worktreeBaseBranch = input.worktreeBaseBranch
-    // Inline status card mirroring the pre-run worktree setup. The renderer
-    // clears it once the session leaves 'connecting'; a failed card is kept
-    // until the user retries setup or explicitly chooses the project directory.
-    let worktreeCardActive = false
-    const worktreeOutput: string[] = []
-    const buildWorktreeCard = (activeIndex: number, errored = false): StatusCardState => ({
-      id: worktreeSetupCardId(sessionId),
-      title: errored ? 'Worktree setup failed' : 'Preparing worktree…',
-      icon: 'git-branch',
-      status: errored ? 'error' : 'active',
-      // Bounded: at most 100 lines of at most 2,048 characters each.
-      output: worktreeOutput
-        .flatMap((line) => line.split('\n'))
-        .slice(-100)
-        .map((line) => line.slice(0, 2048)),
-      worktreeBaseBranch: worktreeBaseBranch ?? undefined,
-      steps: ([
-        { id: 'worktree', label: 'Creating branch & worktree' },
-        { id: 'workspace', label: 'Linking workspace' },
-        { id: 'session', label: 'Starting agent session' },
-      ]).map((s, i): StatusCardStep => ({
-        id: s.id,
-        label: s.label,
-        status: i < activeIndex ? 'done' : i === activeIndex ? (errored ? 'error' : 'active') : 'pending',
-      })),
-    })
-    if (worktreeBaseBranch && !effectiveGitCtx?.worktreePath && resolvedProjectPath) {
+    const baseBranch = worktreeBaseBranch
+    if (baseBranch && !effectiveGitCtx?.worktreePath && resolvedProjectPath) {
       const setupController = new AbortController()
       this.pendingSetupControllers.get(sessionId)?.abort(new Error('Interrupted'))
       this.pendingSetupControllers.set(sessionId, setupController)
-      worktreeCardActive = true
-      worktreeOutput.push(`Creating worktree from ${worktreeBaseBranch}`)
-      this.rt.publish(sessionId, { type: 'status_card', card: buildWorktreeCard(0) })
+      this.worktreeSetupControllers.add(setupController)
+      setupCardActive = true
+      setupOutput.push(`Creating worktree from ${baseBranch}`)
+      announceStep('fetch')
+      publishSetupCard()
+      // A checkout reports its files many times a second, like a clone.
+      const mayPublishCheckout = progressThrottle(250)
+      // A fetch beside a failed checkout can end later; this card is final by then.
+      let stagesOpen = true
+      const onStage = (stage: string, update: SetupStepUpdate): void => {
+        if (!stagesOpen) return
+        const isProgress = update.percent !== undefined && stepFor(stage)?.startedAt !== undefined
+        setStep(stage, update)
+        if (!isProgress || mayPublishCheckout()) publishSetupCard()
+      }
       try {
         const gitContext: GitCheckout = await dispatchStep(
           'worktree_create',
           {
             projectPath: resolvedProjectPath ?? '',
-            baseBranch: worktreeBaseBranch ?? '',
+            baseBranch,
             fn: 'createWorktree',
             file: 'run-launcher.ts',
           },
@@ -537,9 +700,10 @@ export class RunLauncher {
             // through the ambient context — it takes no telemetry argument.
             // It starts on a temporary branch; `nameWorktreeBranch` names it
             // while the agent works, so the prompt never waits on a model.
-            const created = await this.rt.checkouts.create(resolvedProjectPath, worktreeBaseBranch, {
+            const created = await this.rt.checkouts.create(resolvedProjectPath, baseBranch, {
               signal: setupController.signal,
               naming: input.executionPreferences?.worktreeBranchNaming,
+              onStage,
             })
             annotate({ branch: created.branch ?? '', targetBranch: created.targetBranch, worktreePath: created.worktreePath ?? '' })
             return created
@@ -547,30 +711,49 @@ export class RunLauncher {
         )
         if (existingSession) existingSession.gitContext = gitContext
         effectiveGitCtx = gitContext
-        worktreeOutput.push(`Branch: ${gitContext.branch}`, `Worktree: ${gitContext.worktreePath}`, 'Linking workspace')
+        createdWorktreePath = gitContext.worktreePath
+        stagesOpen = false
+        setupOutput.push(`Branch: ${gitContext.branch}`, `Worktree: ${gitContext.worktreePath}`)
         log.info('worktree_created', { sessionId, branch: gitContext.branch, worktreePath: gitContext.worktreePath })
         captureServerEvent('worktree_created', {})
         this.rt.publish(sessionId, { type: 'git_context', gitContext })
         void this.rt.sessionCheckouts.nameWorktreeBranch(sessionId, gitContext, options.prompt, request.actor, input.executionPreferences)
-        // Worktree done → advance to "Linking thread workspace".
-        this.rt.publish(sessionId, { type: 'status_card', card: buildWorktreeCard(1) })
+        // Worktree done → the agent step, which links the workspace first.
+        setStep('agent', { status: 'active' })
+        publishSetupCard()
       } catch (e) {
-        if (setupController.signal.aborted) {
+        stagesOpen = false
+        const reason: unknown = setupController.signal.reason
+        if (setupController.signal.aborted && reason instanceof WorkLocallyRequest) {
+          // `createWorktree` removed its half-made worktree and branch before it
+          // threw. The run goes on in the project folder, which `effectiveGitCtx`
+          // already describes, and no later turn makes a worktree.
+          worksLocally = true
+          input.worktreeBaseBranch = null
+          for (const step of WORKTREE_SETUP_STEPS) setStep(step.id, { status: 'skipped' })
+          setupOutput.push('Working in the project folder')
+          setStep('agent', { status: 'active' })
+          publishSetupCard()
+        } else if (setupController.signal.aborted) {
           log.info('worktree_setup_interrupted', { sessionId })
-          throw setupController.signal.reason instanceof Error
-            ? setupController.signal.reason
-            : new Error('Interrupted')
+          throw reason instanceof Error ? reason : new Error('Interrupted')
+        } else {
+          log.error('worktree_creation_failed', { sessionId, error: String(e) })
+          const message = e instanceof Error ? e.message : String(e)
+          setupOutput.push(message)
+          // The step that failed is the last one that started; a fetch beside it
+          // did not finish for this setup either.
+          const activeSteps = setupSteps.filter((step) => step.status === 'active')
+          const failedStepId = activeSteps.at(-1)?.id ?? 'checkout'
+          for (const step of activeSteps) setStep(step.id, { status: 'error' })
+          setStep(failedStepId, { status: 'error', detail: message })
+          const card = buildSetupCard()
+          card.recovery = 'worktree'
+          this.failedSetupPrompts.set(sessionId, options)
+          this.rt.statuses.setStatus(sessionId, 'failed')
+          publishSetupCard(card)
+          throw e
         }
-        log.error('worktree_creation_failed', { sessionId, error: String(e) })
-        const message = e instanceof Error ? e.message : String(e)
-        worktreeOutput.push(message)
-        const card = buildWorktreeCard(0, true)
-        card.steps[0].detail = message
-        card.recovery = 'worktree'
-        this.failedSetupPrompts.set(sessionId, options)
-        this.rt.statuses.setStatus(sessionId, 'failed')
-        this.rt.publish(sessionId, { type: 'status_card', card })
-        throw e
       } finally {
         if (this.pendingSetupControllers.get(sessionId) === setupController) {
           this.pendingSetupControllers.delete(sessionId)
@@ -578,7 +761,12 @@ export class RunLauncher {
       }
     }
 
-    if (effectiveGitCtx?.worktreePath) {
+    if (createdWorktreePath) {
+      // A worktree made just now is clean and its checkout is known. Its status
+      // reaches clients after the agent starts.
+      void this.rt.checkouts.refresh(createdWorktreePath)
+        .catch((error) => log.warn('checkout_refresh_failed', { sessionId, cwd: createdWorktreePath, error: String(error) }))
+    } else if (effectiveGitCtx?.worktreePath) {
       const current = await this.rt.checkouts.refresh(effectiveGitCtx.worktreePath)
       if (!current.checkout) throw new Error('The session worktree is no longer available')
       effectiveGitCtx = current.checkout
@@ -609,11 +797,14 @@ export class RunLauncher {
     try { recordProjectUse(effectiveCwd) }
     catch (error) { log.warn('project_last_use_failed', { sessionId, cwd: effectiveCwd, error: String(error) }) }
 
-    // Workspace linked (git watcher + file index warmed) → advance to the final
-    // "Starting session" step; the reducer clears the card once the run begins.
-    if (worktreeCardActive) {
-      worktreeOutput.push('Workspace linked. Starting agent session.')
-      this.rt.publish(sessionId, { type: 'status_card', card: buildWorktreeCard(2) })
+    // A setup that made no worktree after all (the clone was one already)
+    // skips its worktree steps. The reducer clears the card once the run begins.
+    if (setupCardActive && stepFor('agent')?.startedAt === undefined) {
+      for (const step of setupSteps) {
+        if (step.id !== 'agent' && (step.status === 'pending' || step.status === 'active')) setStep(step.id, { status: 'skipped' })
+      }
+      setStep('agent', { status: 'active' })
+      publishSetupCard()
     }
 
     const effectiveAdditionalDirs = useWorktree && resolvedProjectPath

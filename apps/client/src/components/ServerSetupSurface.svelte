@@ -9,8 +9,7 @@
   } from "@lucide/svelte";
   import {
     discoveredServerUrl,
-    hostStatusDotClass,
-    hostStatusLabel,
+    readinessDotClass,
     serversStore,
     type NearbyHost,
     type ServerItem,
@@ -24,6 +23,15 @@
   import { classifyConnectInput } from "../lib/connect";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { webState } from "../lib/web-state.svelte";
+  import { localApi } from "@solus/client-core/local-api";
+  import type { SavedServer } from "@solus/client-core/server-registry";
+  import PairingBridge from "@solus/workspace-ui/components/servers/PairingBridge.svelte";
+  import { useHostLookup } from "@solus/workspace-ui/components/servers/lib/host-lookup.svelte";
+  import {
+    pairedHoldMs,
+    pairingPhase,
+    thisDevice,
+  } from "@solus/workspace-ui/components/servers/lib/pairing-bridge";
 
   const open = $derived(webState.serverSetupOpen);
 
@@ -37,7 +45,17 @@
 
   // One smart field: a pasted pairing link carries its own token; a bare
   // address still needs the 6-digit code the host shows in Settings.
-  const needsCode = $derived(classifyConnectInput(smartInput).kind === "address");
+  const connectInput = $derived(classifyConnectInput(smartInput));
+  const needsCode = $derived(connectInput.kind === "address");
+
+  const device = thisDevice(localApi.getPlatform(), navigator.userAgent);
+  const targetUrl = $derived(connectInput.kind === "empty" ? "" : connectInput.url);
+  const hostLookup = useHostLookup(() => targetUrl);
+  let paired = $state<SavedServer | null>(null);
+  let failedUrl = $state<string | null>(null);
+  const phase = $derived(
+    pairingPhase({ targetUrl, host: hostLookup.host, isPairing: busy, isPaired: !!paired, failedUrl }),
+  );
 
   // Reachability is the whole question this surface answers, so re-probe every
   // time it opens instead of trusting the verdict from the last time.
@@ -53,6 +71,8 @@
   });
 
   function close() {
+    paired = null;
+    failedUrl = null;
     webState.closeServerSetup();
     requestInputFocus();
   }
@@ -80,8 +100,10 @@
       serversStore.savePairedServer(server);
       serverConnections.startCatalogSupervisors();
       if (!hasRunOnHost) serversStore.switchTo(server.id);
-      close();
+      paired = server;
+      setTimeout(close, pairedHoldMs());
     } catch (err) {
+      failedUrl = targetUrl;
       toasts.error(err instanceof Error ? err.message : String(err));
     } finally {
       busy = false;
@@ -108,7 +130,7 @@
 {#snippet hostRow(host: ServerItem)}
   <div class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5">
     <span
-      class="size-2 shrink-0 rounded-full {hostStatusDotClass(host.status)}"
+      class="size-2 shrink-0 rounded-full {readinessDotClass(host.readiness)}"
       aria-hidden="true"
     ></span>
     <span class="flex min-w-0 flex-1 flex-col">
@@ -119,7 +141,7 @@
       <span
         class="truncate font-mono text-xs text-(--solus-text-tertiary)"
       >
-        {urlHost(host.url)} · {hostStatusLabel(host.status)}{hostUpdatesStore.hostUpdateFor(host.id)?.check.kind === "available" ? " · update available" : ""}
+        {urlHost(host.url)} · {serversStore.readinessLabelFor(host.id)}{hostUpdatesStore.hostUpdateFor(host.id)?.check.kind === "available" ? " · update available" : ""}
       </span>
     </span>
     {#if host.local}
@@ -185,6 +207,11 @@
     <section>
       {@render sectionLabel(savedHosts.length > 0 ? "Add a host" : "Connect")}
       <form class="flex flex-col gap-2.5" onsubmit={submit}>
+        <PairingBridge
+          {phase}
+          {device}
+          host={paired ? { name: paired.label, os: paired.os } : hostLookup.host}
+        />
         <p
           class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 text-xs leading-relaxed text-(--solus-text-tertiary)"
         >
@@ -260,7 +287,7 @@
 {#if open}
   <!-- Backdrop click dismisses; the dialog itself stops the bubble. -->
   <div
-    class="fixed inset-0 z-[10025] flex items-start justify-center bg-black/[0.05] px-4 pt-[10vh] [.dark_&]:bg-black/35"
+    class="picker-backdrop fixed inset-0 z-[10025] flex items-start justify-center px-4 pt-[10vh]"
     role="presentation"
     onclick={(event) => {
       if (event.target === event.currentTarget) close();

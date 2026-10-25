@@ -1,7 +1,6 @@
 import type { AccountState, SignInEnd } from '@solus/contracts/account-types'
 import { SOLUS_CLIENT_IDS, type TokenResource } from '@solus/contracts/auth/clients'
 import { OAuthSession, type BrowserAuthorizer } from '@solus/client-core/oauth-session'
-import { SOLUS_PROTOCOL, SOLUS_PROTOCOL_HEADER } from '@solus/contracts/uplink'
 import { createLogger } from '@solus/server/logger'
 import type { AccountStore } from './account-store'
 
@@ -111,7 +110,7 @@ export class AccountSession {
     try {
       return await this.deps.fetch(`${this.deps.cloudOrigin}${path}`, {
         ...init,
-        headers: { authorization: `Bearer ${token}`, accept: 'application/json', [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL), ...init.headers },
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json', ...init.headers },
       })
     } catch (error) {
       log.warn('cloud_request_failed', { path, error: error instanceof Error ? error.message : String(error) })

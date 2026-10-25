@@ -9,6 +9,10 @@
   import InputToolbar from "./InputToolbar.svelte";
   import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
   import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import HostUnavailable from "../conversation/HostUnavailable.svelte";
+  import { isWaitingForHost } from "@solus/client-core/host-readiness";
+  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
 
   interface Props {
     active: boolean;
@@ -51,6 +55,21 @@
       (sess && !canDriveSession(runHost(sess.run), sess.id) ? VIEW_ONLY_REASON : null),
   );
   let prompt = $derived(session.inputFor(targetTabId));
+  const hostState = $derived(sess ? serversStore.readinessFor(runHost(sess.run)) : null);
+  const awayHostId = $derived(sess && hostState?.away ? runHost(sess.run) : null);
+  // Inside the grace the composer stays, and one whisper over it says the host
+  // is coming back. The window's own host says so on the connection overlay,
+  // and the desktop's local host runs beside the window.
+  const graceHostId = $derived(
+    sess &&
+      hostState &&
+      !hostState.away &&
+      isWaitingForHost(hostState.readiness) &&
+      runHost(sess.run) !== LOCAL_SERVER_ID &&
+      runHost(sess.run) !== serversStore.windowHostId
+      ? runHost(sess.run)
+      : null,
+  );
 
   // The workspace dock (no tab of its own) steps aside while a draft holds the
   // leading pane: the draft's composer is the primary then, and it — not this
@@ -64,6 +83,12 @@
 </script>
 
 <div class={cn("flex flex-col", className)}>
+  <!-- A host past its grace cannot take a prompt: the conversation above shows
+       its state, and the composer steps aside. -->
+  {#if !awayHostId}
+    {#if graceHostId}
+      <HostUnavailable serverId={graceHostId} variant="whisper" />
+    {/if}
   <!--
     Destination is only editable pre-flight, so the strip mounts for exactly
     that long. `{#if}` beats the renderer's usual hide-don't-unmount rule here:
@@ -125,4 +150,5 @@
       {/snippet}
     </InputBar>
   </div>
+  {/if}
 </div>

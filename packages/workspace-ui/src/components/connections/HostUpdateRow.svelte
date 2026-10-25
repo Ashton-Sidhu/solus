@@ -36,19 +36,19 @@
     {/if}
     {#if !desktop && status?.serverUpdate?.supported}
       {#if operation?.phase === 'waiting'}
-        <Button variant="outline" size="sm" disabled={host.status !== 'online' || hostUpdatesStore.updateRequests.has(host.id)} onclick={() => void hostUpdatesStore.cancelUpdate(host.id)}>Cancel update</Button>
+        <Button variant="outline" size="sm" disabled={host.readiness !== 'ready' || hostUpdatesStore.updateRequests.has(host.id)} onclick={() => void hostUpdatesStore.cancelUpdate(host.id)}>Cancel update</Button>
       {:else if status.check.kind === 'available' || updating}
-        <Button variant="outline" size="sm" disabled={host.status !== 'online' || updating} onclick={() => void hostUpdater.updateTarget(host.id, 'solus')}>{updating ? 'Updating Solus…' : 'Update Solus'}</Button>
+        <Button variant="outline" size="sm" disabled={host.readiness !== 'ready' || updating} onclick={() => void hostUpdater.updateTarget(host.id, 'solus')}>{updating ? 'Updating Solus…' : 'Update Solus'}</Button>
       {/if}
     {/if}
     {#if hosts.get(host.id)?.supports('hostUpdates') && status?.install !== 'cloud'}
-      <Button variant="outline" size="sm" disabled={host.status !== 'online' || updating || status?.check.kind === 'checking' || status?.providers.some((p) => p.check.kind === 'checking')} onclick={() => void checkHost()}>Check for updates</Button>
+      <Button variant="outline" size="sm" disabled={host.readiness !== 'ready' || updating || status?.check.kind === 'checking' || status?.providers.some((p) => p.check.kind === 'checking')} onclick={() => void checkHost()}>Check for updates</Button>
     {/if}
     </div>
   {/snippet}
   {#snippet body()}
     <div class="text-workspace-chrome text-muted-foreground" aria-live="polite">
-      {#if operation}<p>{serverUpdateText(operation, host.label, host.status === 'online')}</p>{#if operation.message}<p>{operation.message}</p>{/if}{/if}
+      {#if operation}<p>{serverUpdateText(operation, host.label, host.readiness === 'ready')}</p>{#if operation.message}<p>{operation.message}</p>{/if}{/if}
       {#if desktop}<p>{updateStatusLine(updatesStore.state)}</p>{/if}
       {#if status?.check.kind === 'available'}
         {#if !status.serverUpdate?.supported}<p>{status.serverUpdate?.reason ?? status.remediation}</p>{/if}

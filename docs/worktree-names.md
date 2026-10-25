@@ -4,6 +4,40 @@ A checkout is identified by its host and path. Its branch name can change withou
 changing that identity. The directory keeps its original name when a branch is
 renamed.
 
+## Start point
+
+A new worktree starts from `origin/<base>`. When the host already has a local
+copy of that ref, the checkout starts at once and `git fetch --no-tags origin
+<base>` runs at the same time. If the fetch moves the base, the new branch moves
+to the fetched commit before the agent starts; only the changed files are
+written. Without a local copy, the fetch comes first. If the fetch fails, the
+worktree starts from the local base branch. The checkout uses one git worker for
+each core (`checkout.workers=0`), unless the project or the person sets
+`checkout.workers`.
+
+If the new worktree has a `.gitmodules` file, the host runs `git submodule update
+--init --recursive` in it. If that command fails, the worktree stays and the
+agent starts. The card shows a warning.
+
+The setup card shows these steps, in this order:
+
+| Step | What the host does |
+|---|---|
+| **Fetch base branch** | Fetches `<base>` from `origin`. **Skipped** when the repository has no `origin`. A warning when the fetch fails, for example "Used local main; fetch failed". |
+| **Check out files** | Runs `git worktree add`, and `git reset --hard` when the fetch moved the base. Shows the percentage of files that git wrote (`Updating files`). |
+| **Init submodules** | Loads the submodules. **Skipped** when there is no `.gitmodules`. A warning when they do not load. |
+| **Start agent** | Links the workspace and starts the agent. |
+
+The fetch and the checkout can be active at the same time. Each step shows how
+long it took, from the times that the host records. The summary line shows the
+time from the start of the first step to the end of the last step. A card with
+a warning still becomes **Worktree ready** when the agent starts.
+
+While the host makes the worktree, **Work locally** stops the setup. The host
+removes the worktree and the branch that it made, and starts the same prompt in
+the project folder. For a Run on clone, the project folder is the clone on that
+host. The session does not fail. **Cancel** stops the setup and the prompt.
+
 ## Branch naming
 
 Settings > Source control > Worktrees > **Branch names** sets how Solus names the

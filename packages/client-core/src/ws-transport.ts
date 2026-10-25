@@ -6,7 +6,7 @@ import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { HostEventSubscriber } from './host-event-subscriber'
-import { HostGoneError, HostRpcError, TransportDisconnectedError } from './rpc-error'
+import { HostGoneError, HostRpcError, HostUnreachableError, TransportDisconnectedError } from './rpc-error'
 import { BrowserFrameSubscriber } from './browser-frame-subscriber'
 import { isHostEvent, type HostEvent } from '@solus/contracts/host-events'
 import {
@@ -16,18 +16,19 @@ import {
 } from '@solus/contracts/voice-audio'
 import { z } from 'zod'
 import { randomId } from './random-id'
+import type { DialError } from './host-diagnostics'
 import type { DialOutcome } from './host-supervisor'
-import { SOLUS_PROTOCOL, UPDATE_REQUIRED, type HandshakeCredential, type SocketHandshake } from '@solus/contracts/uplink'
+import { type HandshakeCredential, type SocketHandshake } from '@solus/contracts/uplink'
 
 /** WebSocket transport shared by the browser client, the Electron renderer,
  *  and the native mobile client. It holds no DOM behavior: the browser
  *  capabilities are added by `ws-browser-api.ts`. */
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'blocked' | 'identity-mismatch' | 'update-required'
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'blocked' | 'identity-mismatch'
 
 // The error lives beside HostRpcError so modules that classify a failure do
 // not load socket.io; existing importers keep this path.
-export { HostGoneError, TransportDisconnectedError }
+export { HostGoneError, HostUnreachableError, TransportDisconnectedError }
 
 export interface WsTransportOptions {
   /** Server URL like `http://host:port`. */
@@ -77,8 +78,6 @@ interface RequestEntry {
   resolve?: (value: RpcInvocationResult) => void
   reject?: (err: Error) => void
   queuedAt: number
-  /** Boot work must survive arbitrarily slow first startup. */
-  queuedBeforeFirstConnect: boolean
 }
 
 interface RpcResponse {
@@ -167,21 +166,12 @@ interface DialTiming {
 
 export type DialAttemptOutcome = 'connected' | 'failed'
 
-const RECONNECT_QUEUE_MAX_AGE_MS = 15_000
 /** A socket presents its next access token this long before the current one ends (`authRenew`, `accountPresent`). */
 export const GRANT_RENEWAL_LEAD_MS = 60_000
 const WAKE_PROBE_TIMEOUT_MS = 5_000
 /** A refresh that does not answer is `unavailable`, never a dial that hangs. */
 const REFRESH_TIMEOUT_MS = 10_000
 const WAKE_PROBE_METHOD: RpcInvokeMethod = 'connectionsGetServerInfo'
-
-export function shouldRejectQueuedRequest(
-  queuedAt: number,
-  queuedBeforeFirstConnect: boolean,
-  now: number,
-): boolean {
-  return !queuedBeforeFirstConnect && now - queuedAt > RECONNECT_QUEUE_MAX_AGE_MS
-}
 
 export class WsTransport {
   readonly events = new HostEventSubscriber()
@@ -201,6 +191,10 @@ export class WsTransport {
   /** Why calls fail once this transport is destroyed. */
   private closedReason: TransportDisconnectedError = new TransportDisconnectedError()
   private blocked = false
+  /** The supervisor says the host is unreachable: calls fail at once (docs/plans/host-readiness.md). */
+  private unreachable = false
+  /** How the last dial failed, for the host's diagnostics; cleared when a dial is accepted. */
+  private dialError: DialError | null = null
   private hasOpened = false
   private authRefreshAttempted = false
   /** The access token the host last refused: the next dial asks the source for another. */
@@ -236,7 +230,7 @@ export class WsTransport {
       // §3 rule 4), with the protocol this client speaks.
       auth: (cb) => {
         void (this.dialPreparation?.credential ?? this.dialCredential()).then((dial) => {
-          const handshake: SocketHandshake = { protocol: SOLUS_PROTOCOL, clientInstanceId: this.clientInstanceId }
+          const handshake: SocketHandshake = { clientInstanceId: this.clientInstanceId }
           if (dial.kind === 'present' && dial.credential) handshake.credential = dial.credential
           cb(handshake)
         })
@@ -370,6 +364,10 @@ export class WsTransport {
     this.setStatus(finalStatus)
   }
 
+  get lastDialError(): DialError | null {
+    return this.dialError
+  }
+
   get serverId(): string | undefined {
     return this.opts.serverId
   }
@@ -492,12 +490,8 @@ export class WsTransport {
     })
     this.socket.on('connect_error', (error: Error & { data?: { code?: string } }) => {
       const code = error.data?.code ?? null
+      this.dialError = { message: error.message, code, at: Date.now() }
       this.logConnection('socket connection error', { message: error.message, code })
-      if (error.message === UPDATE_REQUIRED || code === UPDATE_REQUIRED) {
-        this.logDialAttempt('failed', 'update-required')
-        this.blockForUpdate()
-        return
-      }
       this.logDialAttempt('failed', code === 'UNAUTHORIZED' ? 'unauthorized' : 'socket-error')
       if (code !== 'UNAUTHORIZED') {
         // With auto-reconnection off nobody else will ever dial again: the
@@ -563,6 +557,7 @@ export class WsTransport {
 
   /** The host accepted this socket: deliver what waited for it and say so. */
   private markAccepted(): void {
+    this.dialError = null
     this.isAcceptedConnection = true
     for (const event of this.pendingHostEvents.splice(0)) this.events.receive(event)
     const shouldReset = this.hasOpened && !this.socket.recovered
@@ -657,6 +652,7 @@ export class WsTransport {
   invoke<M extends RpcInvokeMethod>(method: M, args: Parameters<SolusAPI[M]>): Promise<Awaited<ReturnType<SolusAPI[M]>>> {
     if (this.destroyed) return Promise.reject(this.closedReason)
     if (this.blocked) return Promise.reject(new TransportDisconnectedError())
+    if (this.unreachable) return Promise.reject(new HostUnreachableError(this.opts.serverId ?? this.opts.serverUrl))
     const id = String(this.nextId++)
     return new Promise<Awaited<ReturnType<SolusAPI[M]>>>((resolve, reject) => {
       const entry: RequestEntry = {
@@ -667,7 +663,6 @@ export class WsTransport {
         resolve: resolve as (value: RpcInvocationResult) => void,
         reject,
         queuedAt: Date.now(),
-        queuedBeforeFirstConnect: !this.hasOpened,
       }
       this.requests.set(id, entry)
       if (this.socket.connected) this.sendRequest(id, entry)
@@ -675,15 +670,23 @@ export class WsTransport {
   }
 
   private flushQueuedRequests(): void {
-    const now = Date.now()
     for (const [id, request] of this.requests) {
-      if (request.state !== 'queued') continue
-      if (shouldRejectQueuedRequest(request.queuedAt, request.queuedBeforeFirstConnect, now)) {
-        this.requests.delete(id)
-        request.reject?.(new TransportDisconnectedError())
-        continue
-      }
-      this.sendRequest(id, request)
+      if (request.state === 'queued') this.sendRequest(id, request)
+    }
+  }
+
+  /**
+   * The supervisor's word that the host is past its grace. Every queued call
+   * fails now, and new calls fail at once, until the host is no longer
+   * unreachable: a loader then shows the host's state instead of waiting.
+   */
+  setUnreachable(unreachable: boolean): void {
+    this.unreachable = unreachable
+    if (!unreachable) return
+    const error = new HostUnreachableError(this.opts.serverId ?? this.opts.serverUrl)
+    for (const [id, request] of this.requests) {
+      this.requests.delete(id)
+      request.reject?.(error)
     }
   }
 
@@ -717,7 +720,6 @@ export class WsTransport {
       if (request.state !== 'sent') continue
       request.state = 'queued'
       request.queuedAt = queuedAt
-      request.queuedBeforeFirstConnect = false
     }
   }
 
@@ -745,16 +747,6 @@ export class WsTransport {
     this.rejectAllRequests()
     this.opts.onDialOutcome?.({ kind: 'auth-blocked' })
     this.opts.onAuthFailed?.()
-  }
-
-  /** The host speaks another protocol: no dial can succeed until Solus is updated. */
-  private blockForUpdate(): void {
-    if (this.blocked) return
-    this.blocked = true
-    this.socket.disconnect()
-    this.setStatus('update-required')
-    this.rejectAllRequests()
-    this.opts.onDialOutcome?.({ kind: 'update-required' })
   }
 
   /**

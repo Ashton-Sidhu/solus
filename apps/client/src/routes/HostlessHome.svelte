@@ -24,6 +24,15 @@
   import { classifyConnectInput } from "../lib/connect";
   import { cloudOrigin } from "../lib/cloud-origin.svelte";
   import { activateServer } from "../lib/primary-connection";
+  import { localApi } from "@solus/client-core/local-api";
+  import type { SavedServer } from "@solus/client-core/server-registry";
+  import PairingBridge from "@solus/workspace-ui/components/servers/PairingBridge.svelte";
+  import { useHostLookup } from "@solus/workspace-ui/components/servers/lib/host-lookup.svelte";
+  import {
+    pairedHoldMs,
+    pairingPhase,
+    thisDevice,
+  } from "@solus/workspace-ui/components/servers/lib/pairing-bridge";
 
   const hosts = new HostlessHostsStore();
   const savedServers = $derived(hosts.servers);
@@ -50,8 +59,16 @@
 
   // A pasted pairing link carries its own token; a bare address (typed or
   // offered) still needs the 6-digit code the host shows in Settings.
-  const needsCode = $derived(
-    !!selectedHost || classifyConnectInput(smartInput).kind === "address",
+  const connectInput = $derived(classifyConnectInput(smartInput));
+  const needsCode = $derived(!!selectedHost || connectInput.kind === "address");
+
+  const device = thisDevice(localApi.getPlatform(), navigator.userAgent);
+  const targetUrl = $derived(selectedHost?.url ?? (connectInput.kind === "empty" ? "" : connectInput.url));
+  const hostLookup = useHostLookup(() => targetUrl);
+  let paired = $state<SavedServer | null>(null);
+  let failedUrl = $state<string | null>(null);
+  const phase = $derived(
+    pairingPhase({ targetUrl, host: hostLookup.host, isPairing: busy && !paired, isPaired: !!paired, failedUrl }),
   );
 
   onMount(() => hosts.start(location.origin));
@@ -92,9 +109,12 @@
         deviceLabel: labelInput,
       });
       // Activation reloads the page, so `busy` deliberately stays set — the
-      // form must not accept a second submission while that lands.
-      activateServer(server);
+      // form must not accept a second submission while that lands. The
+      // bridge shows the pairing land first.
+      paired = server;
+      setTimeout(() => activateServer(server), pairedHoldMs());
     } catch (err) {
+      failedUrl = targetUrl;
       toasts.error(err instanceof Error ? err.message : String(err));
       busy = false;
     }
@@ -186,6 +206,11 @@
 
       {#if showsPairingForm}
         <form class={cn(cardClass, "flex-col items-stretch gap-3 p-4")} onsubmit={submit}>
+          <PairingBridge
+            {phase}
+            {device}
+            host={paired ? { name: paired.label, os: paired.os } : hostLookup.host}
+          />
           {#if selectedHost}
             <div class="flex items-center gap-3.5">
               {@render tile(NearbyIcon)}

@@ -8,7 +8,7 @@ import type { NativeHost } from '../../hosts/host-registry'
  * the connection that read it stays open; a new server session reads it again.
  */
 export function hostStallLine(connections: Pick<HostConnections, 'state' | 'connection'>, host: NativeHost): string | null {
-  if (connections.state(host.id)?.phase !== 'connected') return null
+  if (connections.state(host.id)?.readiness !== 'ready') return null
   const facts = connections.connection(host.id)?.facts
   if (!facts) return null
   facts.ensure('serverInfo')

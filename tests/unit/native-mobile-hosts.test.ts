@@ -120,8 +120,8 @@ describe('native host connections', () => {
     await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
     const connection = connections.connection('inst-a')
     await transports[0]?.accept()
-    expect(connection?.state.phase).toBe('blocked')
-    expect(connection?.state.blockedReason).toBe('identity-mismatch')
+    expect(connection?.state.readiness).toBe('refused')
+    expect(connection?.state.refusedReason).toBe('identity-mismatch')
   })
 
   test('a managed host is accepted although its server reports its own installation id', async () => {
@@ -134,8 +134,8 @@ describe('native host connections', () => {
     })])
     const connection = connections.connection('managed:bills')
     await transports[0]?.accept()
-    expect(connection?.state.blockedReason).toBeNull()
-    expect(connection?.state.phase).not.toBe('blocked')
+    expect(connection?.state.refusedReason).toBeNull()
+    expect(connection?.state.readiness).toBe('ready')
   })
 
   test('a matching host is accepted and its reported name fills an unnamed label', async () => {
@@ -146,7 +146,7 @@ describe('native host connections', () => {
     let accepted = 0
     connection?.onAccepted(() => { accepted += 1 })
     await transports[0]?.accept()
-    expect(connection?.state.phase).toBe('connected')
+    expect(connection?.state.readiness).toBe('ready')
     expect(accepted).toBe(1)
     expect(registry.host('inst-a')?.label).toBe('Studio Mac')
   })
@@ -157,7 +157,7 @@ describe('native host connections', () => {
     await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
     connections.connection('inst-a')
     transports[0]?.fail('auth-blocked')
-    expect(connections.state('inst-a')?.blockedReason).toBe('auth')
+    expect(connections.readiness('inst-a')).toMatchObject({ readiness: 'refused', refusedReason: 'auth' })
     connections.retry('inst-a')
     expect(transports[0]?.destroyed).toBe(true)
     expect(transports).toHaveLength(2)
@@ -202,7 +202,7 @@ describe('native host connections', () => {
     expect(transport?.serverUrl).toBe('https://build.tunnel.solus.sh')
     expect(transport?.dials).toBe(1)
     await transport?.accept()
-    expect(connections.state('inst-cloud')?.phase).toBe('connected')
+    expect(connections.state('inst-cloud')?.readiness).toBe('ready')
 
     answering['http://10.0.0.20:51234'] = 'inst-cloud'
     connections.wake('activation')
@@ -226,12 +226,44 @@ describe('native host connections', () => {
   })
 
   test('a managed host whose compute is not ready is not dialed', async () => {
+    // WHY: a stopped host is not "offline": the way out is Start, not Retry.
     const { registry, connections, transports } = createHostWorld()
     await registry.load()
     registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ kind: 'managed', category: 'managed', managedState: 'stopped' })])
     expect(connections.connection('inst-cloud')).toBeNull()
-    expect(connections.state('inst-cloud')?.phase).toBe('waiting-for-compute')
+    expect(connections.readiness('inst-cloud')).toMatchObject({ readiness: 'unreachable', unreachableReason: 'not-running' })
     expect(transports).toHaveLength(0)
+  })
+
+  test('a managed host Solus Cloud is starting is checking, so screens wait for it', async () => {
+    const { registry, connections, transports } = createHostWorld()
+    await registry.load()
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ kind: 'managed', category: 'managed', managedState: 'starting' })])
+    expect(connections.connection('inst-cloud')).toBeNull()
+    expect(connections.readiness('inst-cloud').readiness).toBe('checking')
+    expect(transports).toHaveLength(0)
+  })
+
+  test('a host with no route this phone can dial has no address, and is not dialed', async () => {
+    const { registry, connections, transports } = createHostWorld()
+    await registry.load()
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ routes: [] })])
+    expect(connections.connection('inst-cloud')).toBeNull()
+    expect(connections.readiness('inst-cloud')).toMatchObject({ readiness: 'unreachable', unreachableReason: 'no-address' })
+    expect(transports).toHaveLength(0)
+  })
+
+  test('a host down past the grace is unreachable because it did not answer', async () => {
+    // WHY: time is the only rule (docs/plans/host-readiness.md). Inside the
+    // grace the host is still checking, so screens wait; after it they fail.
+    const { registry, connections, transports, timers } = createHostWorld()
+    await registry.load()
+    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+    connections.connection('inst-a')
+    transports[0]?.fail('dial-failed')
+    expect(connections.readiness('inst-a').readiness).toBe('checking')
+    timers.runAll()
+    expect(connections.readiness('inst-a')).toMatchObject({ readiness: 'unreachable', unreachableReason: 'no-answer', refusedReason: null })
   })
 
   test('forgetting a host disposes its connection', async () => {
@@ -242,6 +274,8 @@ describe('native host connections', () => {
     await registry.forget('inst-a')
     expect(transports[0]?.destroyed).toBe(true)
     expect(connections.state('inst-a')).toBeNull()
+    // A screen still open on the forgotten host says it was removed, not that it connects.
+    expect(connections.readiness('inst-a').readiness).toBe('gone')
   })
 
   test('a long suspension resumes every host now; a short one only pulls a due dial forward', async () => {
@@ -250,11 +284,13 @@ describe('native host connections', () => {
     await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
     connections.connection('inst-a')
     transports[0]?.fail('dial-failed')
-    expect(timers.pending.size).toBe(1)
+    // The grace and the next dial.
+    expect(timers.pending.size).toBe(2)
     connections.suspend(0)
     connections.resume(60_000)
     expect(transports[0]?.dials).toBe(2)
-    expect(timers.pending.size).toBe(0)
+    // The due dial ran now; only the grace, started again, waits.
+    expect(timers.pending.size).toBe(1)
     await flushPromises()
   })
 })

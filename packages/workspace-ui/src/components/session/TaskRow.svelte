@@ -1,6 +1,7 @@
 <script lang="ts">
   import TaskIcon from "../ui/TaskIcon.svelte";
   import {
+    ClipboardCheck as ClipboardCheckIcon,
     Undo2 as ArrowUUpLeftIcon,
     AlarmClock as AlarmIcon,
     Check as CheckIcon,
@@ -17,7 +18,6 @@
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import { hostIsManaged } from "../servers/lib/managed-host";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import PrChip from "./PrChip.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
@@ -264,9 +264,8 @@
         ? "Review guide ready"
         : "Generating review guide"}
     >
-      <ReviewGuideGlyph
+      <ClipboardCheckIcon
         size={15}
-        weight={mark.state === "ready" ? "fill" : undefined}
         class={mark.state === "ready"
           ? ""
           : "animate-pulse [animation-duration:1.4s] motion-reduce:animate-none"}

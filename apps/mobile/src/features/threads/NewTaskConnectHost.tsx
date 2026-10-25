@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { hostReadinessCopy, isWaitingForHost, type HostReadinessAction } from "@solus/client-core/host-readiness";
+
 import { useApp, useListened } from "../../app/app-context";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
@@ -21,17 +23,18 @@ import {
   SolusMarkIcon,
 } from "../connection/ConnectOptionCard";
 import { ConnectPanel } from "../connection/ConnectPanel";
-import { hostConnectionStatus, hostMachineKind } from "../connection/lib/host-connection-status";
+import { isHostReadinessFailure } from "../connection/ConnectionStatusDot";
+import { hostMachineKind } from "../connection/lib/host-machine";
 import type { NativeHost } from "../hosts/host-registry";
-import {
-  CONNECT_HOST_ACTION_LABELS,
-  connectHostAction,
-  connectHostHeadline,
-  newTaskHostGate,
-  type NewTaskHostGate,
-} from "./new-task-host-gate";
+import { newTaskHostGate, type NewTaskHostGate } from "./lib/new-task-host-gate";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
+
+const CONNECT_HOST_ACTION_LABELS = {
+  retry: "Retry",
+  start: "Start",
+  "pair-again": "Pair again",
+} satisfies Record<HostReadinessAction, string>;
 
 /** Whether the new-task sheet composes or asks for a host. Saved hosts are dialed, as on the Hosts screen. */
 export function useNewTaskHostGate(): NewTaskHostGate {
@@ -44,7 +47,7 @@ export function useNewTaskHostGate(): NewTaskHostGate {
   const lastGate = useRef<NewTaskHostGate>("compose");
   return useListened(app.connections.changes, () =>
     (lastGate.current = newTaskHostGate(
-      hosts.map((host) => app.connections.state(host.id)?.phase ?? null),
+      hosts.map((host) => app.connections.readiness(host.id)),
       lastGate.current,
     )),
   );
@@ -69,28 +72,39 @@ export function NewTaskConnectHost(props: {
   const [failedHostId, setFailedHostId] = useState<string | null>(null);
   const [hasSeenDialing, setHasSeenDialing] = useState(false);
   const connectingHost = hosts.find((host) => host.id === connectingHostId) ?? null;
-  const connectingPhase = useListened(app.connections.changes, () =>
-    connectingHostId ? (app.connections.state(connectingHostId)?.phase ?? null) : null,
+  const connectingReadiness = useListened(app.connections.changes, () =>
+    connectingHostId ? app.connections.readiness(connectingHostId).readiness : null,
   );
+  // With one host the headline names it and says its state, so the person knows which machine to wake.
+  const onlyHostState = useListened(app.connections.changes, () =>
+    hosts.length === 1 ? app.connections.readiness(hosts[0].id) : null,
+  );
+  const headline = connectingHost
+    ? `Connecting to ${connectingHost.label}`
+    : hosts.length === 0
+      ? "Connect a host to start"
+      : onlyHostState
+        ? hostReadinessCopy(onlyHostState, hosts[0].label).headline
+        : "Your hosts are offline";
 
-  // A retry is answered by the phase: once the host has dialed and fallen back
-  // to offline or blocked, the wait is over and its card says so.
+  // A retry is answered by readiness: once the host has dialed and fallen back
+  // to unreachable or refused, the wait is over and its card says so.
   useEffect(() => {
     if (!connectingHostId) return;
-    if (connectingPhase === "connecting" || connectingPhase === "reconnecting") {
+    if (connectingReadiness !== null && isWaitingForHost(connectingReadiness)) {
       setHasSeenDialing(true);
-    } else if (hasSeenDialing && (connectingPhase === "offline" || connectingPhase === "blocked")) {
+    } else if (hasSeenDialing && (connectingReadiness === "unreachable" || connectingReadiness === "refused")) {
       setFailedHostId(connectingHostId);
       setConnectingHostId(null);
     }
-  }, [connectingHostId, connectingPhase, hasSeenDialing]);
+  }, [connectingHostId, connectingReadiness, hasSeenDialing]);
 
   const waitOn = (hostId: string) => {
     setFailedHostId(null);
     setHasSeenDialing(false);
     setConnectingHostId(hostId);
   };
-  const runAction = (host: NativeHost, action: ReturnType<typeof connectHostAction>) => {
+  const runAction = (host: NativeHost, action: HostReadinessAction | null) => {
     if (action === "retry") {
       waitOn(host.id);
       app.connections.retry(host.id);
@@ -117,7 +131,7 @@ export function NewTaskConnectHost(props: {
     >
       <ConnectPanel>
         <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
-          {connectHostHeadline(hosts, connectingHost?.label ?? null)}
+          {headline}
         </Text>
         <Text className="mt-2 mb-6 text-center text-sm text-foreground-muted">
           {connectingHost
@@ -211,18 +225,19 @@ function ConnectHostCard(props: {
   readonly hasFailed: boolean;
   /** The person asked this host to connect, so the card waits on it. */
   readonly isConnecting?: boolean;
-  readonly onAction: (action: ReturnType<typeof connectHostAction>) => void;
+  readonly onAction: (action: HostReadinessAction | null) => void;
 }) {
   const app = useApp();
-  const state = useListened(app.connections.changes, () => app.connections.state(props.host.id));
-  const status = hostConnectionStatus(props.host, state);
-  const isDialing = props.isConnecting || state?.phase === "connecting" || state?.phase === "reconnecting";
-  const action = props.isConnecting ? null : connectHostAction(props.host, state);
+  const state = useListened(app.connections.changes, () => app.connections.readiness(props.host.id));
+  const copy = hostReadinessCopy(state, props.host.label);
+  const isDialing = props.isConnecting || isWaitingForHost(state.readiness);
+  // Nothing to do but wait while Solus dials, or while Solus Cloud starts the host.
+  const action = isDialing ? null : copy.action;
   const detail = isDialing
     ? "Connecting…"
     : props.hasFailed && action === "retry"
       ? "Did not answer · try again"
-      : status.text;
+      : copy.label;
   return (
     <Pressable
       accessibilityRole={action ? "button" : undefined}
@@ -247,7 +262,7 @@ function ConnectHostCard(props: {
         <Text
           className={cn(
             "min-w-0 text-[13px]",
-            !isDialing && (status.failed || props.hasFailed) ? "text-danger-foreground" : "text-foreground-muted",
+            !isDialing && (isHostReadinessFailure(state) || props.hasFailed) ? "text-danger-foreground" : "text-foreground-muted",
           )}
           numberOfLines={1}
         >

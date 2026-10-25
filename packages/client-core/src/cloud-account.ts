@@ -1,7 +1,5 @@
 import {
   accountResponseSchema,
-  SOLUS_PROTOCOL,
-  SOLUS_PROTOCOL_HEADER,
   createManagedHostResponseSchema,
   uplinkErrorBodySchema,
   type AccountResponse,
@@ -74,7 +72,7 @@ export function oauthCloudAccount(origin: string, session: CloudAccountSession, 
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return null
-    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}`, [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL) })
+    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
     if (init.body) headers.set('content-type', 'application/json')
     try {
       return await fetchImpl(`${origin}${path}`, {

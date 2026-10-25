@@ -168,8 +168,12 @@ export interface GithubDelegatedCredential {
   login: string
 }
 
-/** Asks a host to materialize a repository in the calling device's dispatch namespace. */
-export interface SetupPrepareProjectRequest {
+/**
+ * The repository a Run on send copies to its host (docs/run-on.md). The host
+ * clones it into the caller's dispatch checkout, or uses the checkout it has,
+ * before the run starts there.
+ */
+export interface DispatchRepository {
   cloneUrl: string
   /** Present only for a Run-on dispatch: clone as the caller, not as the host. */
   credential?: GithubDelegatedCredential
@@ -178,12 +182,9 @@ export interface SetupPrepareProjectRequest {
   /** Origin branch to work on. The checkout is used when it holds the branch;
    *  otherwise the branch gets its own worktree. Absent: the default branch. */
   baseBranch?: string
-}
-
-export interface SetupPrepareProjectResult {
-  path: string
-  projectKey: string
-  action: 'updated' | 'cloned'
+  /** The run starts a new worktree in the checkout. Its base is the run's
+   *  `worktreeBaseBranch`, or the default branch when the run names none. */
+  newWorktree?: boolean
 }
 
 /** Fast-forwards a checkout that already exists on the selected host. */
@@ -1724,15 +1725,24 @@ export interface RunResult {
 
 // ─── Status Cards (inline progress for multi-step chat actions) ───
 
-export type StatusCardStepStatus = 'pending' | 'active' | 'done' | 'error'
+/** `skipped`: the step had no work to do. `warning`: the step ended with a
+ *  problem that does not stop setup, which continues. */
+export type StatusCardStepStatus = 'pending' | 'active' | 'done' | 'skipped' | 'warning' | 'error'
 
 export interface StatusCardStep {
   /** Stable key within the card. */
   id: string
   label: string
-  /** Optional supporting context, primarily for an actionable failed step. */
+  /** Optional supporting context for a failed step or a step with a warning. */
   detail?: string
   status: StatusCardStepStatus
+  /** How much of an active step is done, 0 to 100, when its work reports it
+   *  (a clone's transfer, a checkout's files). Absent: the step reports no progress. */
+  percent?: number
+  /** When the step started and ended, in epoch ms on the host's clock. A card
+   *  that a client makes itself has no times. */
+  startedAt?: number
+  endedAt?: number
 }
 
 /** A live, ordered checklist rendered inline in the conversation while a
@@ -2073,6 +2083,9 @@ export interface SessionCtx {
   permissionMode: PermissionMode
   gitContext: GitCheckout | null
   worktreeBaseBranch: string | null
+  /** The repository the host copies before this run starts, while the run's
+   *  checkout is a clone that Send has not made yet. */
+  repository?: DispatchRepository
   readOnlyReason: string | null
   title?: string | null
   forked?: boolean

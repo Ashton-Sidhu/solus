@@ -24,7 +24,7 @@ export function PullRequestInlineCommentScreen({ navigation, route }: ScreenProp
   const draft = useListened(app.reviewDrafts.changes, () => app.reviewDrafts.draftOf(ref))
   const state = useListened(app.pullRequests.changes, () => app.pullRequests.detailOf(ref))
   const viewerLogin = useListened(app.pullRequests.changes, () => shownValue(app.pullRequests.hostOf(hostId))?.viewerLogin ?? null)
-  const connected = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase === 'connected')
+  const connected = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness === 'ready')
   const pr = shownValue(state)?.overview.pullRequest ?? null
   const permissions = pullRequestPermissions(pr, viewerLogin, connected)
   const saved = draft.comments.find((comment) => comment.id === draftId)

@@ -1,5 +1,5 @@
 import { attachmentPromptPath, composeAttachmentContext } from './prompt-composer'
-import type { Message, Session, OutboundPrompt, PromptImageRef, PromptDelivery } from '@solus/contracts/types'
+import type { IpcContext, Message, Session, OutboundPrompt, PromptImageRef, PromptDelivery } from '@solus/contracts/types'
 import type { QueueAttachment } from '@solus/contracts/session-queue'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId } from '@solus/contracts/review'
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
@@ -22,20 +22,19 @@ import { sendOutbox, classifySendFailure, type OutboxRecord } from '@solus/clien
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { SEAT_REQUIRED_CODE } from '@solus/contracts/seats'
 import { turnRefusalSchema } from '@solus/contracts/organization-scope'
-import { GITHUB_CONNECTION_REQUIRED_CODE } from '@solus/contracts/providers'
-import { cloudAccount } from '@solus/client-core/cloud-account'
 import { seatProviderOf, seatsStore } from '../seats/seats.store.svelte'
 import { turnRefusalStore } from '../connections/turn-refusal.store.svelte'
 import { clearSettledCards } from './settled-cards'
+import { showPendingWorktreeSetup } from './pending-setup-card'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
-import { prepareHostCheckout } from '../../components/servers/run-on'
+import { delegatedGithubCredential, dispatchRepository } from '../../components/servers/run-on'
 import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
 import { reviewGuideStore } from '../../components/review/review-guide.store.svelte'
 import { directReviewRequest } from '../../components/review/lib/direct-review-command'
 import { resolveReviewAgent } from '../../lib/reviewAgent'
 import type { WorkspaceContext } from './workspace.context.svelte'
-import { checkoutGit, checkoutPlace, isDispatch, landClone, openFolder, pendingClone, projectHome, runHost, startsWorktree, workingPlace } from './run-location'
+import { checkoutGit, checkoutPlace, isDispatch, openFolder, pendingClone, projectHome, runHost, worktreeBaseBranch } from './run-location'
 
 /** The workspace members this controller reads or calls, and no others. */
 type PromptDispatchWorkspace = Pick<WorkspaceContext,
@@ -48,7 +47,6 @@ type PromptDispatchWorkspace = Pick<WorkspaceContext,
   | 'eventReducer'
   | 'focusedSourceId'
   | 'promptComposer'
-  | 'refreshStartTarget'
   | 'serverIdFor'
   | 'sessionFor'
   | 'settings'
@@ -67,8 +65,6 @@ export class PromptDispatch {
   constructor(private readonly workspace: PromptDispatchWorkspace) {}
 
   private hostDispatchAttempts = new Map<string, number>()
-  /** Sessions whose host was just prepared, so their resend skips the check. */
-  private hostPreparedSessions = new WeakSet<Session>()
 
   private startDirectReview(
     tabId: string,
@@ -181,26 +177,35 @@ export class PromptDispatch {
         },
       })
     }
-    // Watch before prompting, or the run's own events would have nowhere to go.
-    api.watchSession({ sessionId: watchedSessionId })
-      .then(() => this.workspace.config.pendingSessionStartTarget(tabId))
+    // The host's prompt handler also makes its sender a watcher before the run
+    // can publish, so the prompt does not wait for this reply. The watch goes
+    // on the wire first, for a host that predates that rule.
+    void api.watchSession({ sessionId: watchedSessionId }).catch((error) => {
+      console.warn('[Solus] Session watch failed; the prompt still sends.', error)
+    })
+    // A run that will branch a new worktree already has its base branch, which
+    // only a Git answer for its folder sets. The host reads the rest of the
+    // checkout itself, so the send does not wait for a refresh in flight.
+    const startTarget = worktreeBaseBranch(promptSession.run) ? null : this.workspace.config.pendingSessionStartTarget(tabId)
+    Promise.resolve(startTarget)
       .then(async () => {
-        if (options.taskId) {
-          try {
-            await this.workspace.tasksStore.get(options.taskId).recordActivity()
-          } catch (error) {
+        if (!options.taskId) return
+        const recordActivity = this.workspace.tasksStore.get(options.taskId).recordActivity()
+          .catch((error) => {
             console.warn('[Solus] Task activity update failed; the prompt will still send.', error)
-          }
-        }
+          })
+        // A dispatched run ships a task snapshot, which must show the task the
+        // activity reopened. Other prompts do not read the task's status.
+        if (isDispatch(promptSession.run)) await recordActivity
       })
       .then(() => this.resolveTaskOnItsHost(tabId, options))
-      .then((resolved) => {
-        // Guard: user may have interrupted between the watch resolving and this
-        // tick. If so, Stop already fired before prompt — skip submission to
-        // avoid a phantom run that can never be cancelled.
+      .then(async (resolved) => {
+        const ctx = await this.sendContext(tabId)
+        // Guard: the tab may have closed while the steps above ran. If so, skip
+        // submission to avoid a phantom run that can never be cancelled.
         const session = this.workspace.sessionFor(tabId)
         if (!session) return
-        return api.prompt(this.workspace.ctxFor(tabId), resolved)
+        return api.prompt(ctx, resolved)
           .then(() => {
             // The host accepted the prompt: its durable copy has done its job.
             if (options.clientPromptId) sendOutbox.remove(outboxServerId, options.clientPromptId)
@@ -255,7 +260,7 @@ export class PromptDispatch {
       sendOutbox.remove(serverId, record.clientPromptId)
       return
     }
-    const result = await this.workspace.apiFor(tabId).prompt(this.workspace.ctxFor(tabId), {
+    const result = await this.workspace.apiFor(tabId).prompt(await this.sendContext(tabId), {
       prompt: record.payload.prompt,
       displayPrompt: record.payload.displayPrompt || record.text,
       clientPromptId: record.clientPromptId,
@@ -266,6 +271,25 @@ export class PromptDispatch {
       queueAttachmentContext: record.payload.queueAttachmentContext,
     })
     if (result.disposition === 'duplicate') return
+  }
+
+  /**
+   * The context of one prompt send to a tab's host. A Run on send also carries
+   * the client machine's GitHub credential for the clone. Every send reads it
+   * again from this device's own host — the first send, a retry, and an outbox
+   * redelivery — because it is never stored: not in the outbox, not in the
+   * session. When the read fails, the send goes without it and the run host
+   * uses its own token.
+   */
+  private async sendContext(tabId: string): Promise<IpcContext> {
+    const ctx = this.workspace.ctxFor(tabId)
+    const session = this.workspace.sessionFor(tabId)
+    // `ctxFor` builds a new repository object for each call, so the credential
+    // stays on this one context.
+    if (!ctx.session.repository || !session) return ctx
+    const credential = await delegatedGithubCredential(runHost(session.run))
+    if (credential) ctx.session.repository.credential = credential
+    return ctx
   }
 
   /**
@@ -405,18 +429,25 @@ export class PromptDispatch {
 
     clearSettledCards(session)
 
-    // A send that just prepared its host goes out, even if the host's status has
-    // not caught up with the connection yet.
-    const hostPrepared = this.hostPreparedSessions.delete(session)
-    if (!hostPrepared && needsHostPreparation(session)) {
-      // Host checkout can take several seconds. The turn starts when the user
+    if (needsHostPreparation(session)) {
+      // Connecting a host can take several seconds. The turn starts when the user
       // sends, not when that preparation eventually produces a provider echo.
       session.currentTurnStartedAt = Date.now()
       session.status = 'connecting'
-      void this.prepareHostDispatchAndSend(targetTabId, prompt, projectPath, delivery)
+      void this.prepareHostDispatchAndSend(targetTabId, prompt, resolvedPath, delivery)
       return true
     }
+    return this.dispatchPrompt(targetTabId, session, prompt, resolvedPath, delivery)
+  }
 
+  /** The send itself, once the run's host can take it. */
+  private dispatchPrompt(
+    targetTabId: string,
+    session: Session,
+    prompt: string,
+    resolvedPath: string,
+    delivery: PromptDelivery,
+  ): boolean {
     if (session.outboundPrompts.some((entry) => entry.kind === 'provider_switch')) delivery = 'queue'
     const isBusy = isSessionBusyStatus(session.status) || !!session.queueHeld || session.outboundPrompts.some((entry) => !!entry.queueId)
     const input = session.prompt
@@ -516,6 +547,7 @@ export class PromptDispatch {
         ? 'Starting session...'
         : 'Resuming...'
       session.status = 'connecting'
+      showPendingWorktreeSetup(session)
       session.title = title
       input.attachments = []
       input.planRefs = []
@@ -554,8 +586,8 @@ export class PromptDispatch {
   private async prepareHostDispatchAndSend(
     tabId: string,
     prompt: string,
-    projectPath?: string,
-    delivery: PromptDelivery = 'steer',
+    resolvedPath: string,
+    delivery: PromptDelivery,
   ): Promise<void> {
     const tab = this.workspace.tabs[tabId]
     const session = this.workspace.sessionFor(tabId)
@@ -581,14 +613,18 @@ export class PromptDispatch {
     // time, which goes stale the moment that host is renamed. Falls back to the
     // id, which is all there is to say about a host that cannot be resolved.
     let hostLabel = serverId
-    // The account's Connections page, which the host names when it clones with the account's GitHub.
-    let accountConnectionsUrl = cloudAccount()?.connectionsUrl
     requestConversationScrollToBottom(tabId)
 
     try {
+      // The host copies the repository when the prompt arrives (docs/run-on.md),
+      // so the client only checks that there is one it can name.
+      if (clone && !dispatchRepository(clone)) {
+        activeStep = 'repository'
+        throw new Error('This repository does not have a cloneable remote.')
+      }
       // A stopped Cloud host is started first (docs/plans/project-model.md §6):
       // the client dials only a host the directory says is ready.
-      if (hostIsManaged(serversStore.hostFor(serverId)) && serversStore.statusFor(serverId) !== 'online') {
+      if (hostIsManaged(serversStore.hostFor(serverId)) && serversStore.readinessFor(serverId).readiness !== 'ready') {
         session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel: serversStore.hostFor(serverId)?.label ?? hostLabel, phase: 'connecting' })
         const started = await serversStore.startManagedHost(serverId)
         if (bailIfStale()) return
@@ -599,53 +635,25 @@ export class PromptDispatch {
       const connection = serverConnections.ensure(serverId)
       hostLabel = connection.target.label
       session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel, phase: 'connecting' })
-      const serverInfo = await serverConnections.serverInfoFor(serverId)
-      accountConnectionsUrl = serverInfo.accountConnectionsUrl ?? accountConnectionsUrl
+      // Every connection reads the host's capabilities first, so this waits for
+      // the connection without a request of its own.
+      await serverConnections.capabilitiesFor(serverId)
       if (bailIfStale()) return
-      // Only a clone has a repository to prepare. A folder is already on disk
-      // over there, so the card skips a step it would only report as done.
-      if (clone) {
-        activeStep = 'repository'
-        session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel, phase: 'repository' })
-        const { start } = clone
-        const prepared = await prepareHostCheckout(
-          {
-            target: connection.api,
-            local: serverConnections.apiFor(LOCAL_SERVER_ID),
-          },
-          serverId,
-          clone.repoKey,
-          start.kind === 'worktree' ? start.path : undefined,
-          (start.kind === 'new-worktree' ? start.baseBranch : start.kind === 'default-branch' ? clone.defaultBranch : null) ?? undefined,
-        )
-        if (bailIfStale()) return
-        session.run.location = landClone(session.run.location, prepared.path)
-        session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel, phase: 'ready' })
-        await this.workspace.refreshStartTarget(tabId, workingPlace(session.run).path, startsWorktree(session.run))
-      } else {
-        session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel, phase: 'ready' })
-      }
-      if (superseded()) return
-      if (session.status !== 'connecting') {
-        // Interrupted after the clone already landed: keep it, drop the send.
-        session.statusCard = null
-        if (!session.prompt.text) session.prompt.text = prompt
-        return
-      }
+      // A clone is made by the host when the prompt arrives; its card takes over
+      // from this step. A folder is already on disk over there.
+      session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel, phase: clone ? 'repository' : 'ready' })
       session.status = 'idle'
-      this.hostPreparedSessions.add(session)
-      this.sendMessage(prompt, projectPath, tabId, delivery)
+      this.dispatchPrompt(tabId, session, prompt, resolvedPath, delivery)
     } catch (error) {
       if (superseded()) return
       const message = error instanceof Error ? error.message : String(error)
-      const needsGithub = error instanceof Error && rpcErrorCode(error) === GITHUB_CONNECTION_REQUIRED_CODE
       session.status = 'idle'
       session.currentTurnStartedAt = null
       session.statusCard = buildRemoteDispatchCard({
         tabId,
         hostLabel,
         phase: activeStep === 'connection' ? 'connecting' : 'repository',
-        error: { step: activeStep, message, connectGithubUrl: needsGithub ? accountConnectionsUrl : undefined },
+        error: { step: activeStep, message },
       })
       if (!session.prompt.text) session.prompt.text = prompt
       requestInputFocus({ tabId })
@@ -680,7 +688,9 @@ export class PromptDispatch {
     session.retryAttempt = (session.retryAttempt ?? 1) + 1
     session.terminalFailure = null
 
-    const retry = this.workspace.apiFor(tabId).retry(this.workspace.ctxFor(tabId), { prompt: lastUserMsg?.content ?? '' })
+    // The host launches the retry from this context, so a Run on retry carries the credential again.
+    const retry = this.sendContext(tabId)
+      .then((ctx) => this.workspace.apiFor(tabId).retry(ctx, { prompt: lastUserMsg?.content ?? '' }))
 
     retry.catch((err: Error) => {
       this.workspace.eventReducer.handleError(session.id, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
@@ -699,5 +709,5 @@ function needsHostPreparation(session: Session): boolean {
   if (hasSessionStarted(session)) return false
   const serverId = runHost(session.run)
   const host = serversStore.hostFor(serverId)
-  return !!host && !host.local && serversStore.statusFor(serverId) !== 'online'
+  return !!host && !host.local && serversStore.readinessFor(serverId).readiness !== 'ready'
 }

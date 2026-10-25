@@ -311,8 +311,22 @@ and padding. Each card has one keyboard and accessibility target.
 
 Review feedback can appear as file-and-code cards inside a user message. MCP
 Apps appear as sandboxed interactive documents with close/reopen and full-screen
-actions. Worktree setup uses compact stage rows and a Details view. Provider
-subagent rows can open recorded child activity, including a separate Codex
+actions. Provider subagent rows can open recorded child activity, including a separate Codex
 history read through the parent tool. These surfaces follow the T3 reference
 with Solus colors; they are deliberate exceptions to the general transcript
 card shell. See [the capability and protocol rules](plans/conversation-card-parity.md).
+
+On desktop and web, the host's worktree setup uses the setup card shell, the
+same as a pull request checkout or a continue-in-worktree card. It adds Work
+locally and Cancel while the host makes the worktree, and the last four output
+lines when setup fails. The phone keeps the T3 stage rows and Details sheet,
+with the same actions.
+
+A step can be pending, active, done, skipped, warning, or failed. A skipped step
+had no work to do, for example no submodules. A warning step shows an amber
+marker and its detail line, and setup continues. Skipped and warning steps count
+as finished in the step count. The steps of the host's card carry the host's
+start and end times, and the card shows the durations from them. A card that the
+client makes (a pull request checkout, a continue-in-worktree, a conflict
+resolution) has no host times; it shows the times that the client saw. The steps
+and their meaning are in [worktree names](worktree-names.md#start-point).

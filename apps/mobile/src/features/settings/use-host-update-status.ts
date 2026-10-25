@@ -23,7 +23,7 @@ type UpdateCommand = 'hostCheckForUpdates' | 'hostInstallUpdate' | 'hostCancelUp
  *  check, to install its Solus update, or to cancel one that waits. */
 export function useHostUpdateStatus(hostId: string): HostVersionView {
   const app = useApp()
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const [status, setStatus] = useState<HostUpdateStatus | null>(null)
   const [failed, setFailed] = useState(false)
   const [requesting, setRequesting] = useState(false)
@@ -35,18 +35,18 @@ export function useHostUpdateStatus(hostId: string): HostVersionView {
     const read = ++epoch.current
     setRequesting(false)
     const connection = app.connections.connection(hostId)
-    if (phase !== 'connected' || !connection) return
+    if (readiness !== 'ready' || !connection) return
     connection.api.hostUpdateStatus().then(
       (next) => { if (read === epoch.current) { setStatus(next); setFailed(false) } },
       () => { if (read === epoch.current) setFailed(true) },
     )
     const stop = connection.events.subscribe('host.updateStatusChanged', (next) => { if (read === epoch.current) setStatus(next) })
     return () => { epoch.current++; stop() }
-  }, [app, hostId, phase])
+  }, [app, hostId, readiness])
 
   const run = (command: UpdateCommand) => {
     const connection = app.connections.connection(hostId)
-    if (requesting || phase !== 'connected' || !connection) return
+    if (requesting || readiness !== 'ready' || !connection) return
     const read = epoch.current
     setRequesting(true)
     setError(null)
@@ -56,7 +56,7 @@ export function useHostUpdateStatus(hostId: string): HostVersionView {
     ).finally(() => { if (read === epoch.current) setRequesting(false) })
   }
 
-  const version = status?.currentVersion ?? (phase === 'connected' ? (failed ? 'Unknown' : 'Checking…') : 'Not connected')
+  const version = status?.currentVersion ?? (readiness === 'ready' ? (failed ? 'Unknown' : 'Checking…') : 'Not connected')
   return {
     version,
     status,

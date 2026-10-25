@@ -7,7 +7,7 @@ import { sameNameHostAddresses } from "@solus/client-core/host-address";
 
 import { useApp, useListened } from "../../app/app-context";
 import type { ScreenProps } from "../../navigation/routes";
-import { hostMachineKind } from "../connection/lib/host-connection-status";
+import { hostMachineKind } from "../connection/lib/host-machine";
 import { ENVIRONMENT_MACHINE_SYMBOLS } from "../../components/EnvironmentMachineSymbol";
 import { SettingsRow } from "./components/SettingsRow";
 import { SettingsSection } from "./components/SettingsSection";

@@ -9,7 +9,7 @@ import LinuxLogoIcon from '../../components/ui/LinuxLogoIcon.svelte'
 import WindowsLogoIcon from '../../components/ui/WindowsLogoIcon.svelte'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { SavedServerUplink } from '@solus/client-core/server-registry'
-import type { ServerItemStatus } from './servers.store.svelte'
+import { hostReadinessCopy, type HostReadiness, type HostReadinessState } from '@solus/client-core/host-readiness'
 
 /** The host a surface belongs to, in the facts every badge needs. */
 export interface HostAffinityTarget {
@@ -29,59 +29,37 @@ export interface HostAffinityGlyph {
   tooltip: string
 }
 
-/** One availability vocabulary shared by every surface that presents a host. */
-export function hostStatusLabel(status: ServerItemStatus): string {
-  if (status === 'online') return 'Online'
-  if (status === 'connecting') return 'Connecting'
-  if (status === 'offline') return 'Offline'
-  if (status === 'different-server') return 'Different server than expected'
-  return 'Not checked'
-}
-
-/** The matching availability dot, including motion while a host is connecting. */
-export function hostStatusDotClass(status: ServerItemStatus): string {
-  if (status === 'online') return 'bg-(--solus-status-complete)'
-  if (status === 'connecting') return 'animate-pulse bg-(--solus-accent)'
-  if (status === 'offline') return 'bg-(--solus-status-error)'
-  if (status === 'different-server') return 'bg-(--solus-status-error)'
-  return 'bg-(--solus-text-quaternary)'
+/** The availability dot beside a host, with motion only while it is dialed. */
+export function readinessDotClass(readiness: HostReadiness): string {
+  if (readiness === 'ready') return 'bg-(--solus-status-complete)'
+  if (readiness === 'checking' || readiness === 'reconnecting') return 'animate-pulse bg-(--solus-accent)'
+  return 'bg-(--solus-status-error)'
 }
 
 /**
  * The whole question a user has about a dispatched session is "is that host
  * still there", so the badge answers it in the glyph rather than beside it — a
  * status dot marks all three states with equal weight when only one is worth
- * interrupting for. Offline changes shape as well as colour, so the state reads
- * in both themes and without relying on colour vision.
+ * interrupting for. A host that is not ready changes shape as well as colour,
+ * so the state reads in both themes and without relying on colour vision.
  *
  * Returns null for the host you are working on: local is the unmarked case, and
  * a desktop-tower badge "for symmetry" doubles the chrome for the majority.
  */
 export function hostAffinityGlyph(
   host: HostAffinityTarget | null | undefined,
-  status: ServerItemStatus,
+  readiness: HostReadinessState,
 ): HostAffinityGlyph | null {
   if (!host || host.local) return null
-  const { icon, className, statusLabel } = glyphForStatus(status, host.uplink?.kind === 'managed' ? CloudIcon : operatingSystemIcon(host.os))
-  return { icon, className, statusLabel, tooltip: `Runs on ${host.label} · ${statusLabel}` }
+  const statusLabel = hostReadinessCopy(readiness, host.label).label
+  const hostIcon = host.uplink?.kind === 'managed' ? CloudIcon : operatingSystemIcon(host.os)
+  return { ...glyphFor(readiness.readiness, hostIcon), statusLabel, tooltip: `Runs on ${host.label} · ${statusLabel}` }
 }
 
-function glyphForStatus(
-  status: ServerItemStatus,
-  hostIcon: Component,
-): Omit<HostAffinityGlyph, 'tooltip'> {
-  if (status === 'connecting') {
-    return { icon: hostIcon, className: 'animate-pulse text-(--solus-accent)', statusLabel: hostStatusLabel(status) }
-  }
-  if (status === 'offline' || status === 'different-server') {
-    return { icon: CloudSlashIcon, className: 'text-(--solus-status-error)', statusLabel: hostStatusLabel(status) }
-  }
-  // A host nobody has probed yet is unknown, not unreachable — saying "offline"
-  // in error red would cry wolf before anything was even dialled.
-  if (status === 'saved') {
-    return { icon: hostIcon, className: 'text-(--solus-text-quaternary)', statusLabel: hostStatusLabel(status) }
-  }
-  return { icon: hostIcon, className: 'text-(--solus-text-tertiary)', statusLabel: hostStatusLabel(status) }
+function glyphFor(readiness: HostReadiness, hostIcon: Component): Pick<HostAffinityGlyph, 'icon' | 'className'> {
+  if (readiness === 'checking' || readiness === 'reconnecting') return { icon: hostIcon, className: 'animate-pulse text-(--solus-accent)' }
+  if (readiness === 'ready') return { icon: hostIcon, className: 'text-(--solus-text-tertiary)' }
+  return { icon: CloudSlashIcon, className: 'text-(--solus-status-error)' }
 }
 
 function operatingSystemIcon(os?: HostOperatingSystem): Component {

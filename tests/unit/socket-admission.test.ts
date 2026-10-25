@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { Database } from 'bun:sqlite'
 import { io, type Socket } from 'socket.io-client'
-import { UPDATE_REQUIRED, type HandshakeCredential } from '@solus/contracts/uplink'
+import { type HandshakeCredential } from '@solus/contracts/uplink'
 import type { ResolvedLinkShare } from '@solus/server/sharing/share-manager'
 import { fakeAccessTokens, handshake } from './helpers/socket-handshake'
 
@@ -21,7 +21,7 @@ const { attachWebSocketTransport } = await import('@solus/server/transport/webso
 // The host's side of docs/plans/simplify-auth-and-sync.md §3 rule 4, §4.6: a socket has
 // one credential, in its handshake — an access token, a pairing session token, or a
 // share secret with the guest's name — and the server builds the principal from it with
-// nothing asked first. A client that does not speak the protocol is told to update.
+// nothing asked first.
 // (The client's side is handshake-credential.test.ts.)
 
 const SHARE: ResolvedLinkShare = { resource: { kind: 'session', id: 'session_1' }, role: 'viewer', sharedByUserId: 'host', linkSecretHash: 'hash_1', organizationId: 'local' }
@@ -135,13 +135,3 @@ describe('revocation on the Access tab holds at the handshake', () => {
   })
 })
 
-describe('a client that does not speak this protocol', () => {
-  test('is told update_required, whether it sends no protocol, an old one, or an old ticket', async () => {
-    const server = await host()
-    const token = server.tokens.mint()
-    for (const auth of [{}, { protocol: 1, credential: { kind: 'access-token', token } }, { ticket: 'ws.old.ticket' }, { accessToken: token }]) {
-      expect(await dial(server.url, auth)).toEqual({ connected: false, message: UPDATE_REQUIRED })
-    }
-    expect(principals(server.transport)).toEqual([])
-  })
-})

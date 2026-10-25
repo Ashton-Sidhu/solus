@@ -272,7 +272,7 @@ describe('lazily created connections', () => {
     connections.registerTarget(remoteTarget)
     const statuses: string[] = []
     const created: string[] = []
-    connections.onPhaseChange((serverId, phase) => statuses.push(`${serverId}:${phase}`))
+    connections.onReadinessChange((serverId, readiness) => statuses.push(`${serverId}:${readiness}`))
     connections.onConnectionCreated((connection) => created.push(connection.serverId))
 
     const connection = connections.ensure('remote')
@@ -282,7 +282,7 @@ describe('lazily created connections', () => {
 
     await Promise.resolve()
     expect(created).toEqual(['remote'])
-    expect(statuses).toEqual(['remote:connecting'])
+    expect(statuses).toEqual(['remote:checking'])
     connections.release('remote')
   })
 

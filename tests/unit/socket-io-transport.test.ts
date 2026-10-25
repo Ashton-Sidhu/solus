@@ -7,6 +7,7 @@ import type { Doors } from '@solus/server/admission/doors'
 import { handshake } from './helpers/socket-handshake'
 import { SOCKET_CONNECT_TIMEOUT_MS, WsTransport, type ConnectionStatus, type GrantSource } from '@solus/client-core/ws-transport'
 import { withBrowserCapabilities } from '@solus/client-core/ws-browser-api'
+import { UNREACHABLE_AFTER_MS } from '@solus/client-core/host-readiness'
 import { HostSupervisor } from '@solus/client-core/host-supervisor'
 import type { SolusAPI } from '../../src/preload'
 import type { IpcContext } from '@solus/contracts/types'
@@ -612,7 +613,9 @@ function createClient(url: string, { acquire, ...overrides }: Partial<Constructo
   // which is exactly what keeps connection-state recovery working.
   const supervisor = new HostSupervisor({
     transport: client,
-    setTimeoutFn: ((handler: () => void) => setTimeout(handler, 10)) as typeof setTimeout,
+    // The ladder runs fast; the 12 s readiness grace keeps its length, so a short
+    // drop in a test is a reconnect and not an unreachable host.
+    setTimeoutFn: ((handler: () => void, delay: number) => setTimeout(handler, delay >= UNREACHABLE_AFTER_MS ? delay : 10)) as typeof setTimeout,
   })
   client.attachDialOutcomeReporter((outcome) => supervisor.report(outcome))
   cleanups.push(() => supervisor.destroy())

@@ -27,6 +27,7 @@
   import { catalogCountText, customUrlProblem, IntegrationLabels, urlHost } from "./lib/integration-labels";
   import { wordsMatch } from "./lib/settings-search";
   import { toasts } from "../../lib/toasts";
+  import solusIcon from "../../../../../resources/icon.iconset/icon_32x32@2x.png";
 
   interface Props { serverId: string; hostLabel: string; searchQuery?: string }
   let { serverId, hostLabel, searchQuery = "" }: Props = $props();
@@ -179,7 +180,7 @@
         <span class="truncate">{entry.name}</span>
         {#if entry.source === "solus"}
           <!-- Listed by Solus, not the integrations.sh feed (§13.5). -->
-          <span class="shrink-0 rounded-full border border-border px-1.5 text-chrome-dense leading-4 font-normal text-muted-foreground">Solus</span>
+          <img src={solusIcon} alt="Solus" title="Listed by Solus" class="size-[19px] shrink-0 object-contain" />
         {/if}
       </p>
       <p class="truncate text-chrome-dense leading-5 text-muted-foreground" title={entry.description}>{entry.description || entry.domain || urlHost(entry.url)}</p>

@@ -130,10 +130,10 @@ function dial(routes: HostRoute[]): Dial {
 
 interface Sample { acceptedMs: number; firstRpcMs: number }
 
-/** Resolves when the link reaches `connected`, with the time it took since `started`. */
+/** Resolves when the link reaches `ready`, with the time it took since `started`. */
 function whenConnected(link: HostLinkType, started: number): Promise<number> {
   return new Promise((resolve) => {
-    const poll = () => (link.phase === 'connected' ? resolve(performance.now() - started) : setTimeout(poll, 1))
+    const poll = () => (link.readiness === 'ready' ? resolve(performance.now() - started) : setTimeout(poll, 1))
     poll()
   })
 }

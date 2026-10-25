@@ -108,7 +108,7 @@
   const serverId = $derived.by(() => {
     // Read so a host switch, or a machine connecting or dropping, chooses again.
     void serversStore.activeServerId;
-    void serversStore.executionServers.map((server) => server.status);
+    void serversStore.executionServers.map((server) => server.readiness);
     return serverConnections.runOnHostId();
   });
   // Turns this person ran on other hosts are pulled into the host's record

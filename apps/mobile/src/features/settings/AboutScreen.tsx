@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp, useListened } from "../../app/app-context";
 import { ENVIRONMENT_MACHINE_SYMBOLS } from "../../components/EnvironmentMachineSymbol";
 import type { ScreenProps } from "../../navigation/routes";
-import { hostMachineKind } from "../connection/lib/host-connection-status";
+import { hostMachineKind } from "../connection/lib/host-machine";
 import type { NativeHost } from "../hosts/host-registry";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsRow } from "./components/SettingsRow";

@@ -173,7 +173,7 @@ export function mountedSidebarTabIds(
 export function registrySessionHomes(): SessionHomeHosts {
   return {
     isSolusApi: isSolusApiId,
-    isConnected: (serverId) => !!serverId && serverConnections.phaseFor(serverId) === 'connected',
+    isConnected: (serverId) => !!serverId && serverConnections.readinessFor(serverId).readiness === 'ready',
   }
 }
 
@@ -1226,24 +1226,24 @@ export class SessionSidebarStore {
    *  that fails the read keeps the rows it answered with last time. */
   async loadPinnedSessions(): Promise<void> {
     const serverIds = serverConnections.connectedServerIds()
-    const results = await Promise.all(serverIds.map(async (serverId) => {
+    await Promise.all(serverIds.map(async (serverId) => {
       try {
         const rows = await serverConnections.apiFor(serverId).pinnedSessionsList()
-        for (const row of rows) {
+        const seen = new Set<string>()
+        const pins = rows.filter((row) => {
+          if (seen.has(row.sessionId)) return false
+          seen.add(row.sessionId)
           row.serverId = serverId
+          return true
+        })
+        for (let index = this.pinnedSessions.length - 1; index >= 0; index--) {
+          if (this.pinnedSessions[index].serverId === serverId) this.pinnedSessions.splice(index, 1)
         }
-        return rows
+        this.pinnedSessions.push(...pins)
       } catch {
-        return this.pinnedSessions.filter((pin) => pin.serverId === serverId)
+        // A failed host keeps its last rows; other hosts can still update.
       }
     }))
-    const seen = new Set<string>()
-    this.pinnedSessions = results.flat().filter((pin) => {
-      const key = `${pin.serverId ?? ''}:${pin.sessionId}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
   }
 
   isPinned(sessionId: string | null | undefined, serverId?: string): boolean {

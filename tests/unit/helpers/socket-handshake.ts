@@ -1,9 +1,9 @@
-import { SOLUS_PROTOCOL, type AccessTokenClaims, type HandshakeCredential } from '@solus/contracts/uplink'
+import { type AccessTokenClaims, type HandshakeCredential } from '@solus/contracts/uplink'
 import type { TokenVerdict } from '@solus/server/admission/access-tokens'
 
-/** A socket handshake as a current client sends it: the protocol, and at most one credential. */
-export function handshake(credential?: HandshakeCredential, clientInstanceId?: string): { protocol: number; credential?: HandshakeCredential; clientInstanceId?: string } {
-  const auth: { protocol: number; credential?: HandshakeCredential; clientInstanceId?: string } = { protocol: SOLUS_PROTOCOL }
+/** A socket handshake as a current client sends it: at most one credential. */
+export function handshake(credential?: HandshakeCredential, clientInstanceId?: string): { credential?: HandshakeCredential; clientInstanceId?: string } {
+  const auth: { credential?: HandshakeCredential; clientInstanceId?: string } = {}
   if (credential) auth.credential = credential
   if (clientInstanceId) auth.clientInstanceId = clientInstanceId
   return auth

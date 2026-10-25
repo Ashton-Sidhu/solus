@@ -34,7 +34,7 @@ describe('the project a session starts in when nothing on screen names one', () 
 // ─── ⌘N through the drafts controller ───
 
 mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () => ({
-  serversStore: { statusFor: () => 'online' },
+  serversStore: { readinessFor: () => ({ readiness: 'ready', away: false, unreachableReason: null, refusedReason: null, lastSeenAt: null }) },
 }))
 mock.module('@solus/workspace-ui/lib/git-actions.svelte', () => ({ disposeGitActions: () => {} }))
 mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', dismiss: () => {} }) }))

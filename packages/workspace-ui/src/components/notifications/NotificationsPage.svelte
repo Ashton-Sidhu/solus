@@ -11,12 +11,12 @@
   import type { PaneSurfaceProps } from "../ui/lib/pane-surface";
   import NotificationRow from "./NotificationRow.svelte";
   import { notificationDestination, resolveNotificationDestination } from "./lib/notification-actions";
+  import { sourceNotices } from "./lib/source-notices";
   import { serverConnections } from "@solus/client-core/server-connections";
   import {
     kindsForGroups,
     matchesNotificationQuery,
     NOTIFICATION_KIND_GROUPS,
-    sourceStatusNote,
     type NotificationKindGroup,
   } from "@solus/client-core/notifications/presentation";
 
@@ -48,7 +48,22 @@
     void rows;
     return Date.now();
   });
-  const troubled = $derived(sourceStates.filter((state) => sourceStatusNote(state) && state.status !== "loading"));
+  const notices = $derived(sourceNotices(sourceStates, store.conflicts));
+
+  // A source problem is said once per visit, as a toast. Leaving the page lets the next visit say it again.
+  const announced = new Set<string>();
+  $effect(() => {
+    if (!open || !surfaceVisible) {
+      announced.clear();
+      return;
+    }
+    for (const notice of notices) {
+      if (announced.has(notice.key)) continue;
+      announced.add(notice.key);
+      const options = { description: notice.description, id: `notification-source:${notice.key}` };
+      untrack(() => (notice.isError ? toasts.error(notice.message, options) : toasts.info(notice.message, options)));
+    }
+  });
 
   function serverIdOf(row: HubRow): string {
     return store.sources.get(row.sourceId)?.source.serverId ?? "";
@@ -122,17 +137,6 @@
       toolbarFilters
       filters={filterBar}
     >
-      {#if troubled.length > 0 || store.conflicts.length > 0}
-        <ul class="mb-2 flex flex-col gap-1 px-2.5" aria-label="Source status" data-testid="notification-source-status">
-          {#each troubled as state (state.source.sourceId)}
-            <li class="text-chrome-dense text-muted-foreground"><span class="text-foreground">{state.source.label}</span> — {sourceStatusNote(state)}</li>
-          {/each}
-          {#each store.conflicts as organizationId (organizationId)}
-            <li class="text-chrome-dense text-muted-foreground">Organization {organizationId} is listed by two accounts; its notifications are not shown until only one lists it.</li>
-          {/each}
-        </ul>
-      {/if}
-
       {#if store.isLoading && rows.length === 0}
         <ListSkeleton plan={[[60, 40, 52, 34]]} identWidth={120} />
       {:else if rows.length === 0}

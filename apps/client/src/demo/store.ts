@@ -26,6 +26,7 @@ import { reviewGuideKeyFor, type ReviewContext, type ReviewGuideStatusEvent, typ
 import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } from '@solus/contracts/task-types'
 import type { ChangedFileStat, DiffRequest, GitState, TurnSnapshot } from '@solus/contracts/git-types'
 import type { CheckItem } from '@solus/contracts/checks-types'
+import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import { applyWorkCommand, type WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { DEMO_PROJECT, DEMO_VIEWER, type DemoFixtures } from './fixtures/types'
 
@@ -439,6 +440,10 @@ export class DemoStore {
 
   prChecks(): CheckItem[] {
     return this.fixtures.pr.checks ?? []
+  }
+
+  sessionPullRequests(sessionId: string): SessionPullRequestLink[] {
+    return this.fixtures.pr.sessionLinks?.[sessionId] ?? []
   }
 
   prComments(): PrConversationItem[] {

@@ -228,6 +228,26 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   }
 
   /**
+   * A Run on send names its repository, not its folder: the folder the client
+   * sends is a path on the client, or `~`. The host decides where the copy goes
+   * (`dispatchCheckoutPathOf`), so the claim, the turn admission, and the first
+   * recorded facts name that folder, and the copy is made there later. For an
+   * existing worktree they name its checkout until the copy step checks that
+   * worktree (`resolveDispatchWorktree`): an unchecked path is never recorded.
+   */
+  function placeDispatchCheckout(ctx: IpcContext, handlerCtx: HandlerCtx): void {
+    const repository = ctx.session.repository
+    if (!repository) return
+    const pathOf = sessionRuntime.launcher.dispatchCheckoutPathOf
+    if (!pathOf) throw new Error('This host cannot copy a repository.')
+    const checkoutPath = pathOf(repository, { principal: handlerCtx.actor.principal, deviceId: handlerCtx.deviceId })
+    ctx.session.workingDirectory = checkoutPath
+    ctx.session.projectPath = checkoutPath
+    // The client's view of a checkout it has not made yet; the copy step reads the real one.
+    ctx.session.gitContext = null
+  }
+
+  /**
    * New sessions a client watched before any request named their folder. They
    * start private; the first request that names the folder decides whether the
    * organization gets its grant. Lost on restart, so such a session stays private.
@@ -239,15 +259,34 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
    * A session in a chat folder starts private; a project session starts shared
    * with the organization in an organization space (docs/projects.md, "Chats").
    */
-  async function claimSession(sessionId: string | null | undefined, handlerCtx: HandlerCtx, workingDirectory: string): Promise<void> {
+  function claimSession(sessionId: string | null | undefined, handlerCtx: HandlerCtx, workingDirectory: string): Promise<void> {
     const shares = deps.shares
-    if (!sessionId || !shares) return
-    const shareWithOrganization = !isChat(workingDirectory)
-    if (!sessionsAwaitingFolder.delete(sessionId)) {
-      await shares.claimSession(sessionId, handlerCtx.principal, { shareWithOrganization })
-    } else if (shareWithOrganization) {
-      await shares.shareWithOrganization({ kind: 'session', id: sessionId }, handlerCtx.principal)
-    }
+    if (!sessionId || !shares) return Promise.resolve()
+    return claimInTurn(sessionId, async () => {
+      const shareWithOrganization = !isChat(workingDirectory)
+      if (!sessionsAwaitingFolder.delete(sessionId)) {
+        await shares.claimSession(sessionId, handlerCtx.principal, { shareWithOrganization })
+      } else if (shareWithOrganization) {
+        await shares.shareWithOrganization({ kind: 'session', id: sessionId }, handlerCtx.principal)
+      }
+    })
+  }
+
+  /**
+   * The claims on one session, run one at a time. A client sends a session's
+   * watch and its first prompt together, and the host handles them at the same
+   * time. A claim reads the owner before it writes one, so two claims that
+   * overlap could both decide; and a prompt can share a session with the
+   * organization only after the watch's claim has named the owner.
+   */
+  const claimsInFlight = new Map<string, Promise<void>>()
+  function claimInTurn(sessionId: string, claim: () => Promise<void>): Promise<void> {
+    const claimed = (claimsInFlight.get(sessionId) ?? Promise.resolve()).catch(() => {}).then(claim)
+    claimsInFlight.set(sessionId, claimed)
+    void claimed.catch(() => {}).finally(() => {
+      if (claimsInFlight.get(sessionId) === claimed) claimsInFlight.delete(sessionId)
+    })
+    return claimed
   }
 
   server.register('watchSession', async (args, handlerCtx) => {
@@ -261,11 +300,12 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // claim here never gives them one; it records the owner of a brand-new session.
     // The watch does not know the session's folder, so a new session waits for
     // the prompt that names it before the organization can see it.
-    if (startsSession && deps.shares && isOrganizationSpace(handlerCtx.principal)) {
+    const shares = deps.shares
+    if (startsSession && shares && isOrganizationSpace(handlerCtx.principal)) {
       sessionsAwaitingFolder.add(sessionId)
-      await deps.shares.claimSession(sessionId, handlerCtx.principal, { shareWithOrganization: false })
-    } else {
-      await deps.shares?.claimSession(sessionId, handlerCtx.principal)
+      await claimInTurn(sessionId, () => shares.claimSession(sessionId, handlerCtx.principal, { shareWithOrganization: false }))
+    } else if (shares) {
+      await claimInTurn(sessionId, () => shares.claimSession(sessionId, handlerCtx.principal))
     }
     return watched
   })
@@ -357,6 +397,14 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const sessionId = ctx.session.sessionId
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
+    // The sender watches the session before its run can publish. The client
+    // sends the prompt without waiting for its watch reply, and the two
+    // requests run at the same time here, so the watch can be later.
+    const watchers = sessionRuntime.watchers
+    if (handlerCtx.clientId && !watchers.watches.get(sessionId)?.has(handlerCtx.clientId)) {
+      watchers.watchSession({ sessionId }, handlerCtx.clientId)
+    }
+    placeDispatchCheckout(ctx, handlerCtx)
     resolveChat(ctx, handlerCtx.principal)
     // A link visitor's turn keeps tool approvals with the people on the session (host-sharing.md §4.1).
     if (handlerCtx.principal.kind === 'guest') ctx.session.permissionMode = 'supervised'
@@ -396,9 +444,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('retry', async (args, handlerCtx) => {
     const [ctx, options] = args
     log.info('rpc_retry', { sessionId: ctx.session.sessionId })
+    placeDispatchCheckout(ctx, handlerCtx)
     resolveChat(ctx, handlerCtx.principal)
     await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
-    return sessionRuntime.dispatch.retry(ctx, options, handlerCtx.clientId, handlerCtx.actor)
+    return sessionRuntime.dispatch.retry(ctx, options, handlerCtx.clientId, handlerCtx.actor, handlerCtx.deviceId)
   })
 
   // A conversation answers its own requests, and the requests of a session it

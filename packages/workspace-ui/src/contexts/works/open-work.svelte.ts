@@ -1,7 +1,7 @@
 import type { Work } from '@solus/contracts/types'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { HostPhase } from '@solus/client-core/host-supervisor'
+import type { HostReadiness, LinkReadiness } from '@solus/client-core/host-readiness'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 
@@ -18,8 +18,8 @@ export interface OpenWorkHost {
   readonly serverId: string
   readonly api: Pick<HostApi, 'loadWork'>
   subscribe<K extends HostEventName>(type: K, listener: (payload: HostEventMap[K]) => void): () => void
-  onPhaseChange(listener: (phase: HostPhase) => void): () => void
-  phase(): HostPhase | undefined
+  onReadinessChange(listener: (readiness: LinkReadiness) => void): () => void
+  readiness(): HostReadiness
 }
 
 /** The store's side: its one saved record per work, and the guarded way in. */
@@ -69,8 +69,8 @@ export class OpenWork {
     this.status = this.records.saved(this.workId, host.serverId) ? 'ready' : 'loading'
     this.unavailableReason = null
     this.error = null
-    const phase = host.phase()
-    this.reconnecting = phase !== undefined && phase !== 'connected'
+    // A first connect is not a reconnect: only a host that was ready, or is past its grace, says so.
+    this.reconnecting = host.readiness() !== 'ready' && host.readiness() !== 'checking'
     this.stops.push(
       host.subscribe('works.changed', (change) => {
         if (change.workId !== this.workId) return
@@ -80,8 +80,8 @@ export class OpenWork {
       host.subscribe('share.changed', (change) => {
         if (change.resource.kind === 'work' && change.resource.id === this.workId) void this.refresh()
       }),
-      host.onPhaseChange((next) => {
-        if (next !== 'connected') {
+      host.onReadinessChange((next) => {
+        if (next !== 'ready') {
           this.reconnecting = true
           return
         }

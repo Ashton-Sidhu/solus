@@ -35,3 +35,29 @@ describe('statusCardLine', () => {
     expect(line.rail).toBe('3 steps')
   })
 })
+
+describe('a host card with skipped steps, warnings, and host times', () => {
+  test('a skipped step and a step with a warning count as finished', () => {
+    // WHY: setup went past them; the count and the seam must not wait on them.
+    const line = statusCardLine(card('active', ['skipped', 'warning', 'active', 'pending']), 0)
+    expect(line.rail).toBe('step 3 of 4')
+    expect(line.progressPercent).toBe(50)
+  })
+
+  test('the total time is the host span, from the first start to the last end', () => {
+    // WHY: the fetch and the checkout run at the same time, so a sum of step
+    // times would count that time twice.
+    const hostCard = card('done', ['done', 'done', 'skipped'])
+    hostCard.steps[0] = { ...hostCard.steps[0], startedAt: 1_000, endedAt: 3_000 }
+    hostCard.steps[1] = { ...hostCard.steps[1], startedAt: 1_000, endedAt: 2_500 }
+    expect(statusCardLine(hostCard, 9_999).rail).toBe('3 steps · 2.0s')
+  })
+
+  test('a finished card with a warning is still ready', async () => {
+    const { settleSetupCard } = await import('@solus/contracts/setup-card')
+    const settled = settleSetupCard({ ...card('active', ['warning', 'skipped', 'active']), icon: 'git-branch' }, 'running')
+    expect(settled.steps.map((step) => step.status)).toEqual(['warning', 'skipped', 'done'])
+    expect(settled.title).toBe('Worktree ready')
+    expect(statusCardLine(settled, 0).type).toBe('ready')
+  })
+})

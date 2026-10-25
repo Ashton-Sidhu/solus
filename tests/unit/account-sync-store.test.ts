@@ -299,6 +299,23 @@ describe('writes', () => {
     expect(pulls()).toEqual(['pull:cloud', 'pull:vm'])
   })
 
+  test("an agent's change is a local edit: it syncs like the person's, and a bad value changes nothing", async () => {
+    // update_config applies personal settings on the person's client (docs/settings.md).
+    const { personal, settingsCloud, signIn } = await storesOn()
+    await signIn()
+
+    expect(personal.setMany({ reviewModel: 'gpt-6-luna', extraInstructions: 'Be brief.' })).toBe(true)
+    await settle()
+    expect(settingsCloud.document.settings).toMatchObject({ reviewModel: 'gpt-6-luna', extraInstructions: 'Be brief.' })
+
+    const sent = settingsCloud.sent.length
+    // SAFETY: a wire value the schema refuses, as a stale or wrong client would send it.
+    expect(personal.setMany({ reviewModel: 'kept', reviewReasoning: 'enormous' } as unknown as PersonalSettingsDocument)).toBe(false)
+    await settle()
+    expect(personal.values.reviewModel).toBe('gpt-6-luna')
+    expect(settingsCloud.sent.length).toBe(sent)
+  })
+
   test('signed in a host pulls on first sight; signed out this computer pushes', async () => {
     const { hosts, signIn } = await storesOn()
     hosts.noteHost('new-vm', 'remote-owner')

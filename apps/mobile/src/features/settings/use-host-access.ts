@@ -8,12 +8,12 @@ import { useApp, useListened } from '../../app/app-context'
 export function useHostAccess(hostId: string) {
   const app = useApp()
   const state = useListened(app.hostAccess.changes, () => app.hostAccess.stateOf(hostId))
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const reload = useCallback(() => { void app.hostAccess.load(hostId) }, [app, hostId])
 
   useEffect(() => {
-    if (phase === 'connected') reload()
-  }, [phase, reload])
+    if (readiness === 'ready') reload()
+  }, [readiness, reload])
 
   useFocusEffect(reload)
 

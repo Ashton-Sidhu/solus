@@ -340,12 +340,12 @@ async function connectGuest(link: GuestLink, opening: GuestOpening, displayName:
   serverConnections.registerTarget(target)
   const connection = serverConnections.setPrimary(GUEST_SERVER_ID)
   installWindowSolusApi(connection.api)
-  serverConnections.onPhaseChange((serverId, phase) => {
+  serverConnections.onReadinessChange((serverId, readiness) => {
     if (serverId !== GUEST_SERVER_ID || generation !== connectionGeneration) return
-    if (phase === 'connected') guestBoot.live = !mirror.some((route) => route.url === connection.target.url)
+    if (readiness === 'ready') guestBoot.live = !mirror.some((route) => route.url === connection.target.url)
     // The host refused the secret: the link was turned off or regenerated.
-    else if (phase === 'blocked' && serverConnections.blockedReasonFor(serverId) === 'auth') guestBoot.revoke()
-    else if (phase === 'offline' && guestBoot.phase === 'connecting') guestBoot.fail('The computer this was shared from did not answer.')
+    else if (readiness === 'refused' && serverConnections.readinessFor(serverId).refusedReason === 'auth') guestBoot.revoke()
+    else if (readiness === 'unreachable' && guestBoot.phase === 'connecting') guestBoot.fail('The computer this was shared from did not answer.')
   })
 
   try {

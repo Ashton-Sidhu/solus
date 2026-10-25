@@ -10,6 +10,7 @@ import {
 } from '@solus/client-core/notifications/presentation'
 import { NOTIFICATION_KINDS } from '@solus/contracts/notification-hub'
 import type { HubSourceState } from '@solus/client-core/notifications/hub-client'
+import { sourceNotices } from '../../packages/workspace-ui/src/components/notifications/lib/source-notices'
 
 // plans/015-notifications-hub.md v2 §6, stage 4: what the hub says. A count never
 // claims more certainty than its sources gave; every kind is reachable through a
@@ -44,6 +45,19 @@ describe('notification presentation', () => {
     expect(sourceStatusNote(state('ready'))).toBeNull()
     expect(sourceStatusNote(state('offline'))).toContain('Unreachable')
     expect(sourceStatusNote(state('unsupported'))).toContain('Update Solus')
+  })
+
+  test('the page toasts each source problem, and a changed problem is said again', () => {
+    const state = (status: HubSourceState['status']): HubSourceState => ({
+      source: { sourceId: 'host:vm', serverId: 'vm', kind: 'host', label: 'VM' }, status, count: null, hasMore: false, oldestLoadedAt: null,
+    })
+    expect(sourceNotices([state('ready'), state('loading')], [])).toEqual([])
+    const [offline] = sourceNotices([state('offline')], [])
+    expect(offline).toMatchObject({ message: 'VM', isError: true })
+    const [unsupported] = sourceNotices([state('unsupported')], [])
+    expect(unsupported.isError).toBe(false)
+    expect(unsupported.key).not.toBe(offline.key)
+    expect(sourceNotices([], ['org-1'])[0].message).toContain('org-1')
   })
 
   test('a headline tells a failure from a success', () => {

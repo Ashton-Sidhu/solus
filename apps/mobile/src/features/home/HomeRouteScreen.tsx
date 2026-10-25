@@ -151,7 +151,7 @@ export function HomeRouteScreen() {
   const addConnection = () => navigation.navigate("PairHost");
   const retryHosts = () => {
     for (const host of app.registry.hosts()) {
-      if (app.connections.state(host.id)?.phase !== "connected") app.connections.retry(host.id);
+      if (app.connections.state(host.id)?.readiness !== "ready") app.connections.retry(host.id);
     }
     reloadThreadLists();
   };

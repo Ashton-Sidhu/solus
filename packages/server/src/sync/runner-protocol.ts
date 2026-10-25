@@ -6,8 +6,7 @@ import { activitySchema } from '@solus/contracts/activity'
 /**
  * What a host sends its organization's Solus API, and what comes back
  * (docs/plans/simplify-auth-and-sync.md §4.5). One route, `POST /runner/deliver`,
- * under `Authorization: Bearer <the person's delegated token>` and the
- * `SOLUS_PROTOCOL_HEADER` header:
+ * under `Authorization: Bearer <the person's delegated token>`:
  *
  *   { hostId, items: [{ seq, kind, payload }] }  →  { lastSeq, failed: [{ seq, error }] }
  *

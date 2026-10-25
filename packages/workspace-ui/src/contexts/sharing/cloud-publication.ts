@@ -72,7 +72,7 @@ export class CloudPublication {
   private async runUpload(request: PublishRequest): Promise<PublishOutcome> {
     const { serverId, resource, organizationId } = request
     if (resource.kind === 'session') return { kind: 'failed', error: 'A session stays on its host.' }
-    if (serverConnections.phaseFor(serverId) !== 'connected') return { kind: 'offline' }
+    if (serverConnections.readinessFor(serverId).readiness !== 'ready') return { kind: 'offline' }
     try {
       return resource.kind === 'work'
         ? await this.uploadWork(serverId, resource.id, organizationId)

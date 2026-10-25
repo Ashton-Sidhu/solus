@@ -10,7 +10,7 @@ import type { CheckoutHost, CheckoutStep } from '@solus/workspace-ui/contexts/wo
  */
 
 mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () => ({
-  serversStore: { statusFor: () => 'online', hostFor: () => null },
+  serversStore: { readinessFor: () => ({ readiness: 'ready', away: false, unreachableReason: null, refusedReason: null, lastSeenAt: null }), hostFor: () => null },
 }))
 mock.module('@solus/workspace-ui/contexts/projects/projects.store.svelte', () => ({ projectsStore: {} }))
 

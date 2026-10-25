@@ -26,7 +26,7 @@ export type GithubConnectionView =
  */
 export function useGithubConnection(hostId: string) {
   const app = useApp()
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const [view, setView] = useState<GithubConnectionView>({ kind: 'loading' })
   const connecting = useRef(false)
   const context = () => projectContext('', app.account.organizationId)
@@ -55,8 +55,8 @@ export function useGithubConnection(hostId: string) {
   }, [app, hostId])
 
   useEffect(() => {
-    if (phase === 'connected') refresh()
-  }, [phase, refresh])
+    if (readiness === 'ready') refresh()
+  }, [readiness, refresh])
 
   useFocusEffect(refresh)
 

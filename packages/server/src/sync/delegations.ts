@@ -1,10 +1,15 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
 import {
   ACCESS_TOKEN_TYPE,
   CLIENT_ASSERTION_TYPE,
   TOKEN_EXCHANGE_GRANT_TYPE,
-  hostAudience,
+  delegationRefusalBodySchema,
+  delegationScopeSchema,
+  hostDelegationTokenResponseSchema,
+  type DelegationScope,
+  type HostDelegationTokenRequest,
   type PersonAccessTokenClaims,
   type HostRegistration,
 } from '@solus/contracts/uplink'
@@ -13,40 +18,41 @@ import { SolusApiClient, SolusApiHttp, WorkspaceRequestError, type SolusApiHttpO
 import type { WorkspaceSessionAdmissionRequest } from '@solus/contracts/solus-api'
 import type { FetchLike, TokenVerdict } from '../admission/access-tokens'
 import type { HostCredential } from '../host/host-credential'
-import { secretStore } from '../platform/secrets'
 import { dataDir } from '../platform/paths'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'delegations')
 
 /**
- * What this host holds to act for people (docs/adr/0001-standard-authentication.md
- * §2.2 rule 6, §3.4): for each person and scope — their own host (`personal`) or one
- * organization — a refresh token the account plane issued to this host's own OAuth
- * client in a token exchange (RFC 8693), and the current five-minute access tokens.
- * The host authenticates every exchange and refresh with its key (`private_key_jwt`,
- * `HostCredential`). The Solus API holds no delegations: it reads a person's account
- * with the token their client presented (`PresentedTokens` in `vault/account-reads.ts`).
+ * How this host acts for people (docs/adr/0001-standard-authentication.md §2.2 rule 6,
+ * §3.4). A delegation is a row on the account plane: this host may act for one person
+ * in one scope — their own host (`personal`) or one organization — bound to the client
+ * grant it was made from. The host keeps no secret for it. It asks the account plane
+ * for a token when it needs one (`POST /v1/hosts/{hostId}/delegation-token`, with its
+ * own control token), for the Solus API, the account plane, or another host the person
+ * reaches; each ask is the account plane's live check. Tokens are kept in memory per
+ * person, scope, and resource until a minute before they end.
  *
  * A delegation is made only from an access token a person's client presented here
  * (`establish` through `delegateFromPresentedToken`: at the ticket door, with
  * `authRenew` or `accountPresent` on an open socket, or by the desktop's own client in
- * this process, `transport/local-client.ts`), and it is bound to that client's grant. After
- * that nothing is asked per prompt: the host refreshes when it needs a token. Every
- * refresh is the account plane's live check. A refusal means the client grant ended
- * (`GRANT_REVOKED`: a sign-out), the person left the organization, or the host was
- * detached, and `onRevoked` ends their work here in that scope. Refresh tokens are
- * kept in the secret store, so a restart resumes work (an automation included)
- * without anyone reconnecting.
+ * this process, `transport/local-client.ts`): the token exchange (RFC 8693), with the
+ * host's key (`private_key_jwt`, `HostCredential`). The host remembers whom it acts for
+ * (`delegations.json`: person, scope, and grant, no token), so a restart resumes work
+ * (an automation included) without anyone reconnecting. A refusal means the client
+ * grant ended (`GRANT_REVOKED`: a sign-out), the person left the organization, or the
+ * host was detached, and `onRevoked` ends their work here in that scope. When the
+ * account plane holds no row (`no_delegation`), the person's signed-in client in this
+ * process presents again (`renew`), and the delegation is made again from it.
  */
 
-export type DelegationScope = { organizationId: string } | 'personal'
+export type { DelegationScope }
 
 /** A delegated token is for the Solus API, the account plane, or another host the person reaches (host-reach.md §3). */
 export type DelegatedResource = TokenResource
 
-/** The account plane's refusals of a host-reach token. They refuse one host, not the delegation (host-reach.md §3.1). */
-const HOST_REACH_REFUSALS = new Set(['host_not_reachable', 'host_outside_organization', 'host_not_ready'])
+/** The account plane's refusals of a token for another host. They refuse one host, not the delegation (host-reach.md §3.1). */
+const HOST_REACH_REFUSALS: ReadonlySet<string> = new Set(['host_not_reachable', 'host_not_ready', 'host_outside_organization'])
 
 export type DelegationRefusal = 'GRANT_REVOKED' | 'ORGANIZATION_ACCESS_REFUSED' | 'ORGANIZATION_API_UNAVAILABLE' | 'ORGANIZATION_AUTHORITY_MISSING' | 'HOST_NOT_REACHABLE'
 
@@ -58,19 +64,21 @@ export class DelegationError extends Error {
 }
 
 export interface DelegationsDeps {
-  /** The registration, for the Solus API it names (`apiClient`); null when unregistered, and always in API mode. */
+  /** The registration: the account plane and host id the token route names, and the Solus API (`apiClient`); null when unregistered, and always in API mode. */
   registration: () => HostRegistration | null
-  /** This host's credential, with which it authenticates at the token endpoint; null when the host is not registered. */
+  /** This host's credential, with which it makes a delegation at the token endpoint; null when the host is not registered. */
   credential: () => Pick<HostCredential, 'clientId' | 'tokenEndpoint' | 'assertion'> | null
-  /** The account plane refused a refresh: the person may no longer work here in that scope. */
+  /** This host's own control token, with which it asks for a person's tokens. */
+  controlToken: () => Promise<string>
+  /** The account plane refused a token: the person may no longer work here in that scope. */
   onRevoked: (userId: string, scope: DelegationScope, refusal: DelegationRefusal) => void
   /** A delegation was made: what waited on the person's account (their cloud credentials) can be read now. */
   onEstablished?: (userId: string, scope: DelegationScope) => void
   /**
-   * A delegation is not held, or the account plane refused its refresh: the person's
-   * signed-in client in this process presents its token again, and resolves once it
-   * tried. Absent where no client lives in the process; there a connected client
-   * presents again before its token ends.
+   * The host holds no delegation for the person, or the account plane has none
+   * (`no_delegation`): the person's signed-in client in this process presents its
+   * token again, and resolves once it tried. Absent where no client lives in the
+   * process; there a connected client presents again before its token ends.
    */
   renew?: (userId: string, scope: DelegationScope) => Promise<void>
   fetchImpl?: FetchLike
@@ -80,24 +88,17 @@ export interface DelegationsDeps {
 const REQUEST_TIMEOUT_MS = 15_000
 /** An access token this close to its end is replaced before it is used. */
 const RENEWAL_MARGIN_MS = 60_000
-const SECRET_KEY = 'delegations'
+const RECORD_FILE = 'delegations.json'
 
-const scopeSchema = z.union([z.literal('personal'), z.object({ organizationId: z.string().min(1) })])
-/**
- * Version 3 keys each refresh token by person and scope, and keeps the client grant it
- * was made from, so a sign-out in this process forgets it at once. A file of another
- * version is discarded: its people connect again.
- */
-const storedSchema = z.object({
-  version: z.literal(3),
-  delegations: z.array(z.object({ userId: z.string().min(1), scope: scopeSchema, grantId: z.string().min(1), refreshToken: z.string().min(1) })),
+/** Whom this host acts for: no token. A file of another version is discarded: its people connect again. */
+const recordSchema = z.object({
+  version: z.literal(4),
+  delegations: z.array(z.object({ userId: z.string().min(1), scope: delegationScopeSchema, grantId: z.string().min(1) })),
 })
-const tokenAnswerSchema = z.object({
-  access_token: z.string().min(1),
-  refresh_token: z.string().min(1).optional(),
-  expires_in: z.number().positive(),
-})
-const oauthErrorSchema = z.object({ error: z.string(), error_description: z.string().optional(), solus_refusal: z.string().optional() })
+const tokenAnswerSchema = hostDelegationTokenResponseSchema.pick({ access_token: true, expires_in: true })
+/** The delegation-token route's refusal (`delegationRefusalBodySchema`), read leniently: the exchange's refusals carry other codes. */
+const refusalSchema = delegationRefusalBodySchema.extend({ solus_refusal: z.string().optional() })
+type Refusal = z.infer<typeof refusalSchema>
 /** The parts of a presented token the exchange is keyed by. The ticket door verified it already. */
 const subjectClaimsSchema = z.object({ sub: z.string().min(1), grant_id: z.string().min(1) })
 
@@ -106,11 +107,10 @@ interface Held {
   scope: DelegationScope
   /** The client grant the delegation was made from. */
   grantId: string
-  refreshToken: string
-  /** The current access token for each audience. */
+  /** The current access token for each resource. */
   tokens: Map<string, { token: string; expiresAt: number }>
-  /** Refreshes run one at a time: a rotated refresh token cannot be used twice. */
-  lock: Promise<void>
+  /** Concurrent asks for one resource share one request. */
+  asking: Map<string, Promise<string>>
 }
 
 const scopeKey = (scope: DelegationScope): string => scope === 'personal' ? 'personal' : `organization:${scope.organizationId}`
@@ -157,18 +157,12 @@ export class Delegations {
     if (existing) return existing
     const isCurrent = (): boolean => this.establishing.get(key) === pending
     const pending: Promise<void> = (async () => {
-      const answer = await this.tokenRequest(userId, scope, {
-        grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
-        subject_token: subjectToken,
-        subject_token_type: ACCESS_TOKEN_TYPE,
-        ...(scope === 'personal' ? { delegation_scope: 'personal' } : { organization_id: scope.organizationId }),
-      })
+      const answer = await this.exchange(userId, scope, subjectToken)
       if (!isCurrent()) throw new DelegationError('ORGANIZATION_AUTHORITY_MISSING', 'This machine’s authorization changed. Reconnect and send again.')
-      if (!answer.refresh_token) throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', 'Solus answered the exchange without a refresh token.')
-      // The first access token is for both delegated resources.
+      // The exchanged token is for both our servers: no request for either while it is good.
       const first = { token: answer.access_token, expiresAt: this.now() + answer.expires_in * 1000 }
       const tokens = new Map([[tokenResourceUri({ kind: 'api' }), first], [tokenResourceUri({ kind: 'account' }), first]])
-      this.load().set(key, { userId, scope, grantId: subject.grant_id, refreshToken: answer.refresh_token, tokens, lock: Promise.resolve() })
+      this.load().set(key, { userId, scope, grantId: subject.grant_id, tokens, asking: new Map() })
       this.save()
       log.info('delegation_held', { userId, scope: scopeKey(scope), grantId: subject.grant_id })
       this.deps.onEstablished?.(userId, scope)
@@ -180,25 +174,23 @@ export class Delegations {
   }
 
   /**
-   * A current access token for the person in the scope, for one resource; refreshed when
-   * needed. A delegation that is not held, or that the account plane refused, is derived
-   * again from the person's sign-in (`renew`) before the call fails: while they are
-   * signed in, the host acts for them. An outage keeps the delegation and fails the call.
+   * A current access token for the person in the scope, for one resource. A delegation
+   * that is not held, here or on the account plane, is made again from the person's
+   * sign-in (`renew`) before the call fails: while they are signed in, the host acts
+   * for them. An outage keeps the delegation and fails the call.
    */
   async accessToken(userId: string, scope: DelegationScope, resource: DelegatedResource): Promise<string> {
-    if (resource.kind === 'host') return this.hostReachToken(userId, scope, resource.hostId)
     try {
       return await this.heldToken(userId, scope, resource)
     } catch (error) {
-      if (!this.deps.renew || !(error instanceof DelegationError) || this.has(userId, scope)) throw error
-      if (error.code === 'ORGANIZATION_API_UNAVAILABLE' || error.code === 'HOST_NOT_REACHABLE') throw error
-      log.info('delegation_renewing', { userId, scope: scopeKey(scope), after: error.code })
+      if (!this.deps.renew || !(error instanceof DelegationError) || error.code !== 'ORGANIZATION_AUTHORITY_MISSING' || this.has(userId, scope)) throw error
+      log.info('delegation_renewing', { userId, scope: scopeKey(scope) })
       await this.deps.renew(userId, scope)
       return this.heldToken(userId, scope, resource)
     }
   }
 
-  private async heldToken(userId: string, scope: DelegationScope, resource: Exclude<DelegatedResource, { kind: 'host' }>): Promise<string> {
+  private async heldToken(userId: string, scope: DelegationScope, resource: DelegatedResource): Promise<string> {
     const key = keyOf(userId, scope)
     // A connection that just arrived may still be making the delegation: its turn waits for it.
     const establishing = this.load().has(key) ? null : this.establishing.get(key)
@@ -206,40 +198,15 @@ export class Delegations {
     const held = this.load().get(key)
     if (!held) throw new DelegationError('ORGANIZATION_AUTHORITY_MISSING', 'This machine does not act for you here yet. Connect from Solus and send again.')
     const audience = tokenResourceUri(resource)
-    const current = this.current(held, audience)
-    if (current) return current
-    const previous = held.lock
-    let release!: () => void
-    held.lock = new Promise((resolve) => { release = resolve })
-    try {
-      await previous
-      return this.current(held, audience) ?? await this.refresh(held, audience)
-    } finally {
-      release()
-    }
-  }
-
-  /**
-   * A token to start sessions on another host for the person (docs/plans/host-reach.md
-   * §3). The account plane makes it only by exchange, for one of this delegation's own
-   * tokens, and checks the reach then: it lives one hour and has no refresh token.
-   * A refusal names one host (`HOST_NOT_REACHABLE`); the delegation stays.
-   */
-  private async hostReachToken(userId: string, scope: DelegationScope, hostId: string): Promise<string> {
-    // Another host's token has that host's own audience (simplify-auth-and-sync §3 rule 2).
-    const audience = hostAudience(hostId)
-    const held = this.load().get(keyOf(userId, scope))
-    const current = held ? this.current(held, audience) : null
-    if (current) return current
-    const subject = await this.accessToken(userId, scope, { kind: 'account' })
-    const answer = await this.tokenRequest(userId, scope, {
-      grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
-      subject_token: subject,
-      subject_token_type: ACCESS_TOKEN_TYPE,
-      resource: audience,
+    const current = held.tokens.get(audience)
+    if (current && current.expiresAt - this.now() > RENEWAL_MARGIN_MS) return current.token
+    const asking = held.asking.get(audience)
+    if (asking) return asking
+    const pending = this.delegationToken(held, audience).finally(() => {
+      if (held.asking.get(audience) === pending) held.asking.delete(audience)
     })
-    this.load().get(keyOf(userId, scope))?.tokens.set(audience, { token: answer.access_token, expiresAt: this.now() + answer.expires_in * 1000 })
-    return answer.access_token
+    held.asking.set(audience, pending)
+    return pending
   }
 
   /**
@@ -319,7 +286,7 @@ export class Delegations {
   /**
    * A client grant ended in this process (a sign-out of the desktop that hosts it):
    * every delegation made from it ends now, as the account plane's refusal would end
-   * it at the next refresh (ADR 0001 §2.2 rule 5). Delegations from other grants stay.
+   * it at its next token (ADR 0001 §2.2 rule 5). Delegations from other grants stay.
    */
   forgetGrant(grantId: string): void {
     for (const held of [...this.load().values()].filter((entry) => entry.grantId === grantId)) {
@@ -333,97 +300,121 @@ export class Delegations {
     this.establishing.clear()
     this.held = new Map()
     this.actors.clear()
-    secretStore().remove(SECRET_KEY, electronPath())
+    rmSync(recordPath(), { force: true })
   }
 
-  private current(held: Held, audience: string): string | null {
-    const token = held.tokens.get(audience)
-    return token && token.expiresAt - this.now() > RENEWAL_MARGIN_MS ? token.token : null
-  }
-
-  /** One refresh for one audience (RFC 8707): the rotated refresh token is saved before the access token is used. */
-  private async refresh(held: Held, audience: string): Promise<string> {
-    const answer = await this.tokenRequest(held.userId, held.scope, { grant_type: 'refresh_token', refresh_token: held.refreshToken, resource: audience })
-    held.tokens.set(audience, { token: answer.access_token, expiresAt: this.now() + answer.expires_in * 1000 })
-    if (answer.refresh_token && answer.refresh_token !== held.refreshToken) {
-      held.refreshToken = answer.refresh_token
-      if (this.load().get(keyOf(held.userId, held.scope)) === held) this.save()
-    }
-    return answer.access_token
-  }
-
-  /**
-   * One request to the account plane's token endpoint, as this host's client. An OAuth
-   * refusal (`invalid_grant`) is the live check saying no: the delegation goes and the
-   * host ends the person's work in that scope; `grant_revoked` says the client grant
-   * it was made from ended. A 403 means the person must connect again; any other 4xx is
-   * a refusal too. Only no answer, a 5xx, a 408, or a 429 is the account plane being
-   * unreachable, and what is held is kept for the next try. A 401 refuses this host's
-   * client, not the person.
-   */
-  private async tokenRequest(userId: string, scope: DelegationScope, form: Record<string, string>): Promise<z.infer<typeof tokenAnswerSchema>> {
+  /** The token exchange that makes a delegation, as this host's client; the account plane keeps the delegation. */
+  private async exchange(userId: string, scope: DelegationScope, subjectToken: string): Promise<z.infer<typeof tokenAnswerSchema>> {
     const credential = this.deps.credential()
-    if (!credential) throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', 'This machine is not registered to a Solus account. Sign in to Solus on this machine to run organization work.')
-    const fetchImpl: FetchLike = this.deps.fetchImpl ?? fetch
-    let response: Response
-    try {
-      response = await fetchImpl(credential.tokenEndpoint, {
+    if (!credential) throw notRegistered()
+    const response = await this.send(userId, scope, async () => (this.deps.fetchImpl ?? fetch)(credential.tokenEndpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+      body: new URLSearchParams({
+        grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
+        subject_token: subjectToken,
+        subject_token_type: ACCESS_TOKEN_TYPE,
+        ...(scope === 'personal' ? { delegation_scope: 'personal' } : { organization_id: scope.organizationId }),
+        client_id: credential.clientId,
+        client_assertion_type: CLIENT_ASSERTION_TYPE,
+        client_assertion: await credential.assertion(credential.tokenEndpoint),
+      }),
+      redirect: 'error',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    }))
+    if ('refusal' in response) {
+      log.info('delegation_exchange_refused', { userId, scope: scopeKey(scope), status: response.status, error: response.refusal.error, refusal: response.refusal.solus_refusal ?? null })
+      throw new DelegationError(refusalCode(response.refusal, response.status), response.refusal.error_description ?? 'Solus refused to let this machine act for you here.')
+    }
+    return response.answer
+  }
+
+  /** One token for a held delegation and one resource, from the account plane's delegation-token route. */
+  private async delegationToken(held: Held, audience: string): Promise<string> {
+    const registration = this.deps.registration()
+    if (!registration) throw notRegistered()
+    const body: HostDelegationTokenRequest = { userId: held.userId, scope: held.scope, resource: audience }
+    const response = await this.send(held.userId, held.scope, async () => {
+      let control: string
+      try {
+        control = await this.deps.controlToken()
+      } catch (error) {
+        throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', `This machine could not prove itself to Solus: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      return (this.deps.fetchImpl ?? fetch)(`${registration.directoryUrl}/v1/hosts/${encodeURIComponent(registration.hostId)}/delegation-token`, {
         method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-        body: new URLSearchParams({
-          ...form,
-          client_id: credential.clientId,
-          client_assertion_type: CLIENT_ASSERTION_TYPE,
-          client_assertion: await credential.assertion(credential.tokenEndpoint),
-        }),
+        headers: { authorization: `Bearer ${control}`, 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(body),
         redirect: 'error',
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
+    })
+    if ('answer' in response) {
+      // A delegation forgotten or made again while this ran keeps no token of this one.
+      if (this.load().get(keyOf(held.userId, held.scope)) === held) held.tokens.set(audience, { token: response.answer.access_token, expiresAt: this.now() + response.answer.expires_in * 1000 })
+      return response.answer.access_token
+    }
+    throw this.refused(held, audience, response.refusal, response.status)
+  }
+
+  /**
+   * Sends one request to the account plane and reads its answer: a token, or a refusal.
+   * Only no answer, a 5xx, a 408, or a 429 is the account plane being unreachable, and
+   * what is held is kept for the next try. A 401 refuses this host, not the person.
+   */
+  private async send(userId: string, scope: DelegationScope, request: () => Promise<Response>): Promise<{ answer: z.infer<typeof tokenAnswerSchema> } | { refusal: Refusal; status: number }> {
+    let response: Response
+    try {
+      response = await request()
     } catch (error) {
+      if (error instanceof DelegationError) throw error
       throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', `Solus is not reachable: ${error instanceof Error ? error.message : String(error)}. Try again.`)
     }
     const body: unknown = await response.json().catch(() => null)
     if (response.ok) {
       const answer = tokenAnswerSchema.safeParse(body)
-      if (answer.success) return answer.data
+      if (answer.success) return { answer: answer.data }
       throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', 'Solus answered with an unreadable token.')
     }
-    const parsed = oauthErrorSchema.safeParse(body)
+    const parsed = refusalSchema.safeParse(body)
     const refusal = parsed.success ? parsed.data : { error: `http_${response.status}` }
-    // An outage, not an answer: what is held is kept for the next try.
     if (response.status >= 500 || response.status === 408 || response.status === 429) {
-      log.warn('delegation_token_endpoint_unavailable', { userId, scope: scopeKey(scope), grantType: form.grant_type, status: response.status, error: refusal.error })
+      log.warn('delegation_account_plane_unavailable', { userId, scope: scopeKey(scope), status: response.status, error: refusal.error })
       throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', `Solus could not authorize this (${response.status}). Try again.`)
     }
-    if (response.status === 401) {
-      log.warn('delegation_client_unrecognized', { userId, scope: scopeKey(scope), grantType: form.grant_type, error: refusal.error })
+    if (response.status === 401 || refusal.solus_refusal === 'host_not_registered') {
+      log.warn('delegation_host_unrecognized', { userId, scope: scopeKey(scope), status: response.status, error: refusal.error })
       throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', 'Solus did not recognize this machine. Link it again.')
     }
-    throw this.refused(userId, scope, form, refusal, response.status)
+    return { refusal, status: response.status }
   }
 
   /**
-   * The account plane answered no. A host-reach refusal names one host, and the
-   * delegation stays (host-reach.md §3.1). Any other refusal of a refresh ends the
-   * delegation, whatever its status: a delegation the account plane will not refresh
-   * is not held, so the person's signed-in client makes it again (`renew`).
+   * The account plane answered no to a token. A refusal of another host names that
+   * host, and the delegation stays (host-reach.md §3.1). `no_delegation` means it holds
+   * no row: the record goes, and the person's sign-in makes it again (`renew`). Any
+   * other refusal ends the delegation and the person's work in that scope.
    */
-  private refused(userId: string, scope: DelegationScope, form: Record<string, string>, refusal: z.infer<typeof oauthErrorSchema>, status: number): DelegationError {
-    if (refusal.error === 'invalid_grant' && HOST_REACH_REFUSALS.has(refusal.solus_refusal ?? '')) {
-      log.info('host_reach_refused', { userId, scope: scopeKey(scope), refusal: refusal.solus_refusal ?? null })
+  private refused(held: Held, audience: string, refusal: Refusal, status: number): DelegationError {
+    const { userId, scope } = held
+    const reason = refusal.solus_refusal ?? null
+    if (HOST_REACH_REFUSALS.has(reason ?? '')) {
+      log.info('host_reach_refused', { userId, scope: scopeKey(scope), audience, refusal: reason })
       return new DelegationError('HOST_NOT_REACHABLE', refusal.error_description ?? 'You cannot reach that host from here.')
     }
-    // A 403 is an answer, not an outage: trying again changes nothing until the person connects again.
-    const code: DelegationRefusal = refusal.solus_refusal === 'grant_revoked' ? 'GRANT_REVOKED' : status === 403 ? 'ORGANIZATION_AUTHORITY_MISSING' : 'ORGANIZATION_ACCESS_REFUSED'
-    log.info('delegation_refused', { userId, scope: scopeKey(scope), grantType: form.grant_type, status, error: refusal.error, code, reason: refusal.error_description ?? null })
-    if (form.grant_type === 'refresh_token') {
-      const held = this.load().get(keyOf(userId, scope))
-      // A delegation established again while this refresh ran is not this one. The work
-      // ends first, while the sessions acting for the person are still known, then the delegation goes.
-      if (held?.refreshToken === form.refresh_token) {
-        this.deps.onRevoked(userId, scope, code)
-        this.forget(userId, scope)
-      }
+    // A delegation made again while this ran is not this one.
+    const isCurrent = this.load().get(keyOf(userId, scope)) === held
+    if (reason === 'no_delegation') {
+      log.info('delegation_missing', { userId, scope: scopeKey(scope) })
+      if (isCurrent) this.forget(userId, scope)
+      return new DelegationError('ORGANIZATION_AUTHORITY_MISSING', refusal.error_description ?? 'Solus does not let this machine act for you here yet. Reconnect and send again.')
+    }
+    const code = refusalCode(refusal, status)
+    log.info('delegation_refused', { userId, scope: scopeKey(scope), status, error: refusal.error, refusal: reason, code })
+    // The work ends first, while the sessions acting for the person are still known, then the delegation goes.
+    if (isCurrent) {
+      this.deps.onRevoked(userId, scope, code)
+      this.forget(userId, scope)
     }
     const fallback = code === 'GRANT_REVOKED'
       ? 'The sign-in that let this machine act for you has ended. Sign in to Solus again.'
@@ -433,14 +424,26 @@ export class Delegations {
 
   private load(): Map<string, Held> {
     if (this.held) return this.held
-    const stored = secretStore().loadJson(SECRET_KEY, electronPath(), storedSchema)
-    this.held = new Map((stored?.delegations ?? []).map(({ userId, scope, grantId, refreshToken }) => [keyOf(userId, scope), { userId, scope, grantId, refreshToken, tokens: new Map(), lock: Promise.resolve() }]))
+    let stored: z.infer<typeof recordSchema> | null = null
+    try {
+      if (existsSync(recordPath())) {
+        const parsed = recordSchema.safeParse(JSON.parse(readFileSync(recordPath(), 'utf8')))
+        stored = parsed.success ? parsed.data : null
+      }
+    } catch (error) {
+      log.warn('delegation_record_unreadable', { error: error instanceof Error ? error.message : String(error) })
+    }
+    this.held = new Map((stored?.delegations ?? []).map(({ userId, scope, grantId }) => [keyOf(userId, scope), { userId, scope, grantId, tokens: new Map(), asking: new Map() }]))
     return this.held
   }
 
+  /** Whom this host acts for, and nothing secret. */
   private save(): void {
-    const delegations = [...this.load().values()].map(({ userId, scope, grantId, refreshToken }) => ({ userId, scope, grantId, refreshToken }))
-    secretStore().saveJson(SECRET_KEY, electronPath(), { version: 3, delegations })
+    const delegations = [...this.load().values()].map(({ userId, scope, grantId }) => ({ userId, scope, grantId }))
+    const path = recordPath()
+    mkdirSync(dataDir(), { recursive: true })
+    writeFileSync(`${path}.tmp`, JSON.stringify({ version: 4, delegations }))
+    renameSync(`${path}.tmp`, path)
   }
 
   private now(): number {
@@ -448,8 +451,22 @@ export class Delegations {
   }
 }
 
-function electronPath(): string {
-  return join(dataDir(), 'delegations.bin')
+function recordPath(): string {
+  return join(dataDir(), RECORD_FILE)
+}
+
+function notRegistered(): DelegationError {
+  return new DelegationError('ORGANIZATION_API_UNAVAILABLE', 'This machine is not registered to a Solus account. Sign in to Solus on this machine to run organization work.')
+}
+
+/**
+ * What a refusal means: the client grant ended, or the person may not work here in
+ * that scope. A 403 that names no reason is an answer, not an outage: trying again
+ * changes nothing until the person connects again.
+ */
+function refusalCode(refusal: Refusal, status: number): DelegationRefusal {
+  if (refusal.solus_refusal === 'grant_revoked') return 'GRANT_REVOKED'
+  return status === 403 && !refusal.solus_refusal ? 'ORGANIZATION_AUTHORITY_MISSING' : 'ORGANIZATION_ACCESS_REFUSED'
 }
 
 /**

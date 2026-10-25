@@ -29,7 +29,7 @@ export const UNREACHABLE = 'This host cannot be reached now.'
 
 /** The connection for a command, which needs the host now. */
 export function connectedHost(connection: HostConnection | null): HostConnection {
-  if (!connection || connection.state.phase !== 'connected') throw new Error('Connect to this host to make this change.')
+  if (!connection || connection.state.readiness !== 'ready') throw new Error('Connect to this host to make this change.')
   return connection
 }
 
@@ -167,7 +167,7 @@ export class HostReads {
       next = { kind: 'loaded', value: kept(await run(connection, previous, show)) }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      next = { kind: 'error', message, githubAuth: isGithubAuthError(message), offline: connection.state.phase !== 'connected', previous }
+      next = { kind: 'error', message, githubAuth: isGithubAuthError(message), offline: connection.state.readiness !== 'ready', previous }
     }
     running = false
     if (!isCurrent()) return

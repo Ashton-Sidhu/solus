@@ -13,6 +13,7 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'setActivityBadge',
   'onActivityAcknowledged',
   'logNotificationSound',
+  'logShareDialog',
   'setQuoteContext',
   'onQuoteSelection',
   'onAskSelectionInNewSession',

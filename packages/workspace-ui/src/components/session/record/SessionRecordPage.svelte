@@ -10,10 +10,8 @@
   import * as Empty from "../../ui/empty";
   import { Skeleton } from "../../ui/skeleton";
   import { Button } from "../../ui/button";
-  import { serverConnections } from "@solus/client-core/server-connections";
-  import { connectedRunnerFor, savedRunnerFor } from "@solus/client-core/session-runner";
-  import { RUNNER_CONNECTING_NOTE, RUNNER_OFFLINE_REASON } from "../lib/session-home";
-  import { recordRunnerState, sessionRecordHeader, type RecordRunnerState } from "./lib/session-record-page";
+  import { savedRunnerFor } from "@solus/client-core/session-runner";
+  import { recordRunner, sessionRecordHeader } from "./lib/session-record-page";
   import RecordTranscript from "./RecordTranscript.svelte";
 
   /**
@@ -48,26 +46,19 @@
   // client reaches the runner the record names, now or once it connects, open the
   // live conversation there in its place. While it dials, the page says so.
   const runnerHostId = $derived(record?.runnerHostId ?? null);
-  let runnerServerId = $state<string | null>(null);
-  let runnerState = $state<RecordRunnerState>("away");
   // A runner that answered but could not open the session leaves the record read only, not "Connecting".
   let revealFailed = $state(false);
-  $effect(() => {
-    const hostId = runnerHostId;
-    const find = () => {
-      runnerServerId = hostId ? connectedRunnerFor(hostId) : null;
-      const savedId = hostId ? savedRunnerFor(hostId) : null;
-      runnerState = recordRunnerState(savedId, savedId ? serverConnections.phaseFor(savedId) : undefined);
-    };
-    find();
-    const stopStatus = serverConnections.onPhaseChange(find);
-    const stopPhase = serverConnections.onPhaseChange(find);
-    return () => {
-      stopStatus();
-      stopPhase();
-    };
-  });
-  const waitsForRunner = $derived(live === undefined && runnerState === "connecting" && !revealFailed);
+  const savedRunnerId = $derived(runnerHostId ? savedRunnerFor(runnerHostId, serversStore.remotes) : null);
+  const savedRunnerState = $derived(savedRunnerId ? serversStore.readinessFor(savedRunnerId) : null);
+  const runnerServerId = $derived(savedRunnerState?.readiness === "ready" ? savedRunnerId : null);
+  const runner = $derived(
+    recordRunner(
+      savedRunnerId && savedRunnerState
+        ? { label: serversStore.hostFor(savedRunnerId)?.label ?? "the machine that runs this session", state: savedRunnerState }
+        : null,
+    ),
+  );
+  const waitsForRunner = $derived(live === undefined && runner.waits && !revealFailed);
   // No chip until the record says which runner it waits on: "Read only" before then would be a guess.
   const showsRecordState = $derived(live !== true && live !== null && !loading);
   const liveServerId = $derived(
@@ -112,7 +103,7 @@
       <span class="flex-1"></span>
     {/if}
     {#if showsRecordState}
-    <span class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-(--solus-container-border) px-2.5 text-[0.875em] text-(--solus-text-tertiary)" title={composer ? "Saved transcript from Solus cloud" : waitsForRunner ? RUNNER_CONNECTING_NOTE : RUNNER_OFFLINE_REASON} data-testid="session-record-state">
+    <span class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-(--solus-container-border) px-2.5 text-[0.875em] text-(--solus-text-tertiary)" title={composer ? "Saved transcript from Solus cloud" : runner.note} data-testid="session-record-state">
       {#if composer || waitsForRunner}<CloudIcon size={12} />{:else}<LockIcon size={12} />{/if}
       {composer ? "Cloud transcript" : waitsForRunner ? "Connecting" : "Read only"}
     </span>
@@ -204,8 +195,8 @@
   <div class="px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom,0px))]" data-testid="session-record-composer">
     <div class="mx-auto flex max-w-(--solus-reading-max) items-center gap-3 rounded-2xl border border-(--solus-container-border) bg-(--solus-container-bg) px-4 py-3 text-(--solus-text-tertiary)" aria-disabled="true">
       {#if waitsForRunner}<CloudIcon size={14} class="shrink-0" />{:else}<CloudOffIcon size={14} class="shrink-0" />{/if}
-      <span class="min-w-0 flex-1 truncate" data-testid="session-record-composer-note">{waitsForRunner ? RUNNER_CONNECTING_NOTE : RUNNER_OFFLINE_REASON}</span>
-      <Button size="icon-sm" variant="ghost" disabled aria-label="Send" title={waitsForRunner ? RUNNER_CONNECTING_NOTE : RUNNER_OFFLINE_REASON}>
+      <span class="min-w-0 flex-1 truncate" data-testid="session-record-composer-note">{runner.note}</span>
+      <Button size="icon-sm" variant="ghost" disabled aria-label="Send" title={runner.note}>
         <SendIcon size={14} />
       </Button>
     </div>

@@ -3,7 +3,7 @@
   /** Where a host stands, at a glance — each summary row is a way into the tab
    *  that can actually change it. */
   import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
-  import { hostStatusLabel, serversStore, uplinkStore, type ServerItem } from "../../contexts";
+  import { serversStore, uplinkStore, type ServerItem } from "../../contexts";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";
@@ -27,7 +27,7 @@
   const uplink = $derived(uplinkStore.statusFor(host.id));
   const reachability = $derived(
     [
-      hostStatusLabel(serversStore.statusFor(host.id)),
+      serversStore.readinessLabelFor(host.id),
       setup.lastCheckedAt ? `checked ${relativeTime(setup.lastCheckedAt)}` : null,
     ]
       .filter(Boolean)
@@ -40,13 +40,13 @@
   );
 
   /**
-   * Two questions, and the row answers both: the transport probe is what decides
-   * online/offline, and readiness is what the rest of the page is drawn from.
+   * Two questions, and the row answers both: a dial now decides whether the host
+   * answers, and its setup is what the rest of the page is drawn from.
    */
   async function testConnection() {
     testing = true;
     try {
-      await serversStore.checkReachable(host.id);
+      await serversStore.connectNow(host.id);
       await setup.refreshReadiness();
     } finally {
       testing = false;

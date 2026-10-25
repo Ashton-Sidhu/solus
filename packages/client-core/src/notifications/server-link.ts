@@ -13,12 +13,12 @@ export function serverNotificationLink(source: NotificationSource, connections: 
   if (source.kind === 'organization') connections.retain(serverId)
   // The initial read can already be queued on the first connection. Only a
   // later acceptance is a reconnect that requires another snapshot.
-  let hasConnected = connections.phaseFor(serverId) === 'connected'
+  let hasConnected = connections.readinessFor(serverId).readiness === 'ready'
   return {
     api: connections.apiFor(serverId),
     onChanged: (listener) => connections.eventsFor(serverId).subscribe('notifications.changed', () => listener()),
-    onReconnected: (listener) => connections.onPhaseChange((changedServerId, phase) => {
-      if (changedServerId !== serverId || phase !== 'connected') return
+    onReconnected: (listener) => connections.onReadinessChange((changedServerId, readiness) => {
+      if (changedServerId !== serverId || readiness !== 'ready') return
       listener(!hasConnected)
       hasConnected = true
     }),

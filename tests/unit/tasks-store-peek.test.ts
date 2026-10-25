@@ -15,7 +15,7 @@ const connections = runes.module('server-connections', `
   export const serverConnections = {
     connectedServerIds: () => [],
     onConnectionCreated: () => () => {},
-    onPhaseChange: () => () => {},
+    onReadinessChange: () => () => {},
     defaultServerId: () => 'local',
     apiFor: () => ({
       tasksGet: async (id) => {
@@ -26,12 +26,14 @@ const connections = runes.module('server-connections', `
   }
 `)
 const stub = (name: string, source: string) => runes.module(name, source)
+const taskSnoozes = stub('task-snoozes', 'export const taskSnoozesStore = { start: () => {}, get: () => null }')
 const task = runes.source('task', 'packages/workspace-ui/src/contexts/tasks/task.svelte.ts', {
   '@solus/client-core/server-connections': connections,
   '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
   './task-reconcile': file('packages/workspace-ui/src/contexts/tasks/task-reconcile.ts'),
   './upstream-task-details': file('packages/workspace-ui/src/contexts/tasks/upstream-task-details.ts'),
   './task-title-regeneration': file('packages/workspace-ui/src/contexts/tasks/task-title-regeneration.ts'),
+  './task-snoozes.store.svelte': taskSnoozes,
 })
 const store = runes.source('tasks-store', 'packages/workspace-ui/src/contexts/tasks/tasks.store.svelte.ts', {
   'svelte/reactivity': file('node_modules/svelte/src/reactivity/index-client.js'),
@@ -45,6 +47,7 @@ const store = runes.source('tasks-store', 'packages/workspace-ui/src/contexts/ta
   '../connections/organization-selection.store.svelte': stub('organization-selection', 'export const organizationSelection = { activeOrganizationId: null }'),
   '../projects/projects.store.svelte': stub('projects', 'export const projectsStore = { projectKeyFor: (_s, key) => key, checkoutsOf: () => [] }'),
   './task.svelte': task,
+  './task-snoozes.store.svelte': taskSnoozes,
 })
 const fixture = runes.module('fixture', `
   import { flushSync } from 'svelte'

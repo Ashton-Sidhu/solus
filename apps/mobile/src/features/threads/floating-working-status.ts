@@ -1,5 +1,4 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/floating-working-status.ts (MIT, see UPSTREAM.md).
-import type { HostConnectionPhase } from '../hosts/host-connections'
 
 /** A control the pill carries beside its label. */
 export interface FloatingStatusAction {
@@ -10,9 +9,9 @@ export interface FloatingStatusAction {
 }
 
 /**
- * What the floating pill says. Connection, syncing, and working share one
- * element so the label swaps in place instead of one pill fading out for
- * another. The connection variant is tappable and retries the host.
+ * What the floating pill says. Syncing, working, and the other states share
+ * one element so the label swaps in place instead of one pill fading out for
+ * another.
  */
 export type FloatingWorkingStatus =
   | { readonly kind: 'working'; readonly startedAt: number }
@@ -21,44 +20,6 @@ export type FloatingWorkingStatus =
   | { readonly kind: 'background'; readonly label: string; readonly accessibilityLabel: string; readonly waiting: boolean; readonly action: FloatingStatusAction }
   // A new session the host has not started yet.
   | { readonly kind: 'preparing'; readonly label: string }
-  | { readonly kind: 'connection'; readonly tone: 'reconnecting' | 'unavailable'; readonly label: string; readonly onPress: () => void }
-
-/**
- * The pill's connection variant, or null once the host is connected and the
- * pill is free to report sync and working state instead. A T3 "environment"
- * is a Solus host.
- */
-export function connectionFloatingStatus(input: {
-  readonly connectionState: HostConnectionPhase | null
-  readonly hostLabel: string | null
-  readonly onReconnect: () => void
-}): FloatingWorkingStatus | null {
-  const hostLabel = input.hostLabel ?? 'Host'
-  const unavailable = (label: string): FloatingWorkingStatus => ({
-    kind: 'connection',
-    tone: 'unavailable',
-    label,
-    onPress: input.onReconnect,
-  })
-
-  switch (input.connectionState) {
-    case 'connecting':
-    case 'reconnecting':
-      return { kind: 'connection', tone: 'reconnecting', label: `Reconnecting to ${hostLabel}...`, onPress: input.onReconnect }
-    case 'offline':
-      return unavailable(`${hostLabel} is offline`)
-    case 'blocked':
-      return unavailable(`${hostLabel} does not accept this device`)
-    case 'waiting-for-compute':
-      return unavailable(`${hostLabel} is not running`)
-    case 'no-route':
-      return unavailable(`${hostLabel} has no address yet`)
-    case null:
-      return unavailable(`${hostLabel} is not connected`)
-    case 'connected':
-      return null
-  }
-}
 
 /**
  * The pill while the turn has ended but work it started still runs. Its Stop

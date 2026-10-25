@@ -26,6 +26,7 @@ import type {
 } from '@solus/contracts/task-types'
 import type { ReviewGuide } from '@solus/contracts/review'
 import type { CheckItem } from '@solus/contracts/checks-types'
+import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import type {
   ChangedFileStat,
   GitState,
@@ -68,6 +69,8 @@ export interface DemoFixtures {
     filePatches: Record<string, string>
     /** The required checks on the head commit. Absent means the repository has no CI. */
     checks?: CheckItem[]
+    /** The pull requests each session works on, as PR sync last saw them. */
+    sessionLinks?: Record<string, SessionPullRequestLink[]>
   }
   tasks: {
     list: TaskListResult

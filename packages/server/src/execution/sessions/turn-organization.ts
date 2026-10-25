@@ -108,7 +108,7 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
   if (pending) return pending.organizationId
   if (record && !forked) {
     // A continuation keeps its saved home. An organization session on the Solus API
-    // is the host acting for the person, and every token refresh checks them again,
+    // is the host acting for the person, and every token the host asks for checks them again,
     // so a removed membership or attachment stops new work.
     if (isOrganizationWork(record)) {
       await actForPerson(principal, deps, { sessionId, organizationId: record.organizationId, admit: false })

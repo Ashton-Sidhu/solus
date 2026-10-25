@@ -6,7 +6,7 @@ import { workspaceRecordMethods } from '@solus/client-core/workspace-records'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import type { HostEvent } from '@solus/contracts/host-events'
-import { SOLUS_PROTOCOL, type HandshakeCredential, type HostKind, type SocketHandshake } from '@solus/contracts/uplink'
+import { type HandshakeCredential, type HostKind, type SocketHandshake } from '@solus/contracts/uplink'
 import type { LabIssuer } from './issuer'
 import type { Persona } from './personas'
 
@@ -140,7 +140,7 @@ export class LabClient {
 
   /** Dials with the credential given (a scenario may present one by hand). */
   dial(credential: HandshakeCredential | undefined): Promise<DialOutcome> {
-    const handshake: SocketHandshake = credential ? { protocol: SOLUS_PROTOCOL, credential, clientInstanceId: this.clientInstanceId } : { protocol: SOLUS_PROTOCOL, clientInstanceId: this.clientInstanceId }
+    const handshake: SocketHandshake = credential ? { credential, clientInstanceId: this.clientInstanceId } : { clientInstanceId: this.clientInstanceId }
     this.disconnectedAt = null
     const socket = io(this.options.hostUrl, {
       path: '/ws',

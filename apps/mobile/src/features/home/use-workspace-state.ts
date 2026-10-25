@@ -27,7 +27,7 @@ export function useWorkspaceState(): WorkspaceState {
     const state = deriveWorkspaceState(
       app.registry.hosts().map((host) => ({
         label: host.label,
-        phase: app.connections.state(host.id)?.phase,
+        readiness: app.connections.readiness(host.id).readiness,
         threads: app.threads.stateOf(host.id),
         isPreparing: app.connections.isPreparing(host.id),
       })),

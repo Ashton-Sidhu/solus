@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ClipboardCheck as ClipboardCheckIcon,
     CloudOff as CloudOffIcon,
     Laptop as LaptopIcon,
     LoaderCircle as SpinnerGapIcon,
@@ -16,7 +17,6 @@
   import PresenceStack from "../presence/PresenceStack.svelte";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
-  import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
   import UnreadDot from "./UnreadDot.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
@@ -300,9 +300,8 @@
                 ? "Review guide ready"
                 : "Generating review guide"}
             >
-              <ReviewGuideGlyph
+              <ClipboardCheckIcon
                 size={14}
-                weight={mark.state === "ready" ? "fill" : undefined}
                 class={mark.state === "ready"
                   ? ""
                   : "animate-pulse [animation-duration:1.4s] motion-reduce:animate-none"}

@@ -124,6 +124,7 @@ export const RESOURCE_LOCATORS = {
   promptHeadlessSession: sessionFieldAt(0, 'sessionId'),
   stopSession: sessionIdAt(0),
   stopBackgroundTasks: sessionIdAt(0),
+  continueSetupLocally: sessionIdAt(0),
   resetSession: ctxAt(0),
   acceptPlan: ctxAt(0),
   switchSessionAgent: sessionIdAt(0),

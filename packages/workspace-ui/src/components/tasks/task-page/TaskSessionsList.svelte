@@ -107,7 +107,7 @@
       const stopServerId =
         executionServerId &&
         hosts.hasExecution(executionServerId) &&
-        serversStore.statusFor(executionServerId) === "online"
+        serversStore.readinessFor(executionServerId).readiness === "ready"
           ? executionServerId
           : null;
       // A session runs on one machine, and only a client connected to it can

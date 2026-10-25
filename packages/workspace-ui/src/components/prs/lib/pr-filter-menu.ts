@@ -1,5 +1,5 @@
 import {
-  BookOpenText as BookOpenTextIcon,
+  ClipboardCheck as GuideIcon,
   CircleCheck as ChecksIcon,
   CircleDashed as PendingIcon,
   CircleSlash as NoReviewIcon,
@@ -196,7 +196,7 @@ export function prFilterGroups(
       },
     },
     {
-      key: 'guide', label: 'Review guide', icon: BookOpenTextIcon,
+      key: 'guide', label: 'Review guide', icon: GuideIcon,
       value: listView.guide ?? 'all', valueLabel: listView.guide === 'has-guide' ? 'Has guide' : 'All',
       active: listView.guide === 'has-guide',
       options: [{ value: 'all', label: 'All pull requests' }, { value: 'has-guide', label: 'Has review guide' }],

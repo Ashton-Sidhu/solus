@@ -217,6 +217,27 @@ export const PERSONAL_SETTING_KEYS = Object.keys(PERSONAL_SETTING_SCHEMAS) as re
 export const personalSettingsDocumentSchema = personalSettingsSchema.partial().strict()
 export type PersonalSettingsDocument = z.output<typeof personalSettingsDocumentSchema>
 
+// ─── Agent access to personal settings ───
+
+/**
+ * An agent runs on a host, and only the person's clients hold their settings.
+ * So the host asks a client of that person to read or change them, on the
+ * socket (a host→client request answered on its ack). The client applies a
+ * change as a local edit, and its sync sends it on like any other.
+ */
+export const AGENT_PERSONAL_SETTINGS_REQUEST = 'personalSettings.agentRequest'
+
+/** A request without a patch reads the settings. */
+export const agentPersonalSettingsRequestSchema = z.object({ patch: personalSettingsDocumentSchema.optional() }).strict()
+export type AgentPersonalSettingsRequest = z.output<typeof agentPersonalSettingsRequestSchema>
+
+/** The person's settings after the request, defaults filled in, or why the client refused. */
+export const agentPersonalSettingsReplySchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), settings: personalSettingsDocumentSchema }),
+  z.object({ ok: z.literal(false), error: z.string().max(500) }),
+])
+export type AgentPersonalSettingsReply = z.output<typeof agentPersonalSettingsReplySchema>
+
 /** The saved lens included by default on every client. */
 export const SHOW_ME_LENS: SavedLens = {
   id: 'show-me',

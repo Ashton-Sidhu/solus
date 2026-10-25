@@ -7,8 +7,6 @@ import {
   type ManagedHostLifecycle,
   type UplinkDirectory,
   type UplinkEnrollmentTicket,
-  SOLUS_PROTOCOL,
-  SOLUS_PROTOCOL_HEADER,
 } from '@solus/contracts/uplink'
 import type { z } from 'zod'
 import { settingsCloudRequests, type SettingsCloudRequests } from '@solus/client-core/settings-requests'
@@ -95,7 +93,7 @@ export class CloudAccountClient {
     return (async () => {
       const token = await accessToken()
       if (!token) return 'signed-out'
-      const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}`, [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL) })
+      const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
       if (request.body) headers.set('content-type', 'application/json')
       let response: Response
       try {
@@ -118,7 +116,7 @@ export class CloudAccountClient {
     try {
       response = await this.fetchImpl(`${this.origin}${path}`, {
         ...init,
-        headers: { accept: 'application/json', authorization: `Bearer ${accessToken}`, [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL), ...init.headers },
+        headers: { accept: 'application/json', authorization: `Bearer ${accessToken}`, ...init.headers },
         signal: AbortSignal.timeout(15_000),
       })
     } catch {

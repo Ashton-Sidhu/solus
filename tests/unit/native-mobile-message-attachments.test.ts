@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveMarkdownFileIcon } from '../../apps/mobile/src/lib/markdownLinks'
-import { splitAttachedFiles as desktopSplit } from '@solus/workspace-ui/contexts/workspace/session.utils'
+import { splitSentAttachments as desktopSplit } from '@solus/workspace-ui/contexts/workspace/session.utils'
 import {
   attachmentTypeLabel,
   promptImageAttachments,

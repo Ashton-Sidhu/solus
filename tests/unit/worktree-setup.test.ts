@@ -99,3 +99,25 @@ test('cancellation during file preparation removes the owned checkout and branch
     copy.mockRestore()
   }
 })
+
+test('a stale local origin base starts the checkout at once and ends at the fetched commit', async () => {
+  const upstream = repository()
+  const clone = mkdtempSync(join(tmpdir(), 'solus-worktree-clone-'))
+  directories.push(clone)
+  git(['clone', '--quiet', upstream, clone], tmpdir())
+  git(['config', 'user.name', 'Test'], clone)
+  git(['config', 'user.email', 'test@example.invalid'], clone)
+  // The base moves after the clone, so the local `origin/main` is old.
+  writeFileSync(join(upstream, 'new.txt'), 'new\n')
+  git(['add', 'new.txt'], upstream)
+  git(['commit', '-m', 'Newer'], upstream)
+  const latest = git(['rev-parse', 'HEAD'], upstream).trim()
+
+  const checkout = await createWorktree(clone, 'main')
+  directories.push(checkout.worktreePath!)
+
+  expect(git(['rev-parse', 'HEAD'], checkout.worktreePath!).trim()).toBe(latest)
+  expect(git(['rev-parse', checkout.branch!], clone).trim()).toBe(latest)
+  expect(readFileSync(join(checkout.worktreePath!, 'new.txt'), 'utf8')).toBe('new\n')
+  expect(git(['status', '--porcelain'], checkout.worktreePath!).trim()).toBe('')
+})

@@ -112,7 +112,7 @@
   // conversation, and the runner is the one that can open it.
   const sessionHomes: SessionHomeHosts = {
     isSolusApi: isSolusApiId,
-    isConnected: (serverId) => !!serverId && serverConnections.phaseFor(serverId) === "connected",
+    isConnected: (serverId) => !!serverId && serverConnections.readinessFor(serverId).readiness === "ready",
   };
   const conversationHits = $derived(
     mergeSessionHomes(

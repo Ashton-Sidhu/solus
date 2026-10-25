@@ -6,7 +6,7 @@ import type {
   BrowserEvidence,
   BrowserPage,
 } from '@solus/contracts/browser-types'
-import { composeAnnotationPrompt } from './annotation-prompt'
+import { composeAnnotationPrompt, MARKS_HEADING } from './annotation-prompt'
 
 export interface AnnotationAttachmentInput {
   page: BrowserPage
@@ -152,14 +152,13 @@ export function mergeAnnotationAttachment(
     markLines(currentData.annotationContext).map((line) => ({ id: line.split('.')[0]!, line })),
     markLines(incomingData.annotationContext).map((line) => ({ id: line.split('.')[0]!, line })),
   ).map(({ line }) => line)
-  const heading = 'Marks, numbered as they appear in the image:'
   const incomingContext = incomingData.annotationContext ?? currentData.annotationContext
-  const contextPrefix = incomingContext?.split(`\n${heading}`)[0]
+  const contextPrefix = incomingContext?.split(`\n${MARKS_HEADING}`)[0]
   const annotationContext = contextPrefix && lines.length
     ? [
         contextPrefix,
         '',
-        heading,
+        MARKS_HEADING,
         ...lines,
       ].join('\n')
     : incomingContext

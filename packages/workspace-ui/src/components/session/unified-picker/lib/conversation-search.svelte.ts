@@ -346,7 +346,7 @@ export interface TaskCommentHosts {
 
 const taskHosts: TaskCommentHosts = {
   serverIds: () => serverConnections.connectedServerIds().filter(
-    (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hosts.hasCollaboration(serverId),
+    (serverId) => serverConnections.readinessFor(serverId).readiness === 'ready' && hosts.hasCollaboration(serverId),
   ),
   apiFor: (serverId) => serverConnections.apiFor(serverId),
 }

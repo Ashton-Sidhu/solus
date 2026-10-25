@@ -179,8 +179,27 @@ function commandRows(input: RowInput): MenuRow[] {
   return matches.map((match) => itemRow(match, false, "cmd"));
 }
 
+/** A file row shows its name as the title and its folder as the meta. A
+ *  Windows host sends `\` separators, so the split accepts both. */
+export function fileMenuItem(path: string, isDir: boolean, directoryPath?: string): MenuItem {
+  const trimmed = path.replace(/[\\/]$/, "");
+  const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  const name = trimmed.slice(cut + 1);
+  return {
+    id: `file:${path}`,
+    title: isDir ? `${name}/` : name,
+    meta: trimmed.slice(0, cut + 1),
+    when: "",
+    icon: isDir ? GLYPH.folder : GLYPH.file,
+    mono: true,
+    monoMeta: true,
+    token: { kind: "file", path, name },
+    directoryPath,
+  };
+}
+
 function fileRankQuery(query: string): string {
-  const slash = query.lastIndexOf("/");
+  const slash = Math.max(query.lastIndexOf("/"), query.lastIndexOf("\\"));
   return slash >= 0 ? query.slice(slash + 1) : query;
 }
 

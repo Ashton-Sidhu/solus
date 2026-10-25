@@ -59,8 +59,8 @@ const CATALOG_DELAY_MS = 250
  */
 export function useIntegrations(hostId: string) {
   const app = useApp()
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
-  const connected = phase === 'connected'
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
+  const connected = readiness === 'ready'
   const [list, setList] = useState<IntegrationListState>({ kind: 'loading' })
   const [connections, setConnections] = useState<ConnectionListState>({ kind: 'loading' })
   /** The person's accounts after the first, by integration (§13.3). */
@@ -497,8 +497,8 @@ export function useIntegrations(hostId: string) {
  */
 export function useIntegrationConnect(hostId: string) {
   const app = useApp()
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
-  const connected = phase === 'connected'
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
+  const connected = readiness === 'ready'
   const accountUserId = useListened(app.account.changes, () => (app.account.view.kind === 'signed-in' ? app.account.view.identity.sub : null))
   const [flows, setFlows] = useState<ReadonlyMap<string, ConnectFlowState>>(new Map())
   /** The same flows, read at once by the event handlers and the commands. */

@@ -3,7 +3,7 @@
   import { worktreeProjectRoot } from "@solus/contracts/types";
   import { getAgentContext, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
-  import { Check as CheckIcon, CircleAlert as WarningCircleIcon, Map as MapIcon } from "@lucide/svelte";
+  import { Check as CheckIcon, CircleAlert as WarningCircleIcon, ClipboardCheck as ClipboardCheckIcon } from "@lucide/svelte";
   import TranscriptCard from "../conversation/TranscriptCard.svelte";
   import { reviewGuideStore, type ReviewGuideIdentity } from "./review-guide.store.svelte";
   import { reviewGuideCardPresentation, reviewGuideCardSubtitle } from "./lib/review-guide-card";
@@ -111,7 +111,7 @@
     {#if isWorking}<span class="activity-spinner"></span>
     {:else if isReady}<CheckIcon />
     {:else if presentation.canRetry && status}<WarningCircleIcon />
-    {:else}<MapIcon />{/if}
+    {:else}<ClipboardCheckIcon />{/if}
   {/snippet}
   {#snippet menu()}
     <span class="px-2.5 py-1.5 text-transcript-meta text-muted-foreground">{subtitle}</span>

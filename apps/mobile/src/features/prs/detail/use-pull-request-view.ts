@@ -19,7 +19,7 @@ export function usePullRequestView(ref: PullRequestRef) {
   const app = useApp()
   const state = useListened(app.pullRequests.changes, () => app.pullRequests.detailOf(ref))
   const viewerLogin = useListened(app.pullRequests.changes, () => shownValue(app.pullRequests.hostOf(ref.hostId))?.viewerLogin ?? null)
-  const connected = useListened(app.connections.changes, () => app.connections.state(ref.hostId)?.phase === 'connected')
+  const connected = useListened(app.connections.changes, () => app.connections.state(ref.hostId)?.readiness === 'ready')
   const detail = shownValue(state)
   const pr = detail?.overview.pullRequest ?? null
   const permissions = useMemo(() => pullRequestPermissions(pr, viewerLogin, connected), [pr, viewerLogin, connected])

@@ -1,5 +1,5 @@
 import { arg, optionalArg } from './args'
-import type { Task, TaskCreateInput, TaskDetails, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskSnooze, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type { Task, TaskCreateInput, TaskDetails, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskSidebarPrLink, TaskSnooze, TaskUpdatePatch } from '@solus/contracts/task-types'
 import { type DemoServer } from '../fixtures/types'
 import { DEMO_USER, type DemoStore } from '../store'
 
@@ -60,9 +60,22 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
   // The demo's comments are an upstream provider's, which a host does not
   // store or search (docs/plans/unified-search.md, Known differences).
   backend.register('tasksSearchComments', () => [])
+  // A host answers a task's pull requests with the links its sessions own.
   backend.register('tasksSidebarSnapshot', () => ({
     tasks: store.listTasks().tasks,
     sessionsByTask: store.taskSessions(),
+    prLinkListsByTask: Object.fromEntries(Object.entries(store.taskSessions()).map(([taskId, sessions]) => [
+      taskId,
+      sessions.flatMap(({ sessionId }) => store.sessionPullRequests(sessionId)).map((link): TaskSidebarPrLink => ({
+        number: link.number,
+        title: link.title,
+        targetScope: link.repository,
+        url: link.url,
+        createdBy: { kind: 'system' },
+        ownerSessionId: link.sessionId,
+        ...(link.snapshot ? { snapshot: link.snapshot } : {}),
+      })),
+    ])),
   }))
   backend.register('tasksGet', (args) => taskDetails(store, arg<string>(args, 0)))
   backend.register('tasksSessions', (args) => {

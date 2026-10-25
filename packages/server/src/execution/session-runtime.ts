@@ -39,6 +39,7 @@ import { SessionStatuses } from './sessions/session-statuses'
 import { ProviderEvents } from './sessions/provider-events'
 import { InputRequests } from './sessions/input-requests'
 import { RunLauncher } from './sessions/run-launcher'
+import type { RepositoryRun } from './sessions/dispatch-repository'
 import { SessionWatchers } from './sessions/session-watchers'
 import { SessionHistory } from './sessions/session-history'
 import { ProviderHandoffs } from './sessions/provider-handoffs'
@@ -103,6 +104,9 @@ export interface SessionRunRequest {
   /** Who asked and whose provider seat the turn runs on (Step 2 plan §3.3). Unset
    *  for the host's own work: automations, agent follow-ups, and local prompts. */
   actor?: Actor
+  /** The repository to copy before the run starts: a Run on send to a host
+   *  that has no checkout yet. Kept only in memory, as it can hold a credential. */
+  repository?: RepositoryRun
 }
 
 interface SessionRuntimeOptions {

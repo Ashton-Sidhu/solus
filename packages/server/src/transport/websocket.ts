@@ -16,7 +16,7 @@ import { TurnRefusedError } from '../execution/sessions/turn-refusal'
 import { WorkspacePreparingError } from '../host/member-users'
 import { CREDENTIAL_FREE_PRINCIPAL, principalExpiresAt, principalSchema, renewalExpiry, type Principal } from '../admission/principal'
 import type { Doors } from '../admission/doors'
-import { SOLUS_PROTOCOL, UPDATE_REQUIRED, socketHandshakeSchema } from '@solus/contracts/uplink'
+import { socketHandshakeSchema } from '@solus/contracts/uplink'
 import type { TokenVerdict } from '../admission/access-tokens'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
@@ -159,11 +159,10 @@ export function attachWebSocketTransport(
   let closing = false
 
   io.use(async (socket, next) => {
-    const refuse = (message: string): void => next(Object.assign(new Error(message), { data: { code: message === UPDATE_REQUIRED ? UPDATE_REQUIRED : 'UNAUTHORIZED' } }))
-    // A client that does not speak this protocol is told to update (plan §4.6), before anything else is read.
+    const refuse = (message: string): void => next(Object.assign(new Error(message), { data: { code: 'UNAUTHORIZED' } }))
     const parsed = socketHandshakeSchema.safeParse(socket.handshake.auth)
-    if (!parsed.success || parsed.data.protocol !== SOLUS_PROTOCOL) {
-      refuse(UPDATE_REQUIRED)
+    if (!parsed.success) {
+      refuse('unauthorized')
       return
     }
     const handshake = parsed.data

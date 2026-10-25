@@ -191,3 +191,25 @@ export type ShareLinkTarget = z.infer<typeof shareLinkTargetSchema>
 
 export const SHARE_ERROR_CODES = ['FORBIDDEN', 'NOT_FOUND', 'NOT_SHARED', 'SEAT_REQUIRED', 'HOST_NOT_LINKED'] as const
 export type ShareErrorCode = (typeof SHARE_ERROR_CODES)[number]
+
+/**
+ * One step of opening the share dialog, written to the desktop log. Share
+ * sometimes did nothing until a reload while the host answered every
+ * `shareGet`; these rows show which step stopped.
+ */
+export const shareDialogLogSchema = z.object({
+  event: z.enum([
+    'share_dialog_open_requested',
+    'share_dialog_open_skipped_busy',
+    'share_dialog_open_failed',
+    'share_dialog_target_set',
+    'share_dialog_shown',
+    'share_dialog_import_failed',
+    'share_dialog_render_failed',
+  ]),
+  serverId: z.string().optional(),
+  resourceKind: shareResourceKindSchema.optional(),
+  resourceId: z.string().optional(),
+  error: z.string().optional(),
+})
+export type ShareDialogLog = z.infer<typeof shareDialogLogSchema>

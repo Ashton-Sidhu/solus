@@ -150,20 +150,16 @@ export function FloatingWorkingControl(props: {
     return null;
   }
 
-  // The queue, reconnect, and background Stop controls have separate tap targets.
-  const statusInteractive = props.status?.kind === "connection";
-  const capsuleInteractive = statusInteractive || action !== null || hasQueue || hasAgents;
+  // The queue, agents, and background Stop controls have separate tap targets.
+  const capsuleInteractive = action !== null || hasQueue || hasAgents;
   // The host stays centered on the capsule, but its measurement constraint
   // comes from the overlay, independent of the capsule's current width.
   const statusContent =
     props.status !== null ? (
-      <View
-        pointerEvents={props.status.kind === "connection" ? "box-none" : "none"}
-        className="h-11 items-center justify-center"
-      >
+      <View pointerEvents="none" className="h-11 items-center justify-center">
         <Animated.View className="h-11" style={capsuleSizerStyle} />
         <View
-          pointerEvents={statusInteractive ? "box-none" : "none"}
+          pointerEvents="none"
           className="absolute h-11 items-center justify-center"
           style={{ width: labelWidth }}
         >
@@ -344,30 +340,6 @@ function FloatingStatusLabel(props: {
       </StatusLabelRow>
     );
   }
-  if (props.status.kind === "connection") {
-    return (
-      <StatusLabelRow
-        key="connection"
-        accessibilityLabel={props.status.label}
-        accessibilityRole="button"
-        className="gap-2"
-        onLayout={props.onLayout}
-        onPress={props.status.onPress}
-      >
-        {props.status.tone === "reconnecting" ? (
-          <ActivityIndicator size="small" colorClassName="accent-icon-muted" />
-        ) : (
-          <View className="h-2 w-2 rounded-full bg-red-500" />
-        )}
-        <Text
-          className="max-w-[260px] shrink font-t3-medium text-xs text-foreground"
-          numberOfLines={1}
-        >
-          {props.status.label}
-        </Text>
-      </StatusLabelRow>
-    );
-  }
   if (props.status.kind === "background") {
     return (
       <StatusLabelRow
@@ -424,13 +396,10 @@ function FloatingStatusLabel(props: {
 // Absolute rows cross-fade around the same center without affecting each other.
 function StatusLabelRow(props: {
   readonly accessibilityLabel?: string;
-  readonly accessibilityRole?: "button";
   readonly className?: string;
   readonly children: ReactNode;
   readonly onLayout: (event: LayoutChangeEvent) => void;
-  readonly onPress?: () => void;
 }) {
-  const rowClassName = `h-11 flex-row items-center px-4 ${props.className ?? ""}`;
   return (
     <Animated.View
       className="absolute max-w-full"
@@ -438,20 +407,13 @@ function StatusLabelRow(props: {
       exiting={LABEL_EXITING}
       onLayout={props.onLayout}
     >
-      {props.onPress ? (
-        <Pressable
-          accessibilityLabel={props.accessibilityLabel}
-          accessibilityRole={props.accessibilityRole}
-          className={`${rowClassName} active:opacity-70`}
-          onPress={props.onPress}
-        >
-          {props.children}
-        </Pressable>
-      ) : (
-        <View accessible accessibilityLabel={props.accessibilityLabel} className={rowClassName}>
-          {props.children}
-        </View>
-      )}
+      <View
+        accessible
+        accessibilityLabel={props.accessibilityLabel}
+        className={`h-11 flex-row items-center px-4 ${props.className ?? ""}`}
+      >
+        {props.children}
+      </View>
     </Animated.View>
   );
 }

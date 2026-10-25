@@ -10,7 +10,6 @@
   } from "@lucide/svelte";
   import {
     discoveredServerUrl,
-    hostStatusLabel,
     serversStore,
     type ServerItem,
   } from "../../contexts";
@@ -29,9 +28,7 @@
   onMount(() => {
     // Opening Connections is one of the directory's refresh points (C1).
     void serversStore.refreshDirectory();
-    void serversStore.probeHosts().then(() =>
-      hostSetupStore.probeUnprobedOnline(serversStore.executionServers),
-    );
+    void hostSetupStore.probeUnprobedOnline(serversStore.executionServers);
   });
 
   /** Where the host answers, without the scheme: the address is what tells hosts apart. */
@@ -41,8 +38,7 @@
 
   /** The one state worth saying beside a host. A healthy, ready host says nothing. */
   function hostNotice(server: ServerItem): string | null {
-    const status = serversStore.statusFor(server.id);
-    if (status !== "online") return hostStatusLabel(status);
+    if (server.readiness !== "ready") return serversStore.readinessLabelFor(server.id);
     const managedState = managedHostStateLabel(server.uplink);
     if (managedState) return managedState;
     if (
@@ -74,6 +70,7 @@
     {#each serversStore.servers as server (server.id)}
       <button
         type="button"
+        data-host-row={server.id}
         class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors [@media(hover:hover)]:hover:bg-muted"
         onclick={() => connectionsNav.open(server.id)}
       >

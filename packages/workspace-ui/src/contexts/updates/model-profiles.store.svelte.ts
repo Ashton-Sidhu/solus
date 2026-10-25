@@ -5,7 +5,7 @@ import { onServerRemoving } from '@solus/client-core/server-registry'
 import { replaceModelProfiles, type ModelProfilesStatus } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 
-type ModelProfilesConnections = Pick<typeof serverConnections, 'phaseFor' | 'capabilitiesFor' | 'connectedServerIds' | 'onConnectionCreated' | 'onPhaseChange'> & {
+type ModelProfilesConnections = Pick<typeof serverConnections, 'readinessFor' | 'capabilitiesFor' | 'connectedServerIds' | 'onConnectionCreated' | 'onReadinessChange'> & {
   apiFor(serverId: string): Pick<SolusAPI, 'modelProfilesStatus' | 'modelProfilesRefresh'>
 }
 
@@ -34,8 +34,8 @@ export class ModelProfilesStore {
     if (this.started) return
     this.started = true
     subscribeAllHosts('host.modelProfilesChanged', (serverId, status) => this.apply(serverId, status))
-    this.connections.onConnectionCreated((connection) => { if (connection.link.phase === 'connected') void this.load(connection.serverId) })
-    this.connections.onPhaseChange((serverId, status) => { if (status === 'connected') void this.load(serverId) })
+    this.connections.onConnectionCreated((connection) => { if (connection.link.readiness === 'ready') void this.load(connection.serverId) })
+    this.connections.onReadinessChange((serverId, status) => { if (status === 'ready') void this.load(serverId) })
     onServerRemoving((server) => {
       this.statuses.delete(server.id)
       this.errors.delete(server.id)
@@ -47,7 +47,7 @@ export class ModelProfilesStore {
     try {
       if (!(await this.connections.capabilitiesFor(serverId)).modelProfiles) return
       const status = await this.connections.apiFor(serverId).modelProfilesStatus()
-      if (this.connections.phaseFor(serverId) === 'connected') this.apply(serverId, status)
+      if (this.connections.readinessFor(serverId).readiness === 'ready') this.apply(serverId, status)
     } catch {
       // An older host, or a dropped connection: the list in effect stays.
     }

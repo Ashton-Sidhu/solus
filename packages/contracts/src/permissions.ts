@@ -237,7 +237,7 @@ export const RESOURCE_VERB_OF_METHOD = {
   metricsSessionSummary: 'read', setSessionReadState: 'read', togglePinnedSession: 'read',
   // Sessions — driving: turns, cards, the queue, attachments, typing
   prompt: 'drive', compactSession: 'drive', retry: 'drive', decideSessionPlan: 'drive', promptHeadlessSession: 'drive',
-  stopSession: 'drive', stopBackgroundTasks: 'drive', resetSession: 'drive', acceptPlan: 'drive', switchSessionAgent: 'drive',
+  stopSession: 'drive', stopBackgroundTasks: 'drive', continueSetupLocally: 'drive', resetSession: 'drive', acceptPlan: 'drive', switchSessionAgent: 'drive',
   respondPermission: 'drive', respondQuestion: 'drive', rateLimitDecision: 'drive', cancelQueuedPrompt: 'drive',
   editQueuedPrompt: 'drive', sessionQueue: 'drive', sessionQueueChange: 'drive', presenceSetComposing: 'drive',
   writePlanFile: 'drive', attachFiles: 'drive', attachFilePaths: 'drive', attachUpload: 'drive', attachUploadToken: 'drive',

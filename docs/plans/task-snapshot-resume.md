@@ -52,8 +52,11 @@ linked to the changed sessions with one query on `task_session_links`.
 - A change while the client was away: its id is in `changedTaskIds`. The client
   reads that row again, or removes it when the answer does not hold it.
 - A server restart: the boot id is different, so the client gets the whole list.
-- A whole read of all hosts forgets the revision of each host that it did not
-  read, so the next connect of that host is a whole read.
+- Each whole-host response updates that host's tasks, session links, pull
+  request links, and revision as soon as it arrives. Other hosts keep their
+  last rows and revisions while their reads are pending or fail. A slow host
+  cannot hold back a healthy host's rows. If two hosts serve the same task
+  store, catalog order decides ownership, regardless of response order.
 - A linked session that changed while the client was away: its tasks are in
   `changedTaskIds`, so a resume is as fresh as a whole read was.
 - A connected client does not get all of these session changes. Only title and

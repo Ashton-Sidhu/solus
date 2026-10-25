@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import type { FetchLike } from '../admission/access-tokens'
 import { DelegationError, type DelegationScope, type Delegations } from '../sync/delegations'
-import { fetchAccountPlane } from '../host/account-plane'
 
 /**
  * Every read of a person's account goes here (docs/adr/0001-standard-authentication.md
@@ -104,7 +103,7 @@ export class AccountReads {
     const headers = new Headers(init.headers)
     headers.set('authorization', `Bearer ${bearer.token}`)
     try {
-      return await fetchAccountPlane(this.deps.fetchImpl, new URL(path, origin).toString(), {
+      return await (this.deps.fetchImpl ?? fetch)(new URL(path, origin).toString(), {
         ...init,
         headers,
         redirect: 'error',

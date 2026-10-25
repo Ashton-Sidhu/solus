@@ -109,7 +109,7 @@ import { ResponseReceiptBudget } from './transport/response-receipt-cache'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
 import { HostEventPublisher } from './transport/events/host-event-publisher'
 import { BrowserFrameChannel } from './browser/browser-frame-channel'
-import { initDeviceDomain } from './devices/device-domain'
+import { configureDevices, initDeviceDomain } from './devices/device-domain'
 import { runDeviceCommand } from './devices/device-process'
 import { spawnHelper } from './devices/device-helpers'
 import { SshDeviceHost, isLocalSshTarget } from './devices/ssh-device-host'
@@ -167,7 +167,8 @@ import { PrWatcher } from './prs/pr-watcher'
 import { registerAtlassianHandlers } from './transport/handlers/atlassian-handlers'
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
 import { setConnectionConnectNeededListener } from './connections/connection-tools'
-import { setHostConfigChangedListener } from './execution/agents/tools/config-tools'
+import { setConfigToolHost } from './execution/agents/tools/config-tools'
+import { requestPersonalSettings } from './transport/events/agent-personal-settings'
 import { registerBrowserHandlers } from './transport/handlers/browser-handlers'
 import { registerChecksHandlers } from './transport/handlers/checks-handlers'
 import { registerUsageHandlers } from './transport/handlers/usage-handlers'
@@ -962,6 +963,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (!sessionId.trim()) throw new Error('stopBackgroundTasks requires a session id')
     return opts.sessionRuntime.stopBackgroundTasks(sessionId)
   })
+  server.register('continueSetupLocally', async (args) => {
+    const [sessionId] = args
+    if (!sessionId.trim()) throw new Error('continueSetupLocally requires a session id')
+    return opts.sessionRuntime.launcher.continueSetupLocally(sessionId)
+  })
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
   startMetricsRollover(() => getServerSettings().metricsRetentionDays)
@@ -980,8 +986,23 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setAtlassianOAuthCompletedListener((event) => events.broadcast('atlassian.oauthCompleted', event))
   setConnectionConnectNeededListener((request) => events.broadcast('connection.connectNeeded', request))
   // A config write from an agent tool converges every mounted client the same
-  // way one made in Settings does.
-  setHostConfigChangedListener((snapshot) => events.broadcast('config.changed', snapshot))
+  // way one made in Settings does. Personal settings live on the person's
+  // clients, so the tools ask one of them (docs/settings.md).
+  setConfigToolHost({
+    hostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
+    devices: {
+      settings: () => devices.manager.settings(),
+      configure: (request) => configureDevices(devices, request),
+      saveSshHosts: (hosts) => devices.manager.saveSshHosts(hosts),
+    },
+    personalSettings: (sessionId, patch) => requestPersonalSettings({
+      sourceClientIdOf: (id) => opts.sessionRuntime.activeRunRequests.get(id)?.sourceClientId,
+      actorOf: (id) => opts.sessionRuntime.actorOfSession(id),
+      clientIds: () => clientEvents.routableClientIds(),
+      principalOf: (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL,
+      request: (clientId, event, payload, answer, timeoutMs) => ws.request(clientId, event, payload, answer, timeoutMs),
+    }, sessionId, patch),
+  })
   registerProviderHandlers(server, {
     checkouts: opts.sessionRuntime.checkouts,
     dispatcher: opts.sessionRuntime,
@@ -1049,12 +1070,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   server.register('modelProfilesStatus', () => modelProfiles.status)
   server.register('modelProfilesRefresh', () => modelProfiles.refresh())
   modelProfiles.start()
-  registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
+  const setup = registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
     assertNewWorkAllowed: () => opts.sessionRuntime.assertNewWorkAllowed(),
     onActiveStepsChanged: (count) => { activeSetupSteps = count },
     onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent),
     seats,
   })
+  // A Run on prompt copies its repository before its run starts (docs/run-on.md).
+  opts.sessionRuntime.launcher.prepareDispatchCheckout = setup.prepareDispatchCheckout
+  opts.sessionRuntime.launcher.dispatchCheckoutPathOf = setup.dispatchCheckoutPathOf
   registerDeviceHandlers(server, {
     domain: devices,
     testSshHost: async (config) => (await isLocalSshTarget(config, runDeviceCommand)
@@ -1236,7 +1260,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // API has no host user.
     await adoptHostUser(getDatabase(), hostUserSettings())
     // How this host acts for people (docs/adr/0001-standard-authentication.md §3.4): a
-    // refused refresh means the person may no longer work here in that scope — a
+    // refused token means the person may no longer work here in that scope — a
     // sign-out ended the client grant, or a removal or detach — and it ends everything
     // there: their runs stop, their automations pause, and what their work left
     // undelivered is dropped. A personal delegation carries only account reads; the
@@ -1244,6 +1268,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const hostDelegations = new Delegations({
       registration: () => registrar.current(),
       credential: () => registrar.credential(),
+      controlToken: () => registrar.controlToken(),
       onRevoked: (userId, scope, refusal) => {
         // The owner's client in this process presents again once the delegation is gone: another grant of theirs that is still signed in makes it again.
         queueMicrotask(() => localClient.standingChanged(hostOrganizations.owner()?.userId ?? null))
@@ -1272,7 +1297,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
           void profiles.pullQuietly({ kind: 'owner' })
         }
       },
-      // The owner's delegations derive from their sign-in in this process: a missing or refused one is made again from it.
+      // The owner's delegations derive from their sign-in in this process: one missing here or on the account plane is made again from it.
       renew: (userId) => userId === hostOrganizations.owner()?.userId ? localClient.renew() : Promise.resolve(),
     })
     delegations = hostDelegations

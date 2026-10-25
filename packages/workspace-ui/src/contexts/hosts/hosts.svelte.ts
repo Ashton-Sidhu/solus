@@ -26,7 +26,7 @@ class Hosts {
     const stops = [
       serverConnections.onConnectionCreated(update),
       serverConnections.onPrimaryChange(update),
-      serverConnections.onPhaseChange(update),
+      serverConnections.onReadinessChange(update),
     ]
     return () => { for (const stop of stops) stop() }
   })

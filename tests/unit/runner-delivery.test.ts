@@ -107,7 +107,7 @@ type DeliverBody = z.infer<typeof deliverBodySchema>
 
 /** The Solus API's runner route. Each batch records the token it came with: whose work, in which organization. */
 class FakeApi {
-  readonly batches: Array<{ authorization: string | null; protocol: string | null; body: DeliverBody }> = []
+  readonly batches: Array<{ authorization: string | null; body: DeliverBody }> = []
   online = true
   unauthorizedOnce = false
   /** Items the API refuses for good: skipped and named. */
@@ -136,8 +136,7 @@ class FakeApi {
         }
         if (request.url !== '/runner/deliver') return json(404, { error: 'not found' })
         const body = deliverBodySchema.parse(JSON.parse(raw))
-        const protocol = typeof request.headers['solus-protocol'] === 'string' ? request.headers['solus-protocol'] : null
-        this.batches.push({ authorization, protocol, body })
+        this.batches.push({ authorization, body })
         let lastSeq = 0
         const failed: Array<{ seq: number; error: string }> = []
         for (const item of body.items) {
@@ -243,7 +242,7 @@ describe('who delivers a record', () => {
 })
 
 describe('runner delivery', () => {
-  test('ten writes within the collect window go in one request, on the one route, with the protocol the API checks', async () => {
+  test('ten writes within the collect window go in one request, on the one route', async () => {
     // WHY: a host sent one request per write, about one a second in production (§1).
     const api = new FakeApi()
     await api.start()
@@ -253,7 +252,7 @@ describe('runner delivery', () => {
       for (let write = 0; write < 10; write++) queueLine(`note ${write}`)
       await sent
       expect(api.batches).toHaveLength(1)
-      expect(api.batches[0]).toMatchObject({ authorization: 'Bearer delegated-bob-org1', protocol: '2', body: { hostId: HOST_ID } })
+      expect(api.batches[0]).toMatchObject({ authorization: 'Bearer delegated-bob-org1', body: { hostId: HOST_ID } })
       expect(api.items().map((item) => item.kind)).toEqual(Array(10).fill('transcript'))
       await until(() => queue.deliveryDestinations().length === 0)
     } finally {
@@ -477,20 +476,21 @@ describe('runner delivery', () => {
     }
   })
 
-  test('a 403 from the token endpoint waits for the person to connect; a stream of writes does not turn it into a request loop', async () => {
+  test('a 403 from the account plane waits for the person to connect; a stream of writes does not turn it into a request loop', async () => {
     // WHY: a 403 was treated as an outage. Every queued write kicked a new pass past
     // the backoff, so a busy turn asked Solus for a token hundreds of times.
     const api = new FakeApi()
     await api.start()
-    let exchanges = 0
+    let tokenAsks = 0
     const delegations = new delegationsModule.Delegations({
       registration: () => link(api),
       credential: () => ({ clientId: 'host-client', tokenEndpoint: 'https://cloud.invalid/api/auth/oauth2/token', assertion: async () => 'signed-assertion' }),
+      controlToken: async () => 'control-token',
       onRevoked: () => {},
-      fetchImpl: async (_url, init) => {
-        // Erin's client made the delegation; its first token is about to end, and every refresh is forbidden.
-        if (new URLSearchParams(String(init?.body)).get('grant_type') !== 'refresh_token') return Response.json({ access_token: 'erin-first', refresh_token: 'erin-refresh', expires_in: 1 })
-        exchanges++
+      fetchImpl: async (url) => {
+        // Erin's client made the delegation; its first token is about to end, and every later token is forbidden.
+        if (!String(url).endsWith('/delegation-token')) return Response.json({ access_token: 'erin-first', expires_in: 1 })
+        tokenAsks++
         return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: { 'content-type': 'application/json' } })
       },
     })
@@ -498,17 +498,17 @@ describe('runner delivery', () => {
     const erinsToken = `e30.${Buffer.from(JSON.stringify({ sub: 'erin', grant_id: 'grant_erin' })).toString('base64url')}.c2ln`
     await delegations.establish(erinsToken, { organizationId: 'org1' })
     const erin = { organizationId: 'org1', actorUserId: 'erin' }
-    // Delays run as written, so a pass that ignores the waiting time shows up as extra exchanges.
+    // Delays run as written, so a pass that ignores the waiting time shows up as extra token asks.
     const runner = startDelivery(api, delegations, { maxDelayMs: 60_000 })
     try {
       queueLine('For Erin', 'erin')
-      await until(() => exchanges === 1)
+      await until(() => tokenAsks === 1)
       expect(runner.currentStatus().error).toBeNull()
       for (let write = 0; write < 30; write++) {
         queueLine(`Busy turn ${write}`, 'erin')
         await tick()
       }
-      expect(exchanges).toBe(1)
+      expect(tokenAsks).toBe(1)
       expect(queue.listDelivery(erin, 100)).toHaveLength(31)
     } finally {
       await runner.stop()

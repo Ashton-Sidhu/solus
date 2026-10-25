@@ -33,7 +33,7 @@ test('replacement states keep the saved guide mounted and show one notice at a t
         import ReviewProgress from ${JSON.stringify(progress)};
         import ContentSkeleton from ${JSON.stringify(skeleton)};
         import { describeGuideFailure } from ${JSON.stringify(new URL('packages/client-core/src/review-guide-failure.ts', root).href)};
-        const ClockIcon = Stub, InfoIcon = Stub, SpinnerIcon = Stub, CircleAlertIcon = Stub, ReviewGuideGlyph = Stub;
+        const ClockIcon = Stub, InfoIcon = Stub, SpinnerIcon = Stub, CircleAlertIcon = Stub, ClipboardCheckIcon = Stub;
       `)
     const surface = component(source, 'surface')
     const harness = component(`<script>

@@ -28,6 +28,9 @@
   --font-sans: "System";
   --font-medium: "System";
   --font-bold: "System";
+  /* One family: React Native cannot read Tailwind's default font stack, so
+     font-mono fell back to the system font on iOS. */
+  --font-mono: "Menlo";
 
   /* Keep this scale aligned with src/lib/typography.ts for native style props. */
   --text-3xs: 11px;

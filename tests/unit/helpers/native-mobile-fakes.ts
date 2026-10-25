@@ -1,4 +1,6 @@
+import type { z } from 'zod'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
+import type { DialError } from '@solus/client-core/host-diagnostics'
 import type { DialOutcome } from '@solus/client-core/host-supervisor'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
 import type { HostEventMap } from '@solus/contracts/host-events'
@@ -44,6 +46,10 @@ export class FakeTransport implements HostTransport {
   serverUrl: string
   dials = 0
   destroyed = false
+  /** What the link last told the transport: past the grace, queued calls fail at once. */
+  unreachable = false
+  /** How the last dial failed, as `WsTransport` keeps it. */
+  lastDialError: DialError | null = null
   private opened = false
   private report: ((outcome: DialOutcome) => void) | null = null
   private resetCallback: (() => void) | null = null
@@ -61,7 +67,17 @@ export class FakeTransport implements HostTransport {
   }
   attachDialOutcomeReporter(report: (outcome: DialOutcome) => void): void { this.report = report }
   switchServerUrl(serverUrl: string): void { this.serverUrl = serverUrl }
+  setUnreachable(unreachable: boolean): void { this.unreachable = unreachable }
   destroy(): void { this.destroyed = true }
+  /** The requests the host may send down this socket, by event name. */
+  readonly serverRequests = new Map<string, (payload: unknown) => Promise<unknown>>()
+  onServerRequest<Payload, Reply>(event: string, payload: z.ZodType<Payload>, handle: (payload: Payload) => Promise<Reply>, unreadable: Reply): () => void {
+    this.serverRequests.set(event, async (wire) => {
+      const parsed = payload.safeParse(wire)
+      return parsed.success ? handle(parsed.data) : unreadable
+    })
+    return () => { this.serverRequests.delete(event) }
+  }
 
   /** What the real transport does after a dial: verify identity, then report. */
   async accept(recovered = false): Promise<void> {
@@ -76,7 +92,8 @@ export class FakeTransport implements HostTransport {
     this.report?.({ kind: 'accepted', recovered })
   }
 
-  fail(kind: 'dial-failed' | 'dropped' | 'auth-blocked'): void {
+  fail(kind: 'dial-failed' | 'dropped' | 'auth-blocked', error?: DialError): void {
+    if (error) this.lastDialError = error
     this.report?.({ kind })
   }
 
@@ -140,6 +157,7 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
     dialOrganizationId: (host) => host.uplink?.organizationIds?.[0] ?? null,
     organizationId: () => null,
     fetch: options.fetch ?? healthFetch({}),
+    clientVersion: '1.4.0',
     setTimeoutFn: timers.setTimeoutFn,
     clearTimeoutFn: timers.clearTimeoutFn,
   })

@@ -4,8 +4,8 @@ import type { PinnedSession, SessionMeta, SessionRecord, SessionRecordSearchQuer
 import type { DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
 
-/** A fixture session as the record a host keeps for it. */
-function demoSessionRecord(meta: SessionMeta): SessionRecord {
+/** A fixture session as the record a host keeps for it, with the pull requests it links. */
+function demoSessionRecord(meta: SessionMeta, store: DemoStore): SessionRecord {
   const lastActivityAt = Date.parse(meta.lastTimestamp)
   return {
     sessionId: meta.sessionId, organizationId: 'local', publication: 'local', ownerKey: 'local:demo',
@@ -16,6 +16,7 @@ function demoSessionRecord(meta: SessionMeta): SessionRecord {
     createdAt: lastActivityAt, lastActivityAt, size: meta.size,
     cwd: meta.cwd || null, slug: meta.slug, isWorktree: meta.isWorktree ?? false,
     branch: meta.branch ?? null, projectRoot: meta.projectRoot ?? null, delegation: null,
+    pullRequests: store.sessionPullRequests(meta.sessionId),
   }
 }
 
@@ -44,14 +45,14 @@ function markSessionLoaded(sessionId: string): void {
 
 export function registerSessionsHandlers(backend: DemoServer, store: DemoStore): void {
   // The demo host has read every session: it is never still indexing.
-  backend.register('sessionRecordList', () => ({ records: store.listSessions().map(demoSessionRecord), indexing: false }))
+  backend.register('sessionRecordList', () => ({ records: store.listSessions().map((meta) => demoSessionRecord(meta, store)), indexing: false }))
   backend.register('sessionRecordSearch', (args) => {
     const query = arg<SessionRecordSearchQuery>(args, 0)
     const results = store.searchSessions({ query: query.query })
     const offset = query.offset ?? 0
     return {
       results: results.slice(offset, offset + (query.limit ?? results.length))
-        .map(({ session, ...hit }) => ({ ...hit, record: demoSessionRecord(session), additionalMatches: [] })),
+        .map(({ session, ...hit }) => ({ ...hit, record: demoSessionRecord(session, store), additionalMatches: [] })),
       total: results.length,
       indexing: false,
     }

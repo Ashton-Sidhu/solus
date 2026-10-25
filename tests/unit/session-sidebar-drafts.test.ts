@@ -1,8 +1,19 @@
-import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import type { Session } from '@solus/contracts/types'
+import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import type { PinnedSession, Session } from '@solus/contracts/types'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 import { makePrompt } from '@solus/workspace-ui/contexts/workspace/session.factories'
 import type { SessionSidebarStore as SidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
+
+import { singleHostServerConnections } from './helpers/server-connections-mock'
+
+const connections = singleHostServerConnections()
+afterEach(() => connections.reset())
+mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
+mock.module('@lucide/svelte', () => ({
+  MessageSquare: () => {}, FileText: () => {}, LoaderCircle: () => {},
+  CircleCheck: () => {}, CircleX: () => {}, Clock: () => {}, Activity: () => {},
+  CircleDashed: () => {}, GitBranch: () => {}, GitMerge: () => {}, GitPullRequest: () => {}, CircleAlert: () => {},
+}))
 
 mock.module('@solus/workspace-ui/contexts/connections/connections.store.svelte', () => ({ connectionsStore: {} }))
 mock.module('@solus/workspace-ui/contexts/projects/projects.store.svelte', () => ({
@@ -103,4 +114,22 @@ describe('unsent prompts in open sidebar sessions', () => {
       globalThis.$state = previousState
     }
   })
+})
+
+
+test('pins from a healthy host appear while another host is still loading', async () => {
+  const slow = Promise.withResolvers<PinnedSession[]>()
+  const pin: PinnedSession = {
+    sessionId: 'healthy-session', provider: 'codex', title: 'Pinned session', cwd: '/repo', pinnedAt: 1,
+  }
+  connections.registerPrimary('local', { pinnedSessionsList: async () => [pin, pin] })
+  connections.registerHost('slow', { pinnedSessionsList: () => slow.promise })
+  const store = Object.create(SessionSidebarStore.prototype) as SidebarStore
+  store.pinnedSessions = [{ ...pin, sessionId: 'old', serverId: 'slow' }]
+  const load = store.loadPinnedSessions()
+  await Promise.resolve()
+  expect(store.pinnedSessions.map((row) => row.sessionId)).toEqual(['old', 'healthy-session'])
+  slow.resolve([])
+  await load
+  expect(store.pinnedSessions.map((row) => row.sessionId)).toEqual(['healthy-session'])
 })

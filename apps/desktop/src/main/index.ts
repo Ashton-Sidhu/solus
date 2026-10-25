@@ -36,6 +36,7 @@ import { watchLauncher } from '@solus/desktop-main/launcher-watch'
 import { handleLocalVideoRequest } from '@solus/desktop-main/local-video-protocol'
 import { LOCAL_DEVICE_LABEL } from '@solus/server/transport/server'
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
+import { shareDialogLogSchema } from '@solus/contracts/sharing'
 import { consumeClientAttachmentRead } from '@solus/desktop-main/client-attachment-read'
 import { configurePlatformServices } from '@solus/server/platform/services'
 import { registerAccountIpc } from '@solus/desktop-main/account/ipc'
@@ -633,6 +634,12 @@ const notificationSoundLogSchema = z.object({
 
 ipcMain.on('solus:log-notification-sound', (_event, row) => {
   const parsed = notificationSoundLogSchema.safeParse(row)
+  if (!parsed.success) return
+  log.info(parsed.data.event, parsed.data)
+})
+
+ipcMain.on('solus:log-share-dialog', (_event, row) => {
+  const parsed = shareDialogLogSchema.safeParse(row)
   if (!parsed.success) return
   log.info(parsed.data.event, parsed.data)
 })

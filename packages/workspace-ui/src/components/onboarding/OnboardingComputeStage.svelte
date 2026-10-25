@@ -125,7 +125,7 @@
         if (cloud.hostError || !cloud.chosenServerId) return;
       }
       const host = cloud.chosenHost;
-      if (host && host.status !== "online") {
+      if (host && host.readiness !== "ready") {
         await cloud.reachHost(host.id);
         if (cloud.hostError) return;
       }

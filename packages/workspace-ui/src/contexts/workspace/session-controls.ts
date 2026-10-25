@@ -6,6 +6,7 @@ import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
 import { expireRequest } from './session.utils'
 import { chooseStart } from './run-location'
+import { mayWorkLocallyDuringSetup } from '@solus/contracts/setup-card'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionControlsWorkspace = Pick<WorkspaceContext,
@@ -27,7 +28,18 @@ export class SessionControls {
 
   recoverWorktreeSetup(tabId: string, workLocally: boolean): void {
     const session = this.workspace.sessionFor(tabId)
-    if (!session || session.status !== 'failed' || session.statusCard?.recovery !== 'worktree') return
+    if (!session) return
+    // While the host still makes the worktree, it stops and starts the same
+    // prompt in the project folder. The host's card shows the change.
+    if (workLocally && session.statusCard && mayWorkLocallyDuringSetup(session.statusCard)) {
+      const sessionId = this.workspace.ctxFor(tabId).session.sessionId
+      this.workspace.apiFor(tabId).continueSetupLocally(sessionId).then((accepted) => {
+        if (accepted) session.run.location = chooseStart(session.run.location, { kind: 'checkout' })
+      }, (error: Error) => toasts.error(`Could not work locally: ${error.message}`))
+      requestInputFocus({ tabId })
+      return
+    }
+    if (session.status !== 'failed' || session.statusCard?.recovery !== 'worktree') return
     if (workLocally) session.run.location = chooseStart(session.run.location, { kind: 'checkout' })
     session.statusCard = null
     this.workspace.dispatch.retryLastMessage(tabId, true)

@@ -161,3 +161,33 @@ test('native organization selection filters cached sessions and restores them wi
   expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['local'])
   expect(directory.projects()).toBe(projects)
 })
+
+test('native lists a healthy host while another host is still loading', async () => {
+  const hosts = [{ id: 'healthy', label: 'Mac' }, { id: 'slow', label: 'Remote' }]
+  const slow = Promise.withResolvers<ProjectEntry[]>()
+  const connections = new Map(hosts.map((host) => [host.id, {
+    state: { sessionGeneration: 0 },
+    api: {
+      sessionRecordList: async (filter: SessionRecordListFilter) => ({
+        records: filter.scope === 'all' ? [] : [record(host.id, 1)], indexing: false,
+      }),
+      listProjects: () => host.id === 'slow' ? slow.promise : Promise.resolve([]),
+    },
+  }]))
+  const registry = { hosts: () => hosts, host: (hostId: string) => hosts.find((host) => host.id === hostId) }
+  const directory = new ThreadDirectory(registry as never, (hostId) => connections.get(hostId) as never)
+  const healthyLoaded = new Promise<void>((resolve) => {
+    const stop = directory.changes.subscribe(() => {
+      if (directory.stateOf('healthy').kind !== 'loaded') return
+      stop()
+      resolve()
+    })
+  })
+  const load = directory.loadAll()
+  await healthyLoaded
+  expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['healthy'])
+  expect(directory.stateOf('slow').kind).toBe('loading')
+  slow.resolve([])
+  await load
+  expect(directory.threads().map((thread) => thread.record.sessionId).sort()).toEqual(['healthy', 'slow'])
+})

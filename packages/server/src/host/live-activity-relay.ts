@@ -7,7 +7,6 @@ import { agentActivityRowSchema, isLiveAgentActivityPhase, type AgentActivityRow
 import type { FetchLike } from '../admission/access-tokens'
 import type { HostCredential } from './host-credential'
 import { createLogger } from '../logger'
-import { fetchAccountPlane } from './account-plane'
 
 const log = createLogger('main', 'live-activity-relay')
 
@@ -196,7 +195,7 @@ export class LiveActivityRelay {
     }
     try {
       const token = await credential.hostAccessToken()
-      const response = await fetchAccountPlane(this.deps.fetchImpl, `${registration.directoryUrl}/v1/hosts/${registration.hostId}/live-activities`, {
+      const response = await (this.deps.fetchImpl ?? fetch)(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/live-activities`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         body: JSON.stringify(report),

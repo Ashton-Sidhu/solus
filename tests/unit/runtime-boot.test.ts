@@ -40,9 +40,9 @@ test('restores persisted sessions without waiting for the host\'s machine facts'
 
 test('reconnect refreshes do not register more app listeners, and unmount releases them', () => {
   const stopConnections = mock(() => {})
-  const stopPhases = mock(() => {})
+  const stopReadiness = mock(() => {})
   const connections = spyOn(serverConnections, 'onConnectionCreated').mockReturnValue(stopConnections)
-  const phases = spyOn(serverConnections, 'onPhaseChange').mockReturnValue(stopPhases)
+  const readiness = spyOn(serverConnections, 'onReadinessChange').mockReturnValue(stopReadiness)
   // SAFETY: bootstrap is mocked above; these are the only workspace and sidebar
   // members this test reaches (the gone-machine pass reads the last two).
   const workspace = { lifecycle: { readRunOnAgents: async () => {} }, settings: { lastProject: null }, unstartedSourceIds: () => [], tabOrder: [] } as unknown as Parameters<typeof initializeRuntime>[0]
@@ -53,12 +53,44 @@ test('reconnect refreshes do not register more app listeners, and unmount releas
     refreshRuntime(workspace, sidebar)
     refreshRuntime(workspace, sidebar)
     expect(connections).toHaveBeenCalledTimes(1)
-    expect(phases).toHaveBeenCalledTimes(1)
+    expect(readiness).toHaveBeenCalledTimes(1)
     stop()
     expect(stopConnections).toHaveBeenCalledTimes(1)
-    expect(stopPhases).toHaveBeenCalledTimes(1)
+    expect(stopReadiness).toHaveBeenCalledTimes(1)
   } finally {
     connections.mockRestore()
-    phases.mockRestore()
+    readiness.mockRestore()
+  }
+})
+
+test('a host that is ready again reloads the conversations shown on screen', () => {
+  // WHY: a transcript read fails at once while its host is unreachable
+  // (docs/plans/host-readiness.md). Without a read when the host is back, the
+  // conversation would stay on the host-away page after the host answered.
+  let onReady!: (serverId: string, readiness: 'ready' | 'unreachable', attempt: number) => void
+  const readiness = spyOn(serverConnections, 'onReadinessChange').mockImplementation((listener) => {
+    onReady = listener
+    return () => {}
+  })
+  const loadShownConversations = mock(() => {})
+  // SAFETY: bootstrap and the outbox are not reached by these members' callers; the ready handler reads only these.
+  const workspace = {
+    lifecycle: { readRunOnAgents: async () => {} },
+    settings: { lastProject: null },
+    unstartedSourceIds: () => [],
+    tabOrder: [],
+    drafts: { rereadStartTargets: () => {} },
+    dispatch: { redeliverOutboxPrompt: async () => {} },
+    loadShownConversations,
+  } as unknown as Parameters<typeof initializeRuntime>[0]
+  try {
+    const stop = initializeRuntime(workspace, { loadPinnedSessions: async () => {} } as never)
+    onReady('raiders', 'unreachable', 3)
+    expect(loadShownConversations).not.toHaveBeenCalled()
+    onReady('raiders', 'ready', 0)
+    expect(loadShownConversations).toHaveBeenCalledTimes(1)
+    stop()
+  } finally {
+    readiness.mockRestore()
   }
 })

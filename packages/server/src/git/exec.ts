@@ -1,4 +1,4 @@
-import { execFile as execFileCb, execFileSync } from 'child_process'
+import { execFile as execFileCb, execFileSync, spawn } from 'child_process'
 import { promisify } from 'util'
 import { launchedProcess, launchProcess } from '../cli-env'
 import { currentIdentity } from '../vault/acting-scope'
@@ -45,12 +45,16 @@ export function git(args: string[], cwd: string, opts: GitExecOptions = {}): str
   }).trim()
 }
 
-export async function runAsync(bin: string, args: string[], cwd: string, opts: GitExecOptions = {}): Promise<string> {
+async function launched(bin: string, args: string[], opts: GitExecOptions) {
   if (bin === 'git' && !isGitUsable()) throw new GitUnavailableError()
   // The acting identity's environment, with a member's author once known: a
   // partial clone can turn any git command into a fetch, so every one acts as someone.
   const launch = await currentIdentity(`${bin} ${args[0] ?? ''}`.trim()).launchOptions(bin === 'git' ? { ...GIT_DEFAULT_ENV, ...opts.env } : opts.env)
-  const run = launchedProcess(launch, bin, withBareRepositoryGuard(bin, args))
+  return launchedProcess(launch, bin, withBareRepositoryGuard(bin, args))
+}
+
+export async function runAsync(bin: string, args: string[], cwd: string, opts: GitExecOptions = {}): Promise<string> {
+  const run = await launched(bin, args, opts)
   const { stdout } = await execFileAsync(run.file, run.args, {
     cwd,
     encoding: 'utf-8',
@@ -60,6 +64,54 @@ export async function runAsync(bin: string, args: string[], cwd: string, opts: G
     signal: opts.signal,
   })
   return opts.raw ? stdout : stdout.trim()
+}
+
+/** The part of stderr that a failed streamed command keeps for its error. */
+const STDERR_TAIL_CHARS = 8_192
+
+/**
+ * `runAsync` for a command that reports progress on stderr. Each line goes to
+ * `onStderrLine` as it arrives; git ends a rewritten progress line with `\r`,
+ * so `\r` and `\n` both end a line. Resolves with stdout, like `runAsync`.
+ */
+export async function runStreamed(
+  bin: string,
+  args: string[],
+  cwd: string,
+  opts: GitExecOptions & { onStderrLine: (line: string) => void },
+): Promise<string> {
+  const run = await launched(bin, args, opts)
+  const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn(run.file, run.args, {
+      cwd,
+      env: run.env,
+      signal: opts.signal,
+      timeout: opts.timeout ?? DEFAULT_TIMEOUT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderrTail = ''
+    let partialLine = ''
+    child.stdout.setEncoding('utf-8')
+    child.stderr.setEncoding('utf-8')
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk
+      if (stdout.length > maxBuffer) child.kill()
+    })
+    child.stderr.on('data', (chunk: string) => {
+      stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL_CHARS)
+      const lines = (partialLine + chunk).split(/[\r\n]/)
+      partialLine = lines.pop() ?? ''
+      for (const line of lines) if (line) opts.onStderrLine(line)
+    })
+    child.on('error', reject)
+    child.on('close', (code, signal) => {
+      if (partialLine) opts.onStderrLine(partialLine)
+      if (code === 0) resolve(opts.raw ? stdout : stdout.trim())
+      else reject(new Error(`Command failed: ${bin} ${args.join(' ')}${signal ? ` (${signal})` : ''}\n${stderrTail.trim()}`))
+    })
+  })
 }
 
 /** Whether a revision resolves to a commit object in this repository. */

@@ -32,7 +32,7 @@ export function PullRequestReviewSheet({ navigation, route }: ScreenProps<'PullR
   const app = useApp()
   const state = useListened(app.pullRequests.changes, () => app.pullRequests.detailOf(ref))
   const viewerLogin = useListened(app.pullRequests.changes, () => shownValue(app.pullRequests.hostOf(ref.hostId))?.viewerLogin ?? null)
-  const connected = useListened(app.connections.changes, () => app.connections.state(ref.hostId)?.phase === 'connected')
+  const connected = useListened(app.connections.changes, () => app.connections.state(ref.hostId)?.readiness === 'ready')
   const draft = useListened(app.reviewDrafts.changes, () => app.reviewDrafts.draftOf(ref))
   const saveError = useListened(app.reviewDrafts.changes, () => app.reviewDrafts.saveError)
   const pr = shownValue(state)?.overview.pullRequest ?? null

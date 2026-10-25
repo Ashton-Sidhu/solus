@@ -405,5 +405,151 @@
    "startedAt": "2026-07-14T15:41:03.000Z",
    "completedAt": "2026-07-14T15:44:27.000Z"
   }
- ]
+ ],
+ "sessionLinks": {
+  "demo-session-webhooks": [
+   {
+    "sessionId": "demo-session-webhooks",
+    "repository": "github.com/acme/api-gateway",
+    "number": 144,
+    "url": "https://github.com/acme/api-gateway/pull/144",
+    "title": "Make webhook retry timing deterministic",
+    "source": "created",
+    "linkedAt": 1784045520000,
+    "snapshot": {
+     "number": 144,
+     "url": "https://github.com/acme/api-gateway/pull/144",
+     "title": "Make webhook retry timing deterministic",
+     "state": "open",
+     "draft": true,
+     "updatedAt": "2026-07-14T16:12:00.000Z",
+     "baseRepo": {
+      "host": "github.com",
+      "owner": "acme",
+      "repo": "api-gateway"
+     }
+    }
+   }
+  ],
+  "demo-session-ratelimit": [
+   {
+    "sessionId": "demo-session-ratelimit",
+    "repository": "github.com/acme/api-gateway",
+    "number": 142,
+    "url": "https://github.com/acme/api-gateway/pull/142",
+    "title": "Add per-key rate limiting to public API",
+    "source": "created",
+    "linkedAt": 1784043000000,
+    "snapshot": {
+     "number": 142,
+     "url": "https://github.com/acme/api-gateway/pull/142",
+     "title": "Add per-key rate limiting to public API",
+     "state": "open",
+     "draft": false,
+     "updatedAt": "2026-07-14T15:40:00.000Z",
+     "baseRepo": {
+      "host": "github.com",
+      "owner": "acme",
+      "repo": "api-gateway"
+     }
+    }
+   }
+  ],
+  "demo-worker-dashboard": [
+   {
+    "sessionId": "demo-worker-dashboard",
+    "repository": "github.com/acme/web-dashboard",
+    "number": 148,
+    "url": "https://github.com/acme/web-dashboard/pull/148",
+    "title": "Usage-over-time graph on the account dashboard",
+    "source": "created",
+    "linkedAt": 1783611600000,
+    "snapshot": {
+     "number": 148,
+     "url": "https://github.com/acme/web-dashboard/pull/148",
+     "title": "Usage-over-time graph on the account dashboard",
+     "state": "open",
+     "draft": false,
+     "updatedAt": "2026-07-09T15:40:00.000Z",
+     "baseRepo": {
+      "host": "github.com",
+      "owner": "acme",
+      "repo": "web-dashboard"
+     }
+    }
+   }
+  ],
+  "demo-session-pricing-page": [
+   {
+    "sessionId": "demo-session-pricing-page",
+    "repository": "github.com/acme/marketing-site",
+    "number": 73,
+    "url": "https://github.com/acme/marketing-site/pull/73",
+    "title": "Usage-based pricing page behind a flag",
+    "source": "created",
+    "linkedAt": 1783497600000,
+    "snapshot": {
+     "number": 73,
+     "url": "https://github.com/acme/marketing-site/pull/73",
+     "title": "Usage-based pricing page behind a flag",
+     "state": "merged",
+     "draft": false,
+     "updatedAt": "2026-07-08T07:58:00.000Z",
+     "baseRepo": {
+      "host": "github.com",
+      "owner": "acme",
+      "repo": "marketing-site"
+     }
+    }
+   }
+  ],
+  "demo-session-redis-failover": [
+   {
+    "sessionId": "demo-session-redis-failover",
+    "repository": "github.com/acme/infra",
+    "number": 31,
+    "url": "https://github.com/acme/infra/pull/31",
+    "title": "Switch Redis to the managed cluster in one step",
+    "source": "created",
+    "linkedAt": 1783492200000,
+    "snapshot": {
+     "number": 31,
+     "url": "https://github.com/acme/infra/pull/31",
+     "title": "Switch Redis to the managed cluster in one step",
+     "state": "closed",
+     "draft": false,
+     "updatedAt": "2026-07-08T06:38:00.000Z",
+     "baseRepo": {
+      "host": "github.com",
+      "owner": "acme",
+      "repo": "infra"
+     }
+    }
+   }
+  ],
+  "demo-session-push-crash": [
+   {
+    "sessionId": "demo-session-push-crash",
+    "repository": "github.com/acme/ios-app",
+    "number": 208,
+    "url": "https://github.com/acme/ios-app/pull/208",
+    "title": "Ignore push notifications that arrive during sign-out",
+    "source": "created",
+    "linkedAt": 1783407600000,
+    "snapshot": {
+     "number": 208,
+     "url": "https://github.com/acme/ios-app/pull/208",
+     "title": "Ignore push notifications that arrive during sign-out",
+     "state": "merged",
+     "draft": false,
+     "updatedAt": "2026-07-07T07:08:00.000Z",
+     "baseRepo": {
+      "host": "github.com",
+      "owner": "acme",
+      "repo": "ios-app"
+     }
+    }
+   }
+  ]
+ }
 }

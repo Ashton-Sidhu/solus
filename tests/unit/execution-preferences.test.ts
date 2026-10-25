@@ -301,11 +301,12 @@ describe('Solus tools act on the person\'s preferences, not the host\'s', () => 
     expect(allowed.ok).toBe(true)
   })
 
-  test('an agent cannot set a personal preference through the host', async () => {
+  test("an agent's personal change never lands in the host config", async () => {
+    // Personal settings live on the person's clients; the host never keeps them.
     const tools = await import('@solus/server/execution/agents/tools/config-tools')
-    const result = await agentTool.executeAgentTool(tools.updateConfigAgentTool, { patch: '{"defaultPermissionMode":"full-access"}' }, toolContext(undefined))
-    expect(result.ok).toBe(false)
-    expect(result.text).toContain('defaultPermissionMode')
+    const { getHostConfig } = await import('@solus/server/host/settings')
+    await agentTool.executeAgentTool(tools.updateConfigAgentTool, { personal: { defaultPermissionMode: 'full-access' } }, toolContext(undefined))
+    expect(JSON.stringify(getHostConfig().config)).not.toContain('defaultPermissionMode')
   })
 })
 

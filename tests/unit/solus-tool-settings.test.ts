@@ -4,7 +4,7 @@ import { Database } from 'bun:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CONFIGURABLE_SOLUS_TOOL_NAMES, SOLUS_TOOL_GROUPS } from '@solus/contracts/agent-tools'
-import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig, isAgentWritableHostConfigKey } from '@solus/contracts/host-config'
+import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig } from '@solus/contracts/host-config'
 import { matchingToolGroups, groupPatch, groupSummary } from '../../packages/workspace-ui/src/components/settings/lib/solus-tool-groups'
 import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 
@@ -47,7 +47,6 @@ describe('Solus tool settings', () => {
     const second = mergeHostConfig(first, hostConfigPatchSchema.parse({ solusTools: { ask_jev: false } }))
     expect(second.solusTools).toEqual({ read_work: false, ask_jev: false })
     expect(hostConfigPatchSchema.safeParse({ solusTools: { typo: false } }).success).toBe(false)
-    expect(isAgentWritableHostConfigKey('solusTools')).toBe(false)
   })
   test('both providers hide disabled tools and restore enabled tools', () => {
     expect(codex.adaptCodexTools([tool])).toHaveLength(1)

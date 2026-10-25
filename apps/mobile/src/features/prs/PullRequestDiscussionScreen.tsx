@@ -31,7 +31,7 @@ export function PullRequestDiscussionScreen({ navigation, route }: ScreenProps<'
   const insets = useSafeAreaInsets()
   const state = useListened(app.pullRequests.changes, () => app.pullRequests.detailOf(ref))
   const viewerLogin = useListened(app.pullRequests.changes, () => shownValue(app.pullRequests.hostOf(hostId))?.viewerLogin ?? null)
-  const connected = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase === 'connected')
+  const connected = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness === 'ready')
   const running = useListened(app.pullRequestActions.changes, () => app.pullRequestActions.runningOf(ref))
   const detail = shownValue(state)
   const permissions = pullRequestPermissions(detail?.overview.pullRequest ?? null, viewerLogin, connected)

@@ -5,7 +5,10 @@ import path from 'path'
 import { isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitDiscardResult, type GitSyncResult, type WorktreeEntry } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import { dispatchStep } from '../execution/observability/session-emitter'
-import { git, gitCommitExists, runAsync } from './exec'
+import { git, gitCommitExists, runAsync, runStreamed } from './exec'
+import { progressPercent } from '../execution/sessions/dispatch-repository'
+import type { StatusCardStep, StatusCardStepStatus } from '@solus/contracts/types'
+import type { WORKTREE_SETUP_STEPS } from '@solus/contracts/setup-card'
 import { currentIdentity } from '../vault/acting-scope'
 // `git-helpers` imports this module back for the branch and default-branch
 // helpers. Both sides only reach across inside function bodies, so the cycle
@@ -103,9 +106,24 @@ export function getWorkingBranch(cwd: string): Promise<string | null> {
 }
 
 
+/** A step of a new worktree that `createWorktree` reports while it works. */
+export type WorktreeSetupStage = (typeof WORKTREE_SETUP_STEPS)[number]['id']
+
+export interface WorktreeStageUpdate extends Pick<StatusCardStep, 'percent' | 'detail'> {
+  status: Exclude<StatusCardStepStatus, 'pending'>
+}
+
+/** Git shows checkout progress only after a delay, and never to a pipe without this. */
+const GIT_PROGRESS_ENV: NodeJS.ProcessEnv = { GIT_PROGRESS_DELAY: '0' }
+/** A submodule update clones; the default command timeout is too short for that. */
+const SUBMODULE_TIMEOUT_MS = 10 * 60_000
+
 export interface CreateWorktreeOptions {
   /** Cancels branch discovery and worktree creation with the owning setup. */
   signal?: AbortSignal
+  /** Each change of a stage: it starts, reports progress, or ends. The fetch
+   *  and the checkout can be active at the same time. */
+  onStage?: (stage: WorktreeSetupStage, update: WorktreeStageUpdate) => void
   /** Semantic name produced by the configured text-generation model. Without
    *  one the worktree starts on a temporary branch that `renameWorktreeBranch`
    *  replaces later. */
@@ -206,20 +224,88 @@ function throwIfAborted(signal?: AbortSignal): void {
   throw signal.reason instanceof Error ? signal.reason : new Error('Interrupted')
 }
 
+interface WorktreeStartPoint {
+  startPoint: string
+  /** A fetch of the base that runs beside the checkout. True when the fetch succeeded. */
+  refresh?: Promise<boolean>
+}
+
+/**
+ * A local `origin/<base>` is used at once, and its fetch runs beside the
+ * checkout. Without a local copy, the fetch comes first.
+ */
 async function resolveWorktreeStartPoint(
   projectPath: string,
   targetBranch: string,
-  signal?: AbortSignal,
-): Promise<string> {
+  options: Pick<CreateWorktreeOptions, 'signal' | 'onStage'>,
+): Promise<WorktreeStartPoint> {
+  const { signal, onStage } = options
   const remoteRef = `origin/${targetBranch}`
+  const [hasOrigin, hasLocalRef] = await Promise.all([
+    runAsync('git', ['remote', 'get-url', 'origin'], projectPath, { signal }).then(() => true, () => false),
+    gitCommitExists(projectPath, remoteRef),
+  ])
+  throwIfAborted(signal)
+  // A repository with no origin has nothing to fetch.
+  if (!hasOrigin) {
+    onStage?.('fetch', { status: 'skipped' })
+    return { startPoint: hasLocalRef ? remoteRef : targetBranch }
+  }
+  onStage?.('fetch', { status: 'active' })
+  const fetchBase = () => runAsync('git', ['fetch', '--no-tags', 'origin', targetBranch], projectPath, { signal })
+  if (hasLocalRef) {
+    const refresh = fetchBase().then(() => {
+      onStage?.('fetch', { status: 'done' })
+      return true
+    }, (e: unknown) => {
+      if (signal?.aborted) return false
+      log.warn('worktree_start_point_refresh_failed', { targetBranch, error: e instanceof Error ? e.message : String(e) })
+      onStage?.('fetch', { status: 'warning', detail: `Used local ${remoteRef}; fetch failed` })
+      return false
+    })
+    return { startPoint: remoteRef, refresh }
+  }
   try {
-    await runAsync('git', ['fetch', 'origin', targetBranch], projectPath, { signal })
+    await fetchBase()
     await runAsync('git', ['rev-parse', '--verify', remoteRef], projectPath, { signal })
-    return remoteRef
+    onStage?.('fetch', { status: 'done' })
+    return { startPoint: remoteRef }
   } catch (e) {
     throwIfAborted(signal)
     log.warn('worktree_start_point_fallback_local', { targetBranch, error: e instanceof Error ? e.message : String(e) })
-    return targetBranch
+    onStage?.('fetch', { status: 'warning', detail: `Used local ${targetBranch}; fetch failed` })
+    return { startPoint: targetBranch }
+  }
+}
+
+/**
+ * Loads the submodules of a new worktree. A failure leaves the worktree in
+ * place and becomes a warning: the agent can work without them, or load them.
+ */
+async function initSubmodules(worktreePath: string, options: Pick<CreateWorktreeOptions, 'signal' | 'onStage'>): Promise<void> {
+  const { signal, onStage } = options
+  if (!existsSync(path.join(worktreePath, '.gitmodules'))) {
+    onStage?.('submodules', { status: 'skipped' })
+    return
+  }
+  onStage?.('submodules', { status: 'active' })
+  try {
+    await runAsync('git', ['submodule', 'update', '--init', '--recursive'], worktreePath, { signal, timeout: SUBMODULE_TIMEOUT_MS })
+    onStage?.('submodules', { status: 'done' })
+  } catch (e) {
+    throwIfAborted(signal)
+    const message = e instanceof Error ? e.message : String(e)
+    log.warn('worktree_submodules_failed', { worktreePath, error: message })
+    const reason = message.split('\n').map((line) => line.trim()).filter(Boolean).at(-1) ?? 'git failed'
+    onStage?.('submodules', { status: 'warning', detail: `Submodules not loaded: ${reason}`.slice(0, 200) })
+  }
+}
+
+/** The checkout's own progress lines, `Updating files:  49% (1470/3000)`, as a stage update. */
+function checkoutProgress(onStage: CreateWorktreeOptions['onStage']): (line: string) => void {
+  return (line) => {
+    const percent = progressPercent(line)
+    if (percent !== null) onStage?.('checkout', { status: 'active', percent })
   }
 }
 
@@ -247,16 +333,17 @@ export async function createWorktree(
   const targetBranchMs = Date.now() - targetBranchStartedAt
   throwIfAborted(options.signal)
   const startPointStartedAt = Date.now()
-  const startPoint = await dispatchStep<string>(
+  const { startPoint, refresh } = await dispatchStep<WorktreeStartPoint>(
     'start_point',
     { projectPath, targetBranch, fn: 'resolveWorktreeStartPoint', file: 'worktree-manager.ts' },
     async (annotate) => {
-      const resolved = await resolveWorktreeStartPoint(projectPath, targetBranch, options.signal)
-      annotate({ startPoint: resolved })
+      const resolved = await resolveWorktreeStartPoint(projectPath, targetBranch, options)
+      annotate({ startPoint: resolved.startPoint, fetchInBackground: !!resolved.refresh })
       return resolved
     },
   )
   const startPointMs = Date.now() - startPointStartedAt
+  options.onStage?.('checkout', { status: 'active' })
   let startCommit: string
   try {
     startCommit = await runAsync('git', ['rev-parse', '--verify', `${startPoint}^{commit}`], projectPath, { signal: options.signal })
@@ -267,7 +354,11 @@ export async function createWorktree(
   // The project's naming, else the person's. A name that cannot be generated
   // keeps the temporary one, and any name gets a suffix when it is taken: a
   // static or custom template does not always hold a unique id.
-  const namer = await resolveWorktreeBranchNamer(projectPath, options.naming)
+  const [namer, checkoutConfig] = await Promise.all([
+    resolveWorktreeBranchNamer(projectPath, options.naming),
+    // Parallel checkout, one worker for each core, unless the person set their own.
+    runAsync('git', ['config', '--get', 'checkout.workers'], projectPath).then(() => [], () => ['-c', 'checkout.workers=0']),
+  ])
   const branchId = randomBytes(4).toString('hex')
   const generatedBranch = options.generatedName ? generatedWorktreeBranchName(options.generatedName, namer, branchId) : null
   const branch = await availableBranchName(projectPath, generatedBranch ?? initialWorktreeBranchName(namer, branchId))
@@ -279,12 +370,13 @@ export async function createWorktree(
   throwIfAborted(options.signal)
   // Do not cancel the atomic reservation: observe its outcome before rollback.
   await runAsync('git', ['branch', branch, startCommit], projectPath)
+  let branchCommit = startCommit
   try {
     // The rename from the title uses this naming, whatever either setting says by then.
     await captureWorktreeBranchNaming(projectPath, branch, namer.naming)
       .catch((error) => log.warn('worktree_naming_capture_failed', { branch, error: String(error) }))
     throwIfAborted(options.signal)
-    const checkoutArgs = ['worktree', 'add', worktreePath, branch]
+    const checkoutArgs = [...checkoutConfig, 'worktree', 'add', worktreePath, branch]
     await dispatchStep<string>(
       'git_worktree_add',
       {
@@ -296,9 +388,32 @@ export async function createWorktree(
         fn: 'runAsync',
         file: 'worktree-manager.ts',
       },
-      () => runAsync('git', checkoutArgs, projectPath, { signal: options.signal }),
+      () => runStreamed('git', checkoutArgs, projectPath, {
+        signal: options.signal,
+        env: GIT_PROGRESS_ENV,
+        onStderrLine: checkoutProgress(options.onStage),
+      }),
     )
     const checkoutMs = Date.now() - checkoutStartedAt
+    // The base moved while the checkout ran. The new branch has no work yet,
+    // so it moves too; only the changed files are written.
+    const refreshStartedAt = Date.now()
+    if (refresh && await refresh) {
+      const latestCommit = await runAsync('git', ['rev-parse', '--verify', `${startPoint}^{commit}`], projectPath, { signal: options.signal })
+      if (latestCommit !== startCommit) {
+        await dispatchStep<string>(
+          'start_point_refresh',
+          { worktreePath, startPoint, fn: 'runAsync', file: 'worktree-manager.ts' },
+          () => runStreamed('git', [...checkoutConfig, 'reset', '--hard', latestCommit], worktreePath, {
+            signal: options.signal,
+            env: GIT_PROGRESS_ENV,
+            onStderrLine: checkoutProgress(options.onStage),
+          }),
+        )
+        branchCommit = latestCommit
+      }
+    }
+    const refreshMs = Date.now() - refreshStartedAt
     const copyStartedAt = Date.now()
     await dispatchStep<void>(
       'copy_included_files',
@@ -308,6 +423,15 @@ export async function createWorktree(
       },
     )
     const copyMs = Date.now() - copyStartedAt
+    throwIfAborted(options.signal)
+    options.onStage?.('checkout', { status: 'done' })
+    const submodulesStartedAt = Date.now()
+    await dispatchStep<void>(
+      'init_submodules',
+      { worktreePath, fn: 'initSubmodules', file: 'worktree-manager.ts' },
+      () => initSubmodules(worktreePath, options),
+    )
+    const submodulesMs = Date.now() - submodulesStartedAt
 
     log.info('worktree_create_completed', {
       branch,
@@ -315,7 +439,9 @@ export async function createWorktree(
       targetBranchMs,
       startPointMs,
       checkoutMs,
+      refreshMs,
       copyMs,
+      submodulesMs,
       totalMs: Date.now() - startedAt,
     })
 
@@ -329,7 +455,7 @@ export async function createWorktree(
       )
       if (owned) await runAsync('git', ['worktree', 'remove', '--force', worktreePath], projectPath)
       if (!listProjectWorktrees(projectPath).some((entry) => entry.branch === branch)) {
-        await runAsync('git', ['update-ref', '-d', `refs/heads/${branch}`, startCommit], projectPath)
+        await runAsync('git', ['update-ref', '-d', `refs/heads/${branch}`, branchCommit], projectPath)
       }
     } catch (cleanupError) {
       log.warn('worktree_setup_cleanup_failed', { worktreePath, branch, error: String(cleanupError) })

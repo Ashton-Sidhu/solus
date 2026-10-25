@@ -27,19 +27,19 @@ const ACCOUNT = { userId: 'ada', activeOrganizationId: 'org_acme' }
 const ORGANIZATION = { organizationId: 'org_acme', name: 'Acme' }
 
 const cloudHost: ComputeHost = {
-  id: 'cloud', label: 'Cloud · Acme', status: 'offline',
+  id: 'cloud', label: 'Cloud · Acme', readiness: 'unreachable',
   uplink: { hostId: 'h_cloud', directoryUrl: 'https://app', kind: 'managed', organizationIds: ['org_acme'], managedState: 'stopped' },
 }
 const otherOrganizationHost: ComputeHost = {
-  id: 'cloud-2', label: 'Cloud · Other', status: 'online',
+  id: 'cloud-2', label: 'Cloud · Other', readiness: 'ready',
   uplink: { hostId: 'h_other', directoryUrl: 'https://app', kind: 'managed', organizationIds: ['org_other'] },
 }
 const adaLaptop: ComputeHost = {
-  id: 'laptop', label: 'Ada’s Mac', status: 'online',
+  id: 'laptop', label: 'Ada’s Mac', readiness: 'ready',
   uplink: { hostId: 'h_laptop', directoryUrl: 'https://app', ownerUserId: 'ada' },
 }
 const bobServer: ComputeHost = {
-  id: 'bob', label: 'Bob’s server', status: 'online',
+  id: 'bob', label: 'Bob’s server', readiness: 'ready',
   uplink: { hostId: 'h_bob', directoryUrl: 'https://app', ownerUserId: 'bob', ownerName: 'Bob', organizationIds: ['org_other', 'org_acme'] },
 }
 
@@ -60,13 +60,14 @@ describe('cloud onboarding: where agents run', () => {
 
   test('a row says whether this client reaches the machine, not only whether it runs', () => {
     const ready = { ...cloudHost, uplink: { ...cloudHost.uplink!, managedState: 'ready' as const } }
-    expect(reachability({ ...ready, status: 'online' })).toBe('Ready')
+    expect(reachability({ ...ready, readiness: 'ready' })).toBe('Ready')
     // WHY: a host not reached yet is being dialed; "Offline" there read as a dead machine.
-    expect(reachability({ ...ready, status: 'connecting' })).toBe('Connecting…')
-    expect(reachability({ ...ready, status: 'saved' })).toBe('Connecting…')
-    expect(reachability({ ...ready, status: 'offline' })).toBe('Can’t reach it')
+    expect(reachability({ ...ready, readiness: 'checking' })).toBe('Connecting…')
+    expect(reachability({ ...ready, readiness: 'reconnecting' })).toBe('Connecting…')
+    expect(reachability({ ...ready, readiness: 'unreachable' })).toBe('Can’t reach it')
+    expect(reachability({ ...ready, readiness: 'refused' })).toBe('Can’t reach it')
     expect(reachability(cloudHost)).toBe('Stopped')
-    expect(cloudHostDetail({ ...ready, status: 'connecting' }, 'Acme')).toBe('Connecting… · Everyone in Acme can use it')
+    expect(cloudHostDetail({ ...ready, readiness: 'checking' }, 'Acme')).toBe('Connecting… · Everyone in Acme can use it')
   })
 
   test('another organization’s cloud host is not this organization’s', () => {
@@ -82,12 +83,12 @@ describe('cloud onboarding: where agents run', () => {
   })
 
   test('a machine paired to this browser with no owner on record counts as your own', () => {
-    const paired: ComputeHost = { id: 'paired', label: 'Studio', status: 'online' }
+    const paired: ComputeHost = { id: 'paired', label: 'Studio', readiness: 'ready' }
     expect(computeChoices([paired], ACCOUNT).ownMachines.map((server) => server.id)).toEqual(['paired'])
   })
 
   test('with nothing up and no cloud host, no machine is chosen', () => {
-    const offline = { ...adaLaptop, status: 'offline' }
+    const offline: ComputeHost = { ...adaLaptop, readiness: 'unreachable' }
     expect(defaultComputeHost(computeChoices([offline], ACCOUNT))).toBeNull()
   })
 

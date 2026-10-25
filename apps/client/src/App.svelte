@@ -68,7 +68,7 @@
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   const commandPaletteComponent = afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
-  import { activeSessionShareTarget, connectRequestStore, listenForProjectDirectory, presenceStore, projectsStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
+  import { activeSessionShareTarget, connectRequestStore, listenForProjectDirectory, logShareDialog, presenceStore, projectsStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
   import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
   import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
   import { openChatDraft } from "@solus/workspace-ui/contexts/workspace/new-chat";
@@ -208,6 +208,14 @@
   $effect(() => {
     if (sharesStore.dialog) hasMountedShareDialog = true;
   });
+
+  /** The share dialog's module; a failed load is logged, then shown by the `{:catch}` below. */
+  function loadShareDialog() {
+    return import("@solus/workspace-ui/components/sharing/ShareDialog.svelte").catch((error) => {
+      logShareDialog("share_dialog_import_failed", sharesStore.dialog, error instanceof Error ? error.stack ?? error.message : String(error));
+      throw error;
+    });
+  }
 
   const activeTabId = $derived(session.activeTabId);
   // Keyboard next/prev follows the order WebLayout actually renders: raw tabOrder.
@@ -351,12 +359,12 @@
     !skipOnboarding && (cloudOnboardingStore.isCloud ? cloudOnboardingStore.isOpen : !settings.onboardingCompleted),
   );
 
-  const detectReconnect = createReconnectDetector(serversStore.connectionPhase);
+  const detectReconnect = createReconnectDetector(serversStore.readinessFor(serversStore.activeServerId).readiness);
   $effect(() => {
-    const connectionPhase = serversStore.connectionPhase;
-    const reconnected = detectReconnect(connectionPhase);
+    const readiness = serversStore.readinessFor(serversStore.activeServerId).readiness;
+    const reconnected = detectReconnect(readiness);
     untrack(() => {
-      if (connectionPhase === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: serversStore.reconnectAttempt } : {});
+      if (readiness === 'ready') track(reconnected ? 'client_reconnected' : 'client_connected', {});
       if (reconnected) {
         settings.setSystemTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
         refreshRuntime(session, sessionSidebarStore);
@@ -737,9 +745,11 @@
   <p role="alert">Could not load the command palette.</p>
 {/await}
 {#if hasMountedShareDialog}
-  {#await import("@solus/workspace-ui/components/sharing/ShareDialog.svelte") then module}
+  {#await loadShareDialog() then module}
     {@const ShareDialog = module.default}
-    <ShareDialog />
+    <svelte:boundary onerror={(error) => logShareDialog("share_dialog_render_failed", sharesStore.dialog, error instanceof Error ? error.stack ?? error.message : String(error))}>
+      <ShareDialog />
+    </svelte:boundary>
   {:catch}
     {#if sharesStore.dialog}
       <p role="alert">Could not load the share dialog.</p>

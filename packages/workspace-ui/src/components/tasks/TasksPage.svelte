@@ -201,7 +201,7 @@
           ...new Set(
             projectsStore
               .checkoutsOf(pageKey)
-              .filter((checkout) => serversStore.statusFor(checkout.serverId) !== "online")
+              .filter((checkout) => serversStore.readinessFor(checkout.serverId).readiness !== "ready")
               .map((checkout) => serversStore.hostFor(checkout.serverId)?.label ?? checkout.serverId),
           ),
         ]
@@ -216,7 +216,7 @@
       !!pageKey &&
       isRepositoryKey(pageKey) &&
       !!cloudServerId &&
-      serversStore.statusFor(cloudServerId) === "online" &&
+      serversStore.readinessFor(cloudServerId).readiness === "ready" &&
       !workspaceProjectsStore.projectFor(cloudServerId, pageKey),
   );
   let addingToCloud = $state(false);

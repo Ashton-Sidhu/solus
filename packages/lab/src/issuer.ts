@@ -50,9 +50,10 @@ const addressSchema = z.object({ port: z.number().int().positive() })
  * members, gives each linked host an OAuth client with its key (`private_key_jwt`,
  * docs/adr/0001-standard-authentication.md §3.4), and answers the token endpoint as
  * the real provider does: a host gets its own control token (client credentials), and
- * trades a person's access token for a delegated token for the organization its link
- * names (token exchange, RFC 8693), and refreshes it. Every refresh is the live check:
- * a host detached from the organization is refused.
+ * trades a person's access token for a delegation for the organization its link names
+ * (token exchange, RFC 8693). The issuer keeps the delegation; the host asks it for a
+ * token with its control token (`POST /v1/hosts/:id/delegation-token`). Every ask is
+ * the live check: a host detached from the organization is refused.
  */
 
 function base64Url(value: string | Buffer): string {
@@ -85,7 +86,7 @@ interface HostControlClaims {
 type OrganizationMember = Extract<Persona, { kind: 'org-member' }>
 
 /**
- * Whom a refresh token acts for, through which host, in which scope, and from which
+ * A delegation the issuer keeps: whom it acts for, through which host, in which scope, and from which
  * client grant (ADR 0001 §2.2 rule 6): `personal` for the host's owner, else one
  * organization.
  */
@@ -100,7 +101,6 @@ interface TokenAnswer {
   access_token: string
   token_type: 'Bearer'
   expires_in: number
-  refresh_token: string
   issued_token_type?: string
 }
 
@@ -112,7 +112,7 @@ type IssuerReply =
   | TokenAnswer
   | HostCredentialResponse
   | { access_token: string; token_type: 'Bearer'; expires_in: number }
-  | { error: string; message?: string; error_description?: string }
+  | { error: string; message?: string; error_description?: string; solus_refusal?: string }
 
 const tokenRequestSchema = z.discriminatedUnion('grant_type', [
   z.object({
@@ -123,9 +123,15 @@ const tokenRequestSchema = z.discriminatedUnion('grant_type', [
     organization_id: z.string().min(1).optional(),
     delegation_scope: z.literal('personal').optional(),
   }),
-  z.object({ grant_type: z.literal('refresh_token'), refresh_token: z.string().min(1) }),
   z.object({ grant_type: z.literal('client_credentials'), resource: z.literal(CONTROL_AUDIENCE) }),
 ])
+const delegationTokenRequestSchema = z.object({
+  userId: z.string().min(1),
+  scope: z.union([z.literal('personal'), z.object({ organizationId: z.string().min(1) })]),
+  resource: z.string().min(1),
+})
+const delegationKey = (hostId: string, userId: string, scope: Delegation['scope']): string =>
+  `${hostId}\u0000${userId}\u0000${scope === 'personal' ? 'personal' : scope.organizationId}`
 const clientAssertionSchema = z.object({ client_assertion_type: z.literal(CLIENT_ASSERTION_TYPE), client_assertion: z.string().min(1) })
 const assertionClaimsSchema = z.object({ iss: z.string().min(1), sub: z.string().min(1), exp: z.number() })
 const controlClaimsSchema = z.object({ aud: z.literal(CONTROL_AUDIENCE), host_id: z.string().min(1), host_generation: z.number(), exp: z.number() })
@@ -154,8 +160,8 @@ export class LabIssuer {
   private readonly links = new Map<string, IssuedLink>()
   /** Host id → the organization the owner shared it with. */
   private readonly hostOrganizations = new Map<string, string>()
-  /** Refresh token → whom it acts for. Rotated on every refresh. */
-  private readonly refreshTokens = new Map<string, Delegation>()
+  /** The delegations the issuer keeps, by host, person, and scope. */
+  private readonly delegations = new Map<string, Delegation>()
   private workspaceUrl: string | null = null
   private readonly origin: string | null
 
@@ -250,7 +256,7 @@ export class LabIssuer {
     if (credential.organizationId) issued.organizationId = credential.organizationId
     if (this.workspaceUrl) issued.apiUrl = this.workspaceUrl
     // A new link is a new client: whatever the old one held is gone, as on the real account plane.
-    for (const [token, delegation] of this.refreshTokens) if (delegation.hostId === hostId) this.refreshTokens.delete(token)
+    for (const [key, delegation] of this.delegations) if (delegation.hostId === hostId) this.delegations.delete(key)
     this.links.set(hostId, { link, ...credential })
     return issued
   }
@@ -338,6 +344,11 @@ export class LabIssuer {
       })
       return
     }
+    const delegationTokenMatch = /^\/v1\/hosts\/([^/]+)\/delegation-token$/.exec(url.pathname)
+    if (delegationTokenMatch && request.method === 'POST') {
+      await this.handleDelegationToken(delegationTokenMatch[1]!, request, response)
+      return
+    }
     if (url.pathname === '/api/auth/oauth2/token' && request.method === 'POST') {
       await this.handleToken(request, response)
       return
@@ -383,7 +394,7 @@ export class LabIssuer {
     sendJson(response, 200, { oauthClient: { clientId: hostClientId(hostId) } })
   }
 
-  /** The OAuth token endpoint, for host clients only: client credentials, token exchange, and refresh. */
+  /** The OAuth token endpoint, for host clients only: client credentials and token exchange. */
   private async handleToken(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const refuse = (status: number, error: string, description: string) => sendJson(response, status, { error, error_description: description })
     let body = ''
@@ -392,7 +403,7 @@ export class LabIssuer {
     const client = this.clientOf(fields)
     if (!client) return refuse(401, 'invalid_client', 'Unknown host client.')
     const parsed = tokenRequestSchema.safeParse(fields)
-    if (!parsed.success) return refuse(400, 'invalid_request', 'Not a token exchange, a refresh, or client credentials.')
+    if (!parsed.success) return refuse(400, 'invalid_request', 'Not a token exchange or client credentials.')
     const form = parsed.data
     if (form.grant_type === 'client_credentials') {
       const nowSeconds = Math.floor(Date.now() / 1000)
@@ -404,39 +415,54 @@ export class LabIssuer {
       }
       return sendJson(response, 200, { access_token: this.sign(control), token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL_SECONDS })
     }
-    let delegation: Delegation
-    if (form.grant_type === 'refresh_token') {
-      const held = this.refreshTokens.get(form.refresh_token)
-      if (!held || held.hostId !== client.hostId) return refuse(400, 'invalid_grant', 'Unknown refresh token.')
-      this.refreshTokens.delete(form.refresh_token)
-      delegation = held
-    } else {
-      const subject = this.verified(form.subject_token)
-      if (!subject || !tokenAudiences(subject).includes(hostAudience(client.hostId))) return refuse(400, 'invalid_grant', 'The subject token is not for this host.')
-      // A person's own token only, never a delegated one; the delegation keeps its grant.
-      if (subject.act || !subject.grant_id) return refuse(400, 'invalid_grant', 'The subject is not a person\'s token.')
-      const scope = form.delegation_scope === 'personal' && !form.organization_id ? 'personal' as const
-        : form.organization_id && !form.delegation_scope ? { organizationId: form.organization_id } : null
-      if (!scope) return refuse(400, 'invalid_request', 'Name one scope: an organization or personal.')
-      // `personal` is the owner's alone (hostReach on the real account plane).
-      if (scope === 'personal' && subject.access !== 'owner') return refuse(400, 'invalid_grant', 'not_the_owner')
-      delegation = { hostId: client.hostId, userId: subject.sub, scope, grantId: subject.grant_id }
+    const subject = this.verified(form.subject_token)
+    if (!subject || !tokenAudiences(subject).includes(hostAudience(client.hostId))) return refuse(400, 'invalid_grant', 'The subject token is not for this host.')
+    // A person's own token only, never a delegated one; the delegation keeps its grant.
+    if (subject.act || !subject.grant_id) return refuse(400, 'invalid_grant', 'The subject is not a person\'s token.')
+    const scope = form.delegation_scope === 'personal' && !form.organization_id ? 'personal' as const
+      : form.organization_id && !form.delegation_scope ? { organizationId: form.organization_id } : null
+    if (!scope) return refuse(400, 'invalid_request', 'Name one scope: an organization or personal.')
+    // `personal` is the owner's alone (hostReach on the real account plane).
+    if (scope === 'personal' && subject.access !== 'owner') return refuse(400, 'invalid_grant', 'not_the_owner')
+    const delegation: Delegation = { hostId: client.hostId, userId: subject.sub, scope, grantId: subject.grant_id }
+    const checked = this.liveCheck(delegation)
+    if ('error' in checked) return sendJson(response, 400, checked)
+    this.delegations.set(delegationKey(delegation.hostId, delegation.userId, scope), delegation)
+    sendJson(response, 200, { access_token: this.signDelegated(client.hostId, checked.persona, scope, delegation.grantId), token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL_SECONDS, issued_token_type: ACCESS_TOKEN_TYPE })
+  }
+
+  /** A token for a delegation the issuer keeps, asked with the host's control token; the live check runs on every ask. */
+  private async handleDelegationToken(hostId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    if (!this.controlCaller(hostId, request.headers.authorization)) return sendJson(response, 401, { error: 'invalid_host_credential' })
+    let body = ''
+    for await (const chunk of request) body += chunk
+    const parsed = delegationTokenRequestSchema.safeParse(JSON.parse(body || 'null'))
+    if (!parsed.success) return sendJson(response, 400, { error: 'invalid_request' })
+    const { userId, scope, resource } = parsed.data
+    const delegation = this.delegations.get(delegationKey(hostId, userId, scope))
+    if (!delegation) return sendJson(response, 403, { error: 'no_delegation', solus_refusal: 'no_delegation' })
+    // The Lab mints no token for another host.
+    if (resource !== SOLUS_API_AUDIENCE && resource !== ACCOUNT_AUDIENCE) return sendJson(response, 403, { error: 'host_not_reachable', solus_refusal: 'host_not_reachable' })
+    const checked = this.liveCheck(delegation)
+    if ('error' in checked) {
+      this.delegations.delete(delegationKey(hostId, userId, scope))
+      return sendJson(response, 403, checked)
     }
-    // The live check, at the exchange and at every refresh.
+    sendJson(response, 200, { access_token: this.signDelegated(hostId, checked.persona, scope, delegation.grantId), token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL_SECONDS })
+  }
+
+  /** The live check, at the exchange and at every token: the person, and in an organization their membership and the host's. */
+  private liveCheck(delegation: Delegation): { persona: SignedInPersona } | { error: string; error_description: string; solus_refusal: string } {
     const personas: readonly Persona[] = Object.values(PERSONAS)
     const persona = personas.find((candidate): candidate is SignedInPersona => candidate.kind !== 'guest' && candidate.userId === delegation.userId)
-    if (!persona) return refuse(400, 'invalid_grant', 'Unknown person.')
+    if (!persona) return { error: 'invalid_grant', error_description: 'Unknown person.', solus_refusal: 'not_a_member' }
     const scope = delegation.scope
     if (scope !== 'personal') {
-      if (persona.kind !== 'org-member' || persona.organizationId !== scope.organizationId) return refuse(400, 'invalid_grant', 'The person is not a member of the organization.')
-      const hostOrganization = this.links.get(client.hostId)?.organizationId ?? this.hostOrganizations.get(client.hostId)
-      if (hostOrganization !== scope.organizationId) return refuse(400, 'invalid_grant', 'The host does not work for the organization.')
+      if (persona.kind !== 'org-member' || persona.organizationId !== scope.organizationId) return { error: 'invalid_grant', error_description: 'The person is not a member of the organization.', solus_refusal: 'not_a_member' }
+      const hostOrganization = this.links.get(delegation.hostId)?.organizationId ?? this.hostOrganizations.get(delegation.hostId)
+      if (hostOrganization !== scope.organizationId) return { error: 'invalid_grant', error_description: 'The host does not work for the organization.', solus_refusal: 'host_not_in_organization' }
     }
-    const refreshToken = `lab_rt_${randomBytes(18).toString('base64url')}`
-    this.refreshTokens.set(refreshToken, delegation)
-    const answer: TokenAnswer = { access_token: this.signDelegated(client.hostId, persona, scope, delegation.grantId), token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL_SECONDS, refresh_token: refreshToken }
-    if (form.grant_type !== 'refresh_token') answer.issued_token_type = ACCESS_TOKEN_TYPE
-    sendJson(response, 200, answer)
+    return { persona }
   }
 
   /** The host whose key signed this client assertion (`private_key_jwt`), or null. */

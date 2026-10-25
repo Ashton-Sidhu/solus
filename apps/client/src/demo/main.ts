@@ -26,7 +26,7 @@ import type { WsTransport } from '@solus/client-core/ws-transport'
 /** The slice of `WsTransport` that `registerPrimary` drives in the demo. */
 type DemoTransport = Pick<
   WsTransport,
-  'events' | 'destroy' | 'start' | 'probe' | 'reconnectNow' | 'onReset' | 'attachDialOutcomeReporter'
+  'events' | 'destroy' | 'start' | 'probe' | 'reconnectNow' | 'onReset' | 'attachDialOutcomeReporter' | 'setUnreachable'
 >
 import type { DialOutcome } from '@solus/client-core/host-supervisor'
 import { armReplay, createReplayEngine } from './replay/engine'
@@ -66,7 +66,7 @@ const demoApi = createDemoSolusApi(backend)
 installWindowSolusApi(demoApi)
 // The demo backend runs in this page, so every dial the supervisor asks for
 // succeeds immediately. Reporting acceptance is what moves the host out of
-// `connecting`; without it the workspace boots into a reconnecting shell.
+// `checking`; without it the workspace boots into a reconnecting shell.
 let reportDialOutcome: ((outcome: DialOutcome) => void) | null = null
 const acceptDial = () => reportDialOutcome?.({ kind: 'accepted', recovered: false })
 // The demo has exactly one host, and it stands in for the machine the visitor
@@ -80,6 +80,7 @@ const demoTransport: DemoTransport = {
   start: acceptDial,
   probe: () => Promise.resolve(),
   reconnectNow: () => {},
+  setUnreachable: () => {},
   onReset: () => () => {},
   attachDialOutcomeReporter: (report: (outcome: DialOutcome) => void) => {
     reportDialOutcome = report

@@ -79,7 +79,7 @@
     return projectChipOptions(
       projectsStore.logicalProjects([]),
       selectedHostId,
-      (serverId) => serversStore.statusFor(serverId) === "online",
+      (serverId) => serversStore.readinessFor(serverId).readiness === "ready",
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
       offersCurrent
         ? { key: currentKey, label, checkout: { serverId: hostId, projectRoot: projectDir }, hostLabel: null }

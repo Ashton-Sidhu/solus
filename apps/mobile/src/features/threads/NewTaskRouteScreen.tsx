@@ -511,7 +511,7 @@ function NewTaskDraftContent(props: {
   const hosts = useListened(app.registry.changes, app.registry.hosts);
   const connected = useListened(
     app.connections.changes,
-    () => app.connections.state(props.hostId)?.phase === "connected",
+    () => app.connections.state(props.hostId)?.readiness === "ready",
   );
   const controlsBottomPadding = Math.max(insets.bottom, 10);
   const keyboardOpenedOffset = Math.max(0, controlsBottomPadding - 8);

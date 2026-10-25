@@ -1,3 +1,4 @@
+import { hostReadinessCopy, type HostReadinessState } from '@solus/client-core/host-readiness'
 import { mergeHostConfig, type HostConfig, type HostConfigPatch } from '@solus/contracts/host-config'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
@@ -16,6 +17,15 @@ export type HostSettingsState =
   | { kind: 'error'; message: string }
 
 const IDLE = { kind: 'idle' } as const
+
+/**
+ * The words for settings that could not be read. A host that is not ready
+ * fails each read with "The host d931… is unreachable": an id, not a reason.
+ * The host's readiness says what happened, in the words every surface uses.
+ */
+export function hostSettingsErrorText(message: string, readiness: HostReadinessState, hostLabel: string): string {
+  return readiness.readiness === 'ready' ? `Settings could not be read: ${message}` : hostReadinessCopy(readiness, hostLabel).headline
+}
 
 export class HostSettings {
   readonly changes = new Listeners()

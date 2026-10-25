@@ -1,6 +1,7 @@
 <script lang="ts">
   import TaskIcon from "../ui/TaskIcon.svelte";
   import {
+    ClipboardCheck as ClipboardCheckIcon,
     GitBranch as GitBranchIcon,
     Laptop as LaptopIcon,
   } from "@lucide/svelte";
@@ -10,7 +11,6 @@
   import { attentionLabel } from "../../lib/sessionUtils";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import { MiddleTruncate } from "../ui/middle-truncate";
   import { worktreeDisplayName } from "../../lib/git-context";
@@ -137,8 +137,7 @@
             ? 'text-(--solus-art-positive)'
             : 'text-(--solus-status-running-icon)'}"
         >
-          <ReviewGuideGlyph
-            weight={reviewGuideStatus === "ready" ? "fill" : "regular"}
+          <ClipboardCheckIcon
             class="size-3.5 shrink-0"
           />
           <span>

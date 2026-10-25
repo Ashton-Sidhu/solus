@@ -1,12 +1,21 @@
 import { afterEach, describe, expect, jest, mock, test } from 'bun:test'
 import type { Task, TaskSidebarSnapshot } from '@solus/contracts/task-types'
-import type { HostPhase } from '@solus/client-core/host-supervisor'
+import type { LinkReadiness } from '@solus/client-core/host-readiness'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
+
+// These tests exercise store state without mounting Svelte components.
+mock.module('@lucide/svelte', () => ({
+  MessageSquare: () => {}, FileText: () => {}, LoaderCircle: () => {},
+  CircleCheck: () => {}, CircleX: () => {}, Clock: () => {}, Activity: () => {},
+}))
+mock.module('@solus/workspace-ui/contexts/tasks/task-snoozes.store.svelte', () => ({
+  taskSnoozesStore: { start: () => {}, get: () => null },
+}))
 
 const taskServerConnections = singleHostServerConnections()
 let connectionCreatedListener: ((connection: { serverId: string }) => void) | undefined
-let phaseChangeListener: ((serverId: string, phase: HostPhase) => void) | undefined
-const hostPhases = new Map<string, HostPhase>()
+let readinessChangeListener: ((serverId: string, readiness: LinkReadiness) => void) | undefined
+const hostReadiness = new Map<string, LinkReadiness>()
 
 // One connected host, whose RPC surface is the same `window.solus` each test
 // installs. Tasks are host-scoped now, so the store reaches them through the
@@ -21,13 +30,13 @@ mock.module('@solus/client-core/server-connections', () => ({
         if (connectionCreatedListener === listener) connectionCreatedListener = undefined
       }
     },
-    onPhaseChange: (listener: (serverId: string, phase: HostPhase) => void) => {
-      phaseChangeListener = listener
+    onReadinessChange: (listener: (serverId: string, readiness: LinkReadiness) => void) => {
+      readinessChangeListener = listener
       return () => {
-        if (phaseChangeListener === listener) phaseChangeListener = undefined
+        if (readinessChangeListener === listener) readinessChangeListener = undefined
       }
     },
-    phaseFor: (serverId: string) => hostPhases.get(serverId) ?? 'connected',
+    readinessFor: (serverId: string) => ({ ...taskServerConnections.readinessFor(serverId), readiness: hostReadiness.get(serverId) ?? 'ready' }),
   },
 }))
 
@@ -40,8 +49,8 @@ afterEach(() => {
   jest.useRealTimers()
   taskServerConnections.reset()
   connectionCreatedListener = undefined
-  phaseChangeListener = undefined
-  hostPhases.clear()
+  readinessChangeListener = undefined
+  hostReadiness.clear()
   if (previousWindow === undefined) delete (globalThis as unknown as { window?: Window }).window
   else Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: previousWindow })
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
@@ -252,7 +261,7 @@ describe('renderer task hydration', () => {
     taskServerConnections.emit('local', 'session.statusChanged', {
       sessionId: 'session-1', agentSessionId: null, status: 'running', at: 3,
     })
-    phaseChangeListener?.('local', 'reconnecting')
+    readinessChangeListener?.('local', 'reconnecting')
     expect(store.isAttemptRunning(link, 'local', noTab)).toBe(false)
 
     // An open tab knows its own status, even for a turn that began before
@@ -475,7 +484,7 @@ describe('renderer task hydration', () => {
     resolveLocalSnapshot({ tasks: [], sessionsByTask: {} })
     await Promise.resolve()
 
-    expect(store.loaded).toBe(false)
+    expect(store.loaded).toBe(true)
     expect(store.tasks).toEqual([])
 
     resolveRemoteSnapshot({
@@ -492,6 +501,28 @@ describe('renderer task hydration', () => {
 
     expect(store.taskForSession('restored-session')?.status).toBe('done')
     expect(store.get('remote-completed').serverId).toBe('remote')
+  })
+
+  test('publishes a healthy host before a slow connected host answers', async () => {
+    installStateRune()
+    const slow = Promise.withResolvers<TaskSidebarSnapshot>()
+    const healthy = { tasksSidebarSnapshot: async () => ({
+      tasks: [task()],
+      sessionsByTask: { 'task-1': [{ taskId: 'task-1', sessionId: 'healthy-session', linkedAt: 1 }] },
+    }) }
+    taskServerConnections.registerPrimary('local', healthy)
+    taskServerConnections.registerHost('slow', { tasksSidebarSnapshot: () => slow.promise })
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    const load = store.load()
+    await Promise.resolve()
+    expect(store.loaded).toBe(true)
+    expect(store.loading).toBe(true)
+    expect(store.taskForSession('healthy-session')?.id).toBe('task-1')
+    slow.resolve({ tasks: [{ ...task(), id: 'slow-task' }], sessionsByTask: {} })
+    await load
+    expect(store.tasks.map((row) => row.id)).toEqual(['task-1', 'slow-task'])
+    expect(store.loading).toBe(false)
   })
 
   test('does not let an offline host block healthy sidebar sessions', async () => {
@@ -534,7 +565,7 @@ describe('renderer task hydration', () => {
     }
     taskServerConnections.registerPrimary('local', localApi)
     taskServerConnections.registerHost('remote', remoteApi)
-    hostPhases.set('remote', 'offline')
+    hostReadiness.set('remote', 'unreachable')
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
       writable: true,
@@ -549,8 +580,8 @@ describe('renderer task hydration', () => {
     expect(store.taskForSession('local-session')?.id).toBe('local-task')
     expect(remoteReads).toBe(0)
 
-    hostPhases.set('remote', 'connected')
-    phaseChangeListener?.('remote', 'connected')
+    hostReadiness.set('remote', 'ready')
+    readinessChangeListener?.('remote', 'ready')
     resolveRemoteSnapshot({
       tasks: [remoteTask],
       sessionsByTask: {
@@ -563,6 +594,37 @@ describe('renderer task hydration', () => {
     expect(store.taskForSession('local-session')?.id).toBe('local-task')
     expect(remoteReads).toBe(1)
     expect(localReads).toBe(1)
+  })
+
+  test('a host whose snapshot rejects as unreachable does not keep the sidebar loading', async () => {
+    // WHY: a call to an unreachable host now rejects with HostUnreachableError.
+    // A pass in which every read failed must still end the loading state, even
+    // when another host joins and the read runs once more; otherwise the
+    // sidebar keeps its skeleton for as long as the first host is down.
+    installStateRune()
+    const { HostUnreachableError } = await import('@solus/client-core/rpc-error')
+    let rejectLocal!: (error: Error) => void
+    const localApi = {
+      tasksSidebarSnapshot: () => new Promise<TaskSidebarSnapshot>((_resolve, reject) => { rejectLocal = reject }),
+    }
+    const remoteApi = { tasksSidebarSnapshot: () => new Promise<TaskSidebarSnapshot>(() => {}) }
+    taskServerConnections.registerPrimary('local', localApi)
+    taskServerConnections.registerHost('remote', remoteApi)
+    hostReadiness.set('remote', 'checking')
+    Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: { solus: localApi } })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    void store.load()
+    // The remote host is accepted while the first pass waits, so the read runs one more pass.
+    hostReadiness.set('remote', 'ready')
+    readinessChangeListener?.('remote', 'ready')
+    rejectLocal(new HostUnreachableError('local'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(store.loaded).toBe(true)
+    // The next pass still waits on the remote host; the sidebar shows what it has.
+    expect(store.loading).toBe(true)
   })
 
   test('a reconnecting host re-reads its own list, not every host\'s', async () => {
@@ -598,8 +660,8 @@ describe('renderer task hydration', () => {
     expect(store.tasks.map((row) => row.id).sort()).toEqual(['local-task', 'remote-deleted', 'remote-kept'])
 
     remoteTasks = [{ ...task(), id: 'remote-kept' }, { ...task(), id: 'remote-created' }]
-    phaseChangeListener?.('remote', 'reconnecting')
-    phaseChangeListener?.('remote', 'connected')
+    readinessChangeListener?.('remote', 'reconnecting')
+    readinessChangeListener?.('remote', 'ready')
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(localReads).toBe(1)
@@ -634,8 +696,8 @@ describe('renderer task hydration', () => {
     const keptRow = store.get('kept')
 
     answer = { tasks: [], sessionsByTask: {}, revision: 'boot.1.reader', changedTaskIds: [] }
-    phaseChangeListener?.('local', 'reconnecting')
-    phaseChangeListener?.('local', 'connected')
+    readinessChangeListener?.('local', 'reconnecting')
+    readinessChangeListener?.('local', 'ready')
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(reads.at(-1)).toEqual({ since: 'boot.1.reader' })
     expect(store.tasks.map((row) => row.id)).toEqual(['kept', 'edited', 'deleted'])
@@ -646,8 +708,8 @@ describe('renderer task hydration', () => {
       revision: 'boot.3.reader',
       changedTaskIds: ['edited', 'deleted'],
     }
-    phaseChangeListener?.('local', 'reconnecting')
-    phaseChangeListener?.('local', 'connected')
+    readinessChangeListener?.('local', 'reconnecting')
+    readinessChangeListener?.('local', 'ready')
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(store.tasks.map((row) => row.id)).toEqual(['kept', 'edited'])
     expect(store.get('edited').title).toBe('Edited while away')
@@ -656,13 +718,13 @@ describe('renderer task hydration', () => {
     // A restarted or older host answers whole, without a revision: the next
     // reconnect cannot resume and reads the whole list again.
     answer = { tasks: [{ ...task(), id: 'kept' }], sessionsByTask: {} }
-    phaseChangeListener?.('local', 'reconnecting')
-    phaseChangeListener?.('local', 'connected')
+    readinessChangeListener?.('local', 'reconnecting')
+    readinessChangeListener?.('local', 'ready')
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(reads.at(-1)).toEqual({ since: 'boot.3.reader' })
     expect(store.tasks.map((row) => row.id)).toEqual(['kept'])
-    phaseChangeListener?.('local', 'reconnecting')
-    phaseChangeListener?.('local', 'connected')
+    readinessChangeListener?.('local', 'reconnecting')
+    readinessChangeListener?.('local', 'ready')
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(reads.at(-1)).toBeUndefined()
     expect(reads).toHaveLength(5)
@@ -702,6 +764,28 @@ describe('renderer task hydration', () => {
     expect(store.tasks.map((entry) => entry.id)).toEqual(['shared-task'])
     expect(store.get('shared-task').serverId).toBe('local')
     expect(store.get('shared-task').sessions.map((link) => link.sessionId)).toEqual(['primary-session'])
+  })
+
+  test('a preferred host that answers later owns duplicate task links', async () => {
+    installStateRune()
+    const preferred = Promise.withResolvers<TaskSidebarSnapshot>()
+    taskServerConnections.registerPrimary('local', { tasksSidebarSnapshot: () => preferred.promise })
+    taskServerConnections.registerHost('mirror', { tasksSidebarSnapshot: async () => ({
+      tasks: [task()], sessionsByTask: { 'task-1': [{ taskId: 'task-1', sessionId: 'mirror-session', linkedAt: 1 }] },
+    }) })
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    const load = store.load()
+    await Promise.resolve()
+    expect(store.get('task-1').serverId).toBe('mirror')
+    preferred.resolve({
+      tasks: [task()], sessionsByTask: { 'task-1': [{ taskId: 'task-1', sessionId: 'primary-session', linkedAt: 2 }] },
+    })
+    await load
+    expect(store.tasks.map((row) => row.id)).toEqual(['task-1'])
+    expect(store.get('task-1').serverId).toBe('local')
+    expect(store.taskForSession('mirror-session')).toBeNull()
+    expect(store.taskForSession('primary-session')?.id).toBe('task-1')
   })
 
   test('publishes task rows and session ownership as one sidebar snapshot', async () => {

@@ -13,7 +13,7 @@
   import { checkoutHostsOf, cloudProjectSuggestions } from "./lib/cloud-projects";
 
   const cloudServerId = $derived(serversStore.activeCloudServerId);
-  const online = $derived(!!cloudServerId && serversStore.statusFor(cloudServerId) === "online");
+  const online = $derived(!!cloudServerId && serversStore.readinessFor(cloudServerId).readiness === "ready");
   const projects = $derived(workspaceProjectsStore.projectsFor(cloudServerId));
   const suggestions = $derived(cloudProjectSuggestions(projectsStore.entries, projects));
 

@@ -22,6 +22,7 @@ import { accountConnectionValue } from "./lib/account-connections";
 import { retentionDayChoices, retentionDaysLabel } from "./lib/retention-choices";
 import { hostUpdateControls, serverUpdateText, updateStatusText } from "./lib/update-status";
 import { useGithubConnection } from "./use-github-connection";
+import { hostSettingsErrorText } from "./host-settings";
 import { useHostSettings } from "./use-host-settings";
 import { useHostUpdateStatus } from "./use-host-update-status";
 
@@ -35,7 +36,8 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
   const app = useApp();
   const insets = useSafeAreaInsets();
   const host = useListened(app.registry.changes, () => app.registry.host(hostId));
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase);
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness);
+  const hostReadiness = useListened(app.connections.changes, () => app.connections.readiness(hostId));
   const github = useGithubConnection(hostId);
   const { state, reload, update } = useHostSettings(hostId);
   const hostUpdate = useHostUpdateStatus(hostId);
@@ -46,9 +48,9 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
   // Unset follows the connection: a host that failed to connect opens with
   // Reconnect and Forget in view; a tap then decides.
   const [connectionToggled, setConnectionToggled] = useState<boolean | null>(null);
-  const connected = phase === "connected";
+  const connected = readiness === "ready";
   const connectionFailed =
-    phase !== undefined && phase !== "connected" && phase !== "connecting" && phase !== "reconnecting";
+    readiness !== undefined && readiness !== "ready" && readiness !== "checking" && readiness !== "reconnecting";
   const connectionExpanded = connectionToggled ?? connectionFailed;
 
   const githubValue =
@@ -213,7 +215,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               </>
             ) : state.kind === "error" ? (
               <View className="gap-3">
-                <ErrorBanner message={`Settings could not be read: ${state.message}`} />
+                <ErrorBanner message={hostSettingsErrorText(state.message, hostReadiness, host.label)} />
                 <Pressable
                   accessibilityRole="button"
                   onPress={reload}

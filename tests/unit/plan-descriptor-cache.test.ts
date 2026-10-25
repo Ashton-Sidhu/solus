@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { PlanComment, PlanDescriptor, Work, WorkMeta } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
+import type { HostReadinessState, LinkReadiness } from '@solus/client-core/host-readiness'
 
 const connections = singleHostServerConnections()
 
@@ -9,11 +10,12 @@ mock.module('@solus/client-core/server-connections', () => ({
 }))
 
 const previousWindow = globalThis.window
+const readiness = (value: LinkReadiness): HostReadinessState => ({ readiness: value, away: value === 'unreachable' || value === 'refused', unreachableReason: null, refusedReason: null, lastSeenAt: null })
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
 beforeEach(() => {
   connections.reset()
-  connections.phaseFor = () => 'connected'
+  connections.readinessFor = () => readiness('ready')
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
     <T>(value: T) => value,
     { snapshot: <T>(value: T) => value },
@@ -156,8 +158,8 @@ describe('works federation', () => {
         ? Promise.resolve([workMeta(work('work-b'))])
         : new Promise(() => {}),
     })
-    connections.phaseFor = (serverId: string) =>
-      serverId === 'host-b' && !remoteConnected ? 'offline' : 'connected'
+    connections.readinessFor = (serverId: string) =>
+      readiness(serverId === 'host-b' && !remoteConnected ? 'unreachable' : 'ready')
     const { WorksStore } = await import('@solus/workspace-ui/contexts/works/works.store.svelte')
     const store = new WorksStore()
 
@@ -251,8 +253,8 @@ describe('plans federation', () => {
         ? Promise.resolve([descriptor('Plan B', 2)])
         : new Promise(() => {}),
     })
-    connections.phaseFor = (serverId: string) =>
-      serverId === 'host-b' && !remoteConnected ? 'offline' : 'connected'
+    connections.readinessFor = (serverId: string) =>
+      readiness(serverId === 'host-b' && !remoteConnected ? 'unreachable' : 'ready')
     const { PlanStore } = await import('@solus/workspace-ui/contexts/plans/plan.store.svelte')
     const store = new PlanStore()
 
@@ -273,8 +275,8 @@ describe('plans federation', () => {
     let remoteConnected = true
     connections.registerPrimary('host-a', { listPlans: async () => [descriptor('Plan A', 1)] })
     connections.registerHost('host-b', { listPlans: async () => [descriptor('Plan B', 2)] })
-    connections.phaseFor = (serverId: string) =>
-      serverId === 'host-b' && !remoteConnected ? 'offline' : 'connected'
+    connections.readinessFor = (serverId: string) =>
+      readiness(serverId === 'host-b' && !remoteConnected ? 'unreachable' : 'ready')
     const { PlanStore } = await import('@solus/workspace-ui/contexts/plans/plan.store.svelte')
     const store = new PlanStore()
     await store.getDescriptors(undefined, true)

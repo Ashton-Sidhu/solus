@@ -134,7 +134,7 @@ describe('interest', () => {
     const release = store.want(api, 'host-a', ctx, [{ kind: 'needs-review' }])
     await settle()
 
-    serverConnectionsMock.emitPhase('host-a', 'connected')
+    serverConnectionsMock.emitReadiness('host-a', 'ready')
     await settle()
 
     expect(sent).toHaveLength(2)

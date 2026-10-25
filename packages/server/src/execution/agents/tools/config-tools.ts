@@ -1,114 +1,177 @@
 import { z } from 'zod'
-import {
-  HOST_CONFIG_AGENT_HIDDEN_KEYS,
-  HOST_CONFIG_KEYS,
-  hostConfigPatchSchema,
-  isAgentWritableHostConfigKey,
-} from '@solus/contracts/host-config'
+import { HOST_CONFIG_AGENT_HIDDEN_KEYS, HOST_CONFIG_KEYS, agentHostConfigPatchSchema } from '@solus/contracts/host-config'
 import type { HostConfigSnapshot } from '@solus/contracts/host-config'
+import {
+  deviceConfigureRequestSchema,
+  sshDeviceHostConfigsSchema,
+  type DeviceConfigureRequest,
+  type DeviceSettingsState,
+  type DeviceState,
+  type SshDeviceHostConfig,
+} from '@solus/contracts/device-types'
+import {
+  personalSettingsDocumentSchema,
+  type AgentPersonalSettingsReply,
+  type PersonalSettingsDocument,
+} from '@solus/contracts/settings'
 import type { AgentTool } from './agent-tool'
 import { getHostConfig, setHostConfig } from '../../../host/settings'
 
 /**
- * The agent's view of this host's own settings (plans/018 §3.5): the keys the
- * host owns, never a person's preferences. A person's settings live with their
- * clients and account, not on a host an agent of another person can read.
- * `otel` is withheld whole: its headers are the collector's credentials. An
- * agent may write only a host-owned key the key policy opens.
+ * The agent's view of Solus settings, in three sections, each with its owner
+ * (docs/settings.md):
+ * - `host`: this machine's own config. `otel` is withheld whole: its headers
+ *   are the collector's credentials.
+ * - `devices`: the host's device manager, its SSH device hosts included.
+ * - `personal`: the settings of the person the session works for. Only their
+ *   clients hold them, so the host asks one of those clients; the client
+ *   applies a change as a local edit and its sync sends it on.
+ * The agent sees every key it may set with its type, from the owners' own
+ * schemas, and each section is parsed again with the owner's schema.
  */
-const AGENT_VISIBLE_KEYS = HOST_CONFIG_KEYS.filter((key) => !HOST_CONFIG_AGENT_HIDDEN_KEYS.includes(key))
-const AGENT_WRITABLE_KEYS: readonly string[] = AGENT_VISIBLE_KEYS.filter((key) => isAgentWritableHostConfigKey(key)).sort()
+const AGENT_VISIBLE_HOST_KEYS = HOST_CONFIG_KEYS.filter((key) => !HOST_CONFIG_AGENT_HIDDEN_KEYS.includes(key))
 
-let notifyChanged: ((snapshot: HostConfigSnapshot) => void) | null = null
+/** The device switches, and `sshHosts`, which replaces the whole SSH host list. */
+const devicePatchSchema = deviceConfigureRequestSchema.extend({ sshHosts: sshDeviceHostConfigsSchema.optional() }).strict()
 
-/** Set once at server start, so a config write an agent makes reaches every
- *  mounted client the same way one made in Settings does. */
-export function setHostConfigChangedListener(
-  listener: (snapshot: HostConfigSnapshot) => void,
-): void {
-  notifyChanged = listener
+const SECTION_SCHEMAS = {
+  host: agentHostConfigPatchSchema,
+  devices: devicePatchSchema,
+  personal: personalSettingsDocumentSchema,
+}
+
+/**
+ * A section's schema as a provider can list it. The owners' schemas heal and
+ * transform values, which the Claude SDK cannot turn into JSON Schema; their
+ * input side as plain JSON Schema describes the same keys and values.
+ */
+function listedSchema(schema: z.ZodType): z.ZodType {
+  return z.fromJSONSchema(z.toJSONSchema(schema, { io: 'input' }))
+}
+
+/** What the tools reach outside the host config, set once at server start. */
+export interface ConfigToolHost {
+  /** Reaches every mounted client the same way a change made in Settings does. */
+  hostConfigChanged(snapshot: HostConfigSnapshot): void
+  devices: {
+    settings(): DeviceSettingsState
+    configure(request: DeviceConfigureRequest): Promise<DeviceState>
+    saveSshHosts(hosts: SshDeviceHostConfig[]): Promise<DeviceState>
+  }
+  /** Reads the person's settings, or changes them when `patch` is given, through one of their clients. */
+  personalSettings(sessionId: string | undefined, patch?: PersonalSettingsDocument): Promise<AgentPersonalSettingsReply>
+}
+
+let host: ConfigToolHost | null = null
+
+export function setConfigToolHost(next: ConfigToolHost): void {
+  host = next
+}
+
+function visibleHostConfig(config: HostConfigSnapshot['config']) {
+  return Object.fromEntries(AGENT_VISIBLE_HOST_KEYS.map((key) => [key, config[key]]))
+}
+
+function visibleDeviceSettings(): Omit<DeviceSettingsState, 'onboardingCompleted'> | null {
+  const settings = host?.devices.settings()
+  if (!settings) return null
+  const { enabled, agentAccessEnabled, autoShowAgentDevices, sshHosts } = settings
+  return { enabled, agentAccessEnabled, autoShowAgentDevices, sshHosts }
 }
 
 export const readConfigAgentTool: AgentTool = {
   name: 'read_config',
   description:
-    "Read this host's own Solus settings — tool availability, restart continuation, review warming, and automation retention. A person's preferences (theme, models, instructions) are not host settings and are not shown. Reports which keys update_config accepts.",
+    "Read Solus settings in three sections: `host` (this machine: tool availability, restart continuation, review warming, retention, analytics consent), `devices` (the device manager and its SSH device hosts), and `personal` (the settings of the person this session works for: models, permission mode, review, instructions, source control writing, appearance, and the rest). update_config changes any of them.",
   inputFields: {} as const,
   requiresApproval: false,
-  execute: async () => {
-    const { config } = getHostConfig()
-    const visible = Object.fromEntries(AGENT_VISIBLE_KEYS.map((key) => [key, config[key]]))
+  execute: async (_input, context) => {
+    const personal = host ? await host.personalSettings(context.sessionId()) : { ok: false as const, error: 'Personal settings are not available on this host.' }
     return {
       ok: true,
       text: JSON.stringify({
-        config: visible,
-        writableKeys: AGENT_WRITABLE_KEYS,
-        withheldKeys: HOST_CONFIG_AGENT_HIDDEN_KEYS,
+        host: visibleHostConfig(getHostConfig().config),
+        devices: visibleDeviceSettings(),
+        personal: personal.ok ? personal.settings : { unavailable: personal.error },
+        withheldKeys: { host: HOST_CONFIG_AGENT_HIDDEN_KEYS },
       }),
     }
   },
 }
 
-const updateConfigArgsSchema = z.object({ patch: z.string() })
+type SectionName = 'host' | 'devices' | 'personal'
 
-/** Zod is the parse boundary: an object here, arrays and bare values rejected,
- *  unknown keys preserved so the write policy can name them. */
-const patchObjectSchema = z.looseObject({})
+interface UpdateResult {
+  changed: Partial<Record<SectionName, string[]>>
+  host: ReturnType<typeof visibleHostConfig>
+  devices: ReturnType<typeof visibleDeviceSettings>
+  personal?: PersonalSettingsDocument
+}
 
 export const updateConfigAgentTool: AgentTool = {
   name: 'update_config',
   description:
-    "Change this host's own Solus settings. `patch` is a JSON object of the keys to change; keys not named keep their current value. Only the keys read_config reports as writable are accepted — a person's preferences and instructions are theirs to set, not yours.",
+    "Change Solus settings. Pass any of `host`, `devices`, and `personal`, each with only the keys to change; keys not named keep their value. A personal change is applied on the person's connected Solus client and syncs from there. Every key is checked before any is written.",
   inputFields: {
-    patch: z.string().describe('JSON object of host setting keys to change, e.g. {"continueSessionsAfterHostRestart":false}'),
+    host: listedSchema(SECTION_SCHEMAS.host).optional().describe("This machine's settings."),
+    devices: listedSchema(SECTION_SCHEMAS.devices).optional().describe('The device manager. `sshHosts` replaces the whole SSH device host list.'),
+    personal: listedSchema(SECTION_SCHEMAS.personal).optional().describe('The settings of the person this session works for.'),
   } as const,
-  requiresApproval: true,
-  execute: async (input) => {
-    const args = updateConfigArgsSchema.safeParse(input)
-    if (!args.success) return { ok: false, text: '`patch` is required and must be a string.' }
+  requiresApproval: false,
+  execute: async (input, context) => {
+    const parsed = parseSections(input)
+    if (!parsed.ok) return { ok: false, text: parsed.error }
+    const { sections } = parsed
+    if (!sections.host && !sections.devices && !sections.personal) return { ok: false, text: 'Name at least one setting to change.' }
+    if (!host && (sections.devices || sections.personal)) return { ok: false, text: 'Device and personal settings are not available on this host.' }
 
-    const candidate = readJsonObject(args.data.patch)
-    if (!candidate.ok) return { ok: false, text: candidate.error }
-
-    const refused = candidate.keys.filter((key) => !AGENT_WRITABLE_KEYS.includes(key))
-    if (refused.length > 0) {
-      // Named rather than silently dropped: an agent that believes it applied a
-      // setting will tell the user it did.
-      return {
-        ok: false,
-        text: `These keys cannot be set by an agent: ${refused.join(', ')}. Writable keys are: ${AGENT_WRITABLE_KEYS.join(', ') || 'none'}.`,
-      }
+    // The personal section is the one that can fail out of the host's hands, so
+    // it goes first: a refused change changes nothing anywhere.
+    const changed: UpdateResult['changed'] = {}
+    let personal: PersonalSettingsDocument | null = null
+    if (sections.personal && host) {
+      const reply = await host.personalSettings(context.sessionId(), sections.personal)
+      if (!reply.ok) return { ok: false, text: reply.error }
+      personal = reply.settings
+      changed.personal = Object.keys(sections.personal)
     }
-
-    const patch = hostConfigPatchSchema.parse(candidate.value)
-    const changed = Object.keys(patch)
-    if (changed.length === 0) {
-      return { ok: false, text: 'No recognized host setting keys in the patch.' }
+    if (sections.host) {
+      host?.hostConfigChanged(setHostConfig(sections.host))
+      changed.host = Object.keys(sections.host)
     }
-
-    const snapshot = setHostConfig(patch)
-    notifyChanged?.(snapshot)
-    const config = Object.fromEntries(AGENT_VISIBLE_KEYS.map((key) => [key, snapshot.config[key]]))
-    return { ok: true, text: JSON.stringify({ changed, config }) }
+    if (sections.devices && host) {
+      const { sshHosts, ...switches } = sections.devices
+      if (Object.keys(switches).length > 0) await host.devices.configure(switches)
+      if (sshHosts) await host.devices.saveSshHosts(sshHosts)
+      changed.devices = Object.keys(sections.devices)
+    }
+    const result: UpdateResult = { changed, host: visibleHostConfig(getHostConfig().config), devices: visibleDeviceSettings() }
+    if (personal) result.personal = personal
+    return { ok: true, text: JSON.stringify(result) }
   },
 }
 
-type JsonObjectRead =
-  | { ok: true; keys: string[]; value: object }
-  | { ok: false; error: string }
+interface Sections {
+  host: z.output<typeof SECTION_SCHEMAS.host> | null
+  devices: z.output<typeof SECTION_SCHEMAS.devices> | null
+  personal: z.output<typeof SECTION_SCHEMAS.personal> | null
+}
 
-/** A malformed patch has to come back as a message the agent can act on, not an
- *  unhandled throw inside the tool call. */
-function readJsonObject(raw: string): JsonObjectRead {
-  let decoded: unknown
-  try {
-    decoded = JSON.parse(raw)
-  } catch {
-    return { ok: false, error: '`patch` must be valid JSON, e.g. {"continueSessionsAfterHostRestart":false}.' }
+type SectionsRead = { ok: true; sections: Sections } | { ok: false; error: string }
+
+/** Every section is checked with its owner's schema before any is written; the first refused value is named. */
+function parseSections(input: { host?: unknown; devices?: unknown; personal?: unknown }): SectionsRead {
+  const host = SECTION_SCHEMAS.host.safeParse(input.host ?? {})
+  const devices = SECTION_SCHEMAS.devices.safeParse(input.devices ?? {})
+  const personal = SECTION_SCHEMAS.personal.safeParse(input.personal ?? {})
+  for (const [section, result] of [['host', host], ['devices', devices], ['personal', personal]] as const) {
+    if (result.success) continue
+    const issue = result.error.issues[0]
+    return { ok: false, error: `${[section, ...(issue?.path ?? [])].join('.')}: ${issue?.message ?? 'invalid value'}` }
   }
-  const parsed = patchObjectSchema.safeParse(decoded)
-  if (!parsed.success) {
-    return { ok: false, error: '`patch` must be a JSON object, not an array or a bare value.' }
-  }
-  return { ok: true, keys: Object.keys(parsed.data), value: parsed.data }
+  return { ok: true, sections: { host: nonEmpty(host.data), devices: nonEmpty(devices.data), personal: nonEmpty(personal.data) } }
+}
+
+function nonEmpty<T extends object>(value: T | undefined): T | null {
+  return value && Object.keys(value).length > 0 ? value : null
 }

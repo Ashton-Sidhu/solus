@@ -17,9 +17,38 @@ Each setting has one owner, and each owner has its own schema: `PersonalSettings
 | Host | The machine: Solus tool availability, telemetry export, restart recovery, review warming by path, archived automation retention, host analytics consent | `server-settings.json` on the host |
 | Organization | Settings that the owners of an organization decide for all its work. Today this is only Sync all Insights. | The control plane, in the organization's host policy. A host reads it in its standing. |
 
-Agents cannot write personal or device settings. On the host, only
-`continueSessionsAfterHostRestart` is agent-writable (`HOST_CONFIG_AGENT_WRITABLE`).
 A host refuses a `configUpdate` that names any key that is not host config.
+
+### Agents and settings
+
+An agent reads settings with `read_config` and changes them with `update_config`.
+The user does not approve each call. Both tools use three sections, and each
+section goes to its owner. `update_config` takes each section as an object of the
+keys to change. Keys that it does not name keep their values.
+
+| Section | Owner | Writable by an agent | Not shown |
+| --- | --- | --- | --- |
+| `host` | Host config | Every key (`agentHostConfigPatchSchema`) | `otel`, because it holds the collector's credentials |
+| `devices` | The host's device manager | `enabled`, `agentAccessEnabled`, `autoShowAgentDevices`, and `sshHosts` (the whole list) | — |
+| `personal` | The person the session works for | Every personal key | — |
+
+Each section is checked against its owner's schema before anything is written.
+The provider sees the input side of those schemas, so the agent sees each key with
+its type and allowed values. When an agent turns off device support, the device
+runs stop first, the same as when a person turns it off in Settings
+(`configureDevices`).
+
+The host does not hold personal settings, so the host asks a client of that person
+(`personalSettings.agentRequest`, a host-to-client request on the socket). It asks
+the client that started the turn first, then the person's other connected clients.
+It never asks a client of another person. The client applies the patch as a local
+edit. When the person is signed in, the normal sync sends the change to the
+account. The host never calls the account API for this. If no client of the person
+is connected, the tool says so and changes nothing. A refused key or value refuses
+the whole patch.
+
+A change to the instructions has an effect from the next turn, because a client
+sends the execution preferences with each prompt.
 
 Analytics consent is two settings: `clientAnalyticsEnabled` (device) and the host
 config's `analyticsEnabled`. The client emitter stays off until the person chooses.

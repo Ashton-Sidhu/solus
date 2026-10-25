@@ -1,5 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/features/home/workspace-connection-status.ts (MIT, see UPSTREAM.md).
-import type { HostConnectionPhase } from "../hosts/host-connections";
+import { isWaitingForHost, type HostReadiness } from "@solus/client-core/host-readiness";
 import type { HostThreadsState } from "../threads/thread-directory";
 
 /**
@@ -26,17 +26,15 @@ export interface WorkspaceState {
 
 export interface WorkspaceHostState {
   readonly label: string;
-  readonly phase: HostConnectionPhase | undefined;
+  readonly readiness: HostReadiness;
   readonly threads: HostThreadsState;
   /** The host is still making this person's Linux user and folders; absent: it is not. */
   readonly isPreparing?: boolean;
 }
 
 export function deriveWorkspaceState(hosts: ReadonlyArray<WorkspaceHostState>): WorkspaceState {
-  const connected = hosts.filter((host) => host.phase === "connected");
-  const connecting = hosts.filter(
-    (host) => host.phase === "connecting" || host.phase === "reconnecting" || host.phase === undefined,
-  );
+  const connected = hosts.filter((host) => host.readiness === "ready");
+  const connecting = hosts.filter((host) => isWaitingForHost(host.readiness));
   const failed = connected.find((host) => host.threads.kind === "error");
   return {
     hasConnections: hosts.length > 0,

@@ -10,44 +10,46 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import type { ConnectionStatusDotState } from "./lib/host-connection-status";
+import { isWaitingForHost, type HostReadinessState } from "@solus/client-core/host-readiness";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { themeColorWithAlpha, type MobileThemeVariables } from "../../lib/mobileTheme";
 
+/** A host state the person should act on: it refused this device, or it stopped answering. */
+export function isHostReadinessFailure(state: HostReadinessState): boolean {
+  return state.readiness === "refused" || (state.readiness === "unreachable" && state.unreachableReason === "no-answer");
+}
+
 function statusDotTone(
-  state: ConnectionStatusDotState,
+  state: HostReadinessState,
   theme: MobileThemeVariables,
 ): {
   readonly dotColor: string;
   readonly haloColor: string;
 } {
-  switch (state) {
-    // Unsupported is not a failure: the machine is fine, this build just
-    // cannot talk to it, so it wears the same neutral dot as "available".
-    case "available":
-    case "unsupported":
-      return {
-        dotColor: theme["--color-icon-muted"],
-        haloColor: themeColorWithAlpha(theme["--color-icon-muted"], 0.42),
-      };
-    case "connected":
-      return {
-        dotColor: theme["--color-adaptive-emerald-600-400"],
-        haloColor: themeColorWithAlpha(theme["--color-adaptive-emerald-600-400"], 0.48),
-      };
-    case "connecting":
-    case "reconnecting":
-      return {
-        dotColor: theme["--color-adaptive-amber-700-400"],
-        haloColor: themeColorWithAlpha(theme["--color-adaptive-amber-700-400"], 0.5),
-      };
-    case "offline":
-    case "error":
-      return {
-        dotColor: theme["--color-adaptive-rose-600-400"],
-        haloColor: themeColorWithAlpha(theme["--color-adaptive-rose-600-400"], 0.48),
-      };
+  if (state.readiness === "ready") {
+    return {
+      dotColor: theme["--color-adaptive-emerald-600-400"],
+      haloColor: themeColorWithAlpha(theme["--color-adaptive-emerald-600-400"], 0.48),
+    };
   }
+  if (isWaitingForHost(state.readiness)) {
+    return {
+      dotColor: theme["--color-adaptive-amber-700-400"],
+      haloColor: themeColorWithAlpha(theme["--color-adaptive-amber-700-400"], 0.5),
+    };
+  }
+  if (isHostReadinessFailure(state)) {
+    return {
+      dotColor: theme["--color-adaptive-rose-600-400"],
+      haloColor: themeColorWithAlpha(theme["--color-adaptive-rose-600-400"], 0.48),
+    };
+  }
+  // A stopped host, one with no address yet, or a removed one is not a
+  // failure of this phone: it wears the neutral dot.
+  return {
+    dotColor: theme["--color-icon-muted"],
+    haloColor: themeColorWithAlpha(theme["--color-icon-muted"], 0.42),
+  };
 }
 
 function usePulseAnimation(pulse: boolean) {
@@ -76,12 +78,13 @@ function usePulseAnimation(pulse: boolean) {
   return pulseProgress;
 }
 
+/** A host's readiness as a dot; it pulses while Solus dials. */
 export function ConnectionStatusDot(props: {
-  readonly state: ConnectionStatusDotState;
-  readonly pulse: boolean;
+  readonly state: HostReadinessState;
   readonly size?: number;
 }) {
-  const pulseProgress = usePulseAnimation(props.pulse);
+  const pulse = isWaitingForHost(props.state.readiness);
+  const pulseProgress = usePulseAnimation(pulse);
   const { themeVariables } = useAppearancePreferences();
   const tone = statusDotTone(props.state, themeVariables);
   const dotSize = props.size ?? 10;
@@ -89,7 +92,7 @@ export function ConnectionStatusDot(props: {
   const containerSize = haloSize + 4;
 
   const haloStyle = useAnimatedStyle(() => ({
-    opacity: props.pulse ? 0.14 + (1 - pulseProgress.value) * 0.3 : 0,
+    opacity: pulse ? 0.14 + (1 - pulseProgress.value) * 0.3 : 0,
     transform: [{ scale: 0.78 + pulseProgress.value * 1.16 }],
   }));
 

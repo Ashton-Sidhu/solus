@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { CircleAlert as CircleAlertIcon, Clock as ClockIcon, Info as InfoIcon, LoaderCircle as SpinnerIcon } from "@lucide/svelte";
+  import { CircleAlert as CircleAlertIcon, ClipboardCheck as ClipboardCheckIcon, Clock as ClockIcon, Info as InfoIcon, LoaderCircle as SpinnerIcon } from "@lucide/svelte";
   import type { GuideSection, ReviewGuideStatus, ReviewGuideStatusEvent } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
   import type { GuideDiffCommentSave } from "../pr-review/guide/lib/guide-data";
   import GuideView from "../pr-review/guide/GuideView.svelte";
   import ReviewProgress from "./ReviewProgress.svelte";
-  import ReviewGuideGlyph from "./ReviewGuideGlyph.svelte";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { Button } from "../ui/button";
   import { describeGuideFailure } from "@solus/client-core/review-guide-failure";
@@ -148,7 +147,7 @@
           class="flex size-[44px] shrink-0 items-center justify-center rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_70%,transparent)] text-muted-foreground"
           aria-hidden="true"
         >
-          <ReviewGuideGlyph size={20} />
+          <ClipboardCheckIcon size={20} />
         </span>
 
         <h2 class="mt-4  font-medium ">

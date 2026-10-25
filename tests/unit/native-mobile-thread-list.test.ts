@@ -279,12 +279,12 @@ describe('home project filter', () => {
 describe('workspace connection status', () => {
   const loaded = { kind: 'loaded', value: { threads: [], projects: [], indexing: false } } as const
   test('connected hosts with read lists show nothing; a reconnect names the host', () => {
-    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', phase: 'connected', threads: loaded }]))).toBeNull()
-    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', phase: 'reconnecting', threads: loaded }])))
+    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', readiness: 'ready', threads: loaded }]))).toBeNull()
+    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', readiness: 'reconnecting', threads: loaded }])))
       .toEqual({ label: 'Reconnecting to Mac', kind: 'progress' })
-    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', phase: 'offline', threads: loaded }])))
+    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', readiness: 'unreachable', threads: loaded }])))
       .toEqual({ label: 'Not connected', kind: 'offline' })
-    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', phase: 'connected', threads: { kind: 'loading', previous: null } }])))
+    expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', readiness: 'ready', threads: { kind: 'loading', previous: null } }])))
       .toEqual({ label: 'Loading threads...', kind: 'progress' })
   })
 })

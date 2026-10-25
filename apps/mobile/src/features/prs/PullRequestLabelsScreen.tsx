@@ -23,7 +23,7 @@ export function PullRequestLabelsScreen({ navigation, route }: ScreenProps<'Pull
   const app = useApp()
   const state = useListened(app.pullRequests.changes, () => app.pullRequests.detailOf(ref))
   const viewerLogin = useListened(app.pullRequests.changes, () => shownValue(app.pullRequests.hostOf(hostId))?.viewerLogin ?? null)
-  const connected = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase === 'connected')
+  const connected = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness === 'ready')
   const pr = shownValue(state)?.overview.pullRequest ?? null
   const permissions = pullRequestPermissions(pr, viewerLogin, connected)
   const [labels, setLabels] = useState<{ kind: 'loading' } | { kind: 'loaded'; labels: PrLabel[] } | { kind: 'error'; message: string }>({ kind: 'loading' })

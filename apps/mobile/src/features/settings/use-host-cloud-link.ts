@@ -8,12 +8,12 @@ import { useApp, useListened } from '../../app/app-context'
 export function useHostCloudLink(hostId: string) {
   const app = useApp()
   const state = useListened(app.hostCloudLink.changes, () => app.hostCloudLink.stateOf(hostId))
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const reload = useCallback(() => { void app.hostCloudLink.load(hostId) }, [app, hostId])
 
   useEffect(() => {
-    if (phase === 'connected') reload()
-  }, [phase, reload])
+    if (readiness === 'ready') reload()
+  }, [readiness, reload])
 
   useFocusEffect(reload)
 

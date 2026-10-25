@@ -58,23 +58,23 @@
 
   // A draft no host can run has no composer: the pane asks for a host instead
   // (docs/plans/draft-connect-host.md). The clock runs only while no host is
-  // online, to end the reconnect grace and keep "last seen" current.
+  // ready, to keep "last seen" current.
   const gatedHosts = $derived<GatedHost[]>(
     serversStore.executionServers.map((server) => ({
       ...server,
-      offlineSince: serversStore.offlineSinceFor(server.id),
+      state: serversStore.readinessFor(server.id),
       isPreparing: hosts.get(server.id).me.isPreparing,
     })),
   );
-  const hasOnlineHost = $derived(gatedHosts.some((host) => host.status === "online"));
+  const hasReadyHost = $derived(gatedHosts.some((host) => host.readiness === "ready"));
   let now = $state(Date.now());
   $effect(() => {
-    if (hasOnlineHost) return;
+    if (hasReadyHost) return;
     return liveActivityClock.subscribe((value) => (now = value));
   });
   // The last answer, so a Retry from the connect page keeps the page while it dials.
   let lastHostGate: DraftHostGate = "compose";
-  const hostGate = $derived((lastHostGate = draftHostGate(gatedHosts, now, lastHostGate)));
+  const hostGate = $derived((lastHostGate = draftHostGate(gatedHosts, lastHostGate)));
 
   // A draft is its own routed surface, so it owns the focus transition into its
   // own composer. Address the mounted InputBar directly rather than broadcasting

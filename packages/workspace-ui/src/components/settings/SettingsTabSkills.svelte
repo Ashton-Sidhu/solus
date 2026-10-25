@@ -63,8 +63,8 @@
     const targetApi = api;
     const targetInventory = inventory;
     if (!canManage) return;
-    return serverConnections.onPhaseChange((changedServerId, status) => {
-      if (changedServerId === targetServerId && status === "connected") void targetInventory.load(targetApi);
+    return serverConnections.onReadinessChange((changedServerId, readiness) => {
+      if (changedServerId === targetServerId && readiness === "ready") void targetInventory.load(targetApi);
     });
   });
   onMount(() => { filterEl?.focus(); });

@@ -5,7 +5,7 @@ import { encodePathAsFolder } from '@solus/contracts/types'
 import type { SessionHistoryPage, AgentConversationResultProjection, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { uuid } from '@solus/contracts/uuid'
 import { workUpdateFromHistory, loadArtifactFileBodies } from './artifact-history'
-import { imageRefAttachments, isAgentNotice, splitAttachedFiles, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest, recoverQuestionRemarks } from './session.utils'
+import { imageRefAttachments, isAgentNotice, splitSentAttachments, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest, recoverQuestionRemarks } from './session.utils'
 import { TranscriptAgentConversations, isAgentConversationTool } from './agent-conversation-cards'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import type { SurfaceContext } from '../app/surface-context.svelte'
@@ -311,7 +311,7 @@ export function materializeSessionTranscript(
       timestamp: msgTimestamp,
     }
     if (m.role === 'user') {
-      const attached = splitAttachedFiles(m.content, serverId)
+      const attached = splitSentAttachments(m.content, serverId)
       if (attached.attachments.length) {
         msg.content = attached.text
         msg.attachments = attached.attachments

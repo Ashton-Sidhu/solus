@@ -4,6 +4,7 @@ import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
 import { modelProfilesStore } from '../updates/model-profiles.store.svelte'
 import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
+import { answerAgentSettingsOnEveryHost } from './agent-settings-requests.svelte'
 import { agentProfileLocalStore } from '../seats/agent-profile-local.store.svelte'
 import { accountAgentProfileRequests, accountSyncStore } from '../account/account-sync.store.svelte'
 import { browserSyncClock } from '../account/lib/browser-sync-ports'
@@ -76,6 +77,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   // The desktop's push sends this copy, and this computer's profile fills it (plans/020 §3).
   agentProfileStore.attachLocalCopy(agentProfileLocalStore)
   onDestroy(accountSyncStore.followAccount(accountStore))
+  onDestroy(answerAgentSettingsOnEveryHost(settings.personal))
   // A signed-in person's MCP sign-ins run at the cloud (plans/020 §5.3); the store itself holds no account state.
   integrationsStore.useCloudSignIn({
     requests: accountAgentProfileRequests,
@@ -114,7 +116,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects, pullRequests.checks, {
     // Reactive: a runner coming back or a cloud row appearing re-merges the rows.
     isSolusApi: isSolusApiId,
-    isConnected: (serverId) => !!serverId && serversStore.statusFor(serverId) === 'online',
+    isConnected: (serverId) => !!serverId && serversStore.readinessFor(serverId).readiness === 'ready',
   }, () => serversStore.activeOrganizationId)
   session.trackVisibleConversations()
   trackSessionReviewGuides(session)

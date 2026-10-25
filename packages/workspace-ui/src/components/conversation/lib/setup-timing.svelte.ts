@@ -1,13 +1,10 @@
 import type { StatusCardState } from '@solus/contracts/types'
 
 /**
- * Elapsed time per setup step.
- *
- * The card is replaced wholesale on every stage transition and its steps carry
- * no timestamps, so duration can't be derived from the payload. What the figure
- * actually means is "how long the user waited on this step", which is precisely
- * what the renderer observes — so watch the status transitions here instead of
- * widening `StatusCardStep` for a value main would have to invent anyway.
+ * Elapsed time per setup step, for a card the client makes itself (a pull
+ * request checkout, a continue-in-worktree, a conflict resolution). Those
+ * steps carry no host times, so the figure is "how long the user waited on
+ * this step", which is what the renderer observes as the statuses change.
  *
  * Resets when the card id changes; a card that arrives already finished simply
  * has no timings and the column stays empty.
@@ -30,7 +27,7 @@ export class SetupStepTiming {
         if (!this.startedAt.has(step.id)) this.startedAt.set(step.id, now)
         continue
       }
-      if (step.status !== 'done' && step.status !== 'error') continue
+      if (step.status === 'pending' || step.status === 'skipped') continue
       const started = this.startedAt.get(step.id)
       if (started === undefined || this.elapsed.has(step.id)) continue
       this.elapsed.set(step.id, now - started)
@@ -50,14 +47,4 @@ export class SetupStepTiming {
     for (const ms of this.elapsed.values()) total += ms
     return total
   }
-}
-
-/** `0.4s`, `2.1s`, `1m 04s` — the rail is narrow, so nothing wider. */
-export function formatStepDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return ''
-  const seconds = ms / 1000
-  if (seconds < 10) return `${seconds.toFixed(1)}s`
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  const minutes = Math.floor(seconds / 60)
-  return `${minutes}m ${String(Math.round(seconds % 60)).padStart(2, '0')}s`
 }

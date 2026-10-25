@@ -9,7 +9,7 @@ mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
     connectedServerIds: () => [],
     onConnectionCreated: () => () => {},
-    onPhaseChange: () => () => {},
+    onReadinessChange: () => () => {},
     resolveId: (serverId: string) => serverId,
     apiFor: (serverId: string) => ({
       setSessionBranch: async (...args: unknown[]) => { branchWrites.push([serverId, ...args]) },

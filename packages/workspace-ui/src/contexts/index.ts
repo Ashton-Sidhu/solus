@@ -75,14 +75,10 @@ export {
   mergeNearbyHosts,
   NEARBY_HOST_TTL_MS,
 } from './connections/discovery'
-export {
-  hostAffinityGlyph,
-  hostStatusDotClass,
-  hostStatusLabel,
-} from './connections/host-affinity'
+export { hostAffinityGlyph, readinessDotClass } from './connections/host-affinity'
 /** Personal Uplink: a host's link to the owner's Solus cloud account, and how hosts are reached. */
 export { uplinkStore } from './connections/uplink.store.svelte'
-export { sharesStore } from './sharing/shares.store.svelte'
+export { logShareDialog, sharesStore } from './sharing/shares.store.svelte'
 export { activeSessionShareTarget } from './sharing/share-target'
 export type { ShareDialogTarget } from './sharing/shares.store.svelte'
 export { linkDescription, registrationDescription } from './connections/host-routes'
@@ -127,4 +123,4 @@ export type { ConnectionEndpoint } from './connections/connections.store.svelte'
 export type { AtlassianConnectFailure } from './atlassian/atlassian.store.svelte'
 export type { DiscoveryFilterInput, NearbyHost } from './connections/discovery'
 export type { HostAffinityGlyph, HostAffinityTarget } from './connections/host-affinity'
-export type { ServerItem, ServerItemStatus, UnknownRemoteHost } from './connections/servers.store.svelte'
+export type { ServerItem, UnknownRemoteHost } from './connections/servers.store.svelte'

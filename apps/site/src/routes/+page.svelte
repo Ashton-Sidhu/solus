@@ -126,7 +126,7 @@
 			Solus is the workspace for running agents on your machines, in your cloud, and across your data.
 		</h1>
 		<div class="mt-7 flex flex-wrap items-start gap-3 max-sm:w-full max-sm:flex-col">
-			<DownloadButton showOthers class="items-start">
+			<DownloadButton showOthers showServer class="items-start">
 				{#snippet secondary()}
 					<a href="https://app.solus.sh/sign-in" class="btn btn-secondary max-sm:w-full">
 						Open Solus Cloud
@@ -158,7 +158,7 @@
 			<div class="relative overflow-hidden rounded-[10px] bg-bg shadow-[0_0_0_1px_rgba(42,38,24,0.10),0_30px_70px_-20px_rgba(42,38,24,0.45),0_8px_20px_-10px_rgba(42,38,24,0.25)]">
 				<Shot
 					slug="orchestrate"
-					alt="A billing-service lead session in Solus coordinates seven agents (four done, two working, one waiting on a question about which customers move to metered prices first) while the dashboard worker's diff is open in a pane beside it."
+					alt="A billing-service lead session in Solus coordinates seven agents (four done, two working, one waiting on a question about which customers move to metered prices first) while the dashboard worker's diff is open beside it. The session sidebar shows pull requests in different states: #142 and #148 open, #144 draft, #73 and #208 merged, #31 closed."
 					width={2880}
 					height={1800}
 					priority
@@ -314,7 +314,7 @@
 			<p class="max-w-[46ch] text-[17px] leading-[1.6] text-ink-2 text-pretty">
 				Free and source-available. Install in a minute and use the subscription you already pay for.
 			</p>
-			<DownloadButton size="lg" showBrew showOthers class="mt-2 items-center" />
+			<DownloadButton size="lg" showBrew showServer showOthers class="mt-2 items-center" />
 		</div>
 	</div>
 </section>

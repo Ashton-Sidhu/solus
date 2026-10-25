@@ -170,9 +170,9 @@ class IntegrationsStore {
       const events = serverConnections.eventsFor(serverId)
       const stopConnection = events.subscribe('integration.connectionChanged', (event) => this.applyConnectionChange(serverId, event))
       const stopAuth = events.subscribe('host.integrationAuthFinished', (event) => this.applyAuthFinished(serverId, event))
-      const stopStatus = serverConnections.onPhaseChange((hostId, status) => {
+      const stopStatus = serverConnections.onReadinessChange((hostId, status) => {
         if (hostId !== serverId) return
-        if (status === 'connected') void this.load(serverId)
+        if (status === 'ready') void this.load(serverId)
         else {
           const state = this.states.get(serverId)
           // A load in flight answers from a host that is gone; drop it.
@@ -211,7 +211,7 @@ class IntegrationsStore {
       const current = this.states.get(serverId)
       if (current?.revision !== revision) return
       const isUnsupported = isUnsupportedHostError(cause)
-      const isDisconnected = serverConnections.phaseFor(serverId) !== 'connected'
+      const isDisconnected = serverConnections.readinessFor(serverId).readiness !== 'ready'
       this.states.set(serverId, { ...current, loading: false, isUnsupported, isDisconnected, error: isUnsupported ? '' : 'Could not load integrations.' })
     }
   }

@@ -38,7 +38,8 @@ concepts.
 
 - **Run on picker.** The client does all of the work on its own connection
   (`workspace-ui/src/contexts/workspace/prompt-dispatch.ts`): start a stopped
-  Cloud host, connect, `prepareHostCheckout`, move the tab, send. The parent
+  Cloud host, connect, send. The prompt carries the repository, and the
+  target host copies it before the run starts (docs/run-on.md). The parent
   host takes no part. This stays correct for a person.
 - **Host tokens.** A host token has one audience, `hostAudience(hostId)`.
   Host B refuses a token for another host (`admission/access-tokens.ts`).

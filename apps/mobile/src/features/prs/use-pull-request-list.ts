@@ -30,7 +30,7 @@ export function usePullRequestList(hostIds: readonly string[], filter: PullReque
   useFocusEffect(useCallback(() => { void load({ freshFor: FOCUS_FRESH_MS }) }, [load]))
 
   // A host that connects again is read again; the others keep what they show.
-  const connectedKey = useListened(app.connections.changes, () => targets.filter((hostId) => app.connections.state(hostId)?.phase === 'connected').join('\u0000'))
+  const connectedKey = useListened(app.connections.changes, () => targets.filter((hostId) => app.connections.state(hostId)?.readiness === 'ready').join('\u0000'))
   const connected = useRef(connectedKey)
   useEffect(() => {
     const before = new Set(connected.current.split('\u0000'))

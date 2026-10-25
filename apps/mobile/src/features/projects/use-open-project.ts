@@ -6,8 +6,8 @@ import type { RootStackParamList } from '../../navigation/routes'
 /** The host's API while it is connected; null otherwise, so a screen shows the host banner. */
 export function useHostApi(hostId: string) {
   const app = useApp()
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
-  return phase === 'connected' ? app.connections.connection(hostId)?.api ?? null : null
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
+  return readiness === 'ready' ? app.connections.connection(hostId)?.api ?? null : null
 }
 
 /** False once the screen is gone: a late reply must not navigate or set state. */

@@ -220,7 +220,9 @@ class PostgresDb implements RootDb {
   constructor(url: string) {
     this.client = postgres(url, {
       // The Postgres is shared with the account site and has few slots (25 on the small
-      // PlanetScale sizes); a quiet service must not hold them. Idle connections close.
+      // PlanetScale sizes): three at most, closed after 30 idle seconds. Not longer: an idle
+      // connection is dropped on the way without the pool seeing it, and a query sent on it
+      // hangs until TCP gives up (2026-10-24).
       max: 3,
       idle_timeout: 30,
       onnotice: () => {},

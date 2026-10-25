@@ -9,9 +9,6 @@ import {
   ACCOUNT_AUDIENCE,
   TOKEN_EXCHANGE_GRANT_TYPE,
   SOLUS_API_AUDIENCE,
-  SOLUS_PROTOCOL,
-  SOLUS_PROTOCOL_HEADER,
-  UPDATE_REQUIRED,
   hostAudience,
   tokenEndpoint,
   type AccessTokenClaims,
@@ -89,9 +86,8 @@ beforeAll(async () => {
       if (form.get('grant_type') === TOKEN_EXCHANGE_GRANT_TYPE) {
         const subject = JSON.parse(Buffer.from(String(form.get('subject_token')).split('.')[1] ?? '', 'base64url').toString())
         if (subject.aud !== hostAudience(VM)) return json(400, { error: 'invalid_grant' })
-        return json(200, { access_token: delegatedFor(subject.sub, form.get('organization_id')!), refresh_token: `refresh-${subject.sub}`, expires_in: 300, token_type: 'Bearer' })
+        return json(200, { access_token: delegatedFor(subject.sub, form.get('organization_id')!), expires_in: 300, token_type: 'Bearer' })
       }
-      if (form.get('grant_type') === 'refresh_token') return json(200, { access_token: delegatedFor('bob', 'org_a'), refresh_token: 'refresh-bob-2', expires_in: 300, token_type: 'Bearer' })
       json(400, { error: 'unsupported_grant_type' })
     })
   })
@@ -141,7 +137,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
 
     // 1. Admission: the VM trades the token Bob's client presented once; the API accepts the session and writes its record.
     const credential = clientCredential({ clientId: CLIENT.clientId, privateJwk: vmKey.privateJwk, tokenEndpoint: tokenEndpoint(accountOrigin) })
-    const delegations = new Delegations({ registration: () => link, credential: () => credential, onRevoked: () => {} })
+    const delegations = new Delegations({ registration: () => link, credential: () => credential, controlToken: () => credential.hostAccessToken(), onRevoked: () => {} })
     await delegations.establish(bobsTokenForVm(), { organizationId: 'org_a' })
     const firstFacts = { provider: 'codex' as const, projectPath: '-repo', cwd: '/repo', privateToOwner: false }
     await delegations.actFor({ sessionId: 'solus-flow', userId: 'bob', organizationId: 'org_a', admit: true, record: firstFacts })
@@ -185,7 +181,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
       const shares = new shareManager.ShareManager({ db: database.getDatabase() })
       expect((await shares.homeOf({ kind: 'session', id: 'solus-flow' }))?.ownerKey).toBe('bob')
       expect((await shares.homeOf({ kind: 'task', id: task.id }))?.ownerKey).toBe('bob')
-      // WHY: nothing was asked of the account plane per prompt or per write — one exchange, no refresh yet.
+      // WHY: nothing was asked of the account plane per prompt or per write — one exchange, no later token yet.
       expect(tokenRequests).toEqual([{ grantType: TOKEN_EXCHANGE_GRANT_TYPE, organizationId: 'org_a' }])
     } finally {
       await delivery.stop()
@@ -202,7 +198,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
     let seq = 0
     const mirrorRows = async (rows: Array<{ role: 'viewer' | 'editor'; linkSecretHash: string }>) => {
       const response = await fetch(`${apiOrigin}/runner/deliver`, {
-        method: 'POST', headers: { authorization: `Bearer ${delegatedFor('bob', 'org_a')}`, 'content-type': 'application/json', [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL) },
+        method: 'POST', headers: { authorization: `Bearer ${delegatedFor('bob', 'org_a')}`, 'content-type': 'application/json' },
         body: JSON.stringify({ hostId: VM, items: [{ seq: ++seq + 1_000, kind: 'shares', payload: { resource: { kind: 'session', id: 's-mirror' }, rows: rows.map((row) => ({ subjectKind: 'everyone', subjectId: '', grantedByUserId: 'bob', createdAt: 1, ...row })) } }] }),
       })
       expect(response.status).toBe(200)
@@ -226,26 +222,20 @@ describe('an organization run on a VM, through the real Solus API', () => {
     }
   })
 
-  test('the API refuses a token meant for a host, and its runner route refuses a person\'s token that no host acts with, and a host that speaks an older protocol', async () => {
+  test('the API refuses a token meant for a host, and its runner route refuses a person\'s token that no host acts with', async () => {
     // A person's token for the VM is not a credential at the API: wrong resource.
     const forVm = await fetch(`${apiOrigin}/v1/capabilities`, { headers: { authorization: `Bearer ${bobsTokenForVm()}`, 'solus-organization': 'org_a' } })
     expect(forVm.status).toBe(401)
     // A person's own API token, with no host acting for them, cannot deliver as a runner.
     const own = signed({ iss: accountOrigin, aud: SOLUS_API_AUDIENCE, sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'cloud' })
-    const deliver = (token: string, hostId: string, protocol: string | null = String(SOLUS_PROTOCOL)) => fetch(`${apiOrigin}/runner/deliver`, {
+    const deliver = (token: string, hostId: string) => fetch(`${apiOrigin}/runner/deliver`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(protocol ? { [SOLUS_PROTOCOL_HEADER]: protocol } : {}) },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify({ hostId, items: [] }),
     })
     expect((await deliver(own, VM)).status).toBe(401)
     // The acting host's delegated token opens it, for its own host id only.
     expect((await deliver(delegatedFor('bob', 'org_a'), 'someone-else')).status).toBe(403)
     expect((await deliver(delegatedFor('bob', 'org_a'), VM)).status).toBe(200)
-    // WHY (simplify-auth-and-sync §4.6): an old host must hear "update", not fail in some other way.
-    for (const protocol of [null, '1']) {
-      const old = await deliver(delegatedFor('bob', 'org_a'), VM, protocol)
-      expect(old.status).toBe(426)
-      expect(await old.json()).toEqual({ error: UPDATE_REQUIRED })
-    }
   })
 })

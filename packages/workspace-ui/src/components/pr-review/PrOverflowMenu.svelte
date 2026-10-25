@@ -6,7 +6,7 @@
     MessageCircleQuestion as ChatCircleQuestionIcon,
     Copy as CopyIcon,
     Ellipsis as DotsThreeIcon,
-    BookOpen as GuideIcon,
+    ClipboardCheck as GuideIcon,
     GitPullRequest as GitPullRequestIcon,
     Hammer as HammerIcon,
     Link as LinkIcon,

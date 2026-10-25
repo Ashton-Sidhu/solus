@@ -64,8 +64,8 @@ async function boot(): Promise<void> {
   let appMounted = false
   const primary = serverConnections.setPrimary(target.id)
   installWindowSolusApi(primary.api)
-  const stopBootWatch = serverConnections.onPhaseChange((serverId, phase) => {
-    if (serverId === target.id && phase === 'blocked' && !appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
+  const stopBootWatch = serverConnections.onReadinessChange((serverId, readiness) => {
+    if (serverId === target.id && readiness === 'refused' && !appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
   })
   void prefetchStartupTranscript()
   // Every catalog entry is eagerly desired: saved remote hosts hold live

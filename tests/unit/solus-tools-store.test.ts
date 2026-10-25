@@ -56,11 +56,11 @@ describe('Solus tool settings store', () => {
     let answer!: (value: HostConfigSnapshot) => void
     connections.registerHost('reconnect', { configGet: () => new Promise<HostConfigSnapshot>(resolve => { answer = resolve }) })
     const stop = store.watch('reconnect')
-    connections.emitPhase('reconnect', 'reconnecting')
+    connections.emitReadiness('reconnect', 'reconnecting')
     answer(snapshot({}))
     await Promise.resolve()
     expect(store.states.get('reconnect')?.error).toBe('Host disconnected.')
-    connections.emitPhase('reconnect', 'connected')
+    connections.emitReadiness('reconnect', 'ready')
     answer(snapshot({ read_work: false }))
     await settle()
     expect(store.states.get('reconnect')?.preferences).toEqual({ read_work: false })

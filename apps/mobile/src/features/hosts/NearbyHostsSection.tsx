@@ -1,16 +1,11 @@
-import type { DiscoveredServer, HostOperatingSystem } from "@solus/contracts/types";
+import type { DiscoveredServer } from "@solus/contracts/types";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ConnectOptionCard } from "../connection/ConnectOptionCard";
+import { OS_LABELS } from "./lib/pairing-bridge";
 import type { NearbyHosts } from "./use-nearby-hosts";
-
-export const OS_LABELS = {
-  macos: "macOS",
-  windows: "Windows",
-  linux: "Linux",
-} satisfies Record<HostOperatingSystem, string>;
 
 /**
  * Solus hosts on this phone's network that it has not paired yet. A tap

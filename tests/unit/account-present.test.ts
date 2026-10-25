@@ -83,20 +83,30 @@ function accountPlane() {
   const exchanged: string[] = []
   const reads: Array<string | null> = []
   let issued = 0
+  /** The delegation rows it keeps: the client grant each person's was made from. */
+  const rows = new Map<string, string>()
   const fetchImpl = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+    if (String(url) === `${ORIGIN}/v1/hosts/${HOST_ID}/delegation-token`) {
+      const grant = rows.get(JSON.parse(String(init?.body)).userId) ?? ''
+      if (!grant) return Response.json({ error: 'no_delegation', solus_refusal: 'no_delegation' }, { status: 403 })
+      if (revokedGrants.has(grant)) return Response.json({ error: 'grant_revoked', solus_refusal: 'grant_revoked' }, { status: 403 })
+      issued += 1
+      return Response.json({ access_token: `delegated-${grant}-${issued}`, expires_in: 3600 })
+    }
     if (String(url) !== tokenEndpoint(ORIGIN)) {
       reads.push(new Headers(init?.headers).get('authorization'))
       return Response.json({ ok: true })
     }
     const form = init?.body as URLSearchParams
-    const subject = form.get('subject_token')
-    const grant = subject ? claimsOf(subject).grant_id : form.get('refresh_token')?.split(':')[0] ?? ''
-    if (revokedGrants.has(grant)) return Response.json({ error: 'invalid_grant', solus_refusal: 'grant_revoked' }, { status: 400 })
-    if (subject) exchanged.push(subject)
+    const subject = form.get('subject_token') ?? ''
+    const { sub, grant_id: grant } = claimsOf(subject)
+    if (revokedGrants.has(grant ?? '')) return Response.json({ error: 'invalid_grant', solus_refusal: 'grant_revoked' }, { status: 400 })
+    exchanged.push(subject)
+    rows.set(sub, grant ?? '')
     issued += 1
-    return Response.json({ access_token: `delegated-${grant}-${issued}`, refresh_token: `${grant}:refresh-${issued}`, expires_in: 300 })
+    return Response.json({ access_token: `delegated-${grant}-${issued}`, expires_in: 3600 })
   }
-  const delegations = new Delegations({ registration: () => REGISTRATION, credential: () => credential, onRevoked: () => {}, fetchImpl })
+  const delegations = new Delegations({ registration: () => REGISTRATION, credential: () => credential, controlToken: async () => 'control-token', onRevoked: () => {}, fetchImpl })
   cleanups.push(() => delegations.clear())
   return { delegations, fetchImpl, revokedGrants, exchanged, reads }
 }

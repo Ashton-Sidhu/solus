@@ -4,7 +4,7 @@ import { mkdir, readdir, rm } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 import { z } from 'zod'
-import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostCapabilities, type HostReadiness, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep } from '@solus/contracts/types'
+import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostCapabilities, type HostReadiness, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectRequest, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep } from '@solus/contracts/types'
 import { providerLoginConnected, type LoginProbe } from '../../execution/seats/seat-login'
 import type { SeatStore } from '../../execution/seats/seat-manager'
 import { seatFor } from '../../admission/actor'
@@ -14,6 +14,7 @@ import { usesAccountIntegration } from '../../vault/vault'
 import type { SolusServer, HandlerCtx } from '../server'
 import type { Principal } from '../../admission/principal'
 import type { HostEventPublisher } from '../events/host-event-publisher'
+import type { DispatchCheckoutPathOf, PrepareDispatchCheckout, RepositoryProgress } from '../../execution/sessions/dispatch-repository'
 import { launchedProcess, launchProcess } from '../../cli-env'
 import { runAsync } from '../../git/exec'
 import { withBareRepositoryGuard } from '../../git/bare-repository-guard'
@@ -66,11 +67,12 @@ const delegatedCredentialSchema = z.object({
   login: z.string(),
 }).strict()
 const setupAgentRequestSchema = z.object({ agent: setupAgentSchema }).strict()
-const setupPrepareProjectSchema = z.object({
+const dispatchRepositorySchema = z.object({
   cloneUrl: z.string(),
   credential: delegatedCredentialSchema.optional(),
   worktreePath: z.string().trim().min(1).optional(),
   baseBranch: z.string().trim().min(1).optional(),
+  newWorktree: z.boolean().optional(),
 }).strict()
 const setupCloneProjectSchema = z.object({
   cloneUrl: z.string(),
@@ -288,7 +290,15 @@ export function projectsVisibleTo<T extends { path: string }>(principal: Princip
   })
 }
 
-export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDeps): void {
+/** What the setup domain lends the rest of the host. */
+export interface SetupDomain {
+  /** A Run on send's repository, made ready before its run starts (docs/run-on.md). */
+  prepareDispatchCheckout: PrepareDispatchCheckout
+  /** The folder `prepareDispatchCheckout` copies to, known before the copy. */
+  dispatchCheckoutPathOf: DispatchCheckoutPathOf
+}
+
+export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDeps): SetupDomain {
   const checkouts = deps.checkouts
   const spawnProcess = deps.spawnProcess ?? nodeSpawn
   const hasCommand = deps.hasCommand ?? commandExists
@@ -323,7 +333,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   })
 
   server.register('resolveDispatchHistoryRoots', async (args, ctx): Promise<DispatchHistoryRoot[]> => {
-    const ownerKey = dispatchCheckoutOwnerKey(ctx.principal, requireDeviceScopedSetupContext(ctx))
+    const ownerKey = dispatchCheckoutOwnerKey(ctx.principal, requireDispatchDevice(ctx.deviceId))
     const [requestRepoKeys] = args
     const repoKeys = z.array(z.string()).parse(requestRepoKeys)
     if (repoKeys.length > MAX_DISPATCH_HISTORY_REPO_KEYS) {
@@ -505,17 +515,32 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return { ok: true } as const
   })
 
-  server.register('setupPrepareProject', async (args, ctx): Promise<SetupPrepareProjectResult> => {
+  /**
+   * The one place a dispatch checkout's folder is decided: the caller's projects
+   * folder, their owner key, and the repository. Turn admission reads it before
+   * the copy, and the copy writes to it, so the two cannot disagree.
+   */
+  const dispatchCheckoutPathOf: DispatchCheckoutPathOf = (repository, caller) => {
     // The owner key is the key the checkout path and the delegated token are both
     // stored and read back under: the device, or the member on a managed host.
-    const ownerKey = dispatchCheckoutOwnerKey(ctx.principal, requireDeviceScopedSetupContext(ctx))
-    const [request] = args
-    const { cloneUrl, credential: rawCredential, worktreePath, baseBranch } = setupPrepareProjectSchema.parse(request)
-    if (!worktreePath && !checkouts) throw new Error('The checkout service is not available')
+    const ownerKey = dispatchCheckoutOwnerKey(caller.principal, requireDispatchDevice(caller.deviceId))
+    const repoKey = cloneRepoKey(validateCloneUrl(dispatchRepositorySchema.parse(repository).cloneUrl).cloneUrl)
+    if (!repoKey) throw new Error('The clone URL must name both an owner and repository.')
+    return dispatchCheckoutPath(projectsRootFor(caller.principal, projectsRoot()), ownerKey, repoKey)
+  }
+
+  /**
+   * The caller's dispatch checkout of a repository, made ready for a run: the
+   * checkout they have, or a new partial clone. Answers the folder the run
+   * starts in. The prompt that carries the repository was admitted already.
+   */
+  const prepareDispatchCheckout: PrepareDispatchCheckout = async (repository, caller, progress) => {
+    const checkoutPath = dispatchCheckoutPathOf(repository, caller)
+    const ownerKey = dispatchCheckoutOwnerKey(caller.principal, requireDispatchDevice(caller.deviceId))
+    const { cloneUrl, credential: rawCredential, worktreePath, baseBranch, newWorktree } = dispatchRepositorySchema.parse(repository)
+    if (!worktreePath && !newWorktree && !checkouts) throw new Error('The checkout service is not available')
     const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(cloneUrl)
-    const repoKey = cloneRepoKey(parsed.cloneUrl)
-    if (!repoKey) throw new Error('The clone URL must name both an owner and repository.')
 
     // Only the host's own work keeps an identity in checkout config (the paired
     // device's helper and author); a member's processes act from their own home.
@@ -526,17 +551,18 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       // A checkout cloned with `--depth=1` before partial clones gets its full history once, here.
       await ensureFullHistory(path)
       if (worktreePath) return resolveDispatchWorktree(path, worktreePath)
+      // A new worktree is made from the repository, whatever branch the checkout holds.
+      if (newWorktree) return path
       // A dispatch that names no branch works on the default branch: in the
       // checkout when it holds that branch, else where the branch is held.
       const branch = baseBranch ?? await getDefaultBranch(path)
       return (await checkouts!.ensureBranch(path, branch)).worktreePath ?? path
     }
 
-    const checkoutPath = dispatchCheckoutPath(projectsRootOf(ctx), ownerKey, repoKey)
     if (runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
-      const result = await server.handle('setupAdoptProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx)
+      await adoptProject(checkoutPath, parsed.cloneUrl)
       configure(checkoutPath)
-      return { ...result, path: await prepare(checkoutPath), action: 'updated' }
+      return prepare(checkoutPath)
     }
 
     const cloneRequest = {
@@ -545,18 +571,29 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       partialClone: true,
     }
     if (credential) Object.assign(cloneRequest, { credential })
-    const result = await server.handle('setupCloneProject', [cloneRequest], ctx)
-    configure(result.path)
-    return {
-      path: await prepare(result.path),
-      projectKey: result.projectKey,
-      action: 'cloned',
+    const sink = {
+      emitStatus: () => {},
+      emitLog: (event: SetupLogEvent) => progress.onOutput(event.line, false),
     }
+    const result = await cloneProject(cloneRequest, projectsRootFor(caller.principal, projectsRoot()), sink, progress)
+    configure(result.path)
+    return prepare(result.path)
+  }
+
+  server.register('setupCloneProject', (args, ctx): Promise<SetupCloneProjectResult> => {
+    const [request] = args
+    return cloneProject(request, projectsRootOf(ctx), eventSink(ctx.clientId))
   })
 
-  server.register('setupCloneProject', async (args, ctx): Promise<SetupCloneProjectResult> => {
-    const { emitStatus, emitLog } = eventSink(ctx.clientId)
-    const [request] = args
+  /** A clone into the caller's projects folder, or into the destination it names.
+   *  `progress` takes git's transfer lines and can stop the clone. */
+  async function cloneProject(
+    request: SetupCloneProjectRequest,
+    hostProjectsRoot: string,
+    sink: { emitStatus(event: SetupStatusEvent): void; emitLog(event: SetupLogEvent): void },
+    progress?: RepositoryProgress,
+  ): Promise<SetupCloneProjectResult> {
+    const { emitStatus, emitLog } = sink
     const { cloneUrl, name, destination, protocol, clean, credential: rawCredential, partialClone } = setupCloneProjectSchema.parse(request)
     const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(cloneUrl)
@@ -574,7 +611,6 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const step: SetupStreamStep = 'clone'
 
     return runExclusive(step, async () => {
-      const hostProjectsRoot = projectsRootOf(ctx)
       // Only a directory this host's own clone left behind can be removed, so a
       // stray `clean` can never delete a folder the user chose. It runs before the
       // destination resolves: a retry that names no destination must land back on
@@ -622,6 +658,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
             emitStatus,
             emitLog,
             emitFailureStatus: index === cloneUrls.length - 1,
+            progress,
           })
           break
         } catch (err) {
@@ -651,7 +688,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       lastFailedCloneDestination = null
       return { path: targetPath, projectKey: await registerProject(targetPath), auth }
     })
-  })
+  }
 
   function configureDelegatedCheckout(
     checkoutPath: string,
@@ -699,9 +736,14 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return { path: checkoutPath, projectKey: await registerProject(checkoutPath) }
   })
 
-  server.register('setupAdoptProject', async (args): Promise<SetupAdoptProjectResult> => {
+  server.register('setupAdoptProject', (args): Promise<SetupAdoptProjectResult> => {
     const [request] = args
     const { path, cloneUrl } = setupAdoptProjectSchema.parse(request)
+    return adoptProject(path, cloneUrl)
+  })
+
+  /** Record a checkout the host already has, refusing one whose origin is another repository. */
+  async function adoptProject(path: string, cloneUrl: string | undefined): Promise<SetupAdoptProjectResult> {
     const rawPath = path.trim()
     if (!rawPath) throw new Error('A checkout path is required.')
     const checkoutPath = expandHome(rawPath)
@@ -722,7 +764,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     }
 
     return { path: checkoutPath, projectKey: await registerProject(checkoutPath) }
-  })
+  }
 
   /**
    * A project from nothing: an empty folder in the caller's projects root (or the
@@ -758,6 +800,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     }
   }
 
+  return { prepareDispatchCheckout, dispatchCheckoutPathOf }
 }
 
 function installStepForAgent(agent: SetupAgent): SetupStreamStep {
@@ -785,7 +828,7 @@ async function checkAgentAuth(agent: SetupAgent, deps: AgentAuthProbeDeps = {}):
 }
 
 /**
- * Only the dispatch handlers need a device: a checkout belongs to the paired
+ * Only dispatch checkouts need a device: a checkout belongs to the paired
  * device that asked for it (ADR-0011), so without one there is no path to write
  * to. The rest of setup does not — reaching a handler at all already means the
  * socket was admitted, and the handshake admits nobody the bind policy has not
@@ -793,9 +836,9 @@ async function checkAgentAuth(agent: SetupAgent, deps: AgentAuthProbeDeps = {}):
  * design, so a blanket device check here rejects exactly the clients the policy
  * meant to let in.
  */
-function requireDeviceScopedSetupContext(ctx: HandlerCtx): string {
-  if (!ctx.deviceId) throw new Error('Dispatch checkouts require a paired device. Pair this client with the host, then try again.')
-  return ctx.deviceId
+function requireDispatchDevice(deviceId: string | undefined): string {
+  if (!deviceId) throw new Error('Dispatch checkouts require a paired device. Pair this client with the host, then try again.')
+  return deviceId
 }
 
 function coerceCloneProtocol(value: CloneProtocol | undefined): CloneProtocol | undefined {
@@ -896,10 +939,11 @@ async function attemptClone(opts: {
   emitStatus(event: SetupStatusEvent): void
   emitLog(event: SetupLogEvent): void
   emitFailureStatus: boolean
+  progress?: RepositoryProgress
 }): Promise<CloneAuth> {
   const {
     step, attemptUrl, parent, targetPath, isHttps, token, partialClone,
-    spawnProcess, emitStatus, emitLog, emitFailureStatus,
+    spawnProcess, emitStatus, emitLog, emitFailureStatus, progress,
   } = opts
   const cloneArgs = partialClone ? PARTIAL_CLONE_ARGS : []
   const auth = gitCommandAuth({ isHttps, token: token?.accessToken ?? null })
@@ -921,6 +965,7 @@ async function attemptClone(opts: {
     cwd: parent,
     emitFailureStatus,
     env: auth.env,
+    progress,
   })
   return isHttps ? (token ? 'token' : 'anonymous') : 'ssh'
 }
@@ -964,6 +1009,8 @@ async function runSetupProcess(opts: {
   emitFailureStatus?: boolean
   /** Returns a user-facing error when a zero exit did not achieve the intended state. */
   verifySuccess?(): string | null
+  /** Takes the lines a process writes again in place, and stops the process. */
+  progress?: RepositoryProgress
 }): Promise<SetupStepResult> {
   const {
     step,
@@ -975,6 +1022,7 @@ async function runSetupProcess(opts: {
     env,
     emitFailureStatus = true,
     verifySuccess,
+    progress,
   } = opts
   emitStatus({ step, status: 'running' })
 
@@ -984,6 +1032,7 @@ async function runSetupProcess(opts: {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: run.env,
+    signal: progress?.signal,
   })
 
   let settled = false
@@ -994,8 +1043,9 @@ async function runSetupProcess(opts: {
     outputTail.push(line)
     if (outputTail.length > 3) outputTail.shift()
   }
-  const stdout = createLineBuffer(emitOutputLine)
-  const stderr = createLineBuffer(emitOutputLine)
+  const onProgress = progress && ((line: string) => progress.onOutput(line, true))
+  const stdout = createLineBuffer(emitOutputLine, onProgress)
+  const stderr = createLineBuffer(emitOutputLine, onProgress)
   child.stdout?.on('data', (chunk) => stdout.write(chunk))
   child.stderr?.on('data', (chunk) => stderr.write(chunk))
 
@@ -1034,22 +1084,38 @@ async function runSetupProcess(opts: {
   })
 }
 
-function createLineBuffer(onLine: (line: string) => void): LineBuffer {
+/**
+ * Splits a process's output into lines. With `onProgress`, a line that ends in
+ * a carriage return goes there instead: git writes its transfer counts again in
+ * place that way, so each one is an update and not a new line.
+ */
+function createLineBuffer(onLine: (line: string) => void, onProgress?: (line: string) => void): LineBuffer {
   let buffered = ''
   let emitted = 0
+  const clean = (value: string) => value.replace(ANSI_RE, '').trimEnd()
   const emit = (value: string) => {
-    const line = value.replace(ANSI_RE, '').trimEnd()
+    const line = clean(value)
     if (!line.trim()) return
     emitted++
     if (emitted > MAX_SETUP_LOG_LINES) return
     onLine(line)
   }
+  const ending = onProgress ? /\r\n|\n|\r/g : /\r?\n/g
   return {
     write(chunk) {
       buffered += Buffer.isBuffer(chunk) ? chunk.toString('utf-8') : String(chunk)
-      const parts = buffered.split(/\r?\n/)
-      buffered = parts.pop() ?? ''
-      for (const part of parts) emit(part)
+      let start = 0
+      for (const match of buffered.matchAll(ending)) {
+        const part = buffered.slice(start, match.index)
+        start = match.index + match[0].length
+        if (match[0] === '\r' && onProgress) {
+          const line = clean(part)
+          if (line.trim()) onProgress(line)
+        } else {
+          emit(part)
+        }
+      }
+      buffered = buffered.slice(start)
     },
     flush() {
       if (!buffered) return

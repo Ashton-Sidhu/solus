@@ -26,7 +26,7 @@ export function AgentAuthSheet({ store, onClose }: { store: ConversationStore; o
   const palette = usePalette()
   const auth = store.controller.auth
   const view = useListened(auth.changes, auth.snapshot)
-  const connected = useListened(app.connections.changes, () => app.connections.state(store.controller.hostId)?.phase === 'connected')
+  const connected = useListened(app.connections.changes, () => app.connections.state(store.controller.hostId)?.readiness === 'ready')
   /** A Solus Cloud host runs on the account's agent connections, so a refused login is fixed there, not on the host. */
   const cloudConnectionsUrl = useListened(app.account.changes, () => {
     const account = app.account.view

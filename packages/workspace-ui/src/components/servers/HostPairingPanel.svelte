@@ -1,16 +1,26 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { hostOnboardingStore as store } from "./host-onboarding.store.svelte";
   import type { DiscoveredServer } from "@solus/contracts/types";
+  import { localApi } from "@solus/client-core/local-api";
+  import PairingBridge from "./PairingBridge.svelte";
+  import { thisDevice, type PairingPhase } from "./lib/pairing-bridge";
 
   interface Props {
     target: DiscoveredServer;
   }
 
   let { target }: Props = $props();
+
+  const device = thisDevice(localApi.getPlatform(), navigator.userAgent);
+  // The SSH and code forms wait on the person, so the host stands found.
+  const phase = $derived<PairingPhase>(
+    store.pairingView === "connecting" || store.pairingBusy ? "pairing"
+      : store.pairingView === "error" ? "error"
+      : "found",
+  );
 
   let sshTargetInput: HTMLInputElement | null = $state(null);
   let sshPasswordInput: HTMLInputElement | null = $state(null);
@@ -34,12 +44,12 @@
 </script>
 
 <!-- The stage owns the title and the one-line why; this is only the control. -->
+<div class="mb-5">
+  <PairingBridge {phase} {device} host={{ name: target.name, os: target.os }} />
+</div>
 <form onsubmit={submit}>
   {#if store.pairingView === "connecting"}
-    <p class="flex items-center gap-2.5" role="status">
-      <CircleNotchIcon size={14} class="shrink-0 animate-spin text-primary" />
-      Pairing with {target.name}…
-    </p>
+    <!-- The bridge above says it: pairing is running. -->
   {:else if store.pairingView === "error"}
     <p class="cursor-text select-text text-pretty text-destructive">{store.pairingError}</p>
   {:else if store.pairingView === "ssh-target"}

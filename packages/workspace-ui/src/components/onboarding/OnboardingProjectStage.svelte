@@ -42,7 +42,7 @@
     if (!preparation || !cloud.chosenRepositoryKey) return null;
     const host = serversStore.hostFor(preparation.serverId);
     const hostIsStarting =
-      hostIsManaged(host) && serversStore.statusFor(preparation.serverId) !== "online";
+      hostIsManaged(host) && serversStore.readinessFor(preparation.serverId).readiness !== "ready";
     return repositoryPreparationTitle(
       preparation.step,
       cloud.chosenRepositoryKey,

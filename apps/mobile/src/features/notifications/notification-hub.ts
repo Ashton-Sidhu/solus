@@ -91,7 +91,7 @@ export class NativeNotificationHub {
     // A source that could not be read is read again once its host is connected.
     const stopConnections = this.deps.connections.changes.subscribe(() => {
       for (const state of this.sources.values()) {
-        if (state.status === 'offline' && this.deps.connections.state(state.source.serverId)?.phase === 'connected') void this.client?.refresh(state.source.sourceId)
+        if (state.status === 'offline' && this.deps.connections.state(state.source.serverId)?.readiness === 'ready') void this.client?.refresh(state.source.sourceId)
       }
     })
     const stopIdentity = identityChanges.subscribe(() => {
@@ -188,7 +188,7 @@ export class NativeNotificationHub {
   private link(hostId: string): NotificationSourceLink {
     const changed: (() => void)[] = []
     const reconnected: ((initialConnection?: boolean) => void)[] = []
-    let hasConnected = this.deps.connections.state(hostId)?.phase === 'connected'
+    let hasConnected = this.deps.connections.state(hostId)?.readiness === 'ready'
     let attachedTo: HostConnection | null = null
     let detach: (() => void)[] = []
     const attach = (): HostConnection | null => {

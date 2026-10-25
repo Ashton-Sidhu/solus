@@ -37,7 +37,7 @@ export function useThreadListRefresh(): void {
   const connectedHosts = useListened(app.connections.changes, () =>
     app.registry
       .hosts()
-      .filter((host) => app.connections.state(host.id)?.phase === "connected")
+      .filter((host) => app.connections.state(host.id)?.readiness === "ready")
       .map((host) => `${host.id}:${app.connections.state(host.id)?.sessionGeneration ?? 0}`)
       .join("\n"),
   );

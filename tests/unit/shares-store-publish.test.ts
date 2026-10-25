@@ -16,7 +16,7 @@ const offlineServerIds = new Set<string>()
 mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
     ...connections,
-    phaseFor: (serverId: string) => (offlineServerIds.has(serverId) ? 'offline' : 'connected'),
+    readinessFor: (serverId: string) => ({ ...connections.readinessFor(serverId), readiness: offlineServerIds.has(serverId) ? 'unreachable' as const : 'ready' as const }),
   },
 }))
 
@@ -460,16 +460,16 @@ describe('the share dialog on Solus Cloud', () => {
     registerCloud()
     knownWorkspaces.add(CLOUD)
     const { store } = await newStore()
-    const known = await store.directoryFor(CLOUD)
+    const known = await store.loadDirectory()
 
     await store.open({ ...target, serverId: CLOUD })
 
     expect(loads).toBe(2)
-    expect(store.directories.get(CLOUD)).toBe(known)
+    expect(store.directory).toBe(known)
     answer({ organizationId: 'org-1', name: 'Acme Inc', members: [], teams: [] })
     await Promise.resolve()
     await Promise.resolve()
-    expect(store.directories.get(CLOUD)?.name).toBe('Acme Inc')
+    expect(store.directory?.name).toBe('Acme Inc')
   })
 
   test('a new link is kept from the answer, not read again', async () => {
@@ -492,7 +492,7 @@ describe('the share dialog on Solus Cloud', () => {
 describe('the organization directory', () => {
   afterEach(() => configureUplinkAccountSource(null))
 
-  test('answers the members as users, converted once, and reads the account plane once per host', async () => {
+  test('answers the members as users, converted once, and reads the account plane once per organization', async () => {
     // WHY (plans/012 §6): the mention picker, the share dialog and every other people
     // choice read one member list of `User`s; none of them converts the directory again.
     let loads = 0
@@ -515,14 +515,82 @@ describe('the organization directory', () => {
     registerCloud()
     const { store } = await newStore()
 
-    const people = await store.directoryFor(CLOUD)
+    const people = await store.loadDirectory()
 
     expect(people?.members).toEqual([
       { id: { kind: 'account', accountId: 'u_ann' }, displayName: 'Ann Lee', email: 'ann@acme.dev', avatarUrl: 'https://img/ann.png' },
     ])
-    expect(await store.directoryFor(CLOUD)).toBe(people)
-    expect(store.directories.get(CLOUD)).toBe(people)
+    expect(await store.loadDirectory()).toBe(people)
+    expect(store.directory).toBe(people)
     expect(loads).toBe(1)
+  })
+
+  test('a share opened on a second host shows the people already known while they refresh', async () => {
+    // WHY: the people belong to the organization, not to a host. Keeping them per
+    // host made the first Share on every host wait for the account plane again,
+    // and the Add people field arrived after the dialog.
+    let loads = 0
+    const unavailable = async (): Promise<never> => { throw new Error('not in this test') }
+    configureUplinkAccountSource({
+      listDirectory: unavailable,
+      accessToken: unavailable,
+      issueEnrollmentTicket: unavailable,
+      startManagedHost: unavailable,
+      loadOrganizationDirectory: (organizationId) => {
+        loads++
+        return loads === 1 ? Promise.resolve({ organizationId, name: 'Acme', members: [], teams: [] }) : new Promise(() => {})
+      },
+    })
+    connections.registerHost('other-host', { shareGet: async () => cloudList })
+    const { store } = await newStore()
+    const people = await store.loadDirectory()
+
+    await store.open({ ...target, serverId: 'other-host' })
+
+    expect(loads).toBe(2)
+    expect(store.dialog?.serverId).toBe('other-host')
+    expect(store.directoryLoaded).toBe(true)
+    expect(store.directory).toBe(people)
+  })
+
+  test('a failed first read counts as loaded with no people, so the dialog stops waiting', async () => {
+    // WHY: the Add people field shows "Loading people…" until the directory is
+    // loaded. A read that fails must end that state, or the field waits for ever.
+    const unavailable = async (): Promise<never> => { throw new Error('not in this test') }
+    configureUplinkAccountSource({
+      listDirectory: unavailable,
+      accessToken: unavailable,
+      issueEnrollmentTicket: unavailable,
+      startManagedHost: unavailable,
+      loadOrganizationDirectory: async () => { throw new Error('account plane down') },
+    })
+    const { store } = await newStore()
+    expect(store.directoryLoaded).toBe(false)
+
+    await expect(store.loadDirectory()).rejects.toThrow('account plane down')
+
+    expect(store.directoryLoaded).toBe(true)
+    expect(store.directory).toBeNull()
+  })
+
+  test('another organization has its own people', async () => {
+    // WHY: one list per organization; switching the window's organization must not show the last one's people.
+    const unavailable = async (): Promise<never> => { throw new Error('not in this test') }
+    configureUplinkAccountSource({
+      listDirectory: unavailable,
+      accessToken: unavailable,
+      issueEnrollmentTicket: unavailable,
+      startManagedHost: unavailable,
+      loadOrganizationDirectory: async (organizationId) => ({ organizationId, name: organizationId, members: [], teams: [] }),
+    })
+    const { store } = await newStore()
+    await store.loadDirectory()
+
+    window.activeOrganizationId = 'org-2'
+
+    expect(store.directoryLoaded).toBe(false)
+    expect(store.directory).toBeNull()
+    expect((await store.loadDirectory())?.name).toBe('org-2')
   })
 })
 

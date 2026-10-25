@@ -4,7 +4,7 @@
   import {
     LoaderCircle,
     CircleCheck,
-    BookOpen,
+    ClipboardCheck,
     TriangleAlert,
     ChevronDown as CaretDownIcon,
     Check as CheckIcon,
@@ -103,7 +103,7 @@
     {:else if guideStatus === "ready"}
       <CircleCheck size={13} aria-hidden="true" class="shrink-0 text-(--solus-status-complete)" />
     {:else if guideStatus === "outdated" || guideStatus === "failed" || guideStatus === "cancelled"}
-      <BookOpen size={15} aria-hidden="true" /><TriangleAlert size={10} aria-hidden="true" />
+      <ClipboardCheck size={15} aria-hidden="true" /><TriangleAlert size={10} aria-hidden="true" />
     {/if}
   {:else if id === "lens"}
     {#if lensState === "generating"}

@@ -498,15 +498,15 @@ describe('ReviewGuideStore reconciliation', () => {
   })
 
   test('reconnect revalidates a tracked guide and exposes connection loss', async () => {
-    let onConnection: ((serverId: string, status: 'connected' | 'disconnected', attempt: number) => void) | undefined
+    let onConnection: ((serverId: string, readiness: 'ready' | 'reconnecting', attempt: number) => void) | undefined
     const { store } = await storeWithEvents((listener) => { onConnection = listener; return () => {} })
     let current = status({ status: 'generating' })
     const api = { reviewGuideStatus: async () => current } as unknown as typeof window.solus
     await store.load(api, HOST, {} as never, identity, 'branch')
-    onConnection?.(HOST, 'disconnected', 0)
+    onConnection?.(HOST, 'reconnecting', 0)
     expect(store.reconnectingFor(HOST)).toBe(true)
     current = status({ updatedAt: 2 })
-    onConnection?.(HOST, 'connected', 0)
+    onConnection?.(HOST, 'ready', 0)
     await store.load(api, HOST, {} as never, identity, 'branch')
     expect(store.reconnectingFor(HOST)).toBe(false)
     expect(store.statusFor(HOST, identity)?.status).toBe('ready')

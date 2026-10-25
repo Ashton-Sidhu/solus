@@ -9,12 +9,12 @@ import type { HostConfigPatch } from '@solus/contracts/host-config'
 export function useHostSettings(hostId: string) {
   const app = useApp()
   const state = useListened(app.hostSettings.changes, () => app.hostSettings.stateOf(hostId))
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
+  const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const reload = useCallback(() => { void app.hostSettings.load(hostId) }, [app, hostId])
 
   useEffect(() => {
-    if (phase === 'connected') reload()
-  }, [phase, reload])
+    if (readiness === 'ready') reload()
+  }, [readiness, reload])
 
   useFocusEffect(reload)
 

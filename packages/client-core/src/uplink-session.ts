@@ -3,8 +3,6 @@ import {
   enrollmentTicketResponseSchema,
   managedHostStartResponseSchema,
   organizationDirectorySchema,
-  SOLUS_PROTOCOL,
-  SOLUS_PROTOCOL_HEADER,
   type ManagedHostLifecycle,
   type DirectoryHost,
   type OrganizationDirectory,
@@ -68,7 +66,7 @@ export function oauthUplinkAccountSource(
       return await fetchImpl(`${origin}${path}`, {
         ...init,
         credentials: 'omit',
-        headers: { accept: 'application/json', authorization: `Bearer ${token}`, [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL), ...init.headers },
+        headers: { accept: 'application/json', authorization: `Bearer ${token}`, ...init.headers },
         signal: AbortSignal.timeout(8_000),
       })
     } catch {

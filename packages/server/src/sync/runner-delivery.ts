@@ -1,4 +1,4 @@
-import { SOLUS_PROTOCOL, SOLUS_PROTOCOL_HEADER, uplinkErrorBodySchema, type HostRegistration } from '@solus/contracts/uplink'
+import { uplinkErrorBodySchema, type HostRegistration } from '@solus/contracts/uplink'
 import type { SessionRecord, SessionRecordUpsert } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import {
@@ -323,7 +323,6 @@ export class RunnerDelivery {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json',
           accept: 'application/json',
-          [SOLUS_PROTOCOL_HEADER]: String(SOLUS_PROTOCOL),
         },
         body: JSON.stringify(body),
       })

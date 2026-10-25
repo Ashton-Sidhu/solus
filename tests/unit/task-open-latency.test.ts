@@ -159,7 +159,7 @@ const connections = runes.module('repair-server-connections', `
   export const serverConnections = {
     connectedServerIds: () => [],
     onConnectionCreated: () => () => {},
-    onPhaseChange: () => () => {},
+    onReadinessChange: () => () => {},
     defaultServerId: () => 'local',
     apiFor: () => globalThis.__repairApi,
   }

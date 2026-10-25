@@ -1,21 +1,19 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { createServer } from 'http'
 import { Server, type Socket } from 'socket.io'
-import { SOLUS_PROTOCOL, UPDATE_REQUIRED, socketHandshakeSchema, type HandshakeCredential } from '@solus/contracts/uplink'
+import { socketHandshakeSchema, type HandshakeCredential } from '@solus/contracts/uplink'
 import { WsTransport, type GrantSource } from '@solus/client-core/ws-transport'
 import type { DialOutcome } from '@solus/client-core/host-supervisor'
 
 // docs/plans/simplify-auth-and-sync.md §3 rule 4: a socket has one credential, in its
 // handshake — an access token, a paired device's session token, or a guest's share
-// secret with its id and name — beside the protocol the client speaks. No ticket
-// request comes first, for anyone. A host that speaks another protocol answers
-// `update_required`, and the client stops dialing it: "Update Solus".
+// secret with its id and name. No ticket request comes first, for anyone.
 
 const cleanups: Array<() => void> = []
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
 
 /** A host that admits a handshake as `admits` says, and records every handshake and HTTP request. */
-async function host(admits: (credential: HandshakeCredential | undefined) => boolean = () => true, protocol = SOLUS_PROTOCOL) {
+async function host(admits: (credential: HandshakeCredential | undefined) => boolean = () => true) {
   const handshakes: unknown[] = []
   const httpRequests: string[] = []
   const http = createServer((request, response) => {
@@ -26,8 +24,7 @@ async function host(admits: (credential: HandshakeCredential | undefined) => boo
   io.use((socket: Socket, next) => {
     handshakes.push(socket.handshake.auth)
     const handshake = socketHandshakeSchema.safeParse(socket.handshake.auth)
-    if (!handshake.success || handshake.data.protocol !== protocol) return next(new Error(UPDATE_REQUIRED))
-    if (admits(handshake.data.credential)) return next()
+    if (handshake.success && admits(handshake.data.credential)) return next()
     next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
   })
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
@@ -68,7 +65,7 @@ describe('the one credential in the socket handshake', () => {
     const server = await host()
     const { outcomes } = dial(server.url, { grants: { acquire: async () => 'token-1', isSignedOut: () => false } })
     await waitFor(() => outcomes.includes('accepted'))
-    expect(server.handshakes).toEqual([expect.objectContaining({ protocol: SOLUS_PROTOCOL, credential: { kind: 'access-token', token: 'token-1', organizationId: 'org_acme' } })])
+    expect(server.handshakes).toEqual([expect.objectContaining({ credential: { kind: 'access-token', token: 'token-1', organizationId: 'org_acme' } })])
     expect(server.httpRequests).toEqual([])
   })
 
@@ -107,16 +104,6 @@ describe('the one credential in the socket handshake', () => {
     transport.start()
     await waitFor(() => outcomes.includes('accepted'))
     expect(asked).toEqual([undefined, { refused: 'stale' }])
-  })
-})
-
-describe('a host that speaks another protocol', () => {
-  test('ends the dial with update_required: the host is blocked as needing an update, not retried', async () => {
-    const server = await host(() => true, SOLUS_PROTOCOL + 1)
-    const { outcomes, statuses } = dial(server.url, { sessionToken: 'paired-1' })
-    await waitFor(() => outcomes.includes('update-required'))
-    expect(outcomes).toEqual(['update-required'])
-    expect(statuses.at(-1)).toBe('update-required')
   })
 })
 

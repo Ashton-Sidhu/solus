@@ -63,7 +63,7 @@ export class PrPageScope {
   readonly projectTargets = $derived.by<PrProject[]>(() =>
     prProjectTargets(this.projectOptions.filter((option) => !option.localOnly), {
       isOnlineCheckout: (serverId) =>
-        !isSolusApiId(serverId) && serversStore.statusFor(serverId) === 'online',
+        !isSolusApiId(serverId) && serversStore.readinessFor(serverId).readiness === 'ready',
       apiFor: (serverId) => serverConnections.apiFor(serverId),
       ctxFor: (projectRoot) => this.session.ctxForDirectory(projectRoot),
     }),

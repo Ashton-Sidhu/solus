@@ -4,7 +4,9 @@ import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { HostApi } from './host-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { HostFacts, type HostPresence } from './host-facts'
-import { HostSupervisor, type BlockedReason, type DialOutcome, type HostPhase } from './host-supervisor'
+import { HostSupervisor, type DialOutcome } from './host-supervisor'
+import type { LinkReadiness, RefusedReason } from './host-readiness'
+import type { DialError } from './host-diagnostics'
 import { chooseRoute, directRouteBack, DIRECT_ROUTE_RECHECK_MS, type RouteCheck } from './route-choice'
 import { dialableRoutes, installationIdDecision, type SavedServerUplink } from './server-registry'
 import type { WakeSignal } from './wake-signals'
@@ -34,6 +36,9 @@ export interface LinkTransport {
   probe(): Promise<void>
   switchServerUrl(serverUrl: string): void
   attachDialOutcomeReporter(report: (outcome: DialOutcome) => void): void
+  setUnreachable(unreachable: boolean): void
+  /** How the last dial failed; absent on a transport that does not say. */
+  readonly lastDialError?: DialError | null
   destroy(): void
 }
 
@@ -51,7 +56,7 @@ export interface HostLinkOptions {
   clientOrigin?: string
   /** `gone`: this client does not know the host. The link never dials. */
   presence?: HostPresence
-  onPhaseChange?: (phase: HostPhase, attempt: number) => void
+  onReadinessChange?: (readiness: LinkReadiness, attempt: number) => void
   /** Every dial outcome, after the supervisor has acted on it. */
   onOutcome?: (outcome: DialOutcome) => void
   /** The link moved to another route. */
@@ -79,11 +84,15 @@ export class HostLink {
     this.events = options.transport.events
     this.facts = new HostFacts(options.hostId, { api: options.api, events: this.events, presence: options.presence })
     this.supervisor = new HostSupervisor({
-      transport: { start: () => this.dial(), probe: () => this.transport.probe() },
+      transport: {
+        start: () => this.dial(),
+        probe: () => this.transport.probe(),
+        setUnreachable: (unreachable) => this.transport.setUnreachable(unreachable),
+      },
       onSessionChange: (change) => this.facts.sessionChanged(change),
-      onPhaseChange: (phase, attempt) => {
+      onReadinessChange: (readiness, attempt) => {
         this.scheduleDirectRecheck()
-        options.onPhaseChange?.(phase, attempt)
+        options.onReadinessChange?.(readiness, attempt)
       },
       setTimeoutFn: options.setTimeoutFn,
       clearTimeoutFn: options.clearTimeoutFn,
@@ -94,16 +103,26 @@ export class HostLink {
     })
   }
 
-  get phase(): HostPhase {
-    return this.supervisor.phase
+  get readiness(): LinkReadiness {
+    return this.supervisor.readiness
   }
 
   get attempt(): number {
     return this.supervisor.attempt
   }
 
-  get blockedReason(): BlockedReason | null {
-    return this.supervisor.blockedReason
+  get refusedReason(): RefusedReason | null {
+    return this.supervisor.refusedReason
+  }
+
+  /** When the host was last ready; null if it never was. */
+  get lastSeenAt(): number | null {
+    return this.supervisor.lastSeenAt
+  }
+
+  /** Past its grace and not ready since. */
+  get away(): boolean {
+    return this.supervisor.away
   }
 
   /** Bumps on each accepted connection that did not recover the previous server session. */
@@ -127,7 +146,7 @@ export class HostLink {
   wake(signal: WakeSignal): void {
     if (this.options.presence === 'gone') return
     this.supervisor.handleWakeSignal(signal)
-    if (this.phase === 'connected') void this.returnToDirectRoute()
+    if (this.readiness === 'ready') void this.returnToDirectRoute()
   }
 
   /** The host's routes changed: a link aimed at a route no longer listed moves to the first one. */
@@ -171,7 +190,7 @@ export class HostLink {
 
   private async returnToDirectRoute(): Promise<void> {
     const route = await directRouteBack(this.dialable(), this.transport.serverUrl, this.options.answersAsHost, this.timers())
-    if (!route || this.isDestroyed || this.phase !== 'connected') return
+    if (!route || this.isDestroyed || this.readiness !== 'ready') return
     this.aimAt(route.url)
     this.supervisor.dialNow()
   }
@@ -180,7 +199,7 @@ export class HostLink {
   private scheduleDirectRecheck(): void {
     this.clearDirectRecheck()
     const current = this.options.routes().find((route) => route.url === this.transport.serverUrl)
-    if (this.isDestroyed || this.phase !== 'connected' || current?.kind !== 'tunnel') return
+    if (this.isDestroyed || this.readiness !== 'ready' || current?.kind !== 'tunnel') return
     this.directRecheck = (this.options.setTimeoutFn ?? setTimeout)(() => {
       this.directRecheck = null
       void this.returnToDirectRoute().finally(() => this.scheduleDirectRecheck())

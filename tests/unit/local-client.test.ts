@@ -53,12 +53,13 @@ function world(options: { organizations?: string[]; verify?: (token: string) => 
   const delegations = new Delegations({
     registration: () => REGISTRATION,
     credential: () => credential,
+    controlToken: async () => 'control-token',
     onRevoked: (userId, scope, refusal) => { revoked.push([userId, scope, refusal]) },
     fetchImpl: async (_url, init) => {
       const form = init?.body as URLSearchParams
       exchanges.push(form)
       issued += 1
-      return Response.json({ access_token: `delegated-${issued}`, refresh_token: `refresh-${issued}`, expires_in: 300 })
+      return Response.json({ access_token: `delegated-${issued}`, expires_in: 3600 })
     },
   })
   instances.push(delegations)
@@ -73,7 +74,7 @@ function world(options: { organizations?: string[]; verify?: (token: string) => 
     onEstablished: () => { established += 1 },
     onOwnerIdentity: () => {},
   })
-  const scopesOf = () => exchanges.filter((form) => form.get('grant_type') !== 'refresh_token').map((form) => form.get('delegation_scope') ?? form.get('organization_id'))
+  const scopesOf = () => exchanges.map((form) => form.get('delegation_scope') ?? form.get('organization_id'))
   return { delegations, door, exchanges, revoked, scopesOf, established: () => established }
 }
 
@@ -179,24 +180,26 @@ describe('the desktop presents its token to its own host', () => {
 
 describe('the owner’s delegation follows the desktop’s sign-in', () => {
   // WHY: while the desktop is signed in, the host acts for its owner. A delegation the
-  // account plane refused, or one the host never got, is made again from the sign-in
+  // account plane does not hold, or one the host never got, is made again from the sign-in
   // during the call that needs it, so an account read does not fail for a signed-in owner.
 
-  test('a refused refresh is made again from the desktop’s token, and the read goes on with it', async () => {
+  test('a delegation the account plane does not hold is made again from the desktop’s token, and the read goes on with it', async () => {
     let now = 1_000_000
     let issued = 0
-    let refuseRefresh = false
+    let hasRow = true
     let door!: LocalClientDoor
     const delegations: Delegations = new Delegations({
       registration: () => REGISTRATION,
       credential: () => credential,
+      controlToken: async () => 'control-token',
       onRevoked: () => {},
       renew: () => door.renew(),
-      fetchImpl: async (_url, init) => {
-        const form = init?.body as URLSearchParams
-        if (form.get('grant_type') === 'refresh_token' && refuseRefresh) return Response.json({ error: 'invalid_request' }, { status: 400 })
+      fetchImpl: async (url) => {
+        if (String(url).endsWith('/delegation-token') && !hasRow) return Response.json({ error: 'no_delegation', solus_refusal: 'no_delegation' }, { status: 403 })
+        // The exchange makes the row again.
+        hasRow = true
         issued += 1
-        return Response.json({ access_token: `delegated-${issued}`, refresh_token: `refresh-${issued}`, expires_in: 300 })
+        return Response.json({ access_token: `delegated-${issued}`, expires_in: 3600 })
       },
       now: () => now,
     })
@@ -218,8 +221,8 @@ describe('the owner’s delegation follows the desktop’s sign-in', () => {
       await door.presentToken(owner)
     })
     await door.presentToken(owner)
-    refuseRefresh = true
-    now += 400_000
+    hasRow = false
+    now += 2 * 3600_000
     // Two reads at once share one ask.
     const tokens = await Promise.all([
       delegations.accessToken('alice', 'personal', { kind: 'account' }),
@@ -250,12 +253,12 @@ describe('the host’s registration and its client', () => {
       if (url.endsWith('/v1/hosts/enroll')) {
         return Response.json({ registration: { hostId: 'host', issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/jwks`, directoryUrl: DIRECTORY, generation: 1 }, oauthClient: { clientId: 'host_host' } })
       }
-      if (url === tokenEndpoint(DIRECTORY)) return Response.json({ access_token: 'delegated-account', refresh_token: 'refresh-1', expires_in: 300 })
+      if (url === tokenEndpoint(DIRECTORY)) return Response.json({ access_token: 'delegated-account', expires_in: 3600 })
       return Response.json({ ok: true })
     }
     const { HostRegistrar } = await import('@solus/server/host/host-registration')
     const registrar = new HostRegistrar({ installationId: () => 'install', hostLabel: () => 'Mac', os: () => 'macos', owner: () => null, fetchImpl: plane })
-    const delegations = new Delegations({ registration: () => registrar.current(), credential: () => registrar.credential(), onRevoked: () => {}, fetchImpl: plane })
+    const delegations = new Delegations({ registration: () => registrar.current(), credential: () => registrar.credential(), controlToken: () => registrar.controlToken(), onRevoked: () => {}, fetchImpl: plane })
     instances.push(delegations)
     const door = new LocalClientDoor({
       hostId: () => registrar.current()?.hostId ?? null,

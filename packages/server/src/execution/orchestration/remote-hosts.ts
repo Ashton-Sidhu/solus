@@ -182,9 +182,9 @@ export class RemoteHosts {
     })
     const supervisor = new HostSupervisor({
       transport,
-      onPhaseChange: (phase) => {
-        log.info('remote_host_phase', { hostId: host.hostId, phase })
-        if (phase !== 'connected') return
+      onReadinessChange: (readiness) => {
+        log.info('remote_host_phase', { hostId: host.hostId, readiness })
+        if (readiness !== 'ready') return
         if (hasConnected) for (const listener of reconnected) listener()
         hasConnected = true
       },
@@ -203,7 +203,7 @@ export class RemoteHosts {
       },
       call: (what, request) => withTimeout(request(), () => {
         const refused = host.source === 'introduced' ? ' It refused this host\'s introduction. Connect to both hosts from one of your devices again.' : ' It refused the token from your Solus account.'
-        const blocked = supervisor.blockedReason === 'auth' ? refused : ''
+        const blocked = supervisor.refusedReason === 'auth' ? refused : ''
         return `${host.label} did not answer ${what} within ${CALL_TIMEOUT_MS / 1000} s.${blocked}`
       }),
     }

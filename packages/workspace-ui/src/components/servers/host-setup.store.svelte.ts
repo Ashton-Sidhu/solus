@@ -342,7 +342,7 @@ class HostSetupStore {
   async probeUnprobedOnline(servers: ServerItem[]): Promise<void> {
     await Promise.all(
       servers
-        .filter((server) => server.status === 'online' && !this.hasProbed(server.id))
+        .filter((server) => server.readiness === 'ready' && !this.hasProbed(server.id))
         .map((server) => this.probeHost(server.id)),
     )
   }

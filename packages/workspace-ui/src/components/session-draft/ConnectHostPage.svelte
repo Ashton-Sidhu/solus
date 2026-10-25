@@ -23,10 +23,10 @@
     connectHostHeadline,
     connectHostRow,
     isSettingUpWorkspace,
-    CONNECT_HOST_ACTION_LABELS,
     type ConnectHostRow,
     type GatedHost,
   } from "./lib/host-gate";
+  import { HOST_READINESS_ACTION_LABELS, isWaitingForHost } from "@solus/client-core/host-readiness";
 
   /**
    * What a draft pane shows in place of its composer while no host can run the
@@ -65,7 +65,6 @@
   onMount(() => {
     // Opening the page is a refresh point, as opening Connections is.
     void serversStore.refreshDirectory();
-    void serversStore.probeHosts();
   });
 
   // The first card takes focus so Enter runs it. Re-run when the list returns
@@ -221,9 +220,9 @@
             host,
             row.label,
             failedHostId === row.hostId && row.action === "retry" ? "Did not answer · try again" : row.detail,
-            row.action && CONNECT_HOST_ACTION_LABELS[row.action],
+            row.action && HOST_READINESS_ACTION_LABELS[row.action],
             row.action ? () => runRow(row) : null,
-            host.status === "connecting",
+            isWaitingForHost(host.readiness),
           )}
         {/each}
         {#each nearby as nearbyHost (nearbyHost.server.installationId)}
