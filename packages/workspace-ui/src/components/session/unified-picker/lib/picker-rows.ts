@@ -257,14 +257,17 @@ export interface PickerRowsInput {
  * (task-conversation.md §8) could only be found by a query. The Tasks result
  * type keeps the tasks in their lifecycle sections.
  *
- * A query replaces that with two sections in a fixed order, each stating its
- * own rule: tasks the query hit; then sessions it hit by name or by
- * what was said in them, flat, one row per session with its best evidence. A
- * matching session remains visible even if its task matches. Tasks do not
- * expand under a query. Both sections take the reader's order: best match first, or newest.
+ * A query replaces that with sections in a fixed order, each stating its own
+ * rule: tasks the query hit; then sessions it hit by name, flat, one row per
+ * session with its best evidence; then what the hosts' search added — the
+ * sessions found by what was said in them, and the tasks found by their
+ * comments. That answer arrives after the first paint, so it only ever adds
+ * rows below the ones already listed. A matching session remains visible even
+ * if its task matches. Tasks do not expand under a query. Every section takes
+ * the reader's order: best match first, or newest.
  *
- * Best match first also lifts the best few rows of both kinds into Top hits,
- * above the two sections. Without it the best session sat under every task
+ * Best match first also lifts the best few local rows of both kinds into Top
+ * hits, above the sections. Without it the best session sat under every task
  * that matched at all, however weakly: the reader who typed a session's name
  * had to scroll past the task section to reach it. A row is listed once.
  */
@@ -536,9 +539,18 @@ function queryList(
     listings.sort(compareListings(sort))
   }
   const remaining = remainingSessions(input, words)
+  // What a host's answer added is listed below everything this client listed
+  // on the keystroke, and Top hits is chosen from the local rows alone: an
+  // answer never moves a row the reader already sees, or the highlight on it.
+  const localTasks = rankedTasks.filter((item) => item.matchedIn !== 'comment')
+  const localListings = listings.filter((listing) => listing.source === 'local')
+  const late = {
+    listings: listings.filter((listing) => listing.source === 'server'),
+    tasks: rankedTasks.filter((item) => item.matchedIn === 'comment'),
+  }
 
   // Matching sessions have their own rows; expanding a task here would repeat them.
-  const top = topHits(sort === 'relevance' ? rankedTasks : [], listings, (listing) => listing.kind === 'session' ? listing.task.id : null)
+  const top = topHits(sort === 'relevance' ? localTasks : [], localListings, (listing) => listing.kind === 'session' ? listing.task.id : null)
   if (top.order.length) {
     writer.header({
       kind: 'header',
@@ -553,7 +565,7 @@ function queryList(
     }
   }
 
-  const restTasks = rankedTasks.filter((item) => !top.tasks.has(item))
+  const restTasks = localTasks.filter((item) => !top.tasks.has(item))
   if (restTasks.length) {
     writer.header({
       kind: 'header',
@@ -565,7 +577,19 @@ function queryList(
     for (const item of restTasks) writer.task(item, false, words)
   }
 
-  writeSessionsSection(writer, listings.filter((listing) => !top.sessions.has(listing)), remaining, sort)
+  const restListings = localListings.filter((listing) => !top.sessions.has(listing))
+  if (restListings.length) {
+    writer.header({
+      kind: 'header',
+      key: 'header:sessions',
+      label: 'Sessions',
+      count: restListings.length,
+      hint: PICKER_SORT_HINTS[sort],
+    })
+    restListings.forEach(writer.listing)
+  }
+
+  writeLateSection(writer, late, remaining, words, sort)
 
   return {
     rows: writer.rows,
@@ -582,19 +606,32 @@ function remainingSessions(input: PickerRowsInput, words: readonly string[]): nu
   return input.conversationsRemaining ?? 0
 }
 
-/** The Sessions section: the listings not lifted into Top hits, and the end
- *  row that reads the matches the hosts hold beyond the pages read. */
-function writeSessionsSection(writer: ReturnType<typeof rowWriter>, listings: readonly SessionListing[], remaining: number, sort: PickerSort): void {
-  if (!listings.length && !remaining) return
+/**
+ * The section of what the hosts' answers added, below every local row: the
+ * sessions only a host found, the tasks found by their comments, and the end
+ * row that reads the matches the hosts hold beyond the pages read. It is
+ * called "In messages" while every row in it shows what was said; a host also
+ * matches names and metadata, and a row found that way has no passage.
+ */
+function writeLateSection(
+  writer: ReturnType<typeof rowWriter>,
+  late: { listings: readonly SessionListing[]; tasks: readonly RankedTask[] },
+  remaining: number,
+  words: readonly string[],
+  sort: PickerSort,
+): void {
+  const count = late.listings.length + late.tasks.length
+  if (!count && !remaining) return
   writer.header({
     kind: 'header',
-    key: 'header:sessions',
-    label: 'Sessions',
+    key: 'header:late',
+    label: late.listings.every((listing) => listing.hit) ? 'In messages' : 'More matches',
     // Every match the hosts hold, read or not: the count is not a cap.
-    count: listings.length + remaining,
+    count: count + remaining,
     hint: PICKER_SORT_HINTS[sort],
   })
-  listings.forEach(writer.listing)
+  late.listings.forEach(writer.listing)
+  for (const item of late.tasks) writer.task(item, false, words)
   if (remaining) writer.end({ kind: 'more', key: 'more:sessions', remaining })
 }
 

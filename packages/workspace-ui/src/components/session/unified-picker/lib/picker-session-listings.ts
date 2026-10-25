@@ -24,14 +24,24 @@ export interface SessionOwner extends TaskSession {
   inScope: boolean
 }
 
-/** One listing of the Sessions section, before it is given its row index. A
- *  name hit is the better claim on relevance — it is the session's title — so
- *  the listing keeps its tier even once a content hit takes the row. */
+/**
+ * Who listed a session first. `local`: this client, on the keystroke — a
+ * task's session found by its name, or a session of the every-session list.
+ * `server`: a host's search answer, which arrives a beat later. A late row is
+ * listed below every local row, so it never moves a row the reader already
+ * sees (docs/plans/unified-search.md decision 10).
+ */
+export type ListingSource = 'local' | 'server'
+
+/** One session's listing, before it is given its row index. A name hit is the
+ *  better claim on relevance — it is the session's title — so the listing
+ *  keeps its tier even once a content hit takes the row. */
 export type SessionListing =
   | {
       kind: 'session'
       task: Task
       session: SidebarSessionChild
+      source: ListingSource
       hit?: ConversationHit
       additionalMatches?: ConversationHit[]
       hitServerId?: string
@@ -40,7 +50,7 @@ export type SessionListing =
       /** The host's rank for the session. Lower is better. */
       rank?: number
     }
-  | { kind: 'conversation'; meta: SessionMeta; hit?: ConversationHit; additionalMatches?: ConversationHit[]; hitServerId?: string; ts: number; relevance: Relevance; rank?: number }
+  | { kind: 'conversation'; meta: SessionMeta; source: ListingSource; hit?: ConversationHit; additionalMatches?: ConversationHit[]; hitServerId?: string; ts: number; relevance: Relevance; rank?: number }
 
 /** A host's passage as a row's evidence. None for a session found by its name. */
 function conversationHit(result: SessionSearchHit): ConversationHit | undefined {
@@ -75,7 +85,12 @@ export function sessionIdentity(session: { serverId?: string | null; sessionId?:
   return session.sessionId ? `session:${session.sessionId}` : JSON.stringify([session.serverId ?? '', `tab:${session.tabId}`])
 }
 
-/** Merge all evidence without changing the session's title or listing it twice. */
+/**
+ * Merge all evidence without changing the session's title or listing it twice.
+ * The local listings come first, in the order they had before any host
+ * answered: a host's passage is shown on a local row but does not move it.
+ * The sessions only a host found follow, in their own order.
+ */
 export function matchedSessions(
   nameHits: readonly TaskSession[],
   conversations: readonly SessionSearchResult[],
@@ -89,8 +104,11 @@ export function matchedSessions(
     const key = sessionIdentity(session)
     const ts = session.lastActivityAt || task.updatedAt
     const score = nameScore(session.label, words) + activityScore(ts, now, isDone(task))
-    if (!byKey.has(key)) byKey.set(key, { kind: 'session', task, session, ts: session.lastActivityAt, relevance: { tier: 'name', score } })
+    if (!byKey.has(key)) byKey.set(key, { kind: 'session', task, session, source: 'local', ts: session.lastActivityAt, relevance: { tier: 'name', score } })
   }
+  // Ordered before a host's rank is merged in, so the rank cannot reorder them.
+  const local = [...byKey.values()].sort(compareListings(sort))
+  const found: SessionListing[] = []
   for (const result of conversations) {
     const key = sessionIdentity(result.session)
     const owner = ownerBySessionId.get(key)
@@ -99,7 +117,7 @@ export function matchedSessions(
     if (!listing) {
       if (owner) {
         const ts = owner.session.lastActivityAt
-        listing = { kind: 'session', task: owner.task, session: owner.session, ts, relevance: { tier: 'evidence', score: activityScore(ts || owner.task.updatedAt, now, isDone(owner.task)) } }
+        listing = { kind: 'session', task: owner.task, session: owner.session, source: 'server', ts, relevance: { tier: 'evidence', score: activityScore(ts || owner.task.updatedAt, now, isDone(owner.task)) } }
       } else {
         // A session no task claims is still called something. When the words
         // are in its title, it is a name hit. The opening message its row
@@ -109,13 +127,14 @@ export function matchedSessions(
         const relevance: Relevance = matchesEveryWord(title, words)
           ? { tier: 'name', score: nameScore(title, words) + activityScore(ts, now) }
           : { tier: 'evidence', score: activityScore(ts, now) }
-        listing = { kind: 'conversation', meta: result.session, hit: conversationHit(result), ts, relevance }
+        listing = { kind: 'conversation', meta: result.session, source: 'server', hit: conversationHit(result), ts, relevance }
       }
       byKey.set(key, listing)
+      found.push(listing)
     }
     mergeSessionPassages(listing, result, owner?.session.serverId ?? '')
   }
-  return [...byKey.values()].sort(compareListings(sort))
+  return [...local, ...found.sort(compareListings(sort))]
 }
 
 /** Keep only one host's message IDs, and choose the best bounded passages. */
@@ -154,6 +173,6 @@ export function unclaimedSessions(
     if (since !== undefined && ts < since) return []
     if (filters.agent !== 'any' && meta.provider !== filters.agent) return []
     if (!keepsHost(meta.serverId, filters) || !keepsArchive(meta.archived, filters)) return []
-    return [{ kind: 'conversation', meta, ts, relevance: { tier: 'evidence', score: 0 } }]
+    return [{ kind: 'conversation', meta, source: 'local', ts, relevance: { tier: 'evidence', score: 0 } }]
   })
 }

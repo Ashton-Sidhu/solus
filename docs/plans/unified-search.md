@@ -75,6 +75,17 @@ pause in typing.
 9. **Filters live in the search options menu**, beside the order and the
    search mode. The chip shows how many are set. They apply with or without a
    query.
+10. **Rows never move.** The client lists tasks and task sessions by name on
+    each keystroke. The hosts' answer (session hits and task comment hits)
+    arrives later. It goes in a section below every local row: "In messages",
+    or "More matches" when a row in it has no passage because a host matched
+    only its name or metadata. A passage a host finds in a local row shows on
+    that row, but it does not move the row. Top hits is chosen from local rows
+    only. Thus the answer does not move a row the reader sees, and the
+    highlight stays on its row. The footer says "Searching conversations…"
+    while the hosts read; it is one line, so the list height does not change.
+    A session that no task claims is found only by the hosts, also when its
+    title holds the words. Its title still ranks it first in the late section.
 
 ## Known differences
 
@@ -156,3 +167,6 @@ unit tests without `POSTGRES_ADMIN_URL`.
   task that holds the words. This was the same before this change.
 - A second page could reuse the first page's match while the index is
   unchanged.
+- The late section sorts again when a page is added, and the session and
+  comment answers arrive separately. Thus a row in the late section can move
+  when more of the answer arrives. Local rows and Top hits do not move.

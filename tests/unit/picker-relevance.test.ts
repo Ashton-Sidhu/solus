@@ -123,11 +123,14 @@ describe('picker top hits', () => {
     expect(top.map(idOf)).not.toContain('tray-session')
   })
 
-  test('a session no task claims is a name hit when its words are in its name', () => {
+  test('a session only a host found leads its own section when its words are in its name, below every local row', () => {
+    // WHY: the host answers after the local rows paint. Ranked among them, a
+    // late title hit took the row under the reader's cursor (unified-search.md
+    // decision 10); in its own section it is still a name hit there.
     const named = orphan('named', 'what we said first')
     named.session.customTitle = 'Websocket reconnect loop notes'
-    const { entries } = build([...noise], {}, 'websocket reconnect', { conversations: [named] })
-    expect(idOf(entries[0]!)).toBe('named')
+    const { entries } = build([...noise], {}, 'websocket reconnect', { conversations: [orphan('untitled', 'websocket reconnect, said'), named] })
+    expect(entries.slice(noise.length).map(idOf)).toEqual(['named', 'untitled'])
   })
 
   test('an opening message is what was said, not a name', () => {

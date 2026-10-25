@@ -287,7 +287,8 @@ describe('unified picker rows', () => {
       // WHY: a session's name is its title, the strongest claim a query has
       // on it; among passages the index already knows which is the better
       // match, and throwing that away for the date made the section a timeline
-      // whatever the header promised.
+      // whatever the header promised. Under either order the name hit, listed
+      // on the keystroke, stays above what the hosts found after it.
       const dated = {
         a: [{ ...child('a1', 'pass by name'), lastActivityAt: 1 }],
         b: [],
@@ -304,7 +305,7 @@ describe('unified picker rows', () => {
         ],
       }).entries.map((entry) => entry.kind === 'session' ? entry.session.sessionId : entry.kind === 'conversation' ? entry.meta.sessionId : null)
       expect(listed('relevance')).toEqual(['a1', 'strong-old', 'weak-new'])
-      expect(listed('recency')).toEqual(['weak-new', 'strong-old', 'a1'])
+      expect(listed('recency')).toEqual(['a1', 'weak-new', 'strong-old'])
     })
 
     test('a session whose name and words both matched ranks as a name hit and shows its words', () => {
@@ -332,29 +333,29 @@ describe('unified picker rows', () => {
       expect(snippet.indexOf(SNIPPET_HIT_OPEN)).toBeLessThan(40)
     })
 
-    test('the Sessions header counts every match the hosts hold, and the list ends with a row that reads the rest', () => {
+    test('the In messages header counts every match the hosts hold, and the list ends with a row that reads the rest', () => {
       // WHY: every session that matches is reachable (unified-search.md §6).
       // The count is the whole answer, not a cap, and the end row is what the
       // list reads the next page with; the keyboard never lands on it.
       const paged = buildWithHits('alpha', [hit('orphan', 'alpha')], [], null, 'relevance', 40)
-      expect(paged.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 41 })
+      expect(paged.rows.find((row) => row.kind === 'header' && row.label === 'In messages')).toMatchObject({ count: 41 })
       expect(paged.rows.at(-1)).toMatchObject({ kind: 'more', remaining: 40 })
       expect(paged.entries.some((entry) => (entry.kind as string) === 'more')).toBe(false)
       expect(paged.sessionCount).toBe(41)
       const whole = buildWithHits('alpha', [hit('orphan', 'alpha')])
-      expect(whole.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 1 })
+      expect(whole.rows.find((row) => row.kind === 'header' && row.label === 'In messages')).toMatchObject({ count: 1 })
       expect(whole.rows.some((row) => row.kind === 'more')).toBe(false)
     })
 
-    test('a session no task claims, found by its words, is listed under Sessions', () => {
+    test('a session no task claims, found by its words, is listed under In messages', () => {
       // WHY: the reader searched for what was said, not for a title, so a
-      // session no task claims must still be reachable — in the one section
-      // every session hit shares, not a section of its own.
+      // session no task claims must still be reachable. The hosts found it
+      // after the first paint, so it is listed below the rows already shown.
       const { rows, entries, sessionCount } = buildWithHits('alpha', [
         hit('orphan', '…the alpha rollout…'),
       ])
       expect(rows.map((row) => row.kind)).toEqual(['header', 'task', 'header', 'conversation'])
-      expect(rows[2]).toMatchObject({ kind: 'header', label: 'Sessions', count: 1, hint: 'best match first' })
+      expect(rows[2]).toMatchObject({ kind: 'header', label: 'In messages', count: 1, hint: 'best match first' })
       expect(entries.at(-1)).toMatchObject({
         kind: 'conversation',
         entryIndex: 1,
@@ -387,7 +388,7 @@ describe('unified picker rows', () => {
       expect(opened.entries.map((entry) => entry.key)).toEqual(rows.filter((row) => row.kind !== 'header').map((row) => row.key))
     })
 
-    test('under recency, name hits and word hits share one order: newest first by the date each row shows', () => {
+    test('under recency, each section is newest first by the date each row shows, and word hits follow name hits', () => {
       const dated = {
         a: [{ ...child('a1', 'first pass'), lastActivityAt: 300 }],
         b: [{ ...child('b1', 'beta run'), lastActivityAt: 100 }],
@@ -750,5 +751,81 @@ describe('search across tasks and sessions', () => {
     expect(result.entries).toHaveLength(1)
     expect(result.entries[0]).toMatchObject({ kind: 'conversation', hit: undefined })
     expect(previewHitTarget(result.entries[0]!)).toBeNull()
+  })
+})
+
+describe("a host's answer after the first paint", () => {
+  // WHY: the local rows paint on the keystroke and the hosts answer a beat
+  // later. Ranked in with the local rows, a late hit moved the rows the reader
+  // was reading and took the highlighted row from under the cursor, so ⏎
+  // opened something they had not chosen (unified-search.md decision 10).
+  const now = Date.UTC(2026, 9, 1)
+  const deployTasks = [
+    { ...task('t0', 'Deploy pipeline zero'), updatedAt: now },
+    { ...task('t1', 'Deploy pipeline one'), updatedAt: now - 1 },
+    { ...task('t2', 'Deploy pipeline two'), updatedAt: now - 2 },
+    { ...task('t3', 'Deploy pipeline three'), updatedAt: now - 3 },
+    { ...task('quiet', 'Quiet task'), updatedAt: now - 4 },
+  ]
+  const deploySessions: Record<string, SidebarSessionChild[]> = {
+    t0: [{ ...child('named', 'Deploy'), lastActivityAt: now }, { ...child('said-in-t0', 'unrelated name'), lastActivityAt: now }],
+    t3: [{ ...child('deploy-notes', 'deploy notes'), lastActivityAt: now - 3 }],
+  }
+  const meta = (sessionId: string, customTitle: string | null) =>
+    ({ sessionId, serverId: 'local', customTitle, firstMessage: sessionId, lastTimestamp: new Date(now).toISOString() }) as unknown as SessionMeta
+  const answer: SessionSearchResult[] = [
+    // A late title hit as strong as the best local row: before, it took the first place.
+    { session: meta('late-title', 'Deploy'), snippet: 'we deploy on friday', messageId: 3, rank: -100, ts: now },
+    { session: meta('late-said', null), snippet: 'deploy said here', messageId: 4, rank: -50, ts: now },
+    // Passages in sessions a task owns: one already listed by name, one not.
+    { session: meta('deploy-notes', null), snippet: 'deploy steps', messageId: 5, rank: -200, ts: now },
+    { session: meta('said-in-t0', null), snippet: 'how to deploy', messageId: 6, rank: -300, ts: now },
+  ]
+  const list = (answered: boolean) => buildPickerRows({
+    tasks: deployTasks, query: 'deploy', now,
+    sessionsFor: (item) => deploySessions[item.id] ?? [],
+    expandedTaskIds: new Set(),
+    conversations: answered ? answer : [],
+    commentPassages: answered ? new Map([['quiet', 'we should \u0001deploy\u0002 it']]) : undefined,
+  })
+  const keys = (rows: readonly { key: string }[]) => rows.map((row) => row.key)
+
+  test('does not reorder the local rows or Top hits', () => {
+    const before = list(false)
+    const after = list(true)
+    expect(before.rows[0]).toMatchObject({ kind: 'header', label: 'Top hits' })
+    expect(keys(after.rows.slice(0, before.rows.length))).toEqual(keys(before.rows))
+    expect(after.rows[0]).toEqual(before.rows[0])
+    // The passage rides on the local row it belongs to without moving it.
+    expect(after.entries.find((entry) => entry.key === 'session:session:deploy-notes')).toMatchObject({ hit: { messageId: 5 } })
+  })
+
+  test('lists what only the hosts found in its own section, below every local row', () => {
+    const before = list(false)
+    const { rows } = list(true)
+    const late = rows.slice(before.rows.length)
+    expect(late[0]).toMatchObject({ kind: 'header', label: 'In messages', count: 4 })
+    // A title the hosts found still leads its section; a passage follows by the index's score.
+    expect(keys(late.slice(1))).toEqual(['session:session:late-title', 'session:session:said-in-t0', 'session:session:late-said', 'task:quiet'])
+    expect(late.at(-1)).toMatchObject({ kind: 'task', matchedIn: 'comment' })
+  })
+
+  test('keeps the highlight on its row', () => {
+    const before = list(false)
+    const after = list(true)
+    for (const [index, entry] of before.entries.entries()) {
+      expect(after.entries[index]?.key).toBe(entry.key)
+      expect(after.rows[selectedRowIndex(after.rows, index)]?.key).toBe(entry.key)
+    }
+  })
+
+  test('a section with a row found by its name alone is not called In messages', () => {
+    // WHY: the hosts also match names and metadata; a row with no passage
+    // under "In messages" would claim words were said that were not.
+    const result = buildPickerRows({
+      tasks: [], query: 'deploy', now, sessionsFor: () => [], expandedTaskIds: new Set(),
+      conversations: [{ session: meta('by-name', 'Deploy'), snippet: '', messageId: -1, rank: -1, ts: now }],
+    })
+    expect(result.rows[0]).toMatchObject({ kind: 'header', label: 'More matches', count: 1 })
   })
 })
