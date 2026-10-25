@@ -47,6 +47,7 @@ function installDom(storage: ReturnType<typeof memoryStorage>) {
     documentElement: {
       classList: { toggle: (name: string, on: boolean) => void (on ? classes.add(name) : classes.delete(name)), contains: (name: string) => classes.has(name) },
       style: styleStub(),
+      dataset: {},
     },
     body: { style: styleStub() },
     querySelectorAll: () => [],
@@ -168,6 +169,24 @@ describe('a personal key', () => {
 })
 
 describe('a device key', () => {
+  test("an agent's device change goes through the same setters as Settings, and stays on this device", async () => {
+    const { settings, storage } = await load()
+    const { applyAgentDeviceSettings, agentDeviceSettingsOf } = await import('@solus/workspace-ui/contexts/app/agent-device-settings.svelte')
+    const bindingId = Object.keys((await import('@solus/workspace-ui/lib/keybindings/manifest')).KEYBINDINGS)[0]!
+
+    expect(applyAgentDeviceSettings(settings, { defaultEditor: 'vscode', zoomFactor: 1.25, keybindings: { [bindingId]: null } })).toBe(true)
+    expect(agentDeviceSettingsOf(settings)).toMatchObject({ defaultEditor: 'vscode', zoomFactor: 1.25, keybindings: { [bindingId]: null } })
+    expect(deviceSettings(storage).defaultEditor).toBe('vscode')
+    expect(profile(storage)).not.toHaveProperty('defaultEditor')
+  })
+
+  test('a shortcut for a binding this client does not have refuses the whole device change', async () => {
+    const { settings } = await load()
+    const { applyAgentDeviceSettings } = await import('@solus/workspace-ui/contexts/app/agent-device-settings.svelte')
+    expect(applyAgentDeviceSettings(settings, { defaultEditor: 'vscode', keybindings: { 'no.such.binding': null } })).toBe(false)
+    expect(settings.defaultEditor).not.toBe('vscode')
+  })
+
   test('stays out of the personal profile', async () => {
     const { settings, storage } = await load()
     settings.setLayout('projectPanelOpen', true)

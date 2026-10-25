@@ -48,7 +48,7 @@ describe('server removal', () => {
       ['solus.servers', JSON.stringify([{
         id: 'remote',
         label: 'Build Mac',
-        url: 'http://build-mac:3000',
+        routes: [{ kind: 'lan', url: 'http://build-mac:3000', source: 'pairing', seenAt: 1 }],
         sessionToken: 'token',
         installationId: 'build-mac',
         lastConnected: 1,

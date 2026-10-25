@@ -94,7 +94,7 @@ describe('resolving a share link', () => {
   })
 
   test('the page dials the first route it can open: no http route from an https page', () => {
-    const routes = [{ kind: 'tunnel' as const, url: 'https://h-x.solus.sh' }, { kind: 'direct' as const, url: 'http://192.168.1.2:3000' }]
+    const routes = [{ kind: 'tunnel' as const, url: 'https://h-x.solus.sh' }, { kind: 'lan' as const, url: 'http://192.168.1.2:3000' }]
     expect(guestRouteUrl(routes, 'https://app.solus.sh')).toBe('https://h-x.solus.sh')
     expect(guestRouteUrl(routes, 'http://127.0.0.1:5000')).toBe('http://192.168.1.2:3000')
     expect(guestRouteUrl([], 'https://app.solus.sh')).toBeNull()

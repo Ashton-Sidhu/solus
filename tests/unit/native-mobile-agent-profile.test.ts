@@ -28,6 +28,7 @@ import {
 } from '../../apps/mobile/src/features/settings/lib/agent-profile-entries'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
 import { FakeApi, FakeTransport, flushPromises, seedAccountGrant } from './helpers/native-mobile-fakes'
+import { identityKeyFor, signedHealth } from './helpers/signing-host'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 
 // plans/020-agent-profile.md §3 on the phone. The rules pinned here are the ones
@@ -307,8 +308,8 @@ describe('signed in means synced, and hosts pull after this device writes', () =
       fetch: (async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input)
         if (url.startsWith(ISSUER) && !url.includes('/v1/')) return plane.fetch(url, init)
-        const health = /^(http:\/\/[ab]:1)\/health$/.exec(url)
-        if (health) return new Response(JSON.stringify({ ok: true, installationId: `inst-${health[1]!.slice(7, 8)}`, name: 'Mac', os: 'macos' }), { status: 200 })
+        const health = /^(http:\/\/[ab]:1)\/health(\?|$)/.exec(url)
+        if (health) return Response.json(signedHealth(url, `inst-${health[1]!.slice(7, 8)}`, { name: 'Mac', os: 'macos' }))
         if (url.endsWith('/v1/agent-profile')) {
           profileReads += 1
           await cloudGate
@@ -331,10 +332,12 @@ describe('signed in means synced, and hosts pull after this device writes', () =
       uuid: () => 'u',
     })
     await app.load()
-    await app.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
-    await app.registry.savePaired({ id: 'inst-b', label: 'B', url: 'http://b:1' }, 'tb')
+    await app.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1', identityKey: identityKeyFor('inst-a') }, 'ta')
+    await app.registry.savePaired({ id: 'inst-b', label: 'B', url: 'http://b:1', identityKey: identityKeyFor('inst-b') }, 'tb')
     app.connections.connection('inst-a')
     app.connections.connection('inst-b')
+    // Each host proves itself on its http route before the dial goes out.
+    await flushPromises()
     await transports[0]!.accept()
     expect(app.connections.state('inst-a')?.readiness).toBe('ready')
     expect(app.connections.state('inst-b')?.readiness).not.toBe('ready')

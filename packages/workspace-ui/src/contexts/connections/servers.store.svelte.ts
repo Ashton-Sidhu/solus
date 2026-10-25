@@ -15,7 +15,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { preferredRouteUrl, type LocalConnectionInfoLike, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { onWakeSignal } from '@solus/client-core/wake-signals'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
-import { mergeDirectoryIntoSaved, withNearbyRoutes } from '@solus/client-core/uplink-session'
+import { mergeDirectoryIntoSaved, withDiscoveredRoutes } from '@solus/client-core/uplink-session'
 import { loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget, type SavedWorkspace } from '@solus/client-core/workspace-registry'
 import { windowOrganizationSelection } from '@solus/client-core/organization-selection'
 import { organizationSelection } from './organization-selection.store.svelte'
@@ -28,7 +28,6 @@ import {
   markDirectoryAnswered,
   onServerRemoving,
   removeServer,
-  savedServerRoutes,
   saveServers,
   setActiveServerId,
   touchLastConnected,
@@ -37,7 +36,8 @@ import {
   type SavedServerUplink,
 } from '@solus/client-core/server-registry'
 import type { HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
-import { isSolusApiId, solusApiId, type HostRoute, type OrganizationPolicy } from '@solus/contracts/uplink'
+import { isSolusApiId, solusApiId, type OrganizationPolicy } from '@solus/contracts/uplink'
+import { routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
@@ -166,7 +166,7 @@ class ServersStore {
         os: this.localIdentity?.os,
         local: true,
         readiness: this.readinessFor(LOCAL_SERVER_ID).readiness,
-        routes: [{ kind: 'direct', url }],
+        routes: [{ kind: 'lan', url }],
       })
     }
     for (const server of this.remotes) {
@@ -180,7 +180,7 @@ class ServersStore {
         os: server.os,
         local: false,
         readiness: this.readinessFor(server.id).readiness,
-        routes: savedServerRoutes(server),
+        routes: server.routes,
       }
       if (server.uplink) row.uplink = server.uplink
       rows.push(row)
@@ -197,7 +197,7 @@ class ServersStore {
         os: this.osByServer[serverId],
         local: false,
         readiness: this.readinessFor(serverId).readiness,
-        routes: target.routes ?? savedServerRoutes({ url: target.url }),
+        routes: target.routes ?? [routeForUrl(target.url)],
       })
     }
     return rows
@@ -578,8 +578,8 @@ class ServersStore {
       const discoveryServerId = this.local ? LOCAL_SERVER_ID : serverConnections.defaultServerId()
       if (!discoveryServerId) return { newServers: 0 }
       const discovered = await serverConnections.apiFor(discoveryServerId).discoverServers()
-      // A registered host the directory lists with no route is reached here (ADR 0001 §2.2 rule 9).
-      const withNearby = withNearbyRoutes(loadServers(), discovered)
+      // A saved host found on this network is dialed here before its tunnel (docs/plans/host-routes.md D1).
+      const withNearby = withDiscoveredRoutes(loadServers(), discovered, Date.now())
       if (withNearby) {
         saveServers(withNearby)
         this.refreshServers()

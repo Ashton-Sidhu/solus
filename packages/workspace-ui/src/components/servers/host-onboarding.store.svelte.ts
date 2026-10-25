@@ -1,9 +1,6 @@
 import { serverConnections } from '@solus/client-core/server-connections'
-import { LOCAL_SERVER_ID, type SavedServer } from '@solus/client-core/server-registry'
-import {
-  pairServer,
-  saveBootstrappedServer,
-} from '@solus/client-core/pairing'
+import { LOCAL_SERVER_ID, serverFromSshAdd, type SavedServer } from '@solus/client-core/server-registry'
+import { pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { discoveredServerUrl, serversStore } from '../../contexts'
 import type { SolusAPI } from '@solus/contracts/host-api'
@@ -15,8 +12,8 @@ import type { PairingView } from './lib/host-onboarding'
 export interface OnboardingHost {
   id: string
   label: string
-  /** Carried straight from pairing, so the stage can prove which machine answered. */
-  fingerprint?: string
+  /** The identity key SSH read from the host, so the stage can show which machine answered. */
+  identityKey?: string
 }
 
 /**
@@ -51,7 +48,6 @@ export class HostOnboardingStore {
   sshTarget = $state('')
   sshPassword = $state('')
   pairCode = $state('')
-  private sshPromptAttempt = 0
   /** Bumped per attempt so a superseded handshake can't land on a newer one. */
   private pairingGeneration = 0
 
@@ -135,7 +131,7 @@ export class HostOnboardingStore {
 
   /** The handshake, from the first automatic attempt through every retry. */
   async startSshBootstrap(
-    options: { targetOverride?: string; authSecret?: string; attempt?: number } = {},
+    options: { targetOverride?: string; authSecret?: string } = {},
   ): Promise<void> {
     const target = this.pairingTarget
     if (!target) return
@@ -162,23 +158,19 @@ export class HostOnboardingStore {
     }
 
     try {
-      const request: Parameters<typeof sshApi.connectionsBootstrapDiscoveredServer>[0] = {
-        server: target,
+      const request: Parameters<typeof sshApi.hostsAddOverSsh>[0] = {
+        discovered: target,
         deviceLabel: defaultDeviceLabel(),
+        requestId: crypto.randomUUID(),
       }
       if (options.targetOverride) request.sshTarget = options.targetOverride
       if (options.authSecret) request.authSecret = options.authSecret
-      if (options.attempt) request.attempt = options.attempt
-      const result = await sshApi.connectionsBootstrapDiscoveredServer(request)
+      const result = await sshApi.hostsAddOverSsh(request)
       if (generation !== this.pairingGeneration || !this.isOpen) return
 
-      if (result.status === 'connected') {
+      if (result.status === 'session') {
         this.sshPassword = ''
-        this.adoptPairedHost(
-          saveBootstrappedServer(url, result.credential, target.name, target.os),
-          target,
-          result.credential.fingerprint,
-        )
+        this.adoptPairedHost(serverFromSshAdd(result, url), target, result.identityKey)
         return
       }
 
@@ -189,8 +181,14 @@ export class HostOnboardingStore {
         return
       }
 
+      if (result.status !== 'needs-auth') {
+        // No link is sent for a discovered server, which is dialed where it was found: any other answer is unexpected.
+        this.pairingError = `${target.name} could not be added at the address it was found at. Pair it with a code instead.`
+        this.pairingView = 'error'
+        return
+      }
+
       this.sshTarget = result.sshTarget
-      this.sshPromptAttempt = result.attempt
       this.pairingError = result.message
       this.sshPassword = ''
       this.pairingView = 'ssh-password'
@@ -217,7 +215,6 @@ export class HostOnboardingStore {
     void this.startSshBootstrap({
       targetOverride: this.sshTarget,
       authSecret: secret,
-      attempt: this.sshPromptAttempt,
     })
   }
 
@@ -270,7 +267,7 @@ export class HostOnboardingStore {
   private adoptPairedHost(
     server: SavedServer,
     target: DiscoveredServer,
-    fingerprint?: string,
+    identityKey?: string,
   ): void {
     serversStore.savePairedServer(server)
     // A pair started from the run-on picker already has a destination — that
@@ -280,7 +277,7 @@ export class HostOnboardingStore {
       this.close()
       return
     }
-    this.open({ id: server.id, label: server.label || target.name, fingerprint })
+    this.open({ id: server.id, label: server.label || target.name, identityKey })
   }
 
   private reset(): void {
@@ -294,7 +291,6 @@ export class HostOnboardingStore {
     this.sshTarget = ''
     this.sshPassword = ''
     this.pairCode = ''
-    this.sshPromptAttempt = 0
     this.retained?.release()
     this.retained = null
     this.host = null

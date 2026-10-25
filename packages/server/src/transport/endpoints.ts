@@ -6,6 +6,7 @@ import { createLogger } from '../logger'
 import { findOnPath, getCliPath } from '../cli-env'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import { z } from 'zod'
+import type { HostRoute } from '@solus/contracts/host-routes'
 
 const log = createLogger('main', 'endpoints')
 
@@ -98,11 +99,16 @@ export function lanAddressesInReachOrder(
 
 const ENDPOINT_REACH = { tailnet: 0, lan: 1, loopback: 2 } satisfies Record<ReachableEndpoint['kind'], number>
 
-/** The URLs another host can reach this one at, the widest reach first. */
-export async function reachableUrls(bindHost: string, port: number): Promise<string[]> {
+/**
+ * The routes another machine can reach this host at, the widest reach first
+ * (docs/plans/host-routes.md D2). Loopback is never one. A listener bound to
+ * loopback serves no other machine, so it advertises none.
+ */
+export async function advertisedRoutes(bindHost: string, port: number): Promise<HostRoute[]> {
   return (await listReachableEndpoints(bindHost, port))
+    .filter((endpoint) => endpoint.kind !== 'loopback')
     .sort((a, b) => ENDPOINT_REACH[a.kind] - ENDPOINT_REACH[b.kind])
-    .map((endpoint) => `http://${endpoint.host}:${endpoint.port}`)
+    .map((endpoint): HostRoute => ({ kind: endpoint.kind === 'tailnet' ? 'tailnet' : 'lan', url: `http://${endpoint.host}:${endpoint.port}` }))
 }
 
 /**

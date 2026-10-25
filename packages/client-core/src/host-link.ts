@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import type { HostRoute } from '@solus/contracts/uplink'
+import { chooseRoute, dialableRoutes, directRouteBack, DIRECT_ROUTE_RECHECK_MS, type HostRoute, type RouteCheck } from '@solus/contracts/host-routes'
+import { healthProofSchema, newHealthNonce, routeNeedsProof, verifyHostProof, type HealthProof } from '@solus/contracts/host-identity'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { HostApi } from './host-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
@@ -7,8 +8,7 @@ import { HostFacts, type HostPresence } from './host-facts'
 import { HostSupervisor, type DialOutcome } from './host-supervisor'
 import type { LinkReadiness, RefusedReason } from './host-readiness'
 import type { DialError } from './host-diagnostics'
-import { chooseRoute, directRouteBack, DIRECT_ROUTE_RECHECK_MS, type RouteCheck } from './route-choice'
-import { dialableRoutes, installationIdDecision, type SavedServerUplink } from './server-registry'
+import { installationIdDecision, type SavedServerUplink } from './server-registry'
 import type { WakeSignal } from './wake-signals'
 
 /**
@@ -54,6 +54,8 @@ export interface HostLinkOptions {
   answersAsHost: RouteCheck
   /** The page's origin: an `https:` page cannot dial an `http:` route. Empty for a native client. */
   clientOrigin?: string
+  /** This machine's installation id, when it hosts a Solus server: only it can dial a forward it holds. */
+  localHostId?: string | null
   /** `gone`: this client does not know the host. The link never dials. */
   presence?: HostPresence
   onReadinessChange?: (readiness: LinkReadiness, attempt: number) => void
@@ -61,6 +63,8 @@ export interface HostLinkOptions {
   onOutcome?: (outcome: DialOutcome) => void
   /** The link moved to another route. */
   onRouteChange?: (url: string) => void
+  /** The host said where it is reached and which key it signs with (docs/plans/host-routes.md D2). */
+  onAdvertised?: (advertised: AdvertisedHost) => void
   setTimeoutFn?: typeof setTimeout
   clearTimeoutFn?: typeof clearTimeout
 }
@@ -100,6 +104,10 @@ export class HostLink {
     this.transport.attachDialOutcomeReporter((outcome) => {
       this.supervisor.report(outcome)
       options.onOutcome?.(outcome)
+    })
+    this.facts.subscribe((key) => {
+      const info = key === 'serverInfo' ? this.facts.value('serverInfo') : null
+      if (info?.routes && info.identityKey) options.onAdvertised?.({ routes: info.routes, identityKey: info.identityKey })
     })
   }
 
@@ -167,14 +175,16 @@ export class HostLink {
   }
 
   private dialable(): HostRoute[] {
-    return dialableRoutes([...this.options.routes()], this.options.clientOrigin ?? '')
+    return dialableRoutes(this.options.routes(), this.options.clientOrigin ?? '', this.options.localHostId ?? null)
   }
 
   /** One dial, on the route that answers first as this host. */
   private dial(): void {
     const dialable = this.dialable()
-    const fallback = dialableRoutes([...this.options.fallbackRoutes?.() ?? []], this.options.clientOrigin ?? '')
-    if (dialable.length < 2 && fallback.length === 0) {
+    const fallback = dialableRoutes(this.options.fallbackRoutes?.() ?? [], this.options.clientOrigin ?? '', this.options.localHostId ?? null)
+    // A route that needs a proof of the host is always asked first: its credential waits for the proof.
+    const needsProof = dialable.some(routeNeedsProof)
+    if (dialable.length < 2 && fallback.length === 0 && !needsProof) {
       if (dialable[0]) this.aimAt(dialable[0].url)
       this.transport.start()
       return
@@ -183,6 +193,13 @@ export class HostLink {
       let route = await chooseRoute(dialable, this.options.answersAsHost, this.timers())
       if (!route && fallback.length > 0) route = await chooseRoute(fallback, this.options.answersAsHost, this.timers())
       if (this.isDestroyed) return
+      // No route proved the host: none is dialed, so no credential goes to whatever answers there.
+      if (!route && needsProof && dialable.every(routeNeedsProof)) {
+        const outcome: DialOutcome = { kind: 'dial-failed' }
+        this.supervisor.report(outcome)
+        this.options.onOutcome?.(outcome)
+        return
+      }
       if (route) this.aimAt(route.url)
       this.transport.start({ hostConfirmed: route !== null })
     })()
@@ -222,28 +239,35 @@ export class HostLink {
   }
 }
 
+/** What a connected host says about where it is reached and how it proves itself. */
+export type AdvertisedHost = { routes: HostRoute[]; identityKey: string }
+
 /** What a host's `/health` says about it. */
 export interface HostHealth {
   ok: boolean
   installationId: string
   name: string
   os?: HostOperatingSystem
+  /** Present when the read sent a nonce: the host's signature over it. */
+  proof?: HealthProof
 }
 
-// `ok`, `installationId`, and `name` are the identity contract and stay
-// required; everything else degrades alone so a newer host's additions never
-// null the whole health record and silently stop identity verification.
+// `ok` and `installationId` are the identity contract and stay required;
+// everything else degrades alone so a newer host's additions never null the
+// whole health record and silently stop identity verification. A host leaves
+// `name` out of a reply through its tunnel, so a missing name is empty.
 const hostHealthSchema = z.object({
   ok: z.literal(true),
   installationId: z.string().min(1),
-  name: z.string().min(1),
+  name: z.string().catch(''),
   os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
+  proof: healthProofSchema.optional().catch(undefined),
 })
 
-/** One `/health` read, with no credential; null when the route did not answer as a Solus host. */
-export async function readHostHealth(fetchImpl: typeof fetch, url: string, signal: AbortSignal): Promise<HostHealth | null> {
+/** One `/health` read, with no credential; null when the route did not answer as a Solus host. With a nonce, the host signs it. */
+export async function readHostHealth(fetchImpl: typeof fetch, url: string, signal: AbortSignal, nonce?: string): Promise<HostHealth | null> {
   try {
-    const response = await fetchImpl(`${url}/health`, { signal })
+    const response = await fetchImpl(nonce ? `${url}/health?nonce=${encodeURIComponent(nonce)}` : `${url}/health`, { signal })
     if (!response.ok) return null
     const health = hostHealthSchema.safeParse(await response.json())
     return health.success ? health.data : null
@@ -255,4 +279,35 @@ export async function readHostHealth(fetchImpl: typeof fetch, url: string, signa
 /** Whether a host's health names the host this client saved. */
 export function isSavedHost(saved: { installationId: string; uplink?: SavedServerUplink }, health: HostHealth): boolean {
   return installationIdDecision(saved.installationId, health.installationId, saved.uplink) === 'match'
+}
+
+/** What a client knows about a saved host to check that a route reaches it. */
+export interface SavedHostIdentity {
+  installationId: string
+  uplink?: SavedServerUplink
+  /** The host's identity key (docs/plans/host-routes.md D3); absent until a trusted source gave it. */
+  identityKey?: string
+}
+
+/**
+ * Whether `route` answers as the saved host. A route that needs a proof
+ * (`routeNeedsProof`) must also sign a fresh nonce with the identity key this
+ * client saved; without a saved key such a route is never used, because the
+ * credential would go to whatever answers there.
+ */
+export async function answersAsSavedHost(
+  fetchImpl: typeof fetch,
+  route: Pick<HostRoute, 'url' | 'source'>,
+  saved: SavedHostIdentity,
+  signal: AbortSignal,
+  nonce: () => string = newHealthNonce,
+): Promise<boolean> {
+  if (!routeNeedsProof(route)) {
+    const health = await readHostHealth(fetchImpl, route.url, signal)
+    return !!health && isSavedHost(saved, health)
+  }
+  if (!saved.identityKey) return false
+  const sent = nonce()
+  const health = await readHostHealth(fetchImpl, route.url, signal, sent)
+  return !!health?.proof && isSavedHost(saved, health) && verifyHostProof(saved.identityKey, sent, health.installationId, health.proof)
 }

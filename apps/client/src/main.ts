@@ -16,7 +16,7 @@ import { appPairLink, pairServer } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { adoptAccountOrigin } from '@solus/client-core/uplink-account'
 import { accountOriginShell } from './lib/account-origin'
-import type { HostRoute } from '@solus/contracts/uplink'
+import type { HostRoute } from '@solus/contracts/host-routes'
 import { startupAccountRead } from '@solus/client-core/cloud-account'
 import { existingWebAccountSession, fetchAuthorize, keepWebSignIn, resumeWebSignIn, webAccountSession, type WebSignInDeps } from '@solus/client-core/web-sign-in'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
@@ -314,7 +314,8 @@ async function connectGuest(link: GuestLink, opening: GuestOpening, displayName:
     guestBoot.fail(opening.reason)
     return
   }
-  const mirror: HostRoute[] = opening.mirror ? [{ kind: 'direct', url: opening.mirror }] : []
+  // The mirror is on the account origin, an `https:` origin of Solus cloud like a tunnel.
+  const mirror: HostRoute[] = opening.mirror ? [{ kind: 'tunnel', url: opening.mirror }] : []
   const hostUrl = guestRouteUrl(opening.host, location.origin)
   const url = hostUrl ?? mirror[0]?.url
   if (!url) {

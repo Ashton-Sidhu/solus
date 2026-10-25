@@ -15,14 +15,14 @@ const values = new Map<string, string>([
   ['solus.servers', JSON.stringify([{
     id: 'remote',
     label: 'Build host',
-    url: 'http://10.10.1.22:3000',
+    routes: [{ kind: 'lan', url: 'http://10.10.1.22:3000', source: 'pairing', seenAt: 1 }],
     sessionToken: 'token',
     installationId: 'build-host',
     lastConnected: 1,
   }, {
     id: 'early-host',
     label: 'Cloud host',
-    url: 'https://early-host.example',
+    routes: [{ kind: 'lan', url: 'https://early-host.example', source: 'pairing', seenAt: 1 }],
     sessionToken: 'token',
     installationId: 'early-host',
     lastConnected: 1,

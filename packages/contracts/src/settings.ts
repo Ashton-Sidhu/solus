@@ -136,17 +136,17 @@ function fontPresetSchema(key: FontPreferenceKey) {
 /** One strict schema per personal key: a wrong value is refused, never healed. */
 export const PERSONAL_SETTING_SCHEMAS = {
   themeMode: z.enum(['system', 'light', 'dark']),
-  activeAgent: z.enum(AGENT_IDS),
+  activeAgent: z.enum(AGENT_IDS).describe('The agent that new sessions start on. It does not change the agent of a conversation that has one.'),
   defaultPermissionMode: z.enum(PERMISSION_MODES),
   notifications: notificationPreferencesPatchSchema.transform((patch) => mergeNotificationPreferences(DEFAULT_NOTIFICATION_PREFERENCES, patch)),
-  modelRouting: modelRoutingSchema,
-  defaultModels: z.record(z.string().max(MAX_MODEL_ID), z.string().max(MAX_MODEL_ID)).refine((value) => Object.keys(value).length <= 50),
+  modelRouting: modelRoutingSchema.describe('For the Auto model: the model that each kind of prompt (ui, general, exploration, structured) goes to.'),
+  defaultModels: z.record(z.string().max(MAX_MODEL_ID), z.string().max(MAX_MODEL_ID)).refine((value) => Object.keys(value).length <= 50).describe('The model that a new session starts on, by agent id. A model id, or auto.'),
   modelOptionsByProvider: z.partialRecord(z.enum(AGENT_IDS), z.record(z.string().max(MAX_MODEL_ID), z.object({
     reasoningEffort: z.enum(REASONING_EFFORTS),
     contextWindow: z.number().int().positive().nullable(),
     fastMode: z.boolean(),
-  }).strict())),
-  handoffHistoryTokens: z.number().int().min(1_024).max(1_000_000),
+  }).strict())).describe('The reasoning effort, context window (tokens; null is the model default), and fast mode last chosen for each agent and model. They come back when that model is chosen again.'),
+  handoffHistoryTokens: z.number().int().min(1_024).max(1_000_000).describe('When a session moves to another provider: the maximum of earlier conversation it takes, in tokens. It is also limited to fit the context of the new model.'),
   reviewAgent: z.enum(AGENT_IDS),
   reviewModel: z.string().max(MAX_MODEL_ID),
   reviewReasoning: z.enum(REASONING_EFFORTS),
@@ -155,10 +155,10 @@ export const PERSONAL_SETTING_SCHEMAS = {
     id: z.string().min(1).max(200),
     name: z.string().max(200),
     prompt: z.string().max(MAX_INSTRUCTIONS),
-  }).strict()).max(100),
+  }).strict()).max(100).describe('Saved review lenses (a name and a prompt). They show when the person starts a lens on a change.'),
   generatePrGuidesOnOpen: z.boolean(),
-  responseStreamingMode: z.enum(['buffered', 'paragraph']),
-  rateLimitBehavior: z.enum(['ask', 'queue', 'continue', 'stop']),
+  responseStreamingMode: z.enum(['buffered', 'paragraph']).describe('How agent replies show. paragraph: each paragraph or code block shows when it is complete. buffered: each whole text segment shows when it is complete.'),
+  rateLimitBehavior: z.enum(['ask', 'queue', 'continue', 'stop']).describe('What a run does at a provider rate limit. ask: hold the prompt and ask the person. queue: wait and try again at the reset. continue and stop: end the run and hold nothing (the two behave the same).'),
   autoRenameSessions: z.boolean(),
   /** The transcript shows the tool calls between the agent's messages. */
   showToolCalls: z.boolean(),
@@ -175,31 +175,31 @@ export const PERSONAL_SETTING_SCHEMAS = {
   promptFontSize: z.number().min(8).max(32),
   /** Opacity of the agent's reply text, in percent. Headings keep full ink. */
   assistantTextOpacity: z.number().int().min(MIN_ASSISTANT_TEXT_OPACITY).max(100),
-  conversationWidth: z.enum(CONVERSATION_WIDTHS),
+  conversationWidth: z.enum(CONVERSATION_WIDTHS).describe('The maximum width of transcript text. narrow: up to 40rem. comfortable: up to about 68rem, by pane width. full: the full pane.'),
   /** Bounded because it is added to each agent run. */
   extraInstructions: z.string().max(MAX_INSTRUCTIONS),
   /** Extra instructions keyed by resolved model id, appended when that model runs. */
-  modelInstructions: z.record(z.string().max(MAX_MODEL_ID), z.string().max(MAX_INSTRUCTIONS)).refine((value) => Object.keys(value).length <= 50),
-  tabGroupMode: z.enum(TAB_GROUP_MODES),
+  modelInstructions: z.record(z.string().max(MAX_MODEL_ID), z.string().max(MAX_INSTRUCTIONS)).refine((value) => Object.keys(value).length <= 50).describe('Text from the person that is added to the system prompt when one model runs, by resolved model id.'),
+  tabGroupMode: z.enum(TAB_GROUP_MODES).describe('The order that the next-tab and previous-tab keys follow. flat: tab order. status: grouped by waiting, rate-limited, running, completed, error, idle. unread: unread tabs first.'),
   sidebarCompletedRetentionDays: z.number().int().min(1).max(365),
   sidebarMotionMs: z.number().int().min(0).max(MAX_SIDEBAR_MOTION_MS),
   /** The agent and model a new task lead starts on. Null means the default for new sessions. */
-  leadModel: leadModelSelectionSchema.nullable(),
-  agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']),
+  leadModel: leadModelSelectionSchema.nullable().describe('The agent, model, and reasoning level that a new task lead session starts on. Null uses the default for new sessions.'),
+  agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).describe('What agents can do to the status of a task. none: no status changes. moderate: any status except done. autonomous: any status, done included.'),
   /** Rules added after the built-in lead contract (docs/plans/task-conversation.md). */
-  leadInstructions: z.string().max(MAX_INSTRUCTIONS),
+  leadInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Rules from the person that are added after the built-in contract of a task lead.'),
   /** The model a lead names for a worker when its instructions name none. Null leaves it to the lead. */
-  workerModel: leadModelSelectionSchema.nullable(),
-  textGenerationModel: modelSelectionSchema,
+  workerModel: leadModelSelectionSchema.nullable().describe('The agent and model that a task lead starts workers on when its instructions name none. Null lets the lead choose.'),
+  textGenerationModel: modelSelectionSchema.describe('The model that writes session titles and worktree names, and commit and pull request text when sourceControlWriterModel is null.'),
   /** Null falls back to `textGenerationModel`. */
-  sourceControlWriterModel: modelSelectionSchema.nullable(),
+  sourceControlWriterModel: modelSelectionSchema.nullable().describe('The model that writes commit messages and pull request text. Null uses textGenerationModel.'),
   sourceControlWriting: z.object({
     mode: z.enum(['repo_conventions', 'conventional_commits', 'custom']),
     customInstructions: z.string().max(8_000),
     followPullRequestTemplate: z.boolean(),
-  }).strict(),
+  }).strict().describe('How commit and pull request text is written. mode repo_conventions: like the last 20 commits. conventional_commits: type(scope): subject. custom: customInstructions (up to 8000 characters). followPullRequestTemplate: fill in the pull request template of the repository.'),
   /** A project's `.solus/config.json` can override it (docs/worktree-names.md). */
-  worktreeBranchNaming: worktreeBranchNamingSchema,
+  worktreeBranchNaming: worktreeBranchNamingSchema.describe('How branches of new worktrees get their names. generated: {prefix}/{slug}, renamed when a title exists. static: {prefix}/{id}. custom: a template with {prefix}, {slug}, {id}, and {user}. The .solus/config.json of a project can override it.'),
 }
 
 export const personalSettingsSchema = z.object(PERSONAL_SETTING_SCHEMAS).strict()
@@ -216,27 +216,6 @@ export const PERSONAL_SETTING_KEYS = Object.keys(PERSONAL_SETTING_SCHEMAS) as re
  */
 export const personalSettingsDocumentSchema = personalSettingsSchema.partial().strict()
 export type PersonalSettingsDocument = z.output<typeof personalSettingsDocumentSchema>
-
-// ─── Agent access to personal settings ───
-
-/**
- * An agent runs on a host, and only the person's clients hold their settings.
- * So the host asks a client of that person to read or change them, on the
- * socket (a host→client request answered on its ack). The client applies a
- * change as a local edit, and its sync sends it on like any other.
- */
-export const AGENT_PERSONAL_SETTINGS_REQUEST = 'personalSettings.agentRequest'
-
-/** A request without a patch reads the settings. */
-export const agentPersonalSettingsRequestSchema = z.object({ patch: personalSettingsDocumentSchema.optional() }).strict()
-export type AgentPersonalSettingsRequest = z.output<typeof agentPersonalSettingsRequestSchema>
-
-/** The person's settings after the request, defaults filled in, or why the client refused. */
-export const agentPersonalSettingsReplySchema = z.discriminatedUnion('ok', [
-  z.object({ ok: z.literal(true), settings: personalSettingsDocumentSchema }),
-  z.object({ ok: z.literal(false), error: z.string().max(500) }),
-])
-export type AgentPersonalSettingsReply = z.output<typeof agentPersonalSettingsReplySchema>
 
 /** The saved lens included by default on every client. */
 export const SHOW_ME_LENS: SavedLens = {

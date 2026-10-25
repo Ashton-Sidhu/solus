@@ -30,7 +30,9 @@ describe('what a share link opens', () => {
   })
 
   test('a page a host serves dials that host and has no copy to fall to', () => {
-    expect(shareLinkOpening({ kind: 'no-door' }, LINK, 'http://10.0.0.2:3001')).toEqual({ kind: 'guest', host: [{ kind: 'direct', url: 'http://10.0.0.2:3001' }], mirror: null })
+    expect(shareLinkOpening({ kind: 'no-door' }, LINK, 'http://10.0.0.2:3001')).toEqual({ kind: 'guest', host: [{ kind: 'lan', url: 'http://10.0.0.2:3001' }], mirror: null })
+    // The page's origin names its route kind: a tailnet address is a tailnet route.
+    expect(shareLinkOpening({ kind: 'no-door' }, LINK, 'https://box.tail1234.ts.net')).toEqual({ kind: 'guest', host: [{ kind: 'tailnet', url: 'https://box.tail1234.ts.net' }], mirror: null })
   })
 
   test('an unknown link opens nothing and says so', () => {

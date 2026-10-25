@@ -1,6 +1,7 @@
 import type { PullRequest } from '@solus/contracts/providers'
 import type { ProjectEntry } from '@solus/contracts/types'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './native-mobile-fakes'
+import { identityKeyFor } from './signing-host'
 
 export const project = (path: string, repositoryKey: string | null): ProjectEntry => ({
   key: path, path, folderName: path.split('/').pop()!, addedAt: '2026-01-01T00:00:00Z', lastUsedAt: '2026-01-01T00:00:00Z', repositoryKey,
@@ -35,9 +36,11 @@ export async function hostWorld(api: FakeApi, options: { connected?: boolean; ho
   const urls = Object.fromEntries(hosts.map((id, index) => [`http://h${index}:1`, id]))
   const world = createHostWorld({ fetch: healthFetch(urls), api: () => api })
   await world.registry.load()
-  for (const [url, id] of Object.entries(urls)) await world.registry.savePaired({ id, label: id, url }, `t-${id}`)
+  for (const [url, id] of Object.entries(urls)) await world.registry.savePaired({ id, label: id, url, identityKey: identityKeyFor(id) }, `t-${id}`)
   if (options.connected) {
     for (const id of hosts) world.connections.connection(id)
+    // Each host proves itself on its http route before the dial goes out.
+    await flushPromises()
     for (const transport of world.transports) await transport.accept()
     await flushPromises()
   }

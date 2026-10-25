@@ -11,7 +11,7 @@ const diagnostics: HostDiagnostics = {
   installationId: 'inst-1',
   state: { readiness: 'unreachable', away: true, unreachableReason: 'no-answer', refusedReason: null, lastSeenAt: NOW - 4 * 60_000 },
   dialedUrl: 'http://192.168.1.20:4000',
-  routes: [{ kind: 'direct', url: 'http://192.168.1.20:4000' }, { kind: 'tunnel', url: 'https://raiders.solus.sh' }],
+  routes: [{ kind: 'lan', url: 'http://192.168.1.20:4000' }, { kind: 'tunnel', url: 'https://raiders.solus.sh' }],
   attempt: 6,
   lastDialError: { message: 'xhr poll error', code: null, at: NOW - 10_000 },
   hostVersion: '0.42.0',

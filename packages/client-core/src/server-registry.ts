@@ -6,17 +6,10 @@
  */
 
 import type { HostOperatingSystem } from '@solus/contracts/types'
-import {
-  hostCategorySchema,
-  hostRouteSchema,
-  isSolusApiId,
-  machineKindSchema,
-  managedHostLifecycleSchema,
-  type HostCategory,
-  type HostRoute,
-  type MachineKind,
-  type ManagedHostLifecycle,
-} from '@solus/contracts/uplink'
+import { hostCategorySchema, isSolusApiId, machineKindSchema, managedHostLifecycleSchema, type HostCategory, type MachineKind, type ManagedHostLifecycle } from '@solus/contracts/uplink'
+import { hostRouteSchema, mergeRoutes, routeForUrl, routesFrom, withReadRoutes, type HostRoute } from '@solus/contracts/host-routes'
+import type { ForwardedHost, SshAddResult } from '@solus/contracts/remote-machines'
+import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
 import { z } from 'zod'
 import { forwardCompatibleArray } from './forward-compat'
 
@@ -78,11 +71,6 @@ export interface SavedServer {
    *  address or a name the host reported. Their wording then outranks the name the
    *  host advertises over the connection. */
   hasUserLabel?: boolean
-  /** Server URL as the user entered it, e.g. `http://192.168.1.42:51234`. The
-   *  preferred direct route; `routes` may name more ways to reach the same host.
-   *  Empty for a host known only through the cloud directory, whose routes are
-   *  the directory's alone. */
-  url: string
   /** Long-lived session token from POST /pair. Empty for a host known only
    *  through the cloud directory: it is dialed with a short grant instead. */
   sessionToken: string
@@ -91,9 +79,13 @@ export interface SavedServer {
   /** Last-known operating system reported by the host. */
   os?: HostOperatingSystem
   lastConnected: number
-  /** Every way this client knows to reach the host. Absent on entries saved
-   *  before Uplink; `savedServerRoutes` derives the one route `url` names. */
-  routes?: HostRoute[]
+  /** Every way this client knows to reach the host, each with its source
+   *  (docs/plans/host-routes.md D1). Change it only with `mergeRoutes`. */
+  routes: HostRoute[]
+  /** The host's identity key (docs/plans/host-routes.md D3), from the pairing, the
+   *  SSH connection that added it, or its first connection through the tunnel. An
+   *  `http:` route is dialed only after the host proves this key. */
+  identityKey?: string
   uplink?: SavedServerUplink
 }
 
@@ -121,22 +113,70 @@ export function chooseRunOnHost(input: {
   return (managed ?? machines[0])?.id ?? null
 }
 
-/** The routes to dial, oldest entries included: `url` is always one of them, as a direct route. */
-export function savedServerRoutes(server: Pick<SavedServer, 'url' | 'routes'>): HostRoute[] {
-  const routes = server.routes ?? []
-  if (!server.url || routes.some((route) => route.url === server.url)) return routes
-  return [{ kind: 'direct', url: server.url }, ...routes]
+/** The address this client paired the host at, if it paired it. */
+export function pairedAddress(server: Pick<SavedServer, 'routes'>): string | null {
+  return routesFrom(server.routes, 'pairing')[0]?.url ?? null
 }
 
 /**
- * The routes worth dialing from this page, direct before tunnel: a host on the local
- * network is reached there and the tunnel is the fallback, never the other way round,
- * so an Uplink host stays usable when Solus cloud is down. An `https:` page cannot
- * open an `http:` route (mixed content), so those are left out there.
+ * Keeps what a connected host says about itself (docs/plans/host-routes.md D2): its
+ * routes replace its earlier `host` routes, and its identity key is kept when this
+ * client has none yet. The connection that carried it already passed the identity
+ * check. Null when nothing changed.
  */
-export function dialableRoutes(routes: HostRoute[], clientOrigin: string): HostRoute[] {
-  const usable = clientOrigin.startsWith('https:') ? routes.filter((route) => !route.url.startsWith('http:')) : routes
-  return [...usable.filter((route) => route.kind === 'direct'), ...usable.filter((route) => route.kind === 'tunnel')]
+export function applyAdvertised(serverId: string, advertised: { routes: HostRoute[]; identityKey: string }, now = Date.now()): SavedServer | null {
+  const servers = loadServers()
+  const server = servers.find((candidate) => candidate.id === serverId)
+  if (!server) return null
+  const routes = withReadRoutes(server.routes, advertised.routes, 'host', now)
+  const identityKey = server.identityKey ?? advertised.identityKey
+  if (!routes && identityKey === server.identityKey) return null
+  server.routes = routes ?? server.routes
+  server.identityKey = identityKey
+  saveServers(servers)
+  return server
+}
+
+/**
+ * The saved host an SSH add gives this client (docs/plans/host-routes.md D6, D7). A
+ * discovered server is dialed at the address it was found at; a machine SSH alone
+ * reaches is dialed through the forward its host holds. Either way the identity key
+ * came over the SSH connection, so the first dial can prove the host.
+ */
+export function serverFromSshAdd(result: Extract<SshAddResult, { status: 'session' | 'forwarded' }>, discoveredUrl: string | null, now = Date.now()): SavedServer {
+  const added = result.status === 'session'
+    ? { installationId: result.installationId, label: result.label, os: result.os, identityKey: result.identityKey, routes: discoveredUrl ? mergeRoutes([], [routeForUrl(discoveredUrl)], 'pairing', now) : [] }
+    : { installationId: result.host.installationId, label: result.host.label, os: result.host.os, identityKey: result.host.identityKey, routes: mergeRoutes([], [result.host.route], 'ssh', now) }
+  const server: SavedServer = {
+    id: added.installationId,
+    label: added.label,
+    routes: added.routes,
+    sessionToken: result.sessionToken,
+    installationId: added.installationId,
+    identityKey: added.identityKey,
+    lastConnected: now,
+  }
+  if (added.os) server.os = added.os
+  return server
+}
+
+/**
+ * Keeps the forwarded routes of the saved hosts the same as the forwards this
+ * machine's own host holds (D7). A forward's port can change when it opens again,
+ * and a host that is no longer forwarded loses its forwarded route. Only the
+ * machine that holds the forwards calls this. Null when nothing changed.
+ */
+export function withForwardedRoutes(saved: SavedServer[], forwarded: readonly ForwardedHost[], now = Date.now()): SavedServer[] | null {
+  const byInstallation = new Map(forwarded.map((host) => [host.installationId, host.route]))
+  let changed = false
+  const next = saved.map((server) => {
+    const route = byInstallation.get(server.installationId)
+    const routes = withReadRoutes(server.routes, route ? [route] : [], 'ssh', now)
+    if (!routes) return server
+    changed = true
+    return { ...server, routes }
+  })
+  return changed ? next : null
 }
 
 type ServerSavedListener = (server: SavedServer) => void
@@ -195,21 +235,19 @@ export function installationIdDecision(
   return storedInstallationId === reportedInstallationId ? 'match' : 'mismatch'
 }
 
-// `id` and `url` are load-bearing (they route sockets); everything else
+// `id` and `routes` are load-bearing (they route sockets); everything else
 // degrades alone. `.passthrough()` keeps fields written by a newer client
 // build intact across the load→save round trip.
 const savedServerSchema = z.looseObject({
   id: z.string().min(1),
   label: z.string().catch(''),
   hasUserLabel: z.boolean().optional().catch(undefined),
-  // Empty for a host known only through the directory: its routes are the directory's.
-  url: z.string(),
   sessionToken: z.string().catch(''),
   installationId: z.string().min(1),
   os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
   lastConnected: z.number().catch(0),
-  // Written by Uplink-aware builds; an older record simply has neither.
-  routes: z.array(hostRouteSchema).optional().catch(undefined),
+  routes: z.array(hostRouteSchema),
+  identityKey: hostIdentityKeySchema.optional().catch(undefined),
   uplink: z.object({
     hostId: z.string().min(1),
     directoryUrl: z.string().min(1),
@@ -249,7 +287,9 @@ export function saveServers(servers: SavedServer[]): void {
 
 export function upsertServer(server: SavedServer): void {
   const servers = loadServers()
-  const idx = servers.findIndex(s => s.id === server.id || (!!server.url && s.url === server.url))
+  // A host paired again at the same address after a reinstall replaces the old record.
+  const address = pairedAddress(server)
+  const idx = servers.findIndex(s => s.id === server.id || (!!address && pairedAddress(s) === address))
   if (idx >= 0) servers[idx] = server
   else servers.push(server)
   saveServers(servers)

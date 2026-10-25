@@ -3,6 +3,7 @@ import { uplinkControl } from '@solus/client-core/uplink-control'
 import type { UplinkEnrollmentTicket, UplinkStatus } from '@solus/contracts/uplink'
 import { HostCloudLink } from '../../apps/mobile/src/features/settings/host-cloud-link'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 // Every host page shows the host and Solus Cloud as two facts
 // (docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9): registered to an
@@ -46,7 +47,7 @@ describe('who may change a host’s Solus Cloud link', () => {
 async function phoneWith(api: FakeApi, ticket: UplinkEnrollmentTicket | null = TICKET, isSignedIn = false) {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
   await world.registry.load()
-  await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+  await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
   const cloud = new HostCloudLink((hostId) => world.connections.connection(hostId), async () => ticket, () => isSignedIn)
   await cloud.load('inst-a')
   return { world, cloud }

@@ -8,6 +8,7 @@ import { handoffDividerText, isHandoffPending } from '../../apps/mobile/src/feat
 import { deriveThreadFeedPresentation, type FeedSourceEntry } from '../../apps/mobile/src/features/threads/thread-feed-presentation'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 /**
  * Plan 021 on mobile: a provider pick is composer state. The host hands the
@@ -34,7 +35,7 @@ function baseApi(): FakeApi {
 async function open(api: FakeApi) {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
   await world.registry.load()
-  await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+  await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
   const connection = world.connections.connection('inst-a')!
   const transport = world.transports[0] as FakeTransport
   await transport.accept()

@@ -4,7 +4,7 @@ import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
 import { modelProfilesStore } from '../updates/model-profiles.store.svelte'
 import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
-import { answerAgentSettingsOnEveryHost } from './agent-settings-requests.svelte'
+import { answerAgentPersonalOnEveryHost } from './agent-personal-requests.svelte'
 import { agentProfileLocalStore } from '../seats/agent-profile-local.store.svelte'
 import { accountAgentProfileRequests, accountSyncStore } from '../account/account-sync.store.svelte'
 import { browserSyncClock } from '../account/lib/browser-sync-ports'
@@ -77,7 +77,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   // The desktop's push sends this copy, and this computer's profile fills it (plans/020 §3).
   agentProfileStore.attachLocalCopy(agentProfileLocalStore)
   onDestroy(accountSyncStore.followAccount(accountStore))
-  onDestroy(answerAgentSettingsOnEveryHost(settings.personal))
+  onDestroy(answerAgentPersonalOnEveryHost(settings, agentProfileLocalStore))
   // A signed-in person's MCP sign-ins run at the cloud (plans/020 §5.3); the store itself holds no account state.
   integrationsStore.useCloudSignIn({
     requests: accountAgentProfileRequests,

@@ -6,7 +6,7 @@
  * path, so an update never needs to touch the unit definition.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, posix } from 'node:path'
 import { defaultDataDir, launcherPath, readLockFile, windowsSystemTool } from './runtime'
@@ -369,14 +369,31 @@ function tryExec(env: ServiceEnv, command: string, args: string[]): string {
 function endWindowsTask(env: ServiceEnv): void {
   tryExec(env, windowsSystemTool('schtasks.exe'), ['/end', '/tn', WINDOWS_TASK_NAME])
   const dataDir = env.dataDir ?? defaultDataDir()
+  // `schtasks /end` does not always end the task's process tree (a task started from an
+  // SSH session keeps running), so the supervisor goes with its tree, then the server.
+  const supervisorPid = env.runtimeDir ? readPidFile(join(env.runtimeDir, 'supervisor.pid')) : null
+  if (supervisorPid && windowsCommandLine(env, supervisorPid).includes('solus.js') && windowsCommandLine(env, supervisorPid).includes(dataDir)) {
+    tryExec(env, windowsSystemTool('taskkill.exe'), ['/T', '/F', '/PID', String(supervisorPid)])
+  }
   const lock = readLockFile(join(dataDir, 'server.lock'))
   if (!lock) return
-  const commandLine = tryExec(env, windowsSystemTool('WindowsPowerShell\\v1.0\\powershell.exe'), [
-    '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-    `(Get-CimInstance Win32_Process -Filter 'ProcessId=${lock.pid}').CommandLine`,
-  ])
+  const commandLine = windowsCommandLine(env, lock.pid)
   if (!commandLine.includes('standalone.js') || !commandLine.includes(dataDir)) return
   tryExec(env, windowsSystemTool('taskkill.exe'), ['/T', '/F', '/PID', String(lock.pid)])
+}
+
+/** The command line of a Windows process; empty when it is gone. A PID can be reused, so callers check it names Solus. */
+function windowsCommandLine(env: ServiceEnv, pid: number): string {
+  return tryExec(env, windowsSystemTool('WindowsPowerShell\\v1.0\\powershell.exe'), [
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+    `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`,
+  ])
+}
+
+function readPidFile(path: string): number | null {
+  if (!existsSync(path)) return null
+  const pid = Number(readFileSync(path, 'utf8').trim())
+  return Number.isInteger(pid) && pid > 0 ? pid : null
 }
 
 export function startService(env: ServiceEnv): void {

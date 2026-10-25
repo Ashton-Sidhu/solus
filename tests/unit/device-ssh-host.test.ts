@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { sshDeviceHostConfigSchema } from '@solus/contracts/device-types'
-import { SshDeviceHost, isLocalSshTarget, parseScriptReply, quoteRemoteArg, sshArgs } from '@solus/server/devices/ssh-device-host'
+import { SshDeviceHost, parseScriptReply, sshDeviceTarget } from '@solus/server/devices/ssh-device-host'
+import { SshClient, quoteRemoteArg, sshArgs } from '@solus/server/platform/ssh'
 import { REMOTE_COMMAND, sshDeviceScript } from '@solus/server/devices/ssh-device-script'
 import type { DeviceCommandOptions, DeviceCommandRunner } from '@solus/server/devices/device-process'
 import type { HelperProcess } from '@solus/server/devices/device-helpers'
@@ -27,7 +28,7 @@ function fakeForward(pid: number) {
 
 describe('SSH device host', () => {
   test('options keep host-key checks and refuse prompts', () => {
-    const args = sshArgs(CONFIG)
+    const args = sshArgs(sshDeviceTarget(CONFIG))
     expect(args).toContain('BatchMode=yes')
     expect(args.join(' ')).not.toContain('StrictHostKeyChecking=no')
     expect(args.join(' ')).not.toContain('UserKnownHostsFile=/dev/null')
@@ -122,9 +123,9 @@ describe('SSH device host', () => {
       expect(args[0]).toBe('-G')
       return { code: 0, stdout: 'user me\nhostname 127.0.0.1\nport 22\n', stderr: '' }
     }
-    expect(await isLocalSshTarget(CONFIG, run)).toBe(true)
+    expect(await new SshClient({ run, spawn: () => fakeForward(1) }).resolvesToThisMachine(sshDeviceTarget(CONFIG))).toBe(true)
     const remote: DeviceCommandRunner = async () => ({ code: 0, stdout: 'hostname 203.0.113.9\n', stderr: '' })
-    expect(await isLocalSshTarget(CONFIG, remote)).toBe(false)
+    expect(await new SshClient({ run: remote, spawn: () => fakeForward(1) }).resolvesToThisMachine(sshDeviceTarget(CONFIG))).toBe(false)
   })
 
   test('script replies are read from the last JSON line', () => {

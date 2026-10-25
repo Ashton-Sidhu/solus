@@ -8,7 +8,7 @@ import { hosts } from '@solus/workspace-ui/contexts/hosts/hosts.svelte'
 // registry threw `Unknown Solus server` inside an effect. A host this client does
 // not know must be a state readers can see, never a throw they must guard.
 
-const laptop = { id: 'laptop', label: 'Laptop', url: 'https://laptop.test', sessionToken: 't', installationId: 'laptop', lastConnected: 1 }
+const laptop = { id: 'laptop', label: 'Laptop', routes: [{ kind: 'lan', url: 'https://laptop.test', source: 'pairing', seenAt: 1 }], sessionToken: 't', installationId: 'laptop', lastConnected: 1 }
 
 let savedHosts: object[] = []
 const previousLocalStorage = globalThis.localStorage

@@ -1,5 +1,5 @@
 import { currentIdentity } from '../vault/acting-scope'
-import { sshConnectionOptions } from '../transport/handlers/lib/ssh-options'
+import { sshConnectionOptions } from '../platform/ssh'
 
 /**
  * How one git command reaches a remote when the caller chose the credential for

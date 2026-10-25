@@ -6,6 +6,7 @@ import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/src/features/conversatio
 import { AgentPlans } from '../../apps/mobile/src/features/conversation/lib/agent-plans'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 const dispatched = (sessionId: string, messageId: string): AgentConversationUpdate => ({
   phase: 'dispatched', sessionId, messageId, origin: 'created', prompt: 'Plan the login', provider: 'claude-code', title: 'Login work', cwd: '/w', dispatchedAt: 1,
@@ -60,7 +61,7 @@ describe('deciding another session\'s plan', () => {
       .on('decideSessionPlan', () => decided)
     const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
     await world.registry.load()
-    await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 't')
+    await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 't')
     const connection = world.connections.connection('inst-a')!
     const transport = world.transports[0]!
     await transport.accept()

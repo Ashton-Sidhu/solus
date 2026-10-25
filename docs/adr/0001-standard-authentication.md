@@ -109,6 +109,10 @@ standard exists.
    organizations, or its place in the directory. The tunnel token is the only
    credential that link adds, and unlink removes only it. A registered host that is
    not linked is reached on the local network through LAN discovery, or by pairing.
+   The directory lists only the tunnel route. A client also keeps the routes the host
+   itself advertises and the ones its own network finds, and sends a credential on an
+   `http:` route only after the host proves its identity key
+   (docs/plans/host-routes.md D1–D3).
    Deleting a host (the Devices page) removes its registration: its client, key,
    and delegations.
 10. **The account adds reach; it never gates local access.** The desktop window
@@ -716,7 +720,7 @@ what each one needs:
 | Host link record, connector token, cloudflared | tunnel | `UplinkLinkManager` (`host-link.json`), tunnel only |
 | Token verifier, `LocalClient.hostId`, `Delegations`, `AccountReads`, `HostOrganizations`, `RunnerDelivery`, insights pull, `ManagedHostActivity`, `membersReachable`, organization status | identity | the registration |
 | `followHostAccount` (owner identity, U5) | identity | the standing's owner, read with the registration's control token; the desktop also presents its sign-in identity. Unlink moves no rows |
-| `RemoteHosts` and client routes to a directory host | reach | LAN discovery match by installation id, then a direct route, then the tunnel; paired hosts first |
+| `RemoteHosts` and client routes to a directory host | reach | every route checked at once (`chooseRoute`): a forward this host holds, the LAN, the tailnet, then the tunnel; an `http:` route only after the host's proof (docs/plans/host-routes.md) |
 | CLI `solus connect` / `setup --link` | both | registers, then links: a server set up from a shell is usually on another network |
 | Desktop, web, and mobile Access screens | both | "Registered to your account" apart from "Reachable from the internet" |
 

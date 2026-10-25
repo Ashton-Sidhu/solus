@@ -351,6 +351,14 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
             </>
           )}
           {!target && !showScanner ? (
+            <ConnectionSheetButton
+              icon="terminal"
+              label="Add a machine over SSH"
+              tone="secondary"
+              onPress={() => navigation.navigate("AddSshHost")}
+            />
+          ) : null}
+          {!target && !showScanner ? (
             <SettingsNote>
               On the computer running Solus, open Settings → Hosts → this computer → Access → Pairing. Scan its
               QR code with the camera button, or type the address and code it shows. A host that trusts your

@@ -69,7 +69,8 @@ const LOOKUP_TIMEOUT_MS = 3_000
  */
 export async function lookUpHost(url: string, signal: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<BridgeMachine> {
   const health = await readHostHealth(fetchImpl, url, AbortSignal.any([signal, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)]))
-  return health ? { name: health.name, os: health.os } : { name: urlHost(url) }
+  // A reply through a tunnel leaves the name out: the address stands in for it.
+  return health ? { name: health.name || urlHost(url), os: health.os } : { name: urlHost(url) }
 }
 
 /** Where a pairing surface stands, from what it knows. */

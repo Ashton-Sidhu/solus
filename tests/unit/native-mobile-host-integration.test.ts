@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { WsTransport } from '@solus/client-core/ws-transport'
 import { SolusApp } from '../../apps/mobile/src/app/solus-app'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
+import { identityKeyFor, signedHealth } from './helpers/signing-host'
 
 /**
  * Plan 017 stage 0, step 4: the native composition against a disposable host
@@ -48,13 +49,14 @@ beforeAll(async () => {
       response.setHeader('content-type', 'application/json')
       response.end(JSON.stringify(body))
     }
-    if (request.method === 'GET' && request.url === '/health') return json(200, { ok: true, installationId: INSTALLATION_ID, name: 'Disposable host', os: 'linux' })
+    // The host signs a client's nonce, so the phone sends its credential on this http address (docs/plans/host-routes.md D3).
+    if (request.method === 'GET' && request.url?.split('?')[0] === '/health') return json(200, signedHealth(`http://host${request.url}`, INSTALLATION_ID, { name: 'Disposable host', os: 'linux' }))
     if (request.method === 'POST' && request.url === '/pair') {
       const body = JSON.parse(await readBody(request)) as { pairToken: string; deviceLabel: string }
       if (body.pairToken !== PAIR_CODE) return json(401, { error: 'Invalid or expired pair token' })
       pairedLabels.push(body.deviceLabel)
       const { token } = auth.issueSessionToken(body.deviceLabel)
-      return json(200, { sessionToken: token, installationId: INSTALLATION_ID, os: 'linux' })
+      return json(200, { sessionToken: token, installationId: INSTALLATION_ID, os: 'linux', identityKey: identityKeyFor(INSTALLATION_ID) })
     }
     if (request.url?.startsWith('/v1/')) httpRecordRequests.push(request.url)
     response.statusCode = 404

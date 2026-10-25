@@ -206,10 +206,10 @@ export const deviceTargetSchema = z.object({
 export type DeviceTarget = z.input<typeof deviceTargetSchema>
 
 export const deviceConfigureRequestSchema = z.object({
-  enabled: z.boolean().optional(),
+  enabled: z.boolean().optional().describe('Device support (simulators, emulators, and phones). When off, every device action fails. Turning it on installs the device tools and starts the hub.'),
   agentAccessEnabled: z.boolean().optional(),
   onboardingCompleted: z.boolean().optional(),
-  autoShowAgentDevices: z.boolean().optional(),
+  autoShowAgentDevices: z.boolean().optional().describe('When on, a device that an agent opens shows next to the conversation of that agent.'),
 })
 export type DeviceConfigureRequest = z.infer<typeof deviceConfigureRequestSchema>
 

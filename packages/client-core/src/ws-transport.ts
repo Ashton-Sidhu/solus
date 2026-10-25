@@ -50,6 +50,12 @@ export interface WsTransportOptions {
   onAuthFailed?: () => void
   /** Confirms that a newly opened socket is still the saved host it names. */
   verifyConnectedHost?: () => Promise<boolean>
+  /**
+   * The proof of the host a dial on `serverUrl` needs before its credential goes
+   * (docs/plans/host-routes.md D3); null when the route needs none. A dial whose
+   * route `chooseRoute` just proved (`hostConfirmed`) does not ask again.
+   */
+  proveRoute?: (serverUrl: string) => Promise<boolean> | null
   /** How a dial (or the standing socket) ended — the supervisor's input. The
    *  transport never schedules its own retries (dispatch-client step 3). */
   onDialOutcome?: (outcome: DialOutcome) => void
@@ -126,6 +132,12 @@ export interface GrantSource {
   /** True when the account holds no sign-in: it ended or was never made. The host is
    *  then blocked until the person signs in again. */
   isSignedOut(): boolean
+  /**
+   * What the token is. An account's access token by default; a host that reaches
+   * another host with a session token that host issued (an introduction or an SSH
+   * add) says `session-token`, because the host admits each kind by its own rule.
+   */
+  tokenKind?: 'access-token' | 'session-token'
 }
 
 type MissingGrant =
@@ -153,6 +165,8 @@ export const SOCKET_CONNECT_TIMEOUT_MS = 5_000
 interface DialPreparation {
   credential: Promise<DialCredential>
   identity: Promise<boolean>
+  /** False when the route needed a proof of the host and did not give one: the handshake then carries no credential. */
+  proven: Promise<boolean>
 }
 
 /** When each part of one dial finished, in ms from its start: the `connection attempt` log line. */
@@ -229,9 +243,11 @@ export class WsTransport {
       // The dial's one credential rides the handshake (docs/plans/simplify-auth-and-sync.md
       // §3 rule 4), with the protocol this client speaks.
       auth: (cb) => {
-        void (this.dialPreparation?.credential ?? this.dialCredential()).then((dial) => {
+        const preparation = this.dialPreparation
+        const proven = preparation?.proven ?? this.opts.proveRoute?.(this.opts.serverUrl) ?? Promise.resolve(true)
+        void Promise.all([preparation?.credential ?? this.dialCredential(), proven.catch(() => false)]).then(([dial, isProven]) => {
           const handshake: SocketHandshake = { clientInstanceId: this.clientInstanceId }
-          if (dial.kind === 'present' && dial.credential) handshake.credential = dial.credential
+          if (isProven && dial.kind === 'present' && dial.credential) handshake.credential = dial.credential
           cb(handshake)
         })
       },
@@ -301,9 +317,12 @@ export class WsTransport {
   private dialSocket(hostConfirmed = false): void {
     const timing: DialTiming = { startedAt: Date.now(), serverUrl: this.opts.serverUrl }
     this.dialTiming = timing
+    const proof = hostConfirmed ? null : this.opts.proveRoute?.(this.opts.serverUrl)?.catch(() => false) ?? null
     const preparation: DialPreparation = {
       credential: this.dialCredential(),
-      identity: hostConfirmed ? Promise.resolve(true) : this.opts.verifyConnectedHost?.().catch(() => false) ?? Promise.resolve(true),
+      // A proof of the host is also the identity check: it names the installation it signs for.
+      identity: proof ?? (hostConfirmed ? Promise.resolve(true) : this.opts.verifyConnectedHost?.().catch(() => false) ?? Promise.resolve(true)),
+      proven: proof ?? Promise.resolve(true),
     }
     this.dialPreparation = preparation
     void preparation.credential.then((dial) => {
@@ -420,6 +439,7 @@ export class WsTransport {
       const token = await grants.acquire(refused ? { refused } : undefined).catch(() => null)
       if (!token) return { kind: 'missing', missing: missingGrantOf(grants) }
       this.refusedGrant = null
+      if (grants.tokenKind === 'session-token') return { kind: 'present', credential: { kind: 'session-token', token } }
       const organizationId = this.opts.dialOrganizationId?.() ?? undefined
       return { kind: 'present', credential: organizationId ? { kind: 'access-token', token, organizationId } : { kind: 'access-token', token } }
     }

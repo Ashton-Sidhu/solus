@@ -3,6 +3,7 @@ import { SendOutbox } from '@solus/client-core/send-outbox'
 import { pairServer, urlHost } from '@solus/client-core/pairing'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
 import { replaceModelProfiles, type AgentId, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
+import { toBase64Url } from '@solus/contracts/host-identity'
 import type { HostApi } from '@solus/client-core/host-api'
 import {
   OrganizationSettingsClient,
@@ -29,10 +30,11 @@ import { DiffFilterPreference } from '../features/review/diff-filter-preference'
 import { AppearancePreference, type AppearanceMode } from '../features/settings/appearance'
 import { HostSettings } from '../features/settings/host-settings'
 import { HostCloudLink } from '../features/settings/host-cloud-link'
+import { ForwardedHosts } from '../features/hosts/forwarded-hosts'
 import { HostAccess } from '../features/settings/host-access'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
-import { answerAgentSettingsRequests } from '@solus/client-core/agent-settings-requests'
+import { answerAgentPersonalRequests } from '@solus/client-core/agent-personal-requests'
 import { AgentProfileLocalStore } from '../features/settings/agent-profile-local'
 import { AccountSync, alwaysOnlineEnvironment, timerClock, type ReachableHost } from '../features/account/account-sync'
 import { OrganizationSettingsStore } from '../features/settings/organization-settings'
@@ -134,6 +136,8 @@ export class SolusApp {
   readonly hostSettings: HostSettings
   /** Each host's link to the person's Solus Cloud account. */
   readonly hostCloudLink: HostCloudLink
+  /** The SSH forwards each connected host holds (docs/plans/host-routes.md D7). */
+  readonly forwardedHosts: ForwardedHosts
   /** How each host is reached and who reaches it. */
   readonly hostAccess: HostAccess
   /** The device copy of pull request data, for offline reading, and the review drafts. */
@@ -168,8 +172,18 @@ export class SolusApp {
       registry: this.registry,
       createTransport: (options) => {
         const transport = platform.createTransport(options)
-        // An agent on this host reads and changes the person's settings through this phone (docs/settings.md).
-        answerAgentSettingsRequests(transport, { current: () => this.personal.current(), apply: (patch) => this.personal.set(patch) === 'saved' })
+        // An agent on this host reads and changes the person's settings and agent profile through this phone (docs/settings.md).
+        answerAgentPersonalRequests(transport, {
+          settings: () => this.personal.current(),
+          applySettings: (patch) => this.personal.set(patch) === 'saved',
+          profile: () => this.agentProfile.entries(),
+          applyProfile: (change) => {
+            const entries = Object.values(change.set)
+            if (entries.length > 0 && this.agentProfile.setEntry(entries) !== 'saved') return false
+            this.agentProfile.removeKeys(change.reset)
+            return true
+          },
+        })
         return transport
       },
       hostAccessToken: (host, options) => this.account.hostAccessToken(host, options),
@@ -178,6 +192,7 @@ export class SolusApp {
       organizationId: () => this.account.organizationId,
       fetch: platform.fetch,
       clientVersion: platform.appVersion ?? 'unknown',
+      healthNonce: platform.accountCrypto?.randomBytes ? () => toBase64Url(platform.accountCrypto!.randomBytes!(16)) : undefined,
     })
     this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId))
     this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
@@ -198,6 +213,7 @@ export class SolusApp {
     this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
     this.hostAccess = new HostAccess((hostId) => this.connections.connection(hostId))
     this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => this.account.isSignedIn)
+    this.forwardedHosts = new ForwardedHosts((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => void this.account.refreshDirectory())
     this.pullRequestCache = new PullRequestCache(platform.pullRequestCache ?? memoryPullRequestCacheDatabase())
     const connectionFor = (hostId: string) => this.connections.connection(hostId)
     const organizationId = () => this.account.organizationId
@@ -291,8 +307,9 @@ export class SolusApp {
       id: server.id,
       label: server.label || urlHost(preview.url),
       hasUserLabel: server.hasUserLabel,
-      url: server.url,
+      url: server.routes[0]?.url ?? preview.url,
       os: server.os,
+      identityKey: server.identityKey,
     }, sessionToken)
   }
 
@@ -413,6 +430,7 @@ export class SolusApp {
     this.threadList.forgetHost(hostId)
     this.hostSettings.forgetHost(hostId)
     this.hostCloudLink.forgetHost(hostId)
+    this.forwardedHosts.forgetHost(hostId)
     this.hostAccess.forgetHost(hostId)
     this.accountSync.forgetHost(hostId)
     this.pullRequests.forgetHost(hostId)

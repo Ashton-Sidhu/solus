@@ -9,6 +9,7 @@ import { canChoosePermissionMode, canRouteAuto, modelChoices, offersPlanToggle, 
 import { KeyboardCommands } from '../../apps/mobile/src/features/keyboard/keyboard-commands'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 describe('native run settings', () => {
   test('a saved Claude session resumes with the window it ran at, never none', () => {
@@ -44,7 +45,7 @@ async function controllerFor(target: ConversationTarget, settings: RunSettings, 
   host(api)
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
   await world.registry.load()
-  await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 't')
+  await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 't')
   const connection = world.connections.connection('inst-a')!
   await world.transports[0]!.accept()
   const storage = memoryKeyValueStore()

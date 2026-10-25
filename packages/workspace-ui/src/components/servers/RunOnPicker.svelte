@@ -3,6 +3,7 @@
     Check as CheckIcon,
     HardDrive as DesktopTowerIcon,
     Plus as PlusIcon,
+    SquareTerminal as TerminalIcon,
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
@@ -38,6 +39,7 @@
     managedHostStateLabel,
   } from "./lib/managed-host";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
+  import { addOverSshStore } from "./add-over-ssh.store.svelte";
   import { checkoutGit, checkoutPlace, dispatchTo, openFolder, projectHome, projectRoot, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
@@ -252,6 +254,13 @@
     open = false;
     serversStore.pairForRunOn(requesterId);
     serversStore.openAddServer();
+  }
+
+  function addOverSsh() {
+    open = false;
+    // A machine this computer forwards to is saved as paired, and comes back to this picker.
+    serversStore.pairForRunOn(requesterId);
+    addOverSshStore.open();
   }
 
   function handleOpenChange(next: boolean) {
@@ -498,6 +507,10 @@
           <DropdownMenu.Item onSelect={addHost}>
             <PlusIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
             <span class="min-w-0 flex-1 truncate">Add a host…</span>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item onSelect={addOverSsh}>
+            <TerminalIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
+            <span class="min-w-0 flex-1 truncate">Add a machine over SSH…</span>
           </DropdownMenu.Item>
         </div>
       </DropdownMenu.Content>

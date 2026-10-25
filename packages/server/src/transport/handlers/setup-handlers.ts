@@ -30,7 +30,7 @@ import { projectsRootFor, setupProjectsRoot } from '../../workspace'
 import { listProjects, recordProject } from '../../project-config/projects-manifest'
 import { resolveProjectKey } from '../../project-config/project-config'
 import { expandHome } from '../../files/host-path'
-import { sshConnectionOptions } from './lib/ssh-options'
+import { sshConnectionOptions } from '../../platform/ssh'
 import {
   agentInstallCompatibilityError,
   applyCloneProtocol,

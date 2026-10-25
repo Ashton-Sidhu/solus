@@ -291,23 +291,6 @@ export interface DiscoveredServer {
   source: 'lan' | 'tailnet'
 }
 
-export interface SshBootstrapCredential {
-  sessionToken: string
-  installationId: string
-  fingerprint: string
-}
-
-export interface SshTargetCandidate {
-  target: string
-  label: string
-  source: 'ssh-config' | 'known-hosts'
-}
-
-export type SshBootstrapResult =
-  | { status: 'connected'; credential: SshBootstrapCredential }
-  | { status: 'needs-target'; candidates: SshTargetCandidate[]; defaultTarget: string; message: string }
-  | { status: 'needs-auth'; sshTarget: string; attempt: number; message: string }
-
 // ─── Shared primitive types used by NormalizedEvent and multiple layers ───
 
 export interface UsageData {

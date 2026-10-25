@@ -93,7 +93,7 @@ describe('the directory\'s workspace services', () => {
   })
 
   test('a workspace is dialed on its tunnel alone, with a grant for its own id', () => {
-    const [saved] = saveDirectoryWorkspaces([{ ...acme, routes: [{ kind: 'direct', url: 'http://10.0.0.1:1' }, ...acme.routes] }], DIRECTORY)
+    const [saved] = saveDirectoryWorkspaces([{ ...acme, routes: [{ kind: 'lan', url: 'http://10.0.0.1:1' }, ...acme.routes] }], DIRECTORY)
     expect(workspaceTarget(saved)).toEqual({
       id: 'workspace:org-1',
       label: 'Acme',

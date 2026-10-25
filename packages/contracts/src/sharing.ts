@@ -7,7 +7,7 @@
 
 import { z } from 'zod'
 import type { User } from './user'
-import { hostRouteSchema } from './uplink'
+import { hostRouteSchema } from './host-routes'
 
 /**
  * What can be shared. A task's share reaches everything in it: the task page and

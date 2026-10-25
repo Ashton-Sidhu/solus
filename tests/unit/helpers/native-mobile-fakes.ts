@@ -9,6 +9,7 @@ import { HostConnections, type HostTransport } from '../../../apps/mobile/src/fe
 import { HostRegistry } from '../../../apps/mobile/src/features/hosts/host-registry'
 import { ACCOUNT_GRANT_KEY } from '../../../apps/mobile/src/features/account/keychain-token-store'
 import { memoryKeyValueStore, memorySecretStore, type SecretStore } from '../../../apps/mobile/src/platform/ports'
+import { healthBase, signedHealth } from './signing-host'
 
 type Handler = (...args: never[]) => unknown
 
@@ -123,13 +124,12 @@ export class ManualTimers {
   }
 }
 
+/** Hosts at fixed urls that answer `/health` as `installationIds` names, and sign a nonce with that installation's key. */
 export function healthFetch(installationIds: Record<string, string>): typeof fetch {
   return (async (input: string | URL | Request) => {
-    const url = String(input)
-    const base = url.replace(/\/health$/, '')
-    const installationId = installationIds[base]
+    const installationId = installationIds[healthBase(input) ?? '']
     if (!installationId) throw new Error('unreachable')
-    return new Response(JSON.stringify({ ok: true, installationId, name: 'Studio Mac', os: 'macos' }), { status: 200 })
+    return Response.json(signedHealth(input, installationId, { name: 'Studio Mac', os: 'macos' }))
   }) as typeof fetch
 }
 

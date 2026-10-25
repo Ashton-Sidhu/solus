@@ -1,6 +1,7 @@
 import type { ShareLinkResolution } from '@solus/client-core/guest-link'
 import type { GuestLink } from '@solus/contracts/sharing'
-import { solusApiId, type HostRoute } from '@solus/contracts/uplink'
+import { solusApiId } from '@solus/contracts/uplink'
+import { routeForUrl, type HostRoute } from '@solus/contracts/host-routes'
 import { appLinkUrl } from '@solus/workspace-ui/contexts/sharing/app-link'
 
 /**
@@ -26,7 +27,7 @@ export type GuestOpening = Exclude<ShareLinkOpening, { kind: 'member' }>
  * served by the host that holds the resource, and dials it with the secret alone.
  */
 export function shareLinkOpening(resolution: ShareLinkResolution, link: GuestLink, origin: string): ShareLinkOpening {
-  if (resolution.kind === 'no-door') return { kind: 'guest', host: [{ kind: 'direct', url: origin }], mirror: null }
+  if (resolution.kind === 'no-door') return { kind: 'guest', host: [routeForUrl(origin)], mirror: null }
   if (resolution.kind === 'unknown-link') return { kind: 'failed', reason: 'This link does not open anything. Ask for the current link.' }
   const { target } = resolution
   if (target.opensAs.kind === 'member') {

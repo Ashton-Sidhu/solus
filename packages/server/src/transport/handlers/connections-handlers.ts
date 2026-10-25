@@ -4,12 +4,13 @@ import { credentialLocationOf } from '../../vault/vault'
 import { permissionsFor } from '../../admission/access-policy'
 import { wirePrincipalKind } from '../../admission/principal'
 import { generatePairToken, listRevokedDevices, revokeDevice, getInstallationId } from '../../admission/auth'
-import { discoverTailnetServers, listReachableEndpoints } from '../endpoints'
+import { advertisedRoutes, discoverTailnetServers, listReachableEndpoints } from '../endpoints'
+import { hostIdentity } from '../../host/host-identity'
 import { shareRoutesFor } from '../../sharing/share-routes'
 import { shareResourceSchema, type ShareResource } from '@solus/contracts/sharing'
 import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
-import { bootstrapDiscoveredServerOverSsh } from '../ssh-bootstrap'
+import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { SolusServer } from '../server'
@@ -78,11 +79,18 @@ export function aggregateConnectionSessionsByDevice(sessions: ActiveConnectionSe
 }
 
 export function registerConnectionsHandlers(server: SolusServer, deps: ConnectionsDeps): void {
-  server.register('connectionsGetServerInfo', (_args, ctx) => {
+  server.register('connectionsGetServerInfo', async (_args, ctx) => {
     const info = deps.getServerInfo()
     const principal = ctx.principal
     // What this connection may do here, so every control disables exactly when the gate would refuse (permissions.md).
-    const answer: ConnectionsServerInfo = { ...info, installationId: getInstallationId(), principal: wirePrincipalKind(principal), permissions: permissionsFor(principal) }
+    const answer: ConnectionsServerInfo = {
+      ...info,
+      installationId: getInstallationId(),
+      routes: await advertisedRoutes(info.host, info.port),
+      identityKey: hostIdentity().publicKey(),
+      principal: wirePrincipalKind(principal),
+      permissions: permissionsFor(principal),
+    }
     const connectionsUrl = credentialLocationOf(ownerKeyOf(ctx.actor)).kind === 'account' ? accountConnectionsUrl() : null
     if (connectionsUrl) answer.accountConnectionsUrl = connectionsUrl
     // The one person the client is on this host: "is this me?" compares against it (plans/012 §1).
@@ -150,12 +158,6 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return aggregateConnectionSessionsByDevice(deps.getActiveSessions())
   })
 
-  server.register('connectionsBootstrapDiscoveredServer', (args, ctx) => {
-    if (!ctx.deviceId) throw new Error('SSH bootstrap requires an authenticated device.')
-    const [input] = args
-    return bootstrapDiscoveredServerOverSsh(input)
-  })
-
   server.register('connectionsRevokeDevice', (args) => {
     const [{ deviceId }] = args
     revokeDevice(deviceId)
@@ -207,4 +209,5 @@ const introductionSchema = z.object({
   urls: z.array(z.string().min(1)).max(16),
   sessionToken: z.string().min(1),
   deviceId: z.string().min(1),
+  identityKey: hostIdentityKeySchema,
 })

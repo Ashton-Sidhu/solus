@@ -43,6 +43,7 @@ import { readGithubMediaToken, serveGithubMedia } from '../providers/github/medi
 import { receiveAttachmentUpload } from './handlers/attachment-handlers'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { hostDisplayName } from '../platform/host-display-name'
+import { hostIdentity } from '../host/host-identity'
 
 const log = createLogger('main', 'http')
 
@@ -241,13 +242,15 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     !!verifySessionToken(readBearer(c)) || !(await authRequiredFor(c))
 
   app.get('/health', async (c) => {
-    const health = { ok: true, installationId: getInstallationId(), requireAuth: await authRequiredFor(c) }
+    // A client sends a nonce before it trusts an `http:` route with a credential (docs/plans/host-routes.md D3).
+    const nonce = c.req.query('nonce')
+    const installationId = getInstallationId()
+    const proof = nonce && nonce.length <= 64 ? { identityKey: hostIdentity().publicKey(), proof: hostIdentity().proveTo(nonce, installationId) } : {}
+    const health = { ok: true, installationId, requireAuth: await authRequiredFor(c), ...proof }
     // Name and OS are for the local network's host picker, not for the internet.
     if (viaTunnel(c)) return c.json(health)
     return c.json({ ...health, name: currentName(), os: hostOperatingSystem() })
   })
-
-  app.get('/endpoints', async (c) => c.json({ endpoints: await listReachableEndpoints(currentHost(), currentPort()) }))
 
   app.get('/oauth/google/callback', async (c) => {
     const result = await completeGoogleOAuthCallback(new URL(c.req.url).searchParams)
@@ -285,7 +288,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     }
     const { token: sessionToken } = issueSessionToken(deviceLabel)
     log.info('pair_session_issued', { deviceLabel, trusted: !pairToken })
-    return c.json({ sessionToken, installationId: getInstallationId(), os: hostOperatingSystem() })
+    return c.json({ sessionToken, installationId: getInstallationId(), os: hostOperatingSystem(), identityKey: hostIdentity().publicKey() })
   })
 
   app.post('/pair/open', async (c) => {

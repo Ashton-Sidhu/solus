@@ -3,6 +3,7 @@ import { bestPairEndpoint, pairLink, parsePairLink } from '@solus/client-core/pa
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { HostAccess, networkNote, type HostEndpoint } from '../../apps/mobile/src/features/settings/host-access'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 // A host's Access screen on the phone shows what the desktop and web Access tab
 // shows: network, pairing, devices, and organizations. The rules a person would
@@ -30,7 +31,7 @@ function hostApi(): FakeApi {
 async function phoneWith(api: FakeApi) {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
   await world.registry.load()
-  await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+  await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
   const access = new HostAccess((hostId) => world.connections.connection(hostId))
   await access.load('inst-a')
   return { world, access }

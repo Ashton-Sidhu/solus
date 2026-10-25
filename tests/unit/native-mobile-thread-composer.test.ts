@@ -19,6 +19,7 @@ import {
 import { effortChoices, modelOptionsSummary } from '../../apps/mobile/src/features/conversation/lib/run-settings'
 import { filterProjectScopes, getProjectScopeSelectionTarget, groupProjectScopes, scopeOfProject } from '../../apps/mobile/src/features/threads/new-task-project-selection'
 import type { SolusProjectShell } from '../../apps/mobile/src/features/threads/thread-directory'
+import { identityKeyFor } from './helpers/signing-host'
 
 describe('native composer send button', () => {
   test('an idle thread sends, or queues while the host is away', () => {
@@ -217,7 +218,7 @@ describe('native composer follow-up delivery', () => {
       .on('prompt', () => ({ disposition: 'started' }))
     const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
     await world.registry.load()
-    await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+    await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
     const connection = world.connections.connection('inst-a')!
     const transport = world.transports[0] as FakeTransport
     await transport.accept()

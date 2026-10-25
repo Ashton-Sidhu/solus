@@ -21,7 +21,7 @@
     onboardingRailModel({
       readiness: setup?.readiness ?? null,
       hostName,
-      fingerprint: store.host?.fingerprint,
+      identityKey: store.host?.identityKey,
       stepError: setup?.stepError,
     }),
   );

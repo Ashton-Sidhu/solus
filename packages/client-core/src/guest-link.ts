@@ -1,7 +1,6 @@
-import type { HostRoute } from '@solus/contracts/uplink'
+import { dialableRoutes, type HostRoute } from '@solus/contracts/host-routes'
 import { SHARE_LINK_UNKNOWN, shareLinkTargetSchema, type ShareLinkTarget } from '@solus/contracts/sharing'
 import { z } from 'zod'
-import { dialableRoutes } from './server-registry'
 
 /**
  * A share link names one resource (docs/plans/host-sharing.md). The secret alone

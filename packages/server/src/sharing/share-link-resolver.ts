@@ -1,5 +1,5 @@
 import { resourceRoleAtLeast, type ShareLinkTarget, type ShareLinkVisitor } from '@solus/contracts/sharing'
-import type { HostRoute } from '@solus/contracts/uplink'
+import type { HostRoute } from '@solus/contracts/host-routes'
 import type { Principal } from '../admission/principal'
 import type { OpenedLink, ShareManager } from './share-manager'
 

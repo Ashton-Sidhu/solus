@@ -13,7 +13,8 @@ import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import type { AccountState } from '@solus/contracts/account-types'
 import type { OAuthSession, ResourceRefusal } from './oauth-session'
-import { savedServerRoutes, type SavedServer, type SavedServerUplink } from './server-registry'
+import { dialableRoutes, mergeRoutes, routeForUrl, withReadRoutes, type HostRoute } from '@solus/contracts/host-routes'
+import type { SavedServer, SavedServerUplink } from './server-registry'
 
 /**
  * Personal Uplink from the client's side (docs/plans/personal-uplink.md, C1/C2).
@@ -145,31 +146,32 @@ export function organizationIdFor(
 
 /**
  * The registry entry a directory row becomes when this client has never paired with the
- * host. It saves no `url`: the directory owns the host's address, so its routes are the
- * only ones, replaced on every read. A host being set up has none yet.
+ * host. Its first routes are the directory's; the host and this client's own network
+ * add more later (docs/plans/host-routes.md D1). A host being set up has none yet.
  */
 export function savedServerFromDirectory(host: DirectoryHost, directoryUrl: string, now: number): SavedServer {
   return {
     id: host.installationId,
     label: host.label,
-    url: '',
     sessionToken: '',
     installationId: host.installationId,
     os: host.os,
     lastConnected: now,
-    routes: host.routes,
+    routes: mergeRoutes([], host.routes, 'directory', now),
     uplink: uplinkOf(host, directoryUrl),
   }
 }
 
 /**
- * A registered host that is not linked is listed with no route, and a client reaches
- * it only on its local network (`withNearbyRoutes`). An `https:` page cannot dial a
- * local address (mixed content), so there it shows only linked hosts. A managed host
- * is always shown: it has no route while it is stopped, and the page can start it.
+ * Whether this page can reach a host the directory lists. A registered host that is
+ * not linked is listed with no route, and a client reaches it only on a network it
+ * shares with the host. An `https:` page cannot dial an `http:` address (mixed
+ * content), so there such a host is shown only when this client knows an `https:`
+ * route to it. A managed host is always shown: it has no route while it is stopped,
+ * and the page can start it.
  */
-function isListingReachable(host: DirectoryHost, clientOrigin: string): boolean {
-  return host.kind === 'managed' || host.routes.length > 0 || !clientOrigin.startsWith('https:')
+function isListingReachable(host: DirectoryHost, routes: readonly HostRoute[], clientOrigin: string): boolean {
+  return host.kind === 'managed' || !clientOrigin.startsWith('https:') || dialableRoutes(routes, clientOrigin).length > 0
 }
 
 /**
@@ -195,23 +197,18 @@ export function mergeDirectoryIntoSaved(
     const listed = byInstallation.get(server.installationId)
     if (listed) {
       byInstallation.delete(server.installationId)
-      // A host never paired keeps no address of its own: a kept one outlived the route it
-      // came from and, read back as a direct route, was dialed before the directory's.
-      // A registered host the directory lists with no route keeps the address LAN
-      // discovery found for it (`withNearbyRoutes`): it is its only way in.
-      const isDirectoryOnly = !server.sessionToken
-      if (isDirectoryOnly && !isListingReachable(listed, clientOrigin)) continue
-      const direct = isDirectoryOnly
-        ? listed.routes.length === 0 ? (server.routes ?? []).filter((route) => route.kind === 'direct') : []
-        : savedServerRoutes(server).filter((route) => route.kind !== 'tunnel')
+      // The directory's routes replace its earlier ones. Routes from the host, a pairing,
+      // or this client's network stay: `chooseRoute` asks each one, so a stale address
+      // costs one parallel check and never wins.
+      const routes = mergeRoutes(server.routes, listed.routes, 'directory', now)
+      if (!server.sessionToken && !isListingReachable(listed, routes, clientOrigin)) continue
       merged.push({
         ...server,
-        url: isDirectoryOnly ? '' : server.url,
         // A managed host's name is the one members give it on the account site, so a
         // rename there reaches every client. A name typed here still wins (`hasUserLabel`).
         label: listed.kind === 'managed' ? listed.label : server.label,
         os: server.os ?? listed.os,
-        routes: [...direct, ...listed.routes],
+        routes,
         uplink: uplinkOf(listed, directoryUrl),
       })
       continue
@@ -223,32 +220,30 @@ export function mergeDirectoryIntoSaved(
     // Unlinked (or deleted) on the cloud side: only the tunnel goes away.
     if (!server.sessionToken) continue
     const { uplink: _dropped, ...rest } = server
-    merged.push({ ...rest, routes: savedServerRoutes(server).filter((route) => route.kind !== 'tunnel') })
+    merged.push({ ...rest, routes: mergeRoutes(server.routes, [], 'directory', now) })
   }
   for (const host of byInstallation.values()) {
-    if (isListingReachable(host, clientOrigin)) merged.push(savedServerFromDirectory(host, directoryUrl, now))
+    const server = savedServerFromDirectory(host, directoryUrl, now)
+    if (isListingReachable(host, server.routes, clientOrigin)) merged.push(server)
   }
   return merged
 }
 
 /**
- * A registered host that is not linked has no route in the directory
- * (docs/adr/0001-standard-authentication.md §2.2 rule 9): a client reaches it on its
- * local network. A LAN discovery answer whose installation id is a host known only
- * through the directory, and listed with no route, gives that host its address there
- * as a direct route. A paired host keeps the address it paired at, and a linked host
- * its tunnel. Null when nothing changed.
+ * A scan of this client's networks (docs/plans/host-routes.md D1): each saved host
+ * the scan found gets the address it answered at as a `discovery` route. A host the
+ * scan did not find keeps its earlier discovery route until it expires, so a laptop
+ * that comes back to the network dials the host there again. Null when nothing changed.
  */
-export function withNearbyRoutes(saved: SavedServer[], discovered: readonly DiscoveredServer[]): SavedServer[] | null {
-  const nearby = new Map(discovered.map((server) => [server.installationId, `http://${server.host}:${server.port}`]))
+export function withDiscoveredRoutes(saved: SavedServer[], discovered: readonly DiscoveredServer[], now: number): SavedServer[] | null {
+  const found = new Map(discovered.map((server) => [server.installationId, `http://${server.host}:${server.port}`]))
   let changed = false
   const next = saved.map((server) => {
-    const url = nearby.get(server.installationId)
-    const routes = server.routes ?? []
-    if (!url || server.sessionToken || !server.uplink || routes.some((route) => route.kind === 'tunnel')) return server
-    if (routes.length === 1 && routes[0]?.url === url) return server
+    const url = found.get(server.installationId)
+    const routes = url ? withReadRoutes(server.routes, [routeForUrl(url)], 'discovery', now) : null
+    if (!routes) return server
     changed = true
-    return { ...server, routes: [{ kind: 'direct' as const, url }] }
+    return { ...server, routes }
   })
   return changed ? next : null
 }

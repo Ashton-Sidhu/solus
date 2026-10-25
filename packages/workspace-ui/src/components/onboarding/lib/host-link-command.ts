@@ -1,7 +1,5 @@
 import { formatLinkCode, type UplinkEnrollmentTicket } from '@solus/contracts/uplink'
-
-/** Every server release attaches the installer, so `latest` always resolves. */
-const INSTALL_SCRIPT_URL = 'https://github.com/Ashton-Sidhu/solus/releases/latest/download/install.sh'
+import { INSTALL_SCRIPT_URLS } from '@solus/contracts/remote-machines'
 
 /**
  * One command that installs Solus on a computer, starts it, and links it to the
@@ -10,7 +8,7 @@ const INSTALL_SCRIPT_URL = 'https://github.com/Ashton-Sidhu/solus/releases/lates
  * is already there and still links.
  */
 export function hostLinkCommand(ticket: UplinkEnrollmentTicket): string {
-  return `curl -fsSL ${INSTALL_SCRIPT_URL} | sh -s -- --link ${shellQuote(formatLinkCode(ticket.ticket, ticket.directoryUrl))}`
+  return `curl -fsSL ${INSTALL_SCRIPT_URLS.unix} | sh -s -- --link ${shellQuote(formatLinkCode(ticket.ticket, ticket.directoryUrl))}`
 }
 
 function shellQuote(value: string): string {

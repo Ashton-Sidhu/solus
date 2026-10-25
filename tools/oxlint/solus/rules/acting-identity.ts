@@ -14,7 +14,7 @@ const guardedRoot = 'packages/server/src/'
 /** Files whose processes are the host's own: they may build from `process.env`. */
 const ambientEnvFiles = new Map([
   ['packages/server/src/cli-env.ts', 'defines the host environment'],
-  ['packages/server/src/transport/ssh-bootstrap.ts', 'reaches another machine with the host’s own SSH'],
+  ['packages/server/src/platform/ssh.ts', 'reaches another machine with the host’s own SSH'],
   ['packages/server/src/transport/uplink/connector.ts', 'runs the host’s tunnel'],
   ['packages/server/src/platform/trash.ts', 'moves the host’s files to its trash'],
   ['packages/server/src/browser/browser-runtime.ts', 'installs the host’s browser'],

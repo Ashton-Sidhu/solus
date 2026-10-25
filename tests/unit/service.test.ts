@@ -289,6 +289,27 @@ describe('service on Windows (logon task)', () => {
       expect(taskkill('C:\\Program Files\\Other\\other.exe')).toBeUndefined()
     })
 
+    test('stop also ends the supervisor and its tree, when the task outlives schtasks /end', () => {
+      // WHY: a task started from an SSH session survives `schtasks /end`, and its
+      // supervisor (`solus.js start`) stayed after "Remove and stop Solus there"
+      // (docs/plans/host-routes.md §11). A reused PID that is not this Solus is left alone.
+      const dataDir = join(home, 'data')
+      const runtimeDir = join(home, 'runtime')
+      mkdirSync(runtimeDir, { recursive: true })
+      writeFileSync(join(runtimeDir, 'supervisor.pid'), '5151')
+      const killed = (supervisorCommandLine: string) => {
+        const calls: string[][] = []
+        const exec: ServiceExec = (command, args) => {
+          calls.push([command, ...args])
+          return command.endsWith('powershell.exe') ? supervisorCommandLine : ''
+        }
+        stopService({ ...envFor(home, 'win32', exec), dataDir, runtimeDir })
+        return calls.filter((call) => call[0].endsWith('taskkill.exe')).map((call) => call.slice(1))
+      }
+      expect(killed(`node.exe libexec\\cli\\solus.js start --data-dir ${dataDir} --port 3912`)).toEqual([['/T', '/F', '/PID', '5151']])
+      expect(killed('C:\\Program Files\\Other\\other.exe')).toEqual([])
+    })
+
     test('uninstall with no task does not call schtasks', () => {
       const { exec, calls } = windowsExec('')
       uninstallService(envFor(home, 'win32', exec))

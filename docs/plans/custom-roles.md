@@ -325,9 +325,16 @@ export const ACTION_OF_METHOD = { … } as const satisfies Record<RpcMethod, Act
 
 ## 13. Open questions
 
-- Should a custom role for a named person need the person to be signed in to
-  the organization, or can it go to an email invite (`host-sharing.md` §8 step
-  6)?
+None open.
+
+Decided 2026-10-25: a custom role goes to a link, or to a person, a team, or
+the organization inside the sharer's organization. Email invites to people
+outside the organization (`host-sharing.md` §6, §8 step 6) are out of scope,
+because sharing a session with another organization is out of scope. A person
+outside the organization uses a link. When invites come later, they need a
+verified email, a principal kind for people outside the organization (not
+`org-member`, which holds `PERSON_PERMISSIONS`), and the host as the one writer
+of the row.
 
 Decided 2026-10-25: works and tasks keep their flat verbs (`work.read`,
 `work.comment`, `work.edit`, …). A custom role applies to sessions only, and

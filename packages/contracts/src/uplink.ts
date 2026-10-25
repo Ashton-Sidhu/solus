@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod'
+import { hostRouteSchema } from './host-routes'
 
 /**
  * A person's access token lives eight hours (plans/010-standard-oauth.md): the account
@@ -410,19 +411,12 @@ export const managedHostLifecycleSchema = z.enum([
 ])
 export type ManagedHostLifecycle = z.infer<typeof managedHostLifecycleSchema>
 
-/** A `direct` route is dialed before the `tunnel`; an `http:` route is unusable from an `https:` page. */
-export const hostRouteSchema = z.object({
-  kind: z.enum(['direct', 'tunnel']),
-  url: z.string().min(1),
-})
-export type HostRoute = z.infer<typeof hostRouteSchema>
-
 /**
- * One machine in `GET /v1/hosts`: the tunnel route only; direct routes are the client's
- * own knowledge. The workspace service is never a row here (`directoryWorkspaceSchema`).
- * `routes` is empty until the host is linked, and every route listed resolves: a client
- * given a name before its DNS record exists keeps "no such name" after it does. A client
- * dials only what the latest directory read lists and saves no route of its own for it.
+ * One machine in `GET /v1/hosts`: the tunnel route only; the client learns the other
+ * routes from the host itself and from its own network (docs/plans/host-routes.md D1).
+ * The workspace service is never a row here (`directoryWorkspaceSchema`). `routes` is
+ * empty until the host is linked, and every route listed resolves: a client given a
+ * name before its DNS record exists keeps "no such name" after it does.
  */
 export const directoryHostSchema = z.object({
   hostId: z.string().min(1),

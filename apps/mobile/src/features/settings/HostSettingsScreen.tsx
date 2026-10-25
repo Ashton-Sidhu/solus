@@ -10,6 +10,7 @@ import { ScreenScrollView } from "../../components/ScreenScrollView";
 import type { ScreenProps } from "../../navigation/routes";
 import { ConnectionEnvironmentRow } from "../connection/ConnectionEnvironmentRow";
 import { confirmForgetHost } from "../hosts/confirm-forget-host";
+import { ForwardedHostsSection } from "../hosts/ForwardedHostsSection";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsNote } from "./components/SettingsNote";
@@ -103,6 +104,15 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                 onPress={() => navigation.navigate("HostAccess", { hostId })}
               />
             </SettingsSection>
+
+            {connected ? (
+              <ForwardedHostsSection
+                hostId={hostId}
+                hostLabel={host.label}
+                onAdd={() => navigation.navigate("AddSshHost", { viaHostId: hostId })}
+                onSignIn={() => navigation.navigate("CloudSignIn")}
+              />
+            ) : null}
 
             <SettingsSection title="MCP">
               <SettingsRow

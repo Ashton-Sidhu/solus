@@ -34,7 +34,7 @@ function goodServer(id: string) {
   return {
     id,
     label: 'Dev box',
-    url: `http://host-${id}.example`,
+    routes: [{ kind: 'lan', url: `http://host-${id}.example`, source: 'pairing', seenAt: 1 }],
     sessionToken: 'token',
     installationId: `installation-${id}`,
     lastConnected: 1,
@@ -56,9 +56,9 @@ describe('saved-server registry decoding', () => {
   })
 
   test('a record missing a load-bearing field drops alone', () => {
-    // WHY: one bad record must not route a connection. The URL addresses the
+    // WHY: one bad record must not route a connection. The routes address the
     // host and the installation id proves that address still names that host.
-    const broken = { id: 'broken', label: 'No url', sessionToken: 't', lastConnected: 2 }
+    const broken = { id: 'broken', label: 'No routes', sessionToken: 't', lastConnected: 2 }
     store.set(KEY, JSON.stringify([goodServer('a'), broken]))
 
     const servers = loadServers()

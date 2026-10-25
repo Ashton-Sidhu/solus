@@ -19,6 +19,7 @@
   import PairCodePanel from "./PairCodePanel.svelte";
   import UplinkSection from "./UplinkSection.svelte";
   import OrganizationsSection from "./OrganizationsSection.svelte";
+  import ForwardedHostsSection from "./ForwardedHostsSection.svelte";
 
   interface Props {
     serverId: string;
@@ -144,6 +145,9 @@
     </SettingsSection>
   {/if}
 {/if}
+
+<!-- After the network setting on purpose: a forward needs no open port (D4, D7). -->
+<ForwardedHostsSection {serverId} />
 
 <SettingsSection label="Devices with access">
   {#if connections.sessions.length === 0}

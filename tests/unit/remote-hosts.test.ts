@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
 import type { IntroducedHost } from '@solus/contracts/host-api'
 import type { DiscoveredServer } from '@solus/contracts/types'
+import { dialableRoutes } from '@solus/contracts/host-routes'
 import { RemoteHosts, type IntroducedHostSource, type ReachActor, type ReachRequest } from '@solus/server/execution/orchestration/remote-hosts'
 
 // WHY: an agent starts work only on a host its turn's person reaches
@@ -107,7 +108,8 @@ describe('local reach: introduced hosts (§4)', () => {
     const hosts = new RemoteHosts(() => null, introductionsOf([studio]), () => null)
     const found = await hosts.find(NO_ACCOUNT, 'studio mini')
     if ('error' in found) throw new Error(found.error)
-    expect(found).toMatchObject({ hostId: 'install-h-mini', url: 'http://100.64.0.2:7777', source: 'introduced' })
+    // The introduced address is on the tailnet (100.64.0.0/10), so its route says so.
+    expect(found).toMatchObject({ hostId: 'install-h-mini', routes: [{ kind: 'tailnet', url: 'http://100.64.0.2:7777' }], source: 'introduced' })
     expect(await found.credential()).toBe('introduced-token-install-h-mini')
   })
 
@@ -140,12 +142,45 @@ describe('registered hosts that are not linked (docs/adr/0001-standard-authentic
     const listed = await hosts.list(OWNER)
     if ('error' in listed) throw new Error(listed.error)
     // The host on this network is a target; the one nowhere near has no way in.
-    expect(listed.map((target) => [target.hostId, target.url])).toEqual([['h-desk', 'http://192.168.1.20:7777']])
+    expect(listed.map((target) => [target.hostId, target.routes.map((route) => `${route.kind} ${route.source} ${route.url}`)])).toEqual([['h-desk', ['lan discovery http://192.168.1.20:7777']]])
     expect(await listed[0]!.credential()).toBe('reach-token-alice-h-desk')
   })
 
   test('a linked host found on the local network is dialed there before its tunnel', async () => {
     const hosts = hostsOf([host('h-book', 'Laptop')], { nearby: [nearbyHost('install-h-book', '192.168.1.30')] })
-    expect(await hosts.find(OWNER, 'Laptop')).toMatchObject({ url: 'http://192.168.1.30:7777' })
+    const found = await hosts.find(OWNER, 'Laptop')
+    if ('error' in found) throw new Error(found.error)
+    // The directory's tunnel is kept beside the discovered address, and is tried after it.
+    expect(dialableRoutes(found.routes, '').map((route) => route.url)).toEqual(['http://192.168.1.30:7777', 'https://h-book.example'])
+  })
+})
+
+describe('a host this host reaches through an SSH forward (docs/plans/host-routes.md D7)', () => {
+  const box = {
+    installationId: 'install-box',
+    label: 'box',
+    sshTarget: 'ada@box',
+    route: { kind: 'forwarded' as const, url: 'http://127.0.0.1:50000', viaHostId: 'install-this-host', source: 'ssh' as const },
+    identityKey: 'rwYrck6nBUw4mf9XOsblvbvv90Mz16mQW65CFiARkXM',
+    state: 'open' as const,
+    startedBySolus: true,
+    isLinked: false,
+  }
+  const forwarded = { list: () => [box], credential: (id: string) => (id === 'install-box' ? 'token-box' : null) }
+  const reach = () => new RemoteHosts(() => null, noIntroductions, () => null, async () => [], () => 'install-this-host', forwarded)
+
+  test('is a target for the owner only: with no account, Solus reaches nobody else\'s machine', async () => {
+    expect(await reach().list({ account: null, isOwner: false })).toEqual({ error: expect.stringContaining('reaches no other host') })
+    expect(await reach().list({ account: null, isOwner: true })).toEqual([expect.objectContaining({
+      hostId: 'install-box', source: 'forwarded', routes: [box.route], identityKey: box.identityKey,
+    })])
+  })
+
+  test('gives the session token the host there issued as its credential', async () => {
+    // The transport sends it as a `session-token` (handshake-credential.test.ts).
+    const target = await reach().find({ account: null, isOwner: true }, 'box')
+    if ('error' in target) throw new Error(target.error)
+    expect(await target.credential()).toBe('token-box')
+    expect(target.source).toBe('forwarded')
   })
 })

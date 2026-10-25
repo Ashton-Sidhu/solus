@@ -1,8 +1,6 @@
 import {
-  dialableRoutes,
   loadServers,
   LOCAL_SERVER_ID,
-  savedServerRoutes,
   upsertServer,
   type SavedServer,
   type SavedServerUplink,
@@ -12,7 +10,10 @@ import { isLastingRefusal, type ResourceRefusal } from './oauth-session'
 import { withBrowserCapabilities } from './ws-browser-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
-import { organizationIdOfSolusApiId, type HostRoute } from '@solus/contracts/uplink'
+import { organizationIdOfSolusApiId } from '@solus/contracts/uplink'
+import { dialableRoutes, ROUTE_CHECK_TIMEOUT_MS, type HostRoute } from '@solus/contracts/host-routes'
+import { routeNeedsProof } from '@solus/contracts/host-identity'
+import { answersAsSavedHost, type SavedHostIdentity } from './host-link'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import { uplinkAccountSource } from './uplink-account'
 import { organizationIdFor, type UplinkAccountSource } from './uplink-session'
@@ -38,18 +39,19 @@ export interface SolusServerTarget {
   fallbackRoutes?: HostRoute[]
   /** Present when the host is dialable with a grant from the owner's account. */
   uplink?: SavedServerUplink
+  /** The host's identity key: an `http:` route gets a credential only after the host proves it. */
+  identityKey?: string
   /** A guest of a share link (docs/plans/multiplayer-sharing.md §4.2): the link's
    *  secret is the one credential. No account, no saved host. */
   guest?: GuestCredential
 }
 
-/** The route a saved host is dialed on first: direct before tunnel, from this page's origin. */
+/** The route a saved host is dialed on first, from this page's origin; empty when it has none this page can dial. */
 export function preferredRouteUrl(
-  server: Pick<SavedServer, 'url' | 'routes'>,
+  server: Pick<SavedServer, 'routes'>,
   clientOrigin = globalThis.location?.origin ?? '',
 ): string {
-  const [first] = dialableRoutes(savedServerRoutes(server), clientOrigin)
-  return first?.url ?? server.url
+  return dialableRoutes(server.routes, clientOrigin)[0]?.url ?? ''
 }
 
 export interface InstalledSolusConnection {
@@ -83,9 +85,10 @@ export function savedServerTarget(server: SavedServer): SolusServerTarget {
     sessionToken: server.sessionToken,
     installationId: server.installationId,
     local: false,
-    routes: savedServerRoutes(server),
+    routes: server.routes,
   }
   if (server.uplink) target.uplink = server.uplink
+  if (server.identityKey) target.identityKey = server.identityKey
   return target
 }
 
@@ -140,6 +143,7 @@ export function createSolusConnection(
     accountToken: presentingAccount && presentedHostId ? () => presentingAccount.accessToken({ kind: 'host', hostId: presentedHostId }) : undefined,
     guest,
     verifyConnectedHost: options.verifyConnectedHost,
+    proveRoute: (url) => routeProof(target, url),
     // The local target's page origin (dev server / file://) is always
     // cross-origin from the loopback server, so the HTTP refresh fallback
     // would depend on CORS. Refresh over IPC instead, matching how the
@@ -154,10 +158,9 @@ export function createSolusConnection(
       if (target.local) return
       const saved = loadServers().find((server) => server.id === target.id)
       upsertServer({
-        ...(saved ?? { url: target.url, os: undefined, routes: target.routes }),
+        ...(saved ?? { os: undefined, routes: target.routes ?? [] }),
         id: target.id,
         label: target.label,
-        url: saved?.url ?? target.url,
         sessionToken,
         installationId: target.installationId ?? saved?.installationId ?? '',
         lastConnected: Date.now(),
@@ -169,4 +172,17 @@ export function createSolusConnection(
     useHostFileDialog: target.local && !!globalThis.window?.solusNative,
   }))
   return { transport, api, events: transport.events }
+}
+
+/**
+ * The proof a dial on `url` needs before its credential goes (docs/plans/host-routes.md
+ * D3): none for this computer's own server, a guest (whose secret opens one resource),
+ * or a route that needs none (`routeNeedsProof`).
+ */
+function routeProof(target: SolusServerTarget, url: string): Promise<boolean> | null {
+  if (target.local || target.guest) return null
+  const route = target.routes?.find((candidate) => candidate.url === url) ?? { url }
+  if (!routeNeedsProof(route)) return null
+  const identity: SavedHostIdentity = { installationId: target.installationId ?? '', uplink: target.uplink, identityKey: target.identityKey }
+  return answersAsSavedHost(fetch, route, identity, AbortSignal.timeout(ROUTE_CHECK_TIMEOUT_MS))
 }

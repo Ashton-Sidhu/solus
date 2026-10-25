@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import { localApi } from '@solus/client-core/local-api'
 import { mergeNativeOnlySolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
-import { normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '@solus/client-core/pairing'
+import { normalizeServerUrl, pairServer, parsePairLink } from '@solus/client-core/pairing'
+import { serverFromSshAdd, withForwardedRoutes } from '@solus/client-core/server-registry'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { encodeQrByteMode } from '@solus/client-core/qr'
 import {
@@ -11,6 +12,7 @@ import {
   WsTransport,
 } from '@solus/client-core/ws-transport'
 import { withBrowserCapabilities } from '@solus/client-core/ws-browser-api'
+import { identityKeyFor } from './helpers/signing-host'
 
 describe('client core transport helpers', () => {
   test('loads before the client bridge and follows the bridge installed later', () => {
@@ -263,6 +265,7 @@ describe('client core transport helpers', () => {
         sessionToken: 'device.123.label.sig',
         installationId: 'server-installation-1',
         os: 'macos',
+        identityKey: identityKeyFor('server-installation-1'),
       }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -287,34 +290,33 @@ describe('client core transport helpers', () => {
       expect(result.server).toMatchObject({
         id: 'server-installation-1',
         label: 'Studio Mac',
-        url: 'http://10.0.0.8:51234',
+        routes: [{ kind: 'lan', url: 'http://10.0.0.8:51234', source: 'pairing' }],
         sessionToken: 'device.123.label.sig',
         installationId: 'server-installation-1',
         os: 'macos',
+        // The key the pairing gave is what later dials on this http address verify.
+        identityKey: identityKeyFor('server-installation-1'),
       })
     } finally {
       globalThis.fetch = originalFetch
     }
   })
 
-  test('saves SSH bootstrapped credentials without another pairing exchange', () => {
-    const server = saveBootstrappedServer(
-      'http://100.64.0.8:3000/',
-      {
-        sessionToken: 'ssh-issued-session',
-        installationId: 'ssh-installation',
-        fingerprint: 'abc12345',
-      },
-      'Build Host',
-      'linux',
+  test('a discovered server added over SSH is saved at the address it was found, with the key SSH read', () => {
+    // WHY: docs/plans/host-routes.md D6. The session and the identity key came over SSH,
+    // so the first dial on the discovered address can prove the host with no pairing code.
+    const server = serverFromSshAdd(
+      { status: 'session', installationId: 'ssh-installation', label: 'Build Host', os: 'linux', sessionToken: 'ssh-issued-session', identityKey: identityKeyFor('ssh-installation') },
+      'http://100.64.0.8:3000',
     )
 
     expect(server).toMatchObject({
       id: 'ssh-installation',
       label: 'Build Host',
-      url: 'http://100.64.0.8:3000',
+      routes: [{ kind: 'tailnet', url: 'http://100.64.0.8:3000', source: 'pairing' }],
       sessionToken: 'ssh-issued-session',
       installationId: 'ssh-installation',
+      identityKey: identityKeyFor('ssh-installation'),
       os: 'linux',
     })
   })
@@ -355,3 +357,32 @@ function expectFinderPattern(modules: boolean[][], left: number, top: number): v
     }
   }
 }
+
+describe('a machine added over SSH with no account', () => {
+  const forwarded = {
+    installationId: 'install-box',
+    label: 'box',
+    sshTarget: 'ada@box',
+    os: 'linux' as const,
+    route: { kind: 'forwarded' as const, url: 'http://127.0.0.1:50000', viaHostId: 'install-mac', source: 'ssh' as const },
+    identityKey: identityKeyFor('install-box'),
+    state: 'open' as const,
+    startedBySolus: true,
+    isLinked: false,
+  }
+
+  test('is saved with the forward its host holds as its route', () => {
+    // WHY: docs/plans/host-routes.md D7. Only the machine that holds the forward dials it,
+    // so the route names that machine, and the key SSH read lets the first dial prove the host.
+    const server = serverFromSshAdd({ status: 'forwarded', host: forwarded, sessionToken: 'token-box' }, null, 10)
+    expect(server).toMatchObject({ id: 'install-box', sessionToken: 'token-box', identityKey: forwarded.identityKey, routes: [{ ...forwarded.route, seenAt: 10 }] })
+  })
+
+  test('follows the forward when it opens again on another port, and loses the route when the forward goes', () => {
+    const saved = [serverFromSshAdd({ status: 'forwarded', host: forwarded, sessionToken: 'token-box' }, null, 10)]
+    const moved = withForwardedRoutes(saved, [{ ...forwarded, route: { ...forwarded.route, url: 'http://127.0.0.1:50001' } }], 20)
+    expect(moved?.[0]?.routes.map((route) => route.url)).toEqual(['http://127.0.0.1:50001'])
+    expect(withForwardedRoutes(moved ?? [], [], 30)?.[0]?.routes).toEqual([])
+    expect(withForwardedRoutes(moved ?? [], [{ ...forwarded, route: { ...forwarded.route, url: 'http://127.0.0.1:50001' } }], 21)).toBeNull()
+  })
+})

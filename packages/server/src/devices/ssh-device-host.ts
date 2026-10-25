@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import { hostname, networkInterfaces } from 'node:os'
+import { hostname } from 'node:os'
 import {
   deviceToolInstallMessage,
   type DeviceHostSummary,
@@ -10,7 +10,7 @@ import {
   type SshDeviceHostConfig,
 } from '@solus/contracts/device-types'
 import { createLogger } from '../logger'
-import { resolveHomePath } from '../platform/paths'
+import { SshClient, quoteRemoteArg, type SshClientDeps, type SshForward, type SshTarget } from '../platform/ssh'
 import {
   DeviceHostError,
   type AgentDeviceEndpoint,
@@ -19,8 +19,8 @@ import {
   type DeviceHostPhaseListener,
   type DeviceHostReady,
 } from './device-host'
-import { reserveLoopbackPort, waitForHttpReady, type HelperProcess, type HelperSpawner } from './device-helpers'
-import { boundedDetail, type DeviceCommandOptions, type DeviceCommandRunner } from './device-process'
+import type { HelperSpawner } from './device-helpers'
+import { boundedDetail, type DeviceCommandRunner } from './device-process'
 import { REMOTE_COMMAND, REMOTE_ENVIRONMENT, sshDeviceScript, type SshScriptMode } from './ssh-device-script'
 import type { DeviceToolName } from './device-toolchain'
 
@@ -28,30 +28,13 @@ const log = createLogger('devices', 'ssh-device-host.ts')
 
 const PROBE_CACHE_MS = 30_000
 const SCRIPT_TIMEOUT_MS = 12 * 60_000
-const FORWARD_READY_MS = 20_000
 
-/** Single-quote one argument for the remote POSIX shell. */
-export const quoteRemoteArg = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`
-
-/**
- * SSH options for one device host. Non-interactive public-key auth with the
- * user's normal host-key checks: no password prompts, and host-key
- * verification is never turned off. The destination follows `--`, and the
- * config schema refuses one that starts with `-`.
- */
-export function sshArgs(config: SshDeviceHostConfig, extra: readonly string[] = []): string[] {
-  if (config.target.startsWith('-') || /\s/.test(config.target)) throw new DeviceHostError(config.id, 'validating the SSH target')
-  return [
-    '-o', 'BatchMode=yes',
-    '-o', 'ConnectTimeout=10',
-    '-o', 'ServerAliveInterval=15',
-    '-o', 'ServerAliveCountMax=3',
-    ...(config.port ? ['-p', String(config.port)] : []),
-    ...(config.identityFile ? ['-i', resolveHomePath(config.identityFile), '-o', 'IdentitiesOnly=yes'] : []),
-    ...extra,
-    '--',
-    config.target,
-  ]
+/** The SSH target of a device host. The config schema refuses a target that starts with `-`. */
+export function sshDeviceTarget(config: SshDeviceHostConfig): SshTarget {
+  const target: SshTarget = { destination: config.target }
+  if (config.port) target.port = config.port
+  if (config.identityFile) target.identityFile = config.identityFile
+  return target
 }
 
 const platformSchema = z.object({ platform: z.enum(['ios', 'android']), available: z.boolean(), reason: z.string().max(500).optional().catch(undefined) })
@@ -100,12 +83,6 @@ export interface SshDeviceHostDeps {
   now?: () => number
 }
 
-interface Forward {
-  process: HelperProcess
-  localPort: number
-  remotePort: number
-}
-
 /**
  * A Mac or Linux machine reached over SSH. Helpers run there under a
  * Solus-owned directory; their loopback ports are forwarded to this machine's
@@ -118,31 +95,34 @@ export class SshDeviceHost implements DeviceHost {
   readonly deviceHostId: string
   private readonly owner: string
   private probeCache: { at: number; value: ProbeReply } | null = null
-  private hubForward: Forward | null = null
-  private agentForward: Forward | null = null
+  private hubForward: SshForward | null = null
+  private agentForward: SshForward | null = null
   private agentToken: string | null = null
   private ready: DeviceHostReady | null = null
   private starting: Promise<DeviceHostReady> | null = null
-  private readonly fetch: typeof fetch
+  private readonly ssh: SshClient
+  private readonly target: SshTarget
   private readonly now: () => number
 
-  constructor(readonly config: SshDeviceHostConfig, private readonly deps: SshDeviceHostDeps) {
+  constructor(readonly config: SshDeviceHostConfig, deps: SshDeviceHostDeps) {
     this.deviceHostId = config.id
     this.owner = createHash('sha256').update(JSON.stringify([deps.ownerSeed ?? hostname(), config.id])).digest('hex').slice(0, 24)
-    this.fetch = deps.fetch ?? fetch
+    const ssh: SshClientDeps = { run: deps.run, spawn: deps.spawn }
+    if (deps.reservePort) ssh.reservePort = deps.reservePort
+    if (deps.fetch) ssh.fetch = deps.fetch
+    this.ssh = new SshClient(ssh)
+    this.target = sshDeviceTarget(config)
     this.now = deps.now ?? Date.now
   }
 
   /** Run a command on the device host. Every argument is quoted; nothing is shell text. */
   readonly run: DeviceCommandRunner = (command, args, options) => {
-    const remote = `sh -c ${quoteRemoteArg(`${REMOTE_ENVIRONMENT}exec "$0" "$@"`)} ${[command, ...args].map(quoteRemoteArg).join(' ')}`
-    const sshOptions: DeviceCommandOptions = { timeoutMs: options?.timeoutMs ?? 30_000 }
-    if (options?.stdin !== undefined) sshOptions.stdin = options.stdin
-    return this.deps.run('ssh', [...sshArgs(this.config), remote], sshOptions)
+    const runOptions = { command: `sh -c ${quoteRemoteArg(`${REMOTE_ENVIRONMENT}exec "$0" "$@"`)}`, timeoutMs: options?.timeoutMs ?? 30_000 }
+    return this.ssh.run(this.target, options?.stdin, [command, ...args], runOptions)
   }
 
   private async script(mode: SshScriptMode, timeoutMs = SCRIPT_TIMEOUT_MS): Promise<ProbeReply> {
-    const result = await this.deps.run('ssh', [...sshArgs(this.config), REMOTE_COMMAND], { stdin: sshDeviceScript(this.owner, mode), timeoutMs })
+    const result = await this.ssh.run(this.target, sshDeviceScript(this.owner, mode), [], { command: REMOTE_COMMAND, timeoutMs })
     const reply = parseScriptReply(result.stdout)
     if (result.code !== 0 || !reply) {
       const detail = boundedDetail(result.stderr || result.stdout) || `exit code ${result.code}`
@@ -216,12 +196,6 @@ export class SshDeviceHost implements DeviceHost {
     return this.ready
   }
 
-  private async forward(remotePort: number): Promise<Forward> {
-    const localPort = await (this.deps.reservePort ?? reserveLoopbackPort)()
-    const child = this.deps.spawn('ssh', sshArgs(this.config, ['-N', '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`]), process.env)
-    return { process: child, localPort, remotePort }
-  }
-
   ensureReady(onPhase: DeviceHostPhaseListener): Promise<DeviceHostReady> {
     if (this.ready && this.hubForward) return Promise.resolve(this.ready)
     this.starting ??= this.start(onPhase).finally(() => { this.starting = null })
@@ -237,24 +211,20 @@ export class SshDeviceHost implements DeviceHost {
     this.probeCache = null
     onPhase('starting')
     if (!reply.hubPort || !reply.nodePath) throw new DeviceHostError(this.deviceHostId, 'starting the device hub', 'no port was reported')
-    const forward = await this.forward(reply.hubPort)
+    const forward = await this.ssh.forward(this.target, reply.hubPort, '/readyz').catch(() => {
+      throw new DeviceHostError(this.deviceHostId, 'forwarding the device hub', 'the SSH tunnel did not answer')
+    })
     const origin = `http://127.0.0.1:${forward.localPort}`
-    let alive = true
-    void forward.process.exited.then(() => {
-      alive = false
+    void forward.exited.then(() => {
       if (this.hubForward === forward) {
         // Tunnel loss: the hub may still run there; the next request reconnects.
         this.hubForward = null
         this.ready = null
-        this.agentForward?.process.kill()
+        this.agentForward?.close()
         this.agentForward = null
         log.warn('device_ssh_tunnel_lost', { deviceHostId: this.deviceHostId })
       }
     })
-    if (!(await waitForHttpReady(`${origin}/readyz`, FORWARD_READY_MS, this.fetch, () => alive))) {
-      forward.process.kill()
-      throw new DeviceHostError(this.deviceHostId, 'forwarding the device hub', 'the SSH tunnel did not answer')
-    }
     this.hubForward = forward
     this.ready = { hubOrigin: origin, nodePath: reply.nodePath, run: this.run, helpers: reply.helpers ?? { serveSimAxSettings: null, serveSimCli: null } }
     return this.ready
@@ -266,8 +236,8 @@ export class SshDeviceHost implements DeviceHost {
       const reply = await this.script('agent-start')
       this.probeCache = null
       if (!reply.daemonPort || !reply.token) throw new DeviceHostError(this.deviceHostId, 'starting agent tools')
-      this.agentForward?.process.kill()
-      this.agentForward = await this.forward(reply.daemonPort)
+      this.agentForward?.close()
+      this.agentForward = await this.ssh.forward(this.target, reply.daemonPort)
       this.agentToken = reply.token
     }
     const agentDevice: AgentDeviceEndpoint = { baseUrl: `http://127.0.0.1:${this.agentForward.localPort}`, token: this.agentToken }
@@ -281,7 +251,7 @@ export class SshDeviceHost implements DeviceHost {
   }
 
   async stopAgent(): Promise<void> {
-    this.agentForward?.process.kill()
+    this.agentForward?.close()
     this.agentForward = null
     this.agentToken = null
     await this.script('stop-agent', 60_000).catch((error) => log.warn('device_ssh_stop_agent_unreachable', { deviceHostId: this.deviceHostId, error: error instanceof Error ? error.message : String(error) }))
@@ -289,27 +259,12 @@ export class SshDeviceHost implements DeviceHost {
 
   /** Close tunnels and stop owned helpers when reachable. Unreachable is reported, not claimed stopped. */
   async stop(): Promise<void> {
-    this.hubForward?.process.kill()
-    this.agentForward?.process.kill()
+    this.hubForward?.close()
+    this.agentForward?.close()
     this.hubForward = null
     this.agentForward = null
     this.agentToken = null
     this.ready = null
     await this.script('stop', 60_000).catch((error) => log.warn('device_ssh_stop_unreachable', { deviceHostId: this.deviceHostId, error: error instanceof Error ? error.message : String(error) }))
   }
-}
-
-/** Addresses that name this machine. */
-function localAddresses(): Set<string> {
-  const out = new Set(['localhost', '127.0.0.1', '::1', hostname().toLowerCase(), `${hostname().toLowerCase()}.local`])
-  for (const entries of Object.values(networkInterfaces())) for (const entry of entries ?? []) out.add(entry.address.toLowerCase())
-  return out
-}
-
-/** Does an SSH target resolve to this machine? Reads `ssh -G`; makes no connection. */
-export async function isLocalSshTarget(config: SshDeviceHostConfig, run: DeviceCommandRunner): Promise<boolean> {
-  const result = await run('ssh', ['-G', ...sshArgs(config).slice(0, -2), config.target], { timeoutMs: 5_000 })
-  if (result.code !== 0) return false
-  const resolved = /^hostname\s+(\S+)/m.exec(result.stdout)?.[1]?.toLowerCase()
-  return resolved ? localAddresses().has(resolved) : false
 }

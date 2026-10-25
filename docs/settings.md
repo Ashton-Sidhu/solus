@@ -22,30 +22,52 @@ A host refuses a `configUpdate` that names any key that is not host config.
 ### Agents and settings
 
 An agent reads settings with `read_config` and changes them with `update_config`.
-The user does not approve each call. Both tools use three sections, and each
-section goes to its owner. `update_config` takes each section as an object of the
-keys to change. Keys that it does not name keep their values.
+The user does not approve each call. Both tools use five sections, and each
+section goes to its owner. `update_config` takes each section except `profile` as
+an object of the keys to change. Keys that it does not name keep their values. It
+takes `profile` as entries to `set` and keys to `remove`.
 
-| Section | Owner | Writable by an agent | Not shown |
+| Section | Owner | Writable by an agent | Not available to an agent |
 | --- | --- | --- | --- |
-| `host` | Host config | Every key (`agentHostConfigPatchSchema`) | `otel`, because it holds the collector's credentials |
-| `devices` | The host's device manager | `enabled`, `agentAccessEnabled`, `autoShowAgentDevices`, and `sshHosts` (the whole list) | — |
+| `host` | Host config | Every key except `otel` (`agentHostConfigPatchSchema`) | `otel`, because it holds the collector's credentials. It is not shown. |
+| `deviceManager` | The host's device manager | `enabled`, `agentAccessEnabled`, `autoShowAgentDevices`, and `sshHosts` (the whole list) | `onboardingCompleted`, because it records what a client showed. It is UI state, not a setting. |
 | `personal` | The person the session works for | Every personal key | — |
+| `profile` | The person's agent profile (`docs/agent-profile.md`) | Provider files, skills, and MCP servers | — |
+| `device` | The client device that started the turn | Voice, editor and terminal, font smoothing, font overrides, zoom, keybindings (the whole override map), and client analytics consent (`agentDeviceSettingsSchema`) | Layout and UI state: panels, the last project, the sidebar filter, onboarding, the cookie prompt, and the typography fold. An agent cannot set consent back to undecided. |
 
 Each section is checked against its owner's schema before anything is written.
 The provider sees the input side of those schemas, so the agent sees each key with
-its type and allowed values. When an agent turns off device support, the device
+its type and allowed values. A key whose name does not say what it changes has a
+`.describe()` text in its owner's schema, and the agent sees that text too. When
+you add a setting that an agent can reach, give it a description if its name is not
+enough. The listed `update_config` schema is about 4,400 tokens, of which the descriptions are about 1,400. An agent loads it
+only when it fetches the tool. When an agent turns off device support, the device
 runs stop first, the same as when a person turns it off in Settings
 (`configureDevices`).
 
-The host does not hold personal settings, so the host asks a client of that person
-(`personalSettings.agentRequest`, a host-to-client request on the socket). It asks
-the client that started the turn first, then the person's other connected clients.
-It never asks a client of another person. The client applies the patch as a local
-edit. When the person is signed in, the normal sync sends the change to the
-account. The host never calls the account API for this. If no client of the person
-is connected, the tool says so and changes nothing. A refused key or value refuses
-the whole patch.
+Device settings never sync, so a `device` change goes only to the client that
+started the turn. If that client is not connected, the change fails. The host does
+not send it to another of the person's clients, because that is a different
+machine. The client applies the change through the same `SettingsContext` setters
+that Settings uses, so the device repaints, zooms, and changes analytics consent at
+once. The phone app keeps no device settings an agent can change: it answers
+`null` and refuses a device change.
+
+An agent writes a profile file as text. The host encodes it and calculates its
+hash. The path must be a file inside a provider's profile folders (`isAgentProfilePath`).
+`read_config` shows a file by its path, size, and hash, not by its content, because
+the files of a profile can total megabytes. It shows skills and MCP servers in full.
+The profile never holds a key or a token.
+
+The host does not hold personal settings or the agent profile, so it asks a client
+of that person (`personal.agentRequest` in `contracts/agent-personal-request.ts`, a
+host-to-client request on the socket). It asks the client that started the turn
+first, then the person's other connected clients. It never asks a client of another
+person. The client applies the change as a local edit, the same as an edit in
+Settings. When the person is signed in, the normal sync sends the change to the
+account, and the hosts that the profile applies to pull it. The host never calls
+the account API for this. If no client of the person is connected, the tool says
+so and changes nothing. A refused key, value, or entry refuses the whole call.
 
 A change to the instructions has an effect from the next turn, because a client
 sends the execution preferences with each prompt.

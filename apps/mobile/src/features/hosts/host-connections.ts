@@ -4,9 +4,11 @@ import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { HostFact, HostFacts } from '@solus/client-core/host-facts'
 import type { HostDiagnostics } from '@solus/client-core/host-diagnostics'
 import { HostIntroducer, type IntroducerHost } from '@solus/client-core/host-introducer'
-import { HostLink, isSavedHost, readHostHealth, type LinkTransport } from '@solus/client-core/host-link'
+import { answersAsSavedHost, HostLink, isSavedHost, readHostHealth, type LinkTransport, type SavedHostIdentity } from '@solus/client-core/host-link'
+import { routeNeedsProof } from '@solus/contracts/host-identity'
 import { CHECKING_HOST, GONE_HOST, type HostReadinessState } from '@solus/client-core/host-readiness'
-import { awaitsManagedCompute, dialableRoutes, managedHostNeedsStart } from '@solus/client-core/server-registry'
+import { awaitsManagedCompute, managedHostNeedsStart } from '@solus/client-core/server-registry'
+import { dialableRoutes, ROUTE_CHECK_TIMEOUT_MS } from '@solus/contracts/host-routes'
 import { classifyVisibilityReturn, type WakeSignal } from '@solus/client-core/wake-signals'
 import type { ConnectionStatus, WsTransport, WsTransportOptions } from '@solus/client-core/ws-transport'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
@@ -46,6 +48,8 @@ export interface HostConnectionsDeps {
   fetch: typeof fetch
   /** This build's version, as About shows it; diagnostics name it. */
   clientVersion: string
+  /** A fresh nonce for a host's proof (docs/plans/host-routes.md D3); Hermes has no Web Crypto, so the platform gives the bytes. */
+  healthNonce?: () => string
   setTimeoutFn?: typeof setTimeout
   clearTimeoutFn?: typeof clearTimeout
 }
@@ -157,6 +161,7 @@ export class HostConnections {
       accountToken: host.paired ? () => this.deps.hostAccessToken(this.deps.registry.host(host.id) ?? host) : undefined,
       onSessionTokenRefreshed: (sessionToken) => { void this.deps.registry.updateCredential(host.id, sessionToken) },
       verifyConnectedHost: () => this.verifyIdentity(host.id, connection?.transport.serverUrl ?? route.url),
+      proveRoute: (url) => this.routeProof(host.id, url),
       organizationId: this.deps.organizationId,
     })
     const link = new HostLink({
@@ -165,6 +170,7 @@ export class HostConnections {
       api: asHostApi(transport.buildSolusApi()),
       routes: () => this.deps.registry.host(host.id)?.routes ?? [],
       answersAsHost: (url, signal) => this.answersAsHost(host.id, url, signal),
+      onAdvertised: (advertised) => this.deps.registry.applyAdvertised(host.id, advertised),
       onReadinessChange: () => {
         if (!connection) return
         connection.syncState()
@@ -321,10 +327,20 @@ export class HostConnections {
   }
 
   /** Whether `url` answers `/health` as this saved host. No credential is sent. */
+  /** Whether `url` answers as the saved host, with its proof when the route needs one. No credential is sent. */
   private async answersAsHost(hostId: string, url: string, signal: AbortSignal): Promise<boolean> {
     const host = this.deps.registry.host(hostId)
-    const health = host ? await readHostHealth(this.deps.fetch, url, signal) : null
-    return !!host && !!health && isSavedHost({ installationId: host.id, uplink: host.uplink }, health)
+    if (!host) return false
+    const route = host.routes.find((candidate) => candidate.url === url) ?? { url }
+    return answersAsSavedHost(this.deps.fetch, route, savedIdentity(host), signal, this.deps.healthNonce)
+  }
+
+  /** The proof a dial on `url` needs before its credential goes; null when the route needs none. */
+  private routeProof(hostId: string, url: string): Promise<boolean> | null {
+    const host = this.deps.registry.host(hostId)
+    const route = host?.routes.find((candidate) => candidate.url === url) ?? { url }
+    if (!routeNeedsProof(route)) return null
+    return host ? answersAsSavedHost(this.deps.fetch, route, savedIdentity(host), AbortSignal.timeout(ROUTE_CHECK_TIMEOUT_MS), this.deps.healthNonce) : Promise.resolve(false)
   }
 
   /** A socket that answers must be the host we saved. Only a successful health
@@ -366,4 +382,8 @@ export function serverInfoAllows(fact: HostFact<Pick<ConnectionsServerInfo, 'per
   if (Array.isArray(fact.value.permissions)) return permissionsAllow(fact.value.permissions, permission)
   // A host that sends no permissions gives a local owner's standing to its local owner only.
   return fact.value.principal === 'local-owner'
+}
+
+function savedIdentity(host: NativeHost): SavedHostIdentity {
+  return { installationId: host.id, uplink: host.uplink, identityKey: host.identityKey }
 }

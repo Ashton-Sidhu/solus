@@ -42,7 +42,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
   }
 }
 
-function dial(url: string, credential: { sessionToken?: string; grants?: GrantSource; guest?: { shareSecret: string; guestId: string; displayName: string } }) {
+function dial(url: string, credential: { sessionToken?: string; grants?: GrantSource; guest?: { shareSecret: string; guestId: string; displayName: string }; proveRoute?: () => Promise<boolean> }) {
   const outcomes: DialOutcome['kind'][] = []
   const statuses: string[] = []
   const transport = new WsTransport({
@@ -53,6 +53,7 @@ function dial(url: string, credential: { sessionToken?: string; grants?: GrantSo
     dialOrganizationId: credential.grants ? () => 'org_acme' : undefined,
     onStatusChange: (status) => statuses.push(status),
     onDialOutcome: (outcome) => outcomes.push(outcome.kind),
+    proveRoute: credential.proveRoute,
   })
   cleanups.push(() => transport.destroy())
   spyOn(console, 'info').mockImplementation(() => {})
@@ -120,5 +121,32 @@ describe('a host blocked while the account held no sign-in', () => {
     transport.start()
     await waitFor(() => outcomes.includes('accepted'))
     expect(server.handshakes).toHaveLength(1)
+  })
+})
+
+describe('the credential of a route that needs a proof of the host (docs/plans/host-routes.md D3)', () => {
+  test('goes in the handshake once the host proved its identity key', async () => {
+    const target = await host()
+    dial(target.url, { sessionToken: 'session-1', proveRoute: async () => true })
+    await waitFor(() => target.handshakes.length > 0)
+    expect(target.handshakes[0]).toMatchObject({ credential: { kind: 'session-token', token: 'session-1' } })
+  })
+
+  test('is left out when the proof fails: whatever answers at the address never gets it', async () => {
+    const target = await host()
+    dial(target.url, { sessionToken: 'session-1', proveRoute: async () => false })
+    await waitFor(() => target.handshakes.length > 0)
+    expect(target.handshakes[0]).not.toHaveProperty('credential')
+  })
+})
+
+describe('a token one host issued for another (an introduction or an SSH add)', () => {
+  test('is sent as a session token, the kind the host admits it by', async () => {
+    // WHY: a host refuses a session token sent as an access token; host-to-host dials
+    // through a forward failed this way on a real machine.
+    const target = await host()
+    dial(target.url, { grants: { acquire: async () => 'session-from-b', isSignedOut: () => false, tokenKind: 'session-token' } })
+    await waitFor(() => target.handshakes.length > 0)
+    expect(target.handshakes[0]).toMatchObject({ credential: { kind: 'session-token', token: 'session-from-b' } })
   })
 })

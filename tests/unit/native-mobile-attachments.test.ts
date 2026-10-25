@@ -7,6 +7,7 @@ import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/src/features/conversatio
 import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from '../../apps/mobile/src/features/conversation/lib/attachments'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 const MB = 1024 * 1024
 const photo: PickedFile = { uri: 'file:///p/photo.jpg', name: 'photo.jpg', mimeType: 'image/jpeg', size: 1000 }
@@ -85,7 +86,7 @@ describe('native attachments in a conversation', () => {
       .on('prompt', () => ({ disposition: 'started' }))
     const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
     await world.registry.load()
-    await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 't')
+    await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 't')
     const connection = world.connections.connection('inst-a')!
     await world.transports[0]!.accept()
     const storage = memoryKeyValueStore()

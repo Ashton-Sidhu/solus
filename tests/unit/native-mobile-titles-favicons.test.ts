@@ -6,11 +6,12 @@ import { threadFaviconRoot } from '../../apps/mobile/src/features/threads/thread
 import { resolveProjectFaviconUrl } from '../../apps/mobile/src/lib/project-favicon-url'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, flushPromises, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 async function connect(api: FakeApi, hostId = 'inst-a') {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': hostId }), api: () => api })
   await world.registry.load()
-  await world.registry.savePaired({ id: hostId, label: 'A', url: 'http://a:1' }, 'ta')
+  await world.registry.savePaired({ id: hostId, identityKey: identityKeyFor(hostId), label: 'A', url: 'http://a:1' }, 'ta')
   const connection = world.connections.connection(hostId)!
   const transport = world.transports[0] as FakeTransport
   return { connection, transport }

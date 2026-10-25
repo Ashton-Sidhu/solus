@@ -1,4 +1,5 @@
 import { urlHost } from '@solus/client-core/pairing'
+import { routesFrom } from '@solus/contracts/host-routes'
 import type { EnvironmentMachineKind } from '../../../components/EnvironmentMachineSymbol'
 import type { NativeHost } from '../../hosts/host-registry'
 
@@ -9,8 +10,8 @@ export function hostMachineKind(host: NativeHost): EnvironmentMachineKind {
   return 'desktop'
 }
 
-/** The address a paired host was reached at; a Solus Cloud host has none to show. */
+/** The address a paired host was reached at, else one on a shared network; a host reached only through Solus Cloud has none to show. */
 export function hostDisplayAddress(host: NativeHost): string | null {
-  const direct = host.routes.find((route) => route.kind === 'direct')
-  return direct ? urlHost(direct.url) : null
+  const address = routesFrom(host.routes, 'pairing')[0] ?? host.routes.find((route) => route.kind === 'lan' || route.kind === 'tailnet')
+  return address ? urlHost(address.url) : null
 }

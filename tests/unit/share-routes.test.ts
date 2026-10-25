@@ -19,8 +19,8 @@ describe('share routes', () => {
   test('tailnet before LAN, and never loopback, when there is no tunnel', () => {
     // WHY: loopback is this machine only, so it is no link; the tailnet reaches further than one Wi-Fi.
     expect(shareRoutesFor(null, endpoints)).toEqual([
-      { kind: 'direct', url: 'http://100.64.0.9:7777' },
-      { kind: 'direct', url: 'http://192.168.1.42:7777' },
+      { kind: 'tailnet', url: 'http://100.64.0.9:7777' },
+      { kind: 'lan', url: 'http://192.168.1.42:7777' },
     ])
   })
 

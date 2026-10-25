@@ -3,15 +3,15 @@ import { HostLink, type LinkTransport } from '@solus/client-core/host-link'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { asHostApi } from '@solus/client-core/host-api'
 import type { DialOutcome } from '@solus/client-core/host-supervisor'
-import type { HostRoute } from '@solus/contracts/uplink'
+import type { HostRoute } from '@solus/contracts/host-routes'
 
 // docs/plans/simplify-auth-and-sync.md §3 rule 7 and §4.4: one host link on every
 // client. Web and desktop (`ServerConnections`) and mobile (`HostConnections`) hold
 // this one class, so these tests pin the route policy for all three.
 
-const DIRECT: HostRoute = { kind: 'direct', url: 'http://10.0.0.20:51234' }
+const DIRECT: HostRoute = { kind: 'lan', url: 'http://10.0.0.20:51234' }
 const TUNNEL: HostRoute = { kind: 'tunnel', url: 'https://build.tunnel.solus.test' }
-const MIRROR: HostRoute = { kind: 'direct', url: 'https://app.solus.test/api/mirror' }
+const MIRROR: HostRoute = { kind: 'tunnel', url: 'https://app.solus.test/api/mirror' }
 
 class FakeTransport implements LinkTransport {
   readonly events = new HostEventSubscriber()
@@ -72,6 +72,35 @@ describe('one route policy', () => {
     hostLink.start()
     expect(transport.dials).toEqual([{ url: TUNNEL.url, hostConfirmed: false }])
     expect(checked).toEqual([])
+  })
+
+  test('a host whose only route is http is proved before the dial, even with one route', async () => {
+    // WHY: docs/plans/host-routes.md D3. The dial carries a credential, so an http route
+    // is dialed only after the host there proves its identity key.
+    const { hostLink, transport, checked } = link({ routes: [DIRECT], answering: [DIRECT.url] })
+    hostLink.start()
+    await settle()
+    expect(checked).toEqual([DIRECT.url])
+    expect(transport.dials).toEqual([{ url: DIRECT.url, hostConfirmed: true }])
+  })
+
+  test('when no http route proves the host, nothing is dialed and the dial counts as failed', async () => {
+    // WHY: a device that took the host's old address must not get the credential.
+    const outcomes: DialOutcome[] = []
+    const transport = new FakeTransport(DIRECT.url)
+    const hostLink = new HostLink({
+      hostId: 'host-1',
+      transport,
+      api: asHostApi({}),
+      routes: () => [DIRECT],
+      answersAsHost: async () => false,
+      onOutcome: (outcome) => outcomes.push(outcome),
+      ...manualTimers(),
+    })
+    hostLink.start()
+    await settle()
+    expect(transport.dials).toEqual([])
+    expect(outcomes).toEqual([{ kind: 'dial-failed' }])
   })
 
   test('every route is checked at once, the one that answers is dialed, and its identity is not asked again', async () => {

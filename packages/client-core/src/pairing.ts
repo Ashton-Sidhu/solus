@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import type { SavedServer } from './server-registry'
-import { DEFAULT_SERVER_PORT, type HostOperatingSystem, type SshBootstrapCredential } from '@solus/contracts/types'
+import { mergeRoutes, routeForUrl } from '@solus/contracts/host-routes'
+import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
+import { DEFAULT_SERVER_PORT } from '@solus/contracts/types'
 
 // Handshake decoding is forward-compatible: a field a newer server reshapes
 // (an unknown `os`, a structured error) degrades to "absent" instead of
@@ -12,6 +14,7 @@ const pairResponseSchema = z.object({
   sessionToken: tolerantString,
   installationId: tolerantString,
   os: tolerantOs,
+  identityKey: hostIdentityKeySchema.optional().catch(undefined),
 }).catch({})
 
 export interface ParsedPairLink {
@@ -132,32 +135,13 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
     id: body.installationId,
     label: userLabel || input.reportedName || urlHost(url),
     hasUserLabel: !!userLabel,
-    url,
+    routes: mergeRoutes([], [routeForUrl(url)], 'pairing', Date.now()),
     sessionToken: body.sessionToken,
     installationId: body.installationId,
     os: body.os,
+    identityKey: body.identityKey,
     lastConnected: Date.now(),
   }
 
   return { server, sessionToken: body.sessionToken, installationId: body.installationId }
-}
-
-export function saveBootstrappedServer(
-  urlInput: string,
-  credential: SshBootstrapCredential,
-  /** What the host advertised when it was discovered. No user names a host on
-   *  this path, so the label stays derived and the host can correct it later. */
-  reportedName?: string,
-  os?: HostOperatingSystem,
-): SavedServer {
-  const url = normalizeServerUrl(urlInput)
-  return {
-    id: credential.installationId,
-    label: reportedName?.trim() || urlHost(url),
-    url,
-    sessionToken: credential.sessionToken,
-    installationId: credential.installationId,
-    os,
-    lastConnected: Date.now(),
-  }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 const values = new Map<string, string>([
-  ['solus.servers', JSON.stringify([{ id: 'omarchy', label: 'omarchy', url: 'http://10.10.1.79:3000', sessionToken: 'token', installationId: 'omarchy', lastConnected: 1 }])],
+  ['solus.servers', JSON.stringify([{ id: 'omarchy', label: 'omarchy', routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'pairing', seenAt: 1 }], sessionToken: 'token', installationId: 'omarchy', lastConnected: 1 }])],
 ])
 Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,

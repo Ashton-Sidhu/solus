@@ -7,6 +7,7 @@ import type { SessionHistoryPage, SessionHistoryPageRequest } from '@solus/contr
 import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, flushPromises, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 const page = (messages: SessionHistoryPage['messages'], before: string | null = null): SessionHistoryPage => ({ messages, before })
 const userRow = (content: string, messageId: string) => ({ role: 'user', content, messageId, timestamp: 1 })
@@ -24,7 +25,7 @@ interface Setup {
 async function open(setup: Setup) {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => setup.api })
   await world.registry.load()
-  await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+  await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
   const connection = world.connections.connection('inst-a')!
   const transport = world.transports[0] as FakeTransport
   await transport.accept()

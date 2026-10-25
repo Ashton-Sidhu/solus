@@ -270,13 +270,12 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
 }
 
 /**
- * Enough of a pairing fingerprint to recognise, short enough to sit in a meta
+ * Enough of a host's identity key to recognise, short enough to sit in a meta
  * line beside the platform and address. Anything already short is left alone.
  */
-export function shortFingerprint(fingerprint: string | undefined): string | null {
-  if (!fingerprint) return null
-  const bare = fingerprint.replace(/^SHA256:/i, '')
-  return bare.length > 12 ? `${bare.slice(0, 4)}…${bare.slice(-4)}` : bare
+export function shortIdentityKey(identityKey: string | undefined): string | null {
+  if (!identityKey) return null
+  return identityKey.length > 12 ? `${identityKey.slice(0, 4)}…${identityKey.slice(-4)}` : identityKey
 }
 
 /** A thing the host already has, stated so the user can see what it didn't cost them. */
@@ -291,7 +290,7 @@ export interface OnboardingRailInput {
   readiness: HostReadiness | null
   hostName: string
   hostUrl?: string
-  fingerprint?: string
+  identityKey?: string
   stepError?: { step: string; message: string; provider?: SetupAgent } | null
 }
 
@@ -341,7 +340,7 @@ export function onboardingRailModel(input: OnboardingRailInput) {
   const hostMeta = [
     input.readiness?.platform,
     input.hostUrl,
-    shortFingerprint(input.fingerprint),
+    shortIdentityKey(input.identityKey),
   ]
     .filter(Boolean)
     .join(' · ')

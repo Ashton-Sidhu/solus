@@ -4,6 +4,7 @@ import { HOST_LOGIN_SEAT as seat } from '@solus/contracts/seats'
 import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, flushPromises, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 function api(): FakeApi {
   return new FakeApi()
@@ -23,7 +24,7 @@ async function open(provider: 'claude-code' | 'codex' = 'claude-code', history: 
   const fake = api().on('loadSessionPage', () => ({ messages: history, before: null }))
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => fake })
   await world.registry.load()
-  await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+  await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
   const connection = world.connections.connection('inst-a')!
   const transport = world.transports[0] as FakeTransport
   await transport.accept()

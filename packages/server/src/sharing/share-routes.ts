@@ -1,4 +1,4 @@
-import type { HostRoute } from '@solus/contracts/uplink'
+import type { HostRoute } from '@solus/contracts/host-routes'
 import type { ReachableEndpoint } from '../transport/endpoints'
 
 /**
@@ -12,6 +12,6 @@ export function shareRoutesFor(tunnelUrl: string | null, endpoints: ReachableEnd
   if (tunnelUrl) return [{ kind: 'tunnel', url: tunnelUrl }]
   const direct = (kind: ReachableEndpoint['kind']) => endpoints
     .filter((endpoint) => endpoint.kind === kind)
-    .map((endpoint): HostRoute => ({ kind: 'direct', url: `http://${endpoint.host}:${endpoint.port}` }))
+    .map((endpoint): HostRoute => ({ kind: endpoint.kind === 'tailnet' ? 'tailnet' : 'lan', url: `http://${endpoint.host}:${endpoint.port}` }))
   return [...direct('tailnet'), ...direct('lan')]
 }

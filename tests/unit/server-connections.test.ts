@@ -4,6 +4,12 @@ import { installationIdDecision } from '@solus/client-core/server-registry'
 import type { WsTransport } from '@solus/client-core/ws-transport'
 import type { SolusAPI } from '../../src/preload'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+import { dialableRoutes, type HostRoute } from '@solus/contracts/host-routes'
+import { identityKeyFor } from './helpers/signing-host'
+
+function preferredRouteUrl(server: { routes: HostRoute[] }, clientOrigin: string): string {
+  return dialableRoutes(server.routes, clientOrigin)[0]?.url ?? ''
+}
 
 const startedTransports: string[] = []
 const destroyedTransports: string[] = []
@@ -35,8 +41,8 @@ mock.module('@solus/client-core/server-connection', () => ({
     }
     return { transport: transport as unknown as WsTransport, api: api as unknown as SolusAPI, events: transport.events }
   },
-  savedServerTarget: (server: { id: string }) => server as SolusServerTarget,
-  preferredRouteUrl: (server: { url: string }) => server.url,
+  savedServerTarget: (server: { id: string; routes: HostRoute[] }) => ({ ...server, url: preferredRouteUrl(server, ''), local: false }) as SolusServerTarget,
+  preferredRouteUrl,
 }))
 
 const { ServerConnections } = await import('@solus/client-core/server-connections')
@@ -74,7 +80,7 @@ describe('lazily created connections', () => {
           ? JSON.stringify([{
               id: 'local-installation',
               label: 'This Mac through Uplink',
-              url: 'https://local.example',
+              routes: [{ kind: 'tunnel', url: 'https://local.example', source: 'directory', seenAt: 1 }],
               sessionToken: '',
               installationId: 'local-installation',
               lastConnected: 1,
@@ -126,7 +132,7 @@ describe('lazily created connections', () => {
           ? JSON.stringify([{
               id: 'cloud',
               label: 'Cloud · Acme',
-              url: 'https://h-cloud.solus.test',
+              routes: [{ kind: 'tunnel', url: 'https://h-cloud.solus.test', source: 'directory', seenAt: 1 }],
               sessionToken: '',
               installationId: 'managed:h_cloud',
               lastConnected: 1,
@@ -167,8 +173,7 @@ describe('lazily created connections', () => {
     let saved = {
       id: 'cloud',
       label: 'Cloud · Acme',
-      url: 'https://h-cloud.solus.test',
-      routes: [{ kind: 'tunnel', url: 'https://h-cloud.solus.test' }],
+      routes: [{ kind: 'tunnel', url: 'https://h-cloud.solus.test', source: 'directory', seenAt: 1 }],
       sessionToken: '',
       installationId: 'managed:h_cloud',
       lastConnected: 1,
@@ -187,7 +192,7 @@ describe('lazily created connections', () => {
       expect(switchedUrls).toEqual([])
 
       const machine = 'https://solus-h-cloud.sprites.test'
-      saved = { ...saved, url: machine, routes: [{ kind: 'tunnel', url: machine }], uplink: { ...saved.uplink, managedState: 'ready' } }
+      saved = { ...saved, routes: [{ kind: 'tunnel', url: machine, source: 'directory', seenAt: 2 }], uplink: { ...saved.uplink, managedState: 'ready' } }
       connections.startCatalogSupervisors()
       await Promise.resolve()
       expect(switchedUrls).toEqual([`cloud:${machine}`])
@@ -221,17 +226,19 @@ describe('lazily created connections', () => {
     const saved = {
       id: 'studio',
       label: 'Studio',
-      url: direct,
-      routes: [{ kind: 'direct', url: direct }, { kind: 'tunnel', url: tunnel }],
+      routes: [{ kind: 'lan', url: direct, source: 'directory', seenAt: 1 }, { kind: 'tunnel', url: tunnel, source: 'directory', seenAt: 1 }],
       sessionToken: '',
       installationId: 'inst-studio',
+      // The key lets the http route be asked: without it a credential could never go there.
+      identityKey: identityKeyFor('inst-studio'),
       lastConnected: 1,
       uplink: { hostId: 'h_studio', directoryUrl: 'https://app.solus.test', kind: 'personal' },
     }
     const healthAsked: string[] = []
     const previousFetch = globalThis.fetch
     globalThis.fetch = (async (input: string | URL | Request) => {
-      const url = String(input)
+      // The http route is asked with a nonce for the host to sign.
+      const url = String(input).split('?')[0]!
       healthAsked.push(url)
       if (url !== `${tunnel}/health`) throw new Error('unreachable')
       return new Response(JSON.stringify({ ok: true, installationId: 'inst-studio', name: 'Studio' }), { status: 200 })
@@ -416,7 +423,7 @@ describe('an installation id names a host in every client of it', () => {
           ? JSON.stringify([{
               id: 'studio',
               label: 'Studio',
-              url: 'https://studio.example',
+              routes: [{ kind: 'tunnel', url: 'https://studio.example', source: 'directory', seenAt: 1 }],
               sessionToken: '',
               installationId: 'studio-installation',
               lastConnected: 1,

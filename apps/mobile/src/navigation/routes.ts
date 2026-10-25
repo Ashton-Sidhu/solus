@@ -21,6 +21,8 @@ export type RootStackParamList = {
   Welcome: undefined
   /** `link` is a pairing link, or a nearby host's address, to check before pairing. */
   PairHost: { link?: string } | undefined
+  /** Adds a machine over SSH; a connected host runs SSH. `viaHostId` preselects that host (docs/plans/host-routes.md D6). */
+  AddSshHost: { viaHostId?: string } | undefined
   CloudSignIn: undefined
   CloudHosts: undefined
   Hosts: undefined

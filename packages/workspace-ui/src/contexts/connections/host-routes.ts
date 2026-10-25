@@ -1,4 +1,4 @@
-import type { HostRoute, UplinkStatus } from '@solus/contracts/uplink'
+import type { UplinkStatus } from '@solus/contracts/uplink'
 
 /** The host's page on the account website, where the owner shares it with a team. */
 export function hostWebsiteUrl(directoryUrl: string, hostId: string): string {

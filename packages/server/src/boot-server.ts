@@ -112,7 +112,8 @@ import { BrowserFrameChannel } from './browser/browser-frame-channel'
 import { configureDevices, initDeviceDomain } from './devices/device-domain'
 import { runDeviceCommand } from './devices/device-process'
 import { spawnHelper } from './devices/device-helpers'
-import { SshDeviceHost, isLocalSshTarget } from './devices/ssh-device-host'
+import { SshDeviceHost, sshDeviceTarget } from './devices/ssh-device-host'
+import { SshClient } from './platform/ssh'
 import { registerDeviceHandlers } from './transport/handlers/device-handlers'
 import type { SessionRuntime } from './execution/session-runtime'
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
@@ -142,7 +143,7 @@ import { RemoteHosts } from './execution/orchestration/remote-hosts'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
 import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
 import type { AccountReach, ReachActor, ReachRequest } from './execution/orchestration/remote-hosts'
-import { reachableUrls } from './transport/endpoints'
+import { advertisedRoutes } from './transport/endpoints'
 import { orchestrateSessions } from './execution/orchestration/orchestrate-sessions'
 import { onAnnotationsChanged } from './annotations/annotation-events'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
@@ -157,6 +158,9 @@ import { registerWorkLiveHandlers } from './transport/handlers/work-live-handler
 import { WorkLiveManager } from './work-live/work-live-manager'
 import { installWorkLiveBridge } from './data/works/work-live-bridge'
 import { registerConnectionsHandlers } from './transport/handlers/connections-handlers'
+import { registerRemoteMachinesHandlers } from './transport/handlers/remote-machines-handlers'
+import { ForwardedHosts } from './remote-machines/forwarded-hosts'
+import { installPlaceFromEnv, SshProvisioner } from './remote-machines/ssh-provisioner'
 import { registerAuthHandlers } from './transport/handlers/auth-handlers'
 import { registerSettingsHandlers } from './transport/handlers/settings-handlers'
 import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './transport/lan-discovery'
@@ -168,7 +172,7 @@ import { registerAtlassianHandlers } from './transport/handlers/atlassian-handle
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
 import { setConnectionConnectNeededListener } from './connections/connection-tools'
 import { setConfigToolHost } from './execution/agents/tools/config-tools'
-import { requestPersonalSettings } from './transport/events/agent-personal-settings'
+import { requestPersonal } from './transport/events/agent-personal-requests'
 import { registerBrowserHandlers } from './transport/handlers/browser-handlers'
 import { registerChecksHandlers } from './transport/handlers/checks-handlers'
 import { registerUsageHandlers } from './transport/handlers/usage-handlers'
@@ -183,6 +187,7 @@ import { registerTasksHandlers } from './transport/handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from './model-downloader'
 import { createLogger, isDebugEnabled } from './logger'
 import { getInstallationId, issueSessionToken, revokeDevice } from './admission/auth'
+import { hostIdentity } from './host/host-identity'
 import { probeHostCapabilities, registerSetupHandlers } from './transport/handlers/setup-handlers'
 import packageJson from '../../../package.json'
 import { dataDir, solusDir } from './platform/paths'
@@ -579,11 +584,21 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const browserFrames = new BrowserFrameChannel()
   // Native devices: one manager owns inventory, previews and control; video
   // rides its own binary channel to subscribed clients only (plan 016, D2).
+  const ssh = new SshClient({ run: runDeviceCommand, spawn: spawnHelper })
+  // Machines added over SSH, and the forwards to the ones with no account (docs/plans/host-routes.md D6, D7).
+  const sshProvisioner = new SshProvisioner(ssh, installPlaceFromEnv(process.env.SOLUS_SSH_INSTALL_PLACE))
+  const forwardedHosts = new ForwardedHosts({
+    ssh,
+    selfInstallationId: getInstallationId,
+    remotePort: (target) => sshProvisioner.remotePort(target),
+    onChange: (hosts) => events.broadcast('host.forwardedHostsChanged', { hosts }),
+  })
+  forwardedHosts.start()
   const devices = initDeviceDomain({
     publish: (state) => events.broadcast('device.stateChanged', { state }),
     surfaceRequested: (payload) => events.broadcast('device.surfaceRequested', payload),
     makeSshHost: (config) => new SshDeviceHost(config, { run: runDeviceCommand, spawn: spawnHelper }),
-    isLocalSshTarget: (config) => isLocalSshTarget(config, runDeviceCommand),
+    isLocalSshTarget: (config) => ssh.resolvesToThisMachine(sshDeviceTarget(config)),
   })
   void devices.manager.start().catch((err) => log.warn('device_domain_start_failed', { error: err instanceof Error ? err.message : String(err) }))
   const codeIntel = new CodeIntelManager()
@@ -857,9 +872,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     installationId: getInstallationId,
     name: hostDisplayName,
     // The introduced host keeps the first one that answers as this host.
-    urls: () => reachableUrls(host, actualPort),
+    urls: async () => (await advertisedRoutes(host, actualPort)).map((route) => route.url),
     issueToken: issueSessionToken,
     revokeDevice,
+    identityKey: () => hostIdentity().publicKey(),
   })
   // An account client in this process (the desktop) presents its token here; the host acts from what it presents.
   const localClient = new LocalClientDoor({
@@ -896,7 +912,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       },
     }
   }
-  const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers())
+  const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers(), getInstallationId, forwardedHosts)
   setRemoteHosts(remoteHosts)
   setSessionController({
     // A turn reaches other hosts for its own person (host-reach.md §3.2): the owner through
@@ -986,22 +1002,22 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setAtlassianOAuthCompletedListener((event) => events.broadcast('atlassian.oauthCompleted', event))
   setConnectionConnectNeededListener((request) => events.broadcast('connection.connectNeeded', request))
   // A config write from an agent tool converges every mounted client the same
-  // way one made in Settings does. Personal settings live on the person's
-  // clients, so the tools ask one of them (docs/settings.md).
+  // way one made in Settings does. Personal settings and the agent profile live
+  // on the person's clients, so the tools ask one of them (docs/settings.md).
   setConfigToolHost({
     hostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
-    devices: {
+    deviceManager: {
       settings: () => devices.manager.settings(),
       configure: (request) => configureDevices(devices, request),
       saveSshHosts: (hosts) => devices.manager.saveSshHosts(hosts),
     },
-    personalSettings: (sessionId, patch) => requestPersonalSettings({
+    personal: (sessionId, request) => requestPersonal({
       sourceClientIdOf: (id) => opts.sessionRuntime.activeRunRequests.get(id)?.sourceClientId,
       actorOf: (id) => opts.sessionRuntime.actorOfSession(id),
       clientIds: () => clientEvents.routableClientIds(),
       principalOf: (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL,
       request: (clientId, event, payload, answer, timeoutMs) => ws.request(clientId, event, payload, answer, timeoutMs),
-    }, sessionId, patch),
+    }, sessionId, request),
   })
   registerProviderHandlers(server, {
     checkouts: opts.sessionRuntime.checkouts,
@@ -1081,7 +1097,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.sessionRuntime.launcher.dispatchCheckoutPathOf = setup.dispatchCheckoutPathOf
   registerDeviceHandlers(server, {
     domain: devices,
-    testSshHost: async (config) => (await isLocalSshTarget(config, runDeviceCommand)
+    testSshHost: async (config) => (await ssh.resolvesToThisMachine(sshDeviceTarget(config))
       ? { ok: false, isLocal: true, checks: [{ name: 'ssh', ok: false, detail: 'This target is this Solus host. Its devices already appear under This machine.' }] }
       : new SshDeviceHost(config, { run: runDeviceCommand, spawn: spawnHelper }).test()),
   })
@@ -1653,6 +1669,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   // Every admitted socket may present the person's account token: renewal and `accountPresent` keep their delegation (ADR 0001 §6 item 5).
   registerAuthHandlers(server, establishPresented ? { verify: verifyHostAccessToken, establish: establishPresented } : null)
+  registerRemoteMachinesHandlers(server, { provisioner: sshProvisioner, forwardedHosts, ssh, broadcast: (topic, payload) => events.broadcast(topic, payload) })
   registerConnectionsHandlers(server, {
     getServerInfo: () => ({
       host,
@@ -1710,6 +1727,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
         remoteHosts.close()
+        forwardedHosts.closeAll()
         stopAutomationScheduler()
         stopMetricsRollover()
         prSync.stop()

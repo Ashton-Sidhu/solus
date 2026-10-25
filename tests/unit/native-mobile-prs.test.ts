@@ -5,6 +5,7 @@ import { PullRequestDirectory, notificationRepositoryKey } from '../../apps/mobi
 import { canGiveVerdict, prStateTone } from '../../apps/mobile/src/features/prs/lib/pr-presentation'
 import { nativeDestination } from '../../apps/mobile/src/features/notifications/lib/native-destinations'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 // plan 017 stage 5: the phone reads pull requests through the host, which owns
 // the GitHub credential and finds each repository from a project folder. These
@@ -32,7 +33,7 @@ const page = (projectRoot: string, items: PullRequest[]): PrProjectListing => ({
 async function setup(api: FakeApi) {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
   await world.registry.load()
-  await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+  await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
   const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
   return { world, directory }
 }

@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig, type HostConfigSnapshot } from '@solus/contracts/host-config'
 import type { DeviceSettingsState } from '@solus/contracts/device-types'
+import { createHash } from 'node:crypto'
+import type { AgentDeviceSettings, AgentPersonalRequest } from '@solus/contracts/agent-personal-request'
+import type { AgentProfile } from '@solus/contracts/agent-profile'
 import type { PersonalSettingsDocument } from '@solus/contracts/settings'
+import { summarizeAgentProfile } from '@solus/client-core/agent-personal-requests'
 
 // A disposable data dir: these tests persist host config, and the live ~/.solus
 // holds the developer's real settings.
@@ -154,19 +158,30 @@ describe('instructions on runs with no renderer', () => {
 describe('the agent write policy', () => {
   /** The person's settings as their connected client holds them; `null` is no client connected. */
   let personal: PersonalSettingsDocument | null
-  let personalRequests: Array<PersonalSettingsDocument | undefined>
+  let profile: AgentProfile
+  let personalRequests: AgentPersonalRequest[]
   let deviceSettings: DeviceSettingsState
+  /** The turn's client device, as it answers; `turnClientAnswers` false is another of the person's clients answering. */
+  let device: AgentDeviceSettings
+  let turnClientAnswers: boolean
   let broadcasts: HostConfigSnapshot[]
 
   beforeEach(async () => {
     personal = {}
+    profile = {}
     personalRequests = []
     deviceSettings = { enabled: true, agentAccessEnabled: false, onboardingCompleted: true, autoShowAgentDevices: true, sshHosts: [] }
+    device = {
+      voiceModeEnabled: false, autoSendVoiceTranscripts: false, vadSilenceMs: 1500, defaultEditor: 'vim', fallbackTerminal: 'default-terminal',
+      fontSmoothing: true, clientAnalyticsEnabled: null, fontFamilyOverride: null, codeFontFamilyOverride: null, documentFontFamilyOverride: null,
+      promptFontFamilyOverride: null, zoomFactor: 1, keybindings: {},
+    }
+    turnClientAnswers = true
     broadcasts = []
     const tools = await import('@solus/server/execution/agents/tools/config-tools')
     tools.setConfigToolHost({
       hostConfigChanged: (snapshot) => { broadcasts.push(snapshot) },
-      devices: {
+      deviceManager: {
         settings: () => deviceSettings,
         configure: async (request) => {
           deviceSettings = { ...deviceSettings, ...request }
@@ -177,11 +192,17 @@ describe('the agent write policy', () => {
           return { settings: deviceSettings } as never
         },
       },
-      personalSettings: async (_sessionId, patch) => {
-        personalRequests.push(patch)
-        if (!personal) return { ok: false, error: 'No Solus client of this person is connected to this host.' }
-        if (patch) personal = { ...personal, ...patch }
-        return { ok: true, settings: personal }
+      personal: async (_sessionId, request) => {
+        personalRequests.push(request)
+        if (!personal) return { reply: { ok: false, error: 'No Solus client of this person is connected to this host.' }, fromTurnClient: false }
+        if (request.device && !turnClientAnswers) return { reply: { ok: false, error: 'The Solus client that started this turn is not connected.' }, fromTurnClient: false }
+        if (request.settings) personal = { ...personal, ...request.settings }
+        if (request.profile) {
+          profile = { ...profile, ...request.profile.set }
+          for (const key of request.profile.reset) delete profile[key]
+        }
+        if (request.device) device = { ...device, ...request.device }
+        return { reply: { ok: true, settings: personal, profile: summarizeAgentProfile(profile), device }, fromTurnClient: turnClientAnswers }
       },
     })
     // A tool choice merges key by key, so the one a test turns off is turned back on here.
@@ -241,11 +262,20 @@ describe('the agent write policy', () => {
     const tools = await import('@solus/server/execution/agents/tools/config-tools')
     const sshHost = { id: 'studio', label: 'Studio Mac', target: 'me@studio.local' }
     const result = await runTool(tools.updateConfigAgentTool, {
-      devices: { agentAccessEnabled: true, autoShowAgentDevices: false, sshHosts: [sshHost] },
+      deviceManager: { agentAccessEnabled: true, autoShowAgentDevices: false, sshHosts: [sshHost] },
     }, context)
 
     expect(result.ok).toBe(true)
     expect(deviceSettings).toMatchObject({ agentAccessEnabled: true, autoShowAgentDevices: false, sshHosts: [sshHost] })
+  })
+
+  test('device onboarding is what a client showed, not a setting, so an agent cannot set it', async () => {
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    deviceSettings.onboardingCompleted = false
+    const result = await runTool(tools.updateConfigAgentTool, { deviceManager: { onboardingCompleted: true } }, context)
+
+    expect(result.ok).toBe(false)
+    expect(deviceSettings.onboardingCompleted).toBe(false)
   })
 
   test('a refused value blocks the whole change rather than applying half of it', async () => {
@@ -290,7 +320,7 @@ describe('the agent write policy', () => {
     const tools = await import('@solus/server/execution/agents/tools/config-tools')
     personal = { reviewModel: 'gpt-6-luna' }
     const result = await runTool(tools.readConfigAgentTool, {}, context)
-    const payload = JSON.parse(result.text) as { host: object; devices: object; personal: PersonalSettingsDocument }
+    const payload = JSON.parse(result.text) as { host: object; deviceManager: object; personal: PersonalSettingsDocument; device: AgentDeviceSettings }
 
     expect(Object.keys(payload.host).sort()).toEqual([
       'analyticsEnabled',
@@ -300,8 +330,85 @@ describe('the agent write policy', () => {
       'solusTools',
       'unfiledRecordingRetentionDays',
     ])
-    expect(Object.keys(payload.devices).sort()).toEqual(['agentAccessEnabled', 'autoShowAgentDevices', 'enabled', 'sshHosts'])
+    expect(Object.keys(payload.deviceManager).sort()).toEqual(['agentAccessEnabled', 'autoShowAgentDevices', 'enabled', 'sshHosts'])
+    expect(payload.device.zoomFactor).toBe(1)
     expect(payload.personal.reviewModel).toBe('gpt-6-luna')
+  })
+
+  test("an agent adds a subagent to the person's profile by its text; the host encodes and hashes it", async () => {
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    const text = '---\nname: reviewer\n---\nReview the diff.\n'
+    const result = await runTool(tools.updateConfigAgentTool, {
+      profile: { set: [{ kind: 'file', provider: 'claude-code', path: 'agents/reviewer.md', content: text }] },
+    }, context)
+
+    expect(result.ok).toBe(true)
+    const entry = profile['file:claude-code/agents/reviewer.md']
+    expect(entry?.kind === 'file' && Buffer.from(entry.contentBase64, 'base64').toString('utf8')).toBe(text)
+    expect(entry?.kind === 'file' && entry.hash).toBe(createHash('sha256').update(text).digest('hex'))
+  })
+
+  test('skills and MCP servers are set, and entries removed, in one change', async () => {
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    profile = { 'skill:old': { kind: 'skill', name: 'old', source: 'acme/skills', skillId: 'old' } }
+    const result = await runTool(tools.updateConfigAgentTool, {
+      profile: {
+        set: [
+          { kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' },
+          { kind: 'integration', slug: 'deepwiki', name: 'DeepWiki', url: 'https://mcp.deepwiki.com/mcp', auth: { kind: 'none' } },
+        ],
+        remove: ['skill:old'],
+      },
+    }, context)
+
+    expect(result.ok).toBe(true)
+    expect(Object.keys(profile).sort()).toEqual(['integration:deepwiki', 'skill:deploy'])
+    expect(personalRequests).toHaveLength(1)
+  })
+
+  test('a file outside the profile folders is refused before the client is asked', async () => {
+    // A home's CLAUDE.md is not part of the profile, and a path may not climb out of it.
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    for (const path of ['CLAUDE.md', 'agents/../../.ssh/config', 'skills']) {
+      const result = await runTool(tools.updateConfigAgentTool, { profile: { set: [{ kind: 'file', provider: 'claude-code', path, content: 'x' }] } }, context)
+      expect(result.ok).toBe(false)
+    }
+    expect(personalRequests).toEqual([])
+  })
+
+  test('read_config lists a profile file by path, size, and hash, never its content', async () => {
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    const content = Buffer.from('secret plan').toString('base64')
+    profile = { 'file:codex/prompts/plan.md': { kind: 'file', provider: 'codex', path: 'prompts/plan.md', contentBase64: content, hash: 'a'.repeat(64) } }
+    const result = await runTool(tools.readConfigAgentTool, {}, context)
+    const payload = JSON.parse(result.text) as { profile: Record<string, { bytes?: number }> }
+
+    expect(payload.profile['file:codex/prompts/plan.md']?.bytes).toBe('secret plan'.length)
+    expect(result.text).not.toContain(content)
+  })
+
+  test("a device change applies on the turn's own client and is checked first", async () => {
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    const result = await runTool(tools.updateConfigAgentTool, {
+      device: { zoomFactor: 1.25, defaultEditor: 'cursor', clientAnalyticsEnabled: false, keybindings: { 'composer.send': { code: 'Enter', mod: true } } },
+    }, context)
+
+    expect(result.ok).toBe(true)
+    expect(device).toMatchObject({ zoomFactor: 1.25, defaultEditor: 'cursor', clientAnalyticsEnabled: false })
+    expect((await runTool(tools.updateConfigAgentTool, { device: { zoomFactor: 9 } }, context)).ok).toBe(false)
+    // Consent is set, never put back to undecided: only the person leaves it undecided.
+    expect((await runTool(tools.updateConfigAgentTool, { device: { clientAnalyticsEnabled: null } }, context)).ok).toBe(false)
+  })
+
+  test("when another of the person's clients answers, read_config shows no device: it is another machine", async () => {
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    turnClientAnswers = false
+    const payload = JSON.parse((await runTool(tools.readConfigAgentTool, {}, context)).text) as { device: { unavailable?: string } }
+    expect(payload.device.unavailable).toContain('another client answered')
+
+    const write = await runTool(tools.updateConfigAgentTool, { device: { zoomFactor: 1.5 } }, context)
+    expect(write.ok).toBe(false)
+    expect(device.zoomFactor).toBe(1)
   })
 
   test('both providers can list update_config with every settings key', async () => {
@@ -318,6 +425,22 @@ describe('the agent write policy', () => {
 
     expect(Object.keys(listed.tools[0]!.inputSchema.properties.personal.properties)).toContain('extraInstructions')
     expect(JSON.stringify(adaptCodexTools([agentTool]))).toContain('sshHosts')
+  })
+
+  test('the agent sees what a setting means, not only its name and type', async () => {
+    // About seventy keys reach an agent, and names such as tabGroupMode do not say
+    // what they change. The owner schemas describe them; the listed schema keeps it.
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    const { adaptCodexTools } = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
+    const listed = JSON.stringify(adaptCodexTools([tools.updateConfigAgentTool]))
+    for (const meaning of [
+      'The order that the next-tab and previous-tab keys follow', // personal.tabGroupMode
+      'the maximum of earlier conversation it takes, in tokens', // personal.handoffHistoryTokens
+      'What agents can do to the status of a task', // personal.agentTaskLifecyclePolicy
+      'By project path on this host', // host.reviewWarmingByProject
+      'shows next to the conversation of that agent', // deviceManager.autoShowAgentDevices
+      'Shortcut overrides by binding id', // device.keybindings
+    ]) expect(listed).toContain(meaning)
   })
 })
 

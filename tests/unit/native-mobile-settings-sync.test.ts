@@ -30,6 +30,7 @@ import { AgentProfileLocalStore } from '../../apps/mobile/src/features/settings/
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, FakeTransport, flushPromises, healthFetch, seedAccountGrant } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 // plans/018 stage 5 on the phone. The rules pinned here are the ones a person
 // would notice going wrong: their light or dark choice has one writer; signing in uploads nothing until they turn sync on; their
@@ -254,7 +255,7 @@ describe('signed in is synced', () => {
 async function hostWorld(api: FakeApi) {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
   await world.registry.load()
-  await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+  await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
   return world
 }
 

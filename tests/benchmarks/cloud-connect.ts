@@ -18,7 +18,7 @@ import { createServer, type Server as HttpServer } from 'node:http'
 import { createServer as createTcpServer, connect as tcpConnect, type Server as TcpServer } from 'node:net'
 import type { WsTransport as WsTransportType } from '@solus/client-core/ws-transport'
 import type { HostLink as HostLinkType } from '@solus/client-core/host-link'
-import type { HostRoute } from '@solus/contracts/uplink'
+import type { HostRoute } from '@solus/contracts/host-routes'
 
 // The server's websocket module reaches the database module, which imports
 // `node:sqlite`; Bun has none, so the same stand-in the unit tests use.
@@ -189,13 +189,13 @@ for (let i = 0; i < ITERATIONS; i++) redial.push(await measureRedial([tunnel]))
 report('redial after drop, tunnel only', redial)
 
 if (!process.argv.includes('--skip-direct')) {
-  report('cold dial, refused direct route first', [await measure([{ kind: 'direct', url: UNREACHABLE_DIRECT }, tunnel])])
+  report('cold dial, refused direct route first', [await measure([{ kind: 'lan', url: UNREACHABLE_DIRECT }, tunnel])])
   // A LAN address seen from another network: packets go nowhere and nothing answers.
   const silent: TcpServer = createTcpServer(() => {})
   await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
   const silentAddress = silent.address()
   if (!silentAddress || typeof silentAddress === 'string') throw new Error('expected TCP address')
-  report('cold dial, silent direct route first', [await measure([{ kind: 'direct', url: `http://127.0.0.1:${silentAddress.port}` }, tunnel])])
+  report('cold dial, silent direct route first', [await measure([{ kind: 'lan', url: `http://127.0.0.1:${silentAddress.port}` }, tunnel])])
   silent.close()
 }
 

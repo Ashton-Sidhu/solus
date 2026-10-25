@@ -1,4 +1,5 @@
 import type { DeviceState } from './device-types'
+import type { ForwardedHost, SshAddProgress } from './remote-machines'
 import type { CheckoutChange } from './checkout'
 import type { AtlassianOAuthCompleted } from './atlassian'
 import type { HostConfigSnapshot } from './host-config'
@@ -140,6 +141,10 @@ export interface HostEventMap {
    *  client that sees a revision lower than one it holds ignores it; after a
    *  reconnect it reads `deviceState`. Never carries frames or credentials. */
   'device.stateChanged': { state: DeviceState }
+  /** One step of adding a machine over SSH (docs/plans/host-routes.md D6). */
+  'host.sshProgress': SshAddProgress
+  /** The hosts this host forwards to, and the state of each forward (D7). */
+  'host.forwardedHostsChanged': { hosts: ForwardedHost[] }
   /** An agent or user opened a device in a session; clients showing that session may reveal it. */
   'device.surfaceRequested': { sessionId: string; devicePreviewId: string; openedBy: 'user' | 'agent' }
   'atlassian.oauthCompleted': AtlassianOAuthCompleted
@@ -250,6 +255,8 @@ export const HOST_EVENT_DEFINITIONS = {
   'browser.pageClosed': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page was closed.' },
   'browser.surfaceRequested': { owner: 'browser', category: 'targeted', recovery: 'reset', description: 'A browser page was explicitly asked to be given a client surface.' },
   'browser.profilesChanged': { owner: 'browser', category: 'snapshot', recovery: 'reload', description: "One person's named browser profiles in a project changed." },
+  'host.sshProgress': { owner: 'connections', category: 'targeted', recovery: 'reset', description: 'A step of adding a machine over SSH; the request id names the add.' },
+  'host.forwardedHostsChanged': { owner: 'connections', category: 'snapshot', recovery: 'reload', description: 'The forwarded hosts, or the state of a forward, changed; the payload is the whole list.' },
   'device.stateChanged': { owner: 'devices', category: 'snapshot', recovery: 'reload', description: 'Device inventory, helper status, previews or control changed; the payload is the bounded snapshot.' },
   'device.surfaceRequested': { owner: 'devices', category: 'targeted', recovery: 'reset', description: 'A device was opened in a session and its surface may be revealed.' },
   'atlassian.oauthCompleted': { owner: 'atlassian', category: 'delta', recovery: 'reload', description: 'An Atlassian browser sign-in finished on this host.' },

@@ -6,6 +6,7 @@
     ChevronRight as CaretRightIcon,
     HardDrive as DesktopTowerIcon,
     Plus as PlusIcon,
+    SquareTerminal as TerminalIcon,
     Wifi as WifiHighIcon,
   } from "@lucide/svelte";
   import {
@@ -21,6 +22,7 @@
   import { hostReadinessSummary } from "./lib/host-onboarding";
   import { hostSetupStore } from "./host-setup.store.svelte";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
+  import { addOverSshStore } from "./add-over-ssh.store.svelte";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
 
   // The registry can point at a host that is no longer saved, so trust the
@@ -59,6 +61,15 @@
     >
       <PlusIcon size={13} weight="bold" />
       Add host
+    </Button>
+    <Button
+      variant="ghost"
+      size="sm"
+      class="-my-1 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+      onclick={() => addOverSshStore.open()}
+    >
+      <TerminalIcon size={13} />
+      Add machine over SSH
     </Button>
   {/snippet}
 

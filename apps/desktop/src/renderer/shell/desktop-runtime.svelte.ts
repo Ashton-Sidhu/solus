@@ -22,6 +22,7 @@ import { setupAgentEvents } from "@solus/workspace-ui/hooks/agentEvents.svelte";
 import { materializeTabs } from "@solus/workspace-ui/contexts/workspace/session-bootstrap";
 
 import { serverConnections } from "@solus/client-core/server-connections";
+import { forwardedHostsStore } from "@solus/workspace-ui/components/connections/forwarded-hosts.store.svelte";
 
 import { subscribeAllHosts } from "@solus/client-core/host-events";
 import { localApi } from "@solus/client-core/local-api";
@@ -319,6 +320,9 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       const unsubPresence = presenceStore.listen();
       // The tunnel comes up after the host has answered the link; the cloud row follows it.
       const unsubUplink = uplinkStore.listen();
+      // The saved routes of the machines this computer forwards to follow its forwards (host-routes D7).
+      const deviceHostId = hosts.device?.id;
+      const unsubForwarded = deviceHostId ? forwardedHostsStore.watch(deviceHostId) : () => {};
       // The Atlassian sign-in finishes in a browser and lands on the host, not
       // on the tab that opened it — so the completion is heard app-wide too.
       const unsubAtlassian = atlassianStore.listenForOAuthCompletion();
@@ -346,6 +350,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         unsubConnectRequests();
         unsubSeats();
         unsubUplink();
+        unsubForwarded();
         unsubPresence();
         unsubProjectDirectory();
         unsubAtlassian();

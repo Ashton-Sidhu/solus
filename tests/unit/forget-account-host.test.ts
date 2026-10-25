@@ -71,11 +71,10 @@ function saveHost(): void {
   values.set('solus.servers', JSON.stringify([{
     id: 'omarchy',
     label: 'omarchy',
-    url: '',
     sessionToken: '',
     installationId: 'omarchy',
     lastConnected: 1,
-    routes: [{ kind: 'direct', url: 'http://10.10.1.79:3000' }],
+    routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'directory', seenAt: 1 }],
     uplink: { hostId: 'host_omarchy', directoryUrl: 'https://app.solus.test' },
   }]))
   serversStore.refreshServers()
@@ -141,8 +140,8 @@ describe('adding a host', () => {
     // WHY: pairing and the account list name a host by its installation id, so
     // adding it again replaces the row instead of listing the machine twice.
     saveHost()
-    upsertServer({ id: 'omarchy', label: 'omarchy', url: 'http://10.10.1.79:3000', sessionToken: 'token', installationId: 'omarchy', lastConnected: 2 })
-    upsertServer({ id: 'omarchy', label: 'omarchy', url: 'http://10.10.1.79:3000', sessionToken: 'token', installationId: 'omarchy', lastConnected: 3 })
+    upsertServer({ id: 'omarchy', label: 'omarchy', routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'pairing', seenAt: 2 }], sessionToken: 'token', installationId: 'omarchy', lastConnected: 2 })
+    upsertServer({ id: 'omarchy', label: 'omarchy', routes: [{ kind: 'lan', url: 'http://10.10.1.79:3000', source: 'pairing', seenAt: 3 }], sessionToken: 'token', installationId: 'omarchy', lastConnected: 3 })
 
     expect(savedIds()).toEqual(['omarchy'])
   })

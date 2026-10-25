@@ -4,6 +4,7 @@ import { join } from 'path'
 import { z } from 'zod'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
+import { hostIdentity } from '../host/host-identity'
 import { githubCredentials } from '../providers/github/credentials'
 import { readSignedToken, signToken } from './signed-token'
 
@@ -86,8 +87,9 @@ export function getInstallationId(): string {
   return loadOrCreateKeys().installationId
 }
 
+/** A short form of the identity key a person can compare between the host and the device that pairs. */
 export function getServerFingerprint(): string {
-  return createHash('sha256').update(getInstallationId()).digest('hex').slice(0, 8)
+  return createHash('sha256').update(hostIdentity().publicKey()).digest('hex').slice(0, 8)
 }
 
 export function createPairOpenAdminSignature(signingKey: string, timestamp: string, nonce: string): string {
@@ -156,6 +158,7 @@ export interface SshBootstrapCredential {
   sessionToken: string
   installationId: string
   fingerprint: string
+  identityKey: string
 }
 
 export function issueSshBootstrapCredential(deviceLabel: string, now = Date.now()): SshBootstrapCredential {
@@ -165,6 +168,7 @@ export function issueSshBootstrapCredential(deviceLabel: string, now = Date.now(
     sessionToken,
     installationId: keys.installationId,
     fingerprint: getServerFingerprint(),
+    identityKey: hostIdentity().publicKey(),
   }
 }
 

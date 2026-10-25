@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
-import { dialableRoutes, loadServers, savedServerRoutes, type SavedServer } from '@solus/client-core/server-registry'
-import { mergeDirectoryIntoSaved, organizationIdFor, savedServerFromDirectory, withNearbyRoutes } from '@solus/client-core/uplink-session'
+import { dialableRoutes } from '@solus/contracts/host-routes'
+import { loadServers, pairedAddress, type SavedServer } from '@solus/client-core/server-registry'
+import { mergeDirectoryIntoSaved, organizationIdFor, savedServerFromDirectory, withDiscoveredRoutes } from '@solus/client-core/uplink-session'
 
 // docs/plans/personal-uplink.md C1: the account's directory is a fourth source of
 // hosts, merged by installation id into what this device already saved. A pairing
@@ -34,10 +35,12 @@ afterEach(() => {
 
 const DIRECTORY = 'https://app.example.test'
 const tunnel = { kind: 'tunnel' as const, url: 'https://h-abc.example.test' }
+const PAIRED_AT = 'http://192.168.1.42:3000'
 
 function paired(overrides: Partial<SavedServer> = {}): SavedServer {
   return {
-    id: 'inst-1', label: 'Studio Mac', url: 'http://192.168.1.42:3000', sessionToken: 'pairing-token',
+    id: 'inst-1', label: 'Studio Mac', sessionToken: 'pairing-token',
+    routes: [{ kind: 'lan', url: PAIRED_AT, source: 'pairing', seenAt: 1 }],
     installationId: 'inst-1', lastConnected: 1, ...overrides,
   }
 }
@@ -46,50 +49,60 @@ function listed(overrides: Partial<DirectoryHost> = {}): DirectoryHost {
   return { hostId: 'abcdefghijklmnop', installationId: 'inst-1', label: 'Studio Mac', os: 'macos', kind: 'personal', category: 'personal', routes: [tunnel], organizationIds: [], ...overrides }
 }
 
+/** A route as `<source> <url>`, so an assertion reads which source named which address. */
+const named = (server: Pick<SavedServer, 'routes'>) => server.routes.map((route) => `${route.source} ${route.url}`)
+
 describe('saved hosts and their routes', () => {
-  test('an entry saved before Uplink still has the one route its url names', () => {
-    expect(savedServerRoutes(paired())).toEqual([{ kind: 'direct', url: 'http://192.168.1.42:3000' }])
-  })
-
-  test('direct routes are dialed before the tunnel, and an https page skips http ones', () => {
-    // WHY: docs/plans/personal-uplink.md C3 — LAN traffic never leaves the LAN and an
-    // Uplink host stays usable when Solus cloud is down; a browser refuses mixed content.
-    const routes = [tunnel, { kind: 'direct' as const, url: 'http://192.168.1.42:3000' }]
-    expect(dialableRoutes(routes, 'http://192.168.1.42:3000').map((route) => route.kind)).toEqual(['direct', 'tunnel'])
-    expect(dialableRoutes(routes, 'https://app.example.test').map((route) => route.kind)).toEqual(['tunnel'])
-  })
-
-  test('old and new records decode side by side', () => {
+  test('a saved host decodes with each route and its source', () => {
     store.set(KEY, JSON.stringify([
       paired(),
-      { ...paired({ id: 'inst-2', installationId: 'inst-2', url: tunnel.url, sessionToken: '' }), routes: [tunnel], uplink: { hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY } },
+      paired({ id: 'inst-2', installationId: 'inst-2', sessionToken: '', routes: [{ ...tunnel, source: 'directory', seenAt: 1 }], uplink: { hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY } }),
     ]))
     const servers = loadServers()
     expect(servers).toHaveLength(2)
-    expect(servers[0].routes).toBeUndefined()
-    expect(servers[1].uplink?.hostId).toBe('abcdefghijklmnop')
-    expect(servers[1].routes).toEqual([tunnel])
+    expect(pairedAddress(servers[0]!)).toBe(PAIRED_AT)
+    expect(servers[1]!.uplink?.hostId).toBe('abcdefghijklmnop')
+    expect(pairedAddress(servers[1]!)).toBeNull()
+    expect(named(servers[1]!)).toEqual([`directory ${tunnel.url}`])
   })
 })
 
-describe('a registered host that is not linked is reached on the local network (docs/adr/0001-standard-authentication.md §2.2 rule 9)', () => {
+describe('a scan of this client\'s networks gives every saved host it finds a discovery route (docs/plans/host-routes.md D1)', () => {
   const nearby = { host: '192.168.1.50', port: 7777, name: 'Studio Mac', installationId: 'inst-1', source: 'lan' as const }
+  const NEARBY_URL = 'http://192.168.1.50:7777'
 
-  test('a directory host listed with no route gains the address LAN discovery found, and keeps it through the next directory read', () => {
+  test('a directory host listed with no route gains the address the scan found, and keeps it through directory reads and a later link', () => {
+    // WHY: docs/adr/0001-standard-authentication.md §2.2 rule 9 — a registered host
+    // that is not linked has no route in the directory; this client reaches it on its network.
     const directoryOnly = mergeDirectoryIntoSaved([], [listed({ routes: [] })], DIRECTORY, 10)
-    expect(savedServerRoutes(directoryOnly[0]!)).toEqual([])
-    const found = withNearbyRoutes(directoryOnly, [nearby])
-    expect(found && savedServerRoutes(found[0]!)).toEqual([{ kind: 'direct', url: 'http://192.168.1.50:7777' }])
+    expect(directoryOnly[0]!.routes).toEqual([])
+    const found = withDiscoveredRoutes(directoryOnly, [nearby], 10)
+    expect(found && named(found[0]!)).toEqual([`discovery ${NEARBY_URL}`])
     // Nothing new: nothing to save.
-    expect(withNearbyRoutes(found!, [nearby])).toBeNull()
+    expect(withDiscoveredRoutes(found!, [nearby], 11)).toBeNull()
     const reread = mergeDirectoryIntoSaved(found!, [listed({ routes: [] })], DIRECTORY, 11)
-    expect(savedServerRoutes(reread[0]!)).toEqual([{ kind: 'direct', url: 'http://192.168.1.50:7777' }])
-    // Linked later: the tunnel is listed, and a kept address of a host never paired goes.
+    expect(named(reread[0]!)).toEqual([`discovery ${NEARBY_URL}`])
+    // Linked later: the tunnel is added and the found address stays. This changed:
+    // the found address used to be dropped. `chooseRoute` now asks every route and
+    // needs this host's installation id, so a stale address cannot win.
     const linked = mergeDirectoryIntoSaved(reread, [listed()], DIRECTORY, 12)
-    expect(savedServerRoutes(linked[0]!)).toEqual([tunnel])
+    expect(named(linked[0]!)).toEqual([`directory ${tunnel.url}`, `discovery ${NEARBY_URL}`])
+    expect(dialableRoutes(linked[0]!.routes, 'http://127.0.0.1:5173').map((route) => route.url)).toEqual([NEARBY_URL, tunnel.url])
   })
 
-  test('an https page (the account site) shows only linked hosts: it cannot dial a local address', () => {
+  test('a paired host and a linked host also gain the found address, beside the routes they had', () => {
+    // This changed: the scan used to skip a paired host and a linked host.
+    const pairedFound = withDiscoveredRoutes([paired({ uplink: { hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY } })], [nearby], 10)
+    expect(pairedFound && named(pairedFound[0]!)).toEqual([`discovery ${NEARBY_URL}`, `pairing ${PAIRED_AT}`])
+    const linkedFound = withDiscoveredRoutes(mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10), [nearby], 10)
+    expect(linkedFound && named(linkedFound[0]!)).toEqual([`discovery ${NEARBY_URL}`, `directory ${tunnel.url}`])
+  })
+
+  test('a host the scan did not find is left as it is', () => {
+    expect(withDiscoveredRoutes([paired()], [{ ...nearby, installationId: 'someone-else' }], 10)).toBeNull()
+  })
+
+  test('an https page (the account site) shows only hosts it can dial: it cannot dial a local address', () => {
     const notLinked = listed({ routes: [] })
     expect(mergeDirectoryIntoSaved([], [notLinked], DIRECTORY, 10, DIRECTORY)).toEqual([])
     // A row saved before, on this page, goes on the next read.
@@ -98,14 +111,9 @@ describe('a registered host that is not linked is reached on the local network (
     expect(mergeDirectoryIntoSaved(saved, [notLinked], DIRECTORY, 11, DIRECTORY)).toEqual([])
     // Linked, it is shown; paired, it is kept; managed and stopped, it can still be started.
     expect(mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10, DIRECTORY)).toHaveLength(1)
-    expect(mergeDirectoryIntoSaved([paired({ url: 'https://studio.example.test' })], [notLinked], DIRECTORY, 10, DIRECTORY)).toHaveLength(1)
+    expect(mergeDirectoryIntoSaved([paired({ routes: [{ kind: 'lan', url: 'https://studio.example.test', source: 'pairing', seenAt: 1 }] })], [notLinked], DIRECTORY, 10, DIRECTORY)).toHaveLength(1)
     const stopped = listed({ routes: [], kind: 'managed', category: 'managed', managedState: 'stopped' })
     expect(mergeDirectoryIntoSaved([], [stopped], DIRECTORY, 10, DIRECTORY)).toHaveLength(1)
-  })
-
-  test('a paired host keeps the address it paired at, and a linked host its tunnel', () => {
-    expect(withNearbyRoutes([paired({ uplink: { hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY } })], [nearby])).toBeNull()
-    expect(withNearbyRoutes(mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10), [nearby])).toBeNull()
   })
 })
 
@@ -113,28 +121,30 @@ describe('merging the directory into saved hosts', () => {
   test('a paired host that is also listed keeps its pairing and gains the tunnel', () => {
     const merged = mergeDirectoryIntoSaved([paired()], [listed()], DIRECTORY, 10)
     expect(merged).toHaveLength(1)
-    expect(merged[0].sessionToken).toBe('pairing-token')
-    expect(merged[0].url).toBe('http://192.168.1.42:3000')
-    expect(merged[0].routes?.map((route) => route.kind)).toEqual(['direct', 'tunnel'])
-    expect(merged[0].uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, kind: 'personal', category: 'personal' })
+    expect(merged[0]!.sessionToken).toBe('pairing-token')
+    expect(pairedAddress(merged[0]!)).toBe(PAIRED_AT)
+    expect(named(merged[0]!)).toEqual([`directory ${tunnel.url}`, `pairing ${PAIRED_AT}`])
+    // The paired address on the local network is dialed before the tunnel.
+    expect(dialableRoutes(merged[0]!.routes, 'http://127.0.0.1:5173').map((route) => route.kind)).toEqual(['lan', 'tunnel'])
+    expect(merged[0]!.uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, kind: 'personal', category: 'personal' })
   })
 
   test('a host only the directory knows is saved with the tunnel and no pairing', () => {
     const merged = mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10)
     expect(merged).toEqual([savedServerFromDirectory(listed(), DIRECTORY, 10)])
-    expect(merged[0].sessionToken).toBe('')
-    expect(merged[0].url).toBe('')
-    expect(savedServerRoutes(merged[0])).toEqual([tunnel])
-    expect(merged[0].id).toBe('inst-1')
+    expect(merged[0]!.sessionToken).toBe('')
+    expect(pairedAddress(merged[0]!)).toBeNull()
+    expect(merged[0]!.routes).toEqual([{ ...tunnel, source: 'directory', seenAt: 10 }])
+    expect(merged[0]!.id).toBe('inst-1')
   })
 
-  test('a host the directory stops listing (removed from the account) drops the tunnel, and the row too when it was never paired', () => {
-    const withPairing = mergeDirectoryIntoSaved([paired()], [listed()], DIRECTORY, 10)
+  test('a host the directory stops listing (removed from the account) drops only the directory\'s routes, and the row too when it was never paired', () => {
+    const withPairing = withDiscoveredRoutes(mergeDirectoryIntoSaved([paired()], [listed()], DIRECTORY, 10), [{ host: '192.168.1.50', port: 7777, name: 'Studio Mac', installationId: 'inst-1', source: 'lan' }], 10)!
     const afterUnlink = mergeDirectoryIntoSaved(withPairing, [], DIRECTORY, 11)
     expect(afterUnlink).toHaveLength(1)
-    expect(afterUnlink[0].uplink).toBeUndefined()
-    expect(afterUnlink[0].routes?.map((route) => route.kind)).toEqual(['direct'])
-    expect(afterUnlink[0].sessionToken).toBe('pairing-token')
+    expect(afterUnlink[0]!.uplink).toBeUndefined()
+    expect(named(afterUnlink[0]!)).toEqual(['discovery http://192.168.1.50:7777', `pairing ${PAIRED_AT}`])
+    expect(afterUnlink[0]!.sessionToken).toBe('pairing-token')
 
     const directoryOnly = mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10)
     expect(mergeDirectoryIntoSaved(directoryOnly, [], DIRECTORY, 11)).toEqual([])
@@ -176,24 +186,21 @@ describe('merging the directory into saved hosts', () => {
 
   test('a host only the directory knows follows its route when it changes, and never keeps the old one', () => {
     // WHY: a managed host is listed at `h-….solus.sh` while it is set up and at its
-    // machine's own name once it links. The saved `url` kept the first name, a later
-    // merge turned it into a direct route, and a direct route is dialed first: the
-    // ready host was dialed at a name with no DNS record, and onboarding waited forever.
+    // machine's own name once it links. The client kept the first name and dialed it
+    // first: the ready host was dialed at a name with no DNS record, and onboarding
+    // waited forever. A directory read replaces the directory's earlier routes.
     const machine = { kind: 'tunnel' as const, url: 'https://solus-h-1.sprites.test' }
     // Solus Cloud lists a host being set up with no route; an older one listed the name early.
     const provisioning = listed({ installationId: 'managed:h1', kind: 'managed', category: 'managed', managedState: 'provisioning', routes: [] })
-    expect(savedServerRoutes(mergeDirectoryIntoSaved([], [provisioning], DIRECTORY, 10)[0])).toEqual([])
+    expect(mergeDirectoryIntoSaved([], [provisioning], DIRECTORY, 10)[0]!.routes).toEqual([])
     const early = mergeDirectoryIntoSaved([], [{ ...provisioning, routes: [tunnel] }], DIRECTORY, 10)
     const linked = listed({ ...provisioning, managedState: 'ready', routes: [machine] })
     const ready = mergeDirectoryIntoSaved(early, [linked], DIRECTORY, 11)
     const again = mergeDirectoryIntoSaved(ready, [linked], DIRECTORY, 12)
-    for (const server of [ready[0], again[0]]) {
-      expect(server.url).toBe('')
-      expect(savedServerRoutes(server)).toEqual([machine])
+    for (const server of [ready[0]!, again[0]!]) {
+      expect(pairedAddress(server)).toBeNull()
+      expect(server.routes.map((route) => route.url)).toEqual([machine.url])
     }
-    // A saved row the old merge already spoiled heals on the next read.
-    const spoiled = { ...again[0], url: tunnel.url, routes: [{ kind: 'direct' as const, url: tunnel.url }, machine] }
-    expect(savedServerRoutes(mergeDirectoryIntoSaved([spoiled], [linked], DIRECTORY, 13)[0])).toEqual([machine])
   })
 
   test('a managed host takes the name members give it on the account site; a personal host keeps its saved one', () => {

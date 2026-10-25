@@ -3,12 +3,12 @@ import type { ConnectionsServerInfo, NativeSolusAPI, SolusAPI } from '@solus/con
 import { mergeNativeOnlySolusApi } from './native-api-overlay'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
 import {
+  applyAdvertised,
   awaitsManagedCompute,
   chooseRunOnHost,
   loadServers,
   LOCAL_SERVER_ID,
   managedHostNeedsStart,
-  savedServerRoutes,
   stampHostOperatingSystem,
 } from './server-registry'
 import { activeWorkspace, ambiguousOrganizationIds, loadWorkspaces, savedWorkspaceFor, workspaceTarget } from './workspace-registry'
@@ -26,7 +26,7 @@ import type { HostCapabilities } from '@solus/contracts/types'
 import type { HostFacts, HostPresence } from './host-facts'
 import { HostGoneError } from './rpc-error'
 import { HostIntroducer, type IntroducerHost } from './host-introducer'
-import { HostLink, isSavedHost, readHostHealth, type HostHealth } from './host-link'
+import { answersAsSavedHost, HostLink, isSavedHost, readHostHealth, type HostHealth } from './host-link'
 
 const CACHE_TTL_MS = 60_000
 const HEALTH_TIMEOUT_MS = 3_000
@@ -265,7 +265,7 @@ export class ServerConnections {
     if (target.local) return
     const saved = loadServers().find((server) => server.id === connection.serverId)
     if (!saved) return
-    target.routes = savedServerRoutes(saved)
+    target.routes = saved.routes
     if (saved.uplink) target.uplink = saved.uplink
     connection.link.followRoutes()
   }
@@ -330,10 +330,18 @@ export class ServerConnections {
       routes: () => target.routes ?? [],
       fallbackRoutes: () => target.fallbackRoutes ?? [],
       clientOrigin: globalThis.location?.origin ?? '',
+      localHostId: this.targets.get(LOCAL_SERVER_ID)?.installationId ?? null,
       answersAsHost: (url, signal) => this.answersAsHost(target, url, signal),
       onRouteChange: (url) => {
         target.url = url
         this.healthCache.delete(serverId)
+      },
+      onAdvertised: (advertised) => {
+        if (target.local) return
+        const saved = applyAdvertised(serverId, advertised)
+        if (!saved) return
+        target.routes = saved.routes
+        target.identityKey = saved.identityKey
       },
       onOutcome: () => {
         for (const listener of this.dialListeners) listener(serverId)
@@ -603,12 +611,13 @@ export class ServerConnections {
     return isSavedHost(saved, health)
   }
 
-  /** Whether `url` answers `/health` as the host this target names. No credential is sent. */
+  /** Whether `url` answers `/health` as the host this target names, with its proof when the route needs one. No credential is sent. */
   private async answersAsHost(target: SolusServerTarget, url: string, signal: AbortSignal): Promise<boolean> {
-    const health = await readHostHealth(fetch, url, signal)
-    if (!health) return false
+    const route = target.routes?.find((candidate) => candidate.url === url) ?? { url }
     const saved = loadServers().find((server) => server.id === target.id)
-    return !saved || isSavedHost(saved, health)
+    // A guest has no saved host: its link's secret opens one resource, and the page names the host.
+    if (!saved) return !!(await readHostHealth(fetch, url, signal))
+    return answersAsSavedHost(fetch, route, saved, signal)
   }
 
   async projectIdentities(serverId: string, force = false): Promise<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>> {

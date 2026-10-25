@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { hostRouteSchema, type DirectoryHost, type HostRoute } from '@solus/contracts/uplink'
+import { type DirectoryHost } from '@solus/contracts/uplink'
+import { hostRouteSchema, mergeRoutes, routeForUrl, withReadRoutes, type HostRoute } from '@solus/contracts/host-routes'
+import { hostIdentityKeySchema } from '@solus/contracts/host-identity'
+import type { AdvertisedHost } from '@solus/client-core/host-link'
 import type { DiscoveredServer, HostOperatingSystem } from '@solus/contracts/types'
 import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import { forwardCompatibleArray } from '@solus/client-core/forward-compat'
@@ -33,6 +36,8 @@ export interface NativeHost {
   uplink?: SavedServerUplink
   /** The account whose directory listed the host. Cloud state is forgotten by it. */
   accountUserId?: string
+  /** The host's identity key (docs/plans/host-routes.md D3): an `http:` route is dialed only after the host proves it. */
+  identityKey?: string
 }
 
 const HOSTS_KEY = 'solus.mobile.hosts.v1'
@@ -59,6 +64,7 @@ const hostSchema = z.object({
   paired: z.boolean().catch(false),
   uplink: uplinkSchema.optional().catch(undefined),
   accountUserId: z.string().optional().catch(undefined),
+  identityKey: hostIdentityKeySchema.optional().catch(undefined),
 })
 const hostsSchema = forwardCompatibleArray(hostSchema)
 
@@ -129,12 +135,11 @@ export class HostRegistry {
   }
 
   /** Saves a host paired on this device. Other hosts are kept. */
-  async savePaired(input: { id: string; label: string; hasUserLabel?: boolean; url: string; os?: HostOperatingSystem }, sessionToken: string): Promise<NativeHost> {
+  async savePaired(input: { id: string; label: string; hasUserLabel?: boolean; url: string; os?: HostOperatingSystem; identityKey?: string }, sessionToken: string): Promise<NativeHost> {
     await this.secrets.set(tokenKey(input.id), sessionToken)
     this.tokens.set(input.id, sessionToken)
     const existing = this.host(input.id)
-    const direct: HostRoute = { kind: 'direct', url: input.url }
-    const routes = [direct, ...(existing?.routes ?? []).filter((route) => route.url !== input.url)]
+    const routes = mergeRoutes(existing?.routes ?? [], [routeForUrl(input.url)], 'pairing', Date.now())
     const host: NativeHost = {
       ...existing,
       id: input.id,
@@ -142,6 +147,7 @@ export class HostRegistry {
       hasUserLabel: input.hasUserLabel || existing?.hasUserLabel,
       routes,
       os: input.os ?? existing?.os,
+      identityKey: input.identityKey ?? existing?.identityKey,
       lastConnected: Date.now(),
       paired: true,
     }
@@ -190,28 +196,36 @@ export class HostRegistry {
     this.changes.notify()
   }
 
-  /**
-   * A registered host that is not linked has no route in the directory
-   * (docs/adr/0001-standard-authentication.md §2.2 rule 9): this device reaches it on
-   * the local network. A LAN discovery answer whose installation id is a directory
-   * host's gives that host its address there as a direct route, dialed before a tunnel.
-   * A paired host keeps the address it paired at.
-   */
+  /** A scan of this device's network found saved hosts: each gets the address it answered at (`withReadRoutes`). */
   applyNearby(discovered: readonly DiscoveredServer[]): void {
     const nearby = new Map(discovered.map((server) => [server.installationId, `http://${server.host}:${server.port}`]))
+    const now = Date.now()
     let changed = false
     const next = this.list.map((host) => {
       const url = nearby.get(host.id)
-      if (!url || !host.uplink || host.paired) return host
-      const direct = host.routes.filter((route) => route.kind === 'direct')
-      if (direct.length === 1 && direct[0]?.url === url) return host
+      const routes = url ? withReadRoutes(host.routes, [routeForUrl(url)], 'discovery', now) : null
+      if (!routes) return host
       changed = true
-      return { ...host, routes: [{ kind: 'direct' as const, url }, ...host.routes.filter((route) => route.kind !== 'direct')] }
+      return { ...host, routes }
     })
     if (!changed) return
     this.list = next
     this.write()
     this.changes.notify()
+  }
+
+  /**
+   * What a connected host says about itself (docs/plans/host-routes.md D2): its routes
+   * replace its earlier `host` routes, and its identity key is kept when this device
+   * has none yet. The connection that carried it already passed the identity check.
+   */
+  applyAdvertised(hostId: string, advertised: AdvertisedHost): void {
+    const host = this.host(hostId)
+    if (!host) return
+    const routes = withReadRoutes(host.routes, advertised.routes, 'host', Date.now())
+    const identityKey = host.identityKey ?? advertised.identityKey
+    if (!routes && identityKey === host.identityKey) return
+    this.replace({ ...host, routes: routes ?? host.routes, identityKey })
   }
 
   /** Cloud sign-out: cloud-derived hosts leave; directly paired hosts stay. */
@@ -232,12 +246,11 @@ export class HostRegistry {
 
   private fromDirectory(entry: DirectoryHost, directoryUrl: string, accountUserId: string, existing?: NativeHost): NativeHost {
     const saved = savedServerFromDirectory(entry, directoryUrl, Date.now())
-    const directRoutes = (existing?.routes ?? []).filter((route) => route.kind === 'direct' && !saved.routes?.some((listed) => listed.url === route.url))
     return {
       id: entry.installationId,
       label: existing?.hasUserLabel ? existing.label : saved.label,
       hasUserLabel: existing?.hasUserLabel,
-      routes: [...directRoutes, ...(saved.routes ?? [])],
+      routes: mergeRoutes(existing?.routes ?? [], entry.routes, 'directory', saved.lastConnected),
       os: saved.os ?? existing?.os,
       lastConnected: existing?.lastConnected ?? 0,
       paired: existing?.paired ?? false,
@@ -266,6 +279,5 @@ export class HostRegistry {
 
 function withoutCloud(host: NativeHost): NativeHost {
   const { uplink: _uplink, accountUserId: _account, ...rest } = host
-  const directRoutes = host.routes.filter((route) => route.kind === 'direct')
-  return { ...rest, routes: directRoutes }
+  return { ...rest, routes: mergeRoutes(host.routes, [], 'directory', Date.now()) }
 }

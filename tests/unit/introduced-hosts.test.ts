@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
+import { mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { IntroducedHosts, type IntroductionSelf } from '@solus/server/execution/orchestration/introduced-hosts'
+import { loadHostIdentity, type HostIdentity } from '@solus/server/host/host-identity'
 
 // WHY: local reach (docs/plans/host-reach.md §4). A client that holds owner pairings
 // for two hosts introduces them, so a person's hosts reach each other with no
@@ -14,8 +18,23 @@ const DAY = 24 * 60 * 60 * 1000
 
 interface Sent { url: string; authorization: string | null }
 
-/** A fake network: each URL origin answers as one host, or not at all. */
-function network(hostAt: Map<string, string>, revoked: Set<string> = new Set()) {
+/** One identity key per installation, as each real host makes its own. */
+const identities = new Map<string, HostIdentity>()
+function identityOf(installationId: string): HostIdentity {
+  let identity = identities.get(installationId)
+  if (!identity) {
+    identity = loadHostIdentity(mkdtempSync(join(tmpdir(), 'solus-identity-')))
+    identities.set(installationId, identity)
+  }
+  return identity
+}
+
+/**
+ * A fake network: each URL origin answers as one host, or not at all. A host signs
+ * a nonce with its own key; one listed in `impostors` claims the installation id but
+ * signs with a key of its own.
+ */
+function network(hostAt: Map<string, string>, revoked: Set<string> = new Set(), impostors: Set<string> = new Set()) {
   const sent: Sent[] = []
   let issued = 0
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -24,7 +43,11 @@ function network(hostAt: Map<string, string>, revoked: Set<string> = new Set()) 
     sent.push({ url: url.href, authorization })
     const installationId = hostAt.get(url.origin)
     if (!installationId) throw new TypeError('fetch failed')
-    if (url.pathname === '/health') return Response.json({ ok: true, installationId, name: `Name of ${installationId}` })
+    if (url.pathname === '/health') {
+      const nonce = url.searchParams.get('nonce')
+      const signer = identityOf(impostors.has(url.origin) ? `impostor-${url.origin}` : installationId)
+      return Response.json({ ok: true, installationId, name: `Name of ${installationId}`, ...(nonce ? { proof: signer.proveTo(nonce, installationId) } : {}) })
+    }
     if (url.pathname === '/auth/refresh') {
       if (revoked.has(authorization ?? '')) return Response.json({ error: 'Unauthorized' }, { status: 401 })
       return Response.json({ sessionToken: `token-${installationId}-${issued++}` })
@@ -47,11 +70,12 @@ function selfHost(urls: string[] = ['http://10.0.0.1:7777']) {
       return { token: `own-token-${deviceId}`, deviceId }
     },
     revokeDevice: (deviceId) => { revoked.push(deviceId) },
+    identityKey: () => identityOf(SELF).publicKey(),
   }
   return { self, issued, revoked }
 }
 
-const B = { installationId: 'install-b', label: 'Omarchy', urls: ['http://10.0.0.9:7777', 'http://10.0.0.5:7777'], sessionToken: 'given-by-b', deviceId: 'device-of-a-on-b' }
+const B = { installationId: 'install-b', label: 'Omarchy', urls: ['http://10.0.0.9:7777', 'http://10.0.0.5:7777'], sessionToken: 'given-by-b', deviceId: 'device-of-a-on-b', identityKey: identityOf('install-b').publicKey() }
 
 let now = 1_000_000
 
@@ -69,7 +93,7 @@ describe('an introduction', () => {
     const { self, issued } = selfHost(['http://100.64.0.1:7777', 'http://10.0.0.1:7777'])
     const hosts = new IntroducedHosts(network(new Map()).fetchImpl, () => now, self)
     expect(await hosts.issue({ installationId: 'install-b', label: 'Omarchy' })).toEqual({
-      installationId: SELF, label: 'Mac mini', urls: ['http://100.64.0.1:7777', 'http://10.0.0.1:7777'], sessionToken: 'own-token-device-0', deviceId: 'device-0',
+      installationId: SELF, label: 'Mac mini', urls: ['http://100.64.0.1:7777', 'http://10.0.0.1:7777'], sessionToken: 'own-token-device-0', deviceId: 'device-0', identityKey: identityOf(SELF).publicKey(),
     })
     expect(issued).toEqual(['Omarchy (Solus host)'])
   })
@@ -78,7 +102,7 @@ describe('an introduction', () => {
     const { fetchImpl } = network(new Map([['http://10.0.0.9:7777', 'install-stranger'], ['http://10.0.0.5:7777', 'install-b']]))
     const hosts = new IntroducedHosts(fetchImpl, () => now, selfHost().self)
     await hosts.accept(B, 'device-of-b-here')
-    expect(hosts.list()).toEqual({ hosts: [{ installationId: 'install-b', label: 'Name of install-b', url: 'http://10.0.0.5:7777', introducedAt: now }], refused: [] })
+    expect(hosts.list()).toEqual({ hosts: [{ installationId: 'install-b', label: 'Name of install-b', url: 'http://10.0.0.5:7777', identityKey: B.identityKey, introducedAt: now }], refused: [] })
     expect(JSON.stringify(hosts.list())).not.toContain('token')
     expect(await hosts.credential('install-b')).toBe('token-install-b-0')
   })
@@ -136,6 +160,19 @@ describe('the credential for a dial', () => {
     const hosts = new IntroducedHosts(fetchImpl, () => now, selfHost().self)
     await hosts.accept(B, 'device-of-b-here')
     hostAt.set('http://10.0.0.5:7777', 'install-stranger')
+    sent.length = 0
+    expect(await hosts.credential('install-b')).toBeNull()
+    expect(sent.every((request) => request.authorization === null)).toBe(true)
+  })
+
+  test('is not sent to a device that claims the host\'s installation id but cannot sign with its key', async () => {
+    // WHY: a LAN address can move to another device, and the installation id is public.
+    // Only the key the introduction named proves the host (docs/plans/host-routes.md D3).
+    const impostors = new Set<string>()
+    const { fetchImpl, sent } = network(new Map([['http://10.0.0.5:7777', 'install-b']]), new Set(), impostors)
+    const hosts = new IntroducedHosts(fetchImpl, () => now, selfHost().self)
+    await hosts.accept(B, 'device-of-b-here')
+    impostors.add('http://10.0.0.5:7777')
     sent.length = 0
     expect(await hosts.credential('install-b')).toBeNull()
     expect(sent.every((request) => request.authorization === null)).toBe(true)

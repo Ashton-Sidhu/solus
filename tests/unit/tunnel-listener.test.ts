@@ -48,7 +48,6 @@ describe('the tunnel listener', () => {
       expect(health.body.name).toBeUndefined()
       expect(health.body.os).toBeUndefined()
       expect((await fetch(`${baseUrl}/upload`, { method: 'POST' })).status).toBe(404)
-      expect((await fetch(`${baseUrl}/endpoints`)).status).toBe(404)
       expect((await fetch(`${baseUrl}/pair`, { method: 'POST', body: '{}' })).status).toBe(404)
       expect((await fetch(`${baseUrl}/pair/open`, { method: 'POST' })).status).toBe(404)
       // The ticket door is gone: the socket's handshake carries its credential.

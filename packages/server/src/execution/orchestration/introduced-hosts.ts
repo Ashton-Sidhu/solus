@@ -7,6 +7,8 @@ import { createLogger } from '../../logger'
 import { hostDisplayName } from '../../platform/host-display-name'
 import { dataDir } from '../../platform/paths'
 import { secretStore } from '../../platform/secrets'
+import { hostIdentity } from '../../host/host-identity'
+import { healthProofSchema, hostIdentityKeySchema, newHealthNonce, routeNeedsProof, verifyHostProof } from '@solus/contracts/host-identity'
 
 const log = createLogger('orchestration', 'introduced-hosts.ts')
 
@@ -20,6 +22,7 @@ const introducedHostSchema = z.object({
   label: z.string(),
   url: z.string().min(1),
   sessionToken: z.string().min(1),
+  identityKey: hostIdentityKeySchema,
   introducedAt: z.number(),
   refreshedAt: z.number(),
   /** The device on this host that the introduced host uses to reach this one. */
@@ -33,7 +36,11 @@ const storedSchema = z.object({
 })
 type Stored = z.infer<typeof storedSchema>
 
-const healthSchema = z.object({ installationId: z.string().min(1), name: z.string().optional().catch(undefined) })
+const healthSchema = z.object({
+  installationId: z.string().min(1),
+  name: z.string().optional().catch(undefined),
+  proof: healthProofSchema.optional().catch(undefined),
+})
 const refreshSchema = z.object({ sessionToken: z.string().min(1) })
 
 /** This host, as an introduction needs it. */
@@ -44,6 +51,7 @@ export interface IntroductionSelf {
   urls(): Promise<string[]>
   issueToken(deviceLabel: string): { token: string; deviceId: string }
   revokeDevice(deviceId: string): void
+  identityKey(): string
 }
 
 const thisHost: IntroductionSelf = {
@@ -52,6 +60,7 @@ const thisHost: IntroductionSelf = {
   urls: async () => [],
   issueToken: issueSessionToken,
   revokeDevice,
+  identityKey: () => hostIdentity().publicKey(),
 }
 
 /**
@@ -71,7 +80,7 @@ export class IntroducedHosts {
   list(): IntroducedHostsSummary {
     const { hosts, refused } = this.load()
     return {
-      hosts: hosts.map(({ installationId, label, url, introducedAt }) => ({ installationId, label, url, introducedAt })),
+      hosts: hosts.map(({ installationId, label, url, identityKey, introducedAt }) => ({ installationId, label, url, identityKey, introducedAt })),
       refused,
     }
   }
@@ -87,6 +96,7 @@ export class IntroducedHosts {
       urls: await this.self.urls(),
       sessionToken: issued.token,
       deviceId: issued.deviceId,
+      identityKey: this.self.identityKey(),
     }
   }
 
@@ -100,14 +110,14 @@ export class IntroducedHosts {
     if (this.isRefused(introduction.installationId)) throw new Error(`${introduction.label} was forgotten on this host. Allow it again first.`)
     for (const candidate of introduction.urls) {
       const url = normalizeServerUrl(candidate)
-      const health = await this.probe(url)
-      if (!health || health.installationId !== introduction.installationId) continue
+      const health = await this.probe(url, introduction.installationId, introduction.identityKey)
+      if (!health) continue
       const sessionToken = await this.exchange(url, introduction.sessionToken)
       if (!sessionToken || sessionToken === 'refused') break
       const now = this.now()
       this.remove(introduction.installationId, grantedDeviceId)
       const stored = this.load()
-      stored.hosts.push({ installationId: introduction.installationId, label: health.name ?? introduction.label, url, sessionToken, introducedAt: now, refreshedAt: now, grantedDeviceId })
+      stored.hosts.push({ installationId: introduction.installationId, label: health.name ?? introduction.label, url, sessionToken, identityKey: introduction.identityKey, introducedAt: now, refreshedAt: now, grantedDeviceId })
       this.save(stored)
       log.info('host_introduced', { installationId: introduction.installationId })
       return
@@ -145,9 +155,8 @@ export class IntroducedHosts {
   async credential(installationId: string): Promise<string | null> {
     const host = this.load().hosts.find((candidate) => candidate.installationId === installationId)
     if (!host) return null
-    const health = await this.probe(host.url)
-    if (health?.installationId !== installationId) {
-      if (health) log.warn('introduced_host_identity_mismatch', { installationId, answered: health.installationId })
+    if (!await this.probe(host.url, installationId, host.identityKey)) {
+      log.warn('introduced_host_not_proven', { installationId })
       return null
     }
     if (this.now() - host.refreshedAt < REFRESH_AFTER_MS) return host.sessionToken
@@ -199,12 +208,16 @@ export class IntroducedHosts {
     }
   }
 
-  private async probe(url: string): Promise<z.infer<typeof healthSchema> | null> {
+  /** The health at `url` when it answers as `installationId` and, on an `http:` route, signs a fresh nonce with `identityKey`. */
+  private async probe(url: string, installationId: string, identityKey: string): Promise<z.infer<typeof healthSchema> | null> {
     try {
-      const response = await this.fetchImpl(`${url}/health`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+      const nonce = newHealthNonce()
+      const response = await this.fetchImpl(`${url}/health?nonce=${encodeURIComponent(nonce)}`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
       if (!response.ok) return null
       const parsed = healthSchema.safeParse(await response.json())
-      return parsed.success ? parsed.data : null
+      if (!parsed.success || parsed.data.installationId !== installationId) return null
+      if (!routeNeedsProof({ url })) return parsed.data
+      return parsed.data.proof && verifyHostProof(identityKey, nonce, installationId, parsed.data.proof) ? parsed.data : null
     } catch {
       return null
     }

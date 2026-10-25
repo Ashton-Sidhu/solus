@@ -52,6 +52,7 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     remoteAccess: false,
     requireAuth: false,
     trustLocalNetwork: false,
+    routes: [],
     hostKind: 'personal',
     roles: ['execution'],
     principal: 'local-owner',

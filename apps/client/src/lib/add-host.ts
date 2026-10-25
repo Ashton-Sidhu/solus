@@ -1,6 +1,7 @@
 import { normalizeServerUrl, pairServer, urlHost } from '@solus/client-core/pairing'
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { loadServers, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
+import { mergeRoutes, routeForUrl } from '@solus/contracts/host-routes'
 import { track } from '@solus/workspace-ui/lib/analytics'
 import { classifyConnectInput, probeServer } from './connect'
 
@@ -27,11 +28,11 @@ export async function probeServingOrigin(origin: string): Promise<ServingOrigin 
   const normalizedOrigin = normalizeServerUrl(origin)
   const isSaved = loadServers().some((server) =>
     (!!health.installationId && server.installationId === health.installationId)
-    || normalizeServerUrl(server.url) === normalizedOrigin,
+    || server.routes.some((route) => normalizeServerUrl(route.url) === normalizedOrigin),
   )
   const name = health.name || urlHost(origin)
   const entry: SavedServer | null = health.requireAuth === false && health.installationId
-    ? { id: health.installationId, url: origin, sessionToken: '', installationId: health.installationId, label: health.name || 'This computer', os: health.os, lastConnected: Date.now() }
+    ? { id: health.installationId, routes: mergeRoutes([], [routeForUrl(origin)], 'page', Date.now()), sessionToken: '', installationId: health.installationId, label: health.name || 'This computer', os: health.os, lastConnected: Date.now() }
     : null
   return { offered: { url: origin, name }, entry, isSaved }
 }

@@ -91,11 +91,11 @@ function field<const Value, Patch>(
 }
 
 export const HOST_CONFIG_FIELDS = {
-  solusTools: field(z.record(z.string(), z.boolean()).transform(withoutRetiredSolusTools).pipe(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean())), {}),
+  solusTools: field(z.record(z.string(), z.boolean()).transform(withoutRetiredSolusTools).pipe(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean())).describe('Solus agent tools on or off on this host, by tool name. A tool that is off is removed from the tool list of every agent and refused if called. A tool not named is on.'), {}),
   continueSessionsAfterHostRestart: field(z.boolean().catch(true), true),
-  reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}), {}),
+  reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}).describe('By project path on this host: when true, the host writes review guides before they are asked for, for open pull requests that are not drafts, when their head has not changed for a minute.'), {}),
   archivedAutomationRetentionDays: field(z.number().int().min(1).max(3650), 30),
-  unfiledRecordingRetentionDays: field(z.number().int().min(1).max(3650), 30),
+  unfiledRecordingRetentionDays: field(z.number().int().min(1).max(3650).describe('Browser recordings that are not filed on a task or a pull request, or sent to an agent, are deleted after this number of days.'), 30),
   otel: field(otelPatchSchema.catch({}), DEFAULT_OTEL_SETTINGS),
   analyticsEnabled: field(z.boolean().catch(true), true),
 } satisfies HostConfigFieldTable

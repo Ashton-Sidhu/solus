@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
+import { dialableRoutes, type HostRoute } from '@solus/contracts/host-routes'
 import { HostRegistry } from '../../apps/mobile/src/features/hosts/host-registry'
 import { decodePairInput, decodeScannedCode, pairFailureMessage, previewHost } from '../../apps/mobile/src/features/hosts/lib/pair-input'
-import { createHostWorld, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
+import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 const directoryHost = (overrides: Partial<DirectoryHost> = {}): DirectoryHost => ({
   hostId: 'cloud-host-1',
@@ -71,8 +73,9 @@ describe('native host registry', () => {
     const merged = registry.host('inst-cloud')
     expect(merged?.paired).toBe(true)
     expect(merged?.label).toBe('Mine')
-    // Direct route first, the directory's tunnel after it.
-    expect(merged?.routes.map((route) => route.kind)).toEqual(['direct', 'tunnel'])
+    // The paired address is kept beside the directory's tunnel, and is dialed first.
+    expect(merged?.routes.map(sourceAndUrl)).toEqual(['directory https://build.tunnel.solus.sh', 'pairing http://10.0.0.9:51234'])
+    expect(dialableRoutes(merged?.routes ?? [], '').map((route) => route.kind)).toEqual(['lan', 'tunnel'])
     expect(registry.host('inst-only-cloud')?.paired).toBe(false)
 
     const removed: string[] = []
@@ -80,12 +83,16 @@ describe('native host registry', () => {
     registry.forgetAccount('user-1')
     expect(registry.hosts().map((host) => host.id)).toEqual(['inst-cloud'])
     expect(registry.host('inst-cloud')?.uplink).toBeUndefined()
-    expect(registry.host('inst-cloud')?.routes).toEqual([{ kind: 'direct', url: 'http://10.0.0.9:51234' }])
+    // Only the directory's routes leave with the account.
+    expect(registry.host('inst-cloud')?.routes.map(sourceAndUrl)).toEqual(['pairing http://10.0.0.9:51234'])
     expect(removed).toEqual(['inst-only-cloud'])
   })
 
-  test('a registered host that is not linked is dialed on the local network once discovery finds it, and keeps that address through directory reads', async () => {
-    // WHY: docs/adr/0001-standard-authentication.md §2.2 rule 9 — such a host has no route in the directory.
+  test('every saved host a scan finds is dialed on the local network, and keeps that address through directory reads', async () => {
+    // WHY: docs/adr/0001-standard-authentication.md §2.2 rule 9 — a registered host
+    // that is not linked has no route in the directory. docs/plans/host-routes.md D1:
+    // a scan gives every saved host it finds a discovery route, paired hosts too,
+    // and a directory read replaces only the directory's own routes.
     const { registry } = createHostWorld()
     await registry.load()
     await registry.savePaired({ id: 'inst-paired', label: 'Paired', url: 'http://10.0.0.9:51234' }, 'tp')
@@ -93,31 +100,34 @@ describe('native host registry', () => {
     expect(registry.host('inst-cloud')?.routes).toEqual([])
     const lan = (installationId: string, host: string) => ({ host, port: 7777, name: installationId, installationId, source: 'lan' as const })
     registry.applyNearby([lan('inst-cloud', '192.168.1.20'), lan('inst-paired', '192.168.1.21')])
-    expect(registry.host('inst-cloud')?.routes).toEqual([{ kind: 'direct', url: 'http://192.168.1.20:7777' }])
-    // A paired host keeps the address it paired at.
-    expect(registry.host('inst-paired')?.routes).toEqual([{ kind: 'direct', url: 'http://10.0.0.9:51234' }])
+    expect(registry.host('inst-cloud')?.routes.map(sourceAndUrl)).toEqual(['discovery http://192.168.1.20:7777'])
+    // A paired host keeps the address it paired at, beside the one the scan found.
+    expect(registry.host('inst-paired')?.routes.map(sourceAndUrl)).toEqual(['discovery http://192.168.1.21:7777', 'pairing http://10.0.0.9:51234'])
     registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ routes: [] })])
-    expect(registry.host('inst-cloud')?.routes).toEqual([{ kind: 'direct', url: 'http://192.168.1.20:7777' }])
+    expect(registry.host('inst-cloud')?.routes.map(sourceAndUrl)).toEqual(['discovery http://192.168.1.20:7777'])
   })
 })
 
 describe('native host connections', () => {
   test('one transport and supervisor per host, however often it is asked for', async () => {
-    const { registry, connections, transports } = createHostWorld()
+    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }) })
     await registry.load()
-    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1', identityKey: identityKeyFor('inst-a') }, 'ta')
     const first = connections.connection('inst-a')
     const second = connections.connection('inst-a')
     expect(first).toBe(second)
     expect(transports).toHaveLength(1)
+    // The dial goes out once the host has proved itself on its http route.
+    await flushPromises()
     expect(transports[0]?.dials).toBe(1)
     expect(transports[0]?.options.sessionToken).toBe('ta')
   })
 
   test('a host that answers with another installation id is blocked, not used', async () => {
-    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'someone-else' }) })
+    // An https route needs no proof before the dial, so the check after it is what blocks the host.
+    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ 'https://a:1': 'someone-else' }) })
     await registry.load()
-    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'https://a:1' }, 'ta')
     const connection = connections.connection('inst-a')
     await transports[0]?.accept()
     expect(connection?.state.readiness).toBe('refused')
@@ -141,8 +151,9 @@ describe('native host connections', () => {
   test('a matching host is accepted and its reported name fills an unnamed label', async () => {
     const { registry, connections, transports } = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }) })
     await registry.load()
-    await registry.savePaired({ id: 'inst-a', label: 'a:1', url: 'http://a:1' }, 'ta')
+    await registry.savePaired({ id: 'inst-a', label: 'a:1', url: 'http://a:1', identityKey: identityKeyFor('inst-a') }, 'ta')
     const connection = connections.connection('inst-a')
+    await flushPromises()
     let accepted = 0
     connection?.onAccepted(() => { accepted += 1 })
     await transports[0]?.accept()
@@ -169,7 +180,7 @@ describe('native host connections', () => {
     const { registry, connections, transports, timers, grantOptions } = createHostWorld()
     await registry.load()
     registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
-      routes: [{ kind: 'direct', url: 'http://10.0.0.20:51234' }, { kind: 'tunnel', url: 'https://build.tunnel.solus.sh' }],
+      routes: [{ kind: 'lan', url: 'http://10.0.0.20:51234' }, { kind: 'tunnel', url: 'https://build.tunnel.solus.sh' }],
     })])
     connections.connection('inst-cloud')
     const transport = transports[0]
@@ -191,10 +202,12 @@ describe('native host connections', () => {
     // WHY: a dead local address used to cost a ticket timeout on every dial, and a
     // phone that fell back to the tunnel stayed there until that socket dropped.
     const answering: Record<string, string> = { 'https://build.tunnel.solus.sh': 'inst-cloud' }
-    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch(answering) })
+    // Over its first connection through the tunnel, the host gives its identity key, so its LAN route can prove it later.
+    const advertised = { routes: [], identityKey: identityKeyFor('inst-cloud') }
+    const { registry, connections, transports } = createHostWorld({ fetch: healthFetch(answering), api: () => new FakeApi().on('connectionsGetServerInfo', () => advertised) })
     await registry.load()
     registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
-      routes: [{ kind: 'direct', url: 'http://10.0.0.20:51234' }, { kind: 'tunnel', url: 'https://build.tunnel.solus.sh' }],
+      routes: [{ kind: 'lan', url: 'http://10.0.0.20:51234' }, { kind: 'tunnel', url: 'https://build.tunnel.solus.sh' }],
     })])
     connections.connection('inst-cloud')
     const transport = transports[0]
@@ -203,6 +216,8 @@ describe('native host connections', () => {
     expect(transport?.dials).toBe(1)
     await transport?.accept()
     expect(connections.state('inst-cloud')?.readiness).toBe('ready')
+    await flushRouteChecks()
+    expect(registry.host('inst-cloud')?.identityKey).toBe(advertised.identityKey)
 
     answering['http://10.0.0.20:51234'] = 'inst-cloud'
     connections.wake('activation')
@@ -279,15 +294,18 @@ describe('native host connections', () => {
   })
 
   test('a long suspension resumes every host now; a short one only pulls a due dial forward', async () => {
-    const { registry, connections, transports, timers } = createHostWorld()
+    const { registry, connections, transports, timers } = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }) })
     await registry.load()
-    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+    await registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1', identityKey: identityKeyFor('inst-a') }, 'ta')
     connections.connection('inst-a')
+    await flushPromises()
     transports[0]?.fail('dial-failed')
     // The grace and the next dial.
     expect(timers.pending.size).toBe(2)
     connections.suspend(0)
     connections.resume(60_000)
+    // The host proves itself on its http route again before the dial goes out.
+    await flushPromises()
     expect(transports[0]?.dials).toBe(2)
     // The due dial ran now; only the grace, started again, waits.
     expect(timers.pending.size).toBe(1)
@@ -329,6 +347,10 @@ describe('pairing input', () => {
     expect(pairFailureMessage(new Error('Invalid or expired pair token'))).toContain('expired')
   })
 })
+
+function sourceAndUrl(route: HostRoute): string {
+  return `${route.source} ${route.url}`
+}
 
 /** Lets the parallel route checks before a dial settle. */
 function flushRouteChecks(): Promise<void> {

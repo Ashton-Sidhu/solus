@@ -8,6 +8,7 @@ import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/p
 import { updateStatusText } from '../../apps/mobile/src/features/settings/lib/update-status'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
+import { identityKeyFor } from './helpers/signing-host'
 
 // plan 017 stage 5: files, settings, and appearance on the phone. The rules
 // pinned here are the ones a person would notice going wrong: a folder that
@@ -18,7 +19,7 @@ import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/
 async function hostWorld(api: FakeApi) {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
   await world.registry.load()
-  await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
+  await world.registry.savePaired({ id: 'inst-a', identityKey: identityKeyFor('inst-a'), label: 'A', url: 'http://a:1' }, 'ta')
   return world
 }
 
