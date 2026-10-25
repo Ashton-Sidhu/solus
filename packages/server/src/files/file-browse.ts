@@ -2,6 +2,7 @@ import { readdir, stat } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type { FileMatch } from '@solus/contracts/types'
 import { expandHome } from './host-path'
+import { compareFileNames } from './name-order'
 
 /** Explicit paths are shallow browsing, never recursive search or watches.
  * null means a plain query which the project index should answer. */
@@ -20,7 +21,7 @@ export async function browseFileMatches(query: string, cwd: string): Promise<Fil
   return entries
     .filter(entry => !entry.name.startsWith('.') && entry.name.toLocaleLowerCase().includes(needle))
     .sort((left, right) => Number(right.isDirectory()) - Number(left.isDirectory())
-      || left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' }))
+      || compareFileNames(left.name, right.name))
     .map(entry => {
       const path = join(directory, entry.name)
       const rel = relative(root, path)
