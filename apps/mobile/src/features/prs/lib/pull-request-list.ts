@@ -1,4 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/pullRequestList.ts (MIT, see UPSTREAM.md).
+import { hostSearchQuery, withMenuQualifiers } from '@solus/client-core/pr-host-query'
 import type { PrChecksState } from '@solus/contracts/checks-types'
 import type { PullRequest } from '@solus/contracts/providers'
 import type { HostPullRequests } from '../pull-request-directory'
@@ -6,8 +7,9 @@ import type { HostPullRequests } from '../pull-request-directory'
 /**
  * The Pull Requests tab's rows: every connected host's pull requests in one
  * list, then the filters and the sort the person chose. The host answers the
- * state (open, closed, all) and the search text; everything here narrows the
- * rows the device already holds.
+ * state (open, closed, all), the search text, and the label, author and draft
+ * filters (`pullRequestHostQuery`); everything here narrows the rows the device
+ * already holds.
  */
 
 /** One row: a pull request, the host and project it came from, and its checks. */
@@ -89,6 +91,14 @@ export function pullRequestRows(listings: readonly { hostId: string; listing: Ho
 }
 
 const normalize = (value: string) => value.toLowerCase()
+
+/** The search the hosts are asked: the typed text with the label, author and
+ *  draft filters as qualifiers, so each page the host reads is already
+ *  narrowed by them. Review and checks still narrow on the device. */
+export function pullRequestHostQuery(text: string, filters: PullRequestListFilters): string {
+  const { labels, excludedLabels, author, draft } = filters
+  return hostSearchQuery(withMenuQualifiers({ text, qualifiers: {} }, { labels, excludedLabels, author, draft }))
+}
 
 /**
  * The rows the controls keep, sorted. `viewerOf` answers each host's GitHub

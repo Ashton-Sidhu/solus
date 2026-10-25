@@ -15,6 +15,7 @@ import {
   User as UserIcon,
   Users as UsersIcon,
 } from '@lucide/svelte'
+import type { PrMenuQualifiers } from '@solus/client-core/pr-host-query'
 import type { PullRequest } from '@solus/contracts/providers'
 import type { ListIcon } from '../../ui/list-page'
 import { labelChipColor } from '../../ui/labels/label-color'
@@ -54,6 +55,16 @@ export function prStatusKeysFor(state: string): string[] {
   if (state === 'open') return [...OPEN_PR_STATUS_KEYS]
   if (state === 'all') return PR_STATUS_OPTIONS.map((option) => option.value)
   return [state]
+}
+
+/** The menu choices the host can narrow by, as search qualifiers. The other
+ *  facets (review, checks, guide, lens, involvement) narrow loaded rows. */
+export function prMenuQualifiers(listView: Pick<PrListView, 'author' | 'label' | 'draft'>): PrMenuQualifiers {
+  return {
+    labels: listView.label ? [[listView.label]] : undefined,
+    author: listView.author,
+    draft: listView.draft === 'draft' ? 'only' : listView.draft === 'ready' ? 'hide' : null,
+  }
 }
 
 /** Authors on the rows in view, most frequent first, behind an "Anyone" row. */

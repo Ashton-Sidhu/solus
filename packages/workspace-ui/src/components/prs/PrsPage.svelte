@@ -73,7 +73,7 @@
     readSavedDetailPanelWidth,
     saveDetailPanelWidth,
   } from "../ui/list-page/detail-panel-width";
-  import { clearPrFilters, prAuthorOptions, prFilterGroups, prLabelOptions } from "./lib/pr-filter-menu";
+  import { clearPrFilters, prAuthorOptions, prFilterGroups, prLabelOptions, prMenuQualifiers } from "./lib/pr-filter-menu";
   import { PrReviewSelection } from "./lib/pr-review-selection.svelte";
   import { queueReviewGuides } from "./lib/pr-guide-batch";
   import { reviewLensStore } from "../review/review-lens.store.svelte";
@@ -197,8 +197,9 @@
   const fetchScope = $derived(prFetchScope(listView.statusKeys));
 
   // ── Search ── typed text narrows the rows on screen; the host is asked
-  // once typing stops. Qualifiers (`label:bug`, `author:me`) read the same.
-  const search = new PrListSearch(() => listView.query);
+  // once typing stops. Qualifiers (`label:bug`, `author:me`) read the same,
+  // and so do the Filters menu's label, author and draft choices.
+  const search = new PrListSearch(() => listView.query, () => prMenuQualifiers(listView));
   const listFilter = $derived<PrFilter>(
     search.hostQuery ? { state: fetchScope, query: search.hostQuery } : { state: fetchScope },
   );
@@ -338,8 +339,8 @@
     prFilterGroups(
       listView,
       { authors: prAuthorOptions(searched), labels: prLabelOptions(searched) },
-      // Narrowing within what is loaded is free; the read key only moves when
-      // the fetch scope does, so toggling Draft off and on costs no request.
+      // A state change moves the read key only when the fetch scope does.
+      // Label, author and draft are asked of the host (`prMenuQualifiers`).
       (next) => (listView.statusKeys = next),
     ),
   );

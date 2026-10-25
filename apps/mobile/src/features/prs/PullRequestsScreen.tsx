@@ -12,7 +12,7 @@ import type { RootStackParamList } from '../../navigation/routes'
 import { resolvePullRequestListScope, type PullRequestListPreferences } from '../workspace/list-preferences'
 import { PullRequestCardGroup, PullRequestCardRow } from './detail/pull-request-ui'
 import { prUnavailableTitle } from './lib/pr-presentation'
-import { filterPullRequestRows, hostNoticesSummary, pullRequestListFacets, pullRequestRowKey, type PullRequestRow } from './lib/pull-request-list'
+import { filterPullRequestRows, hostNoticesSummary, pullRequestHostQuery, pullRequestListFacets, pullRequestRowKey, type PullRequestRow } from './lib/pull-request-list'
 import { PullRequestListFilters, type PullRequestFilterProject } from './PullRequestListFilters'
 import { PullRequestListRow } from './PullRequestListRow'
 import { shownValue } from './pull-request-reads'
@@ -106,8 +106,9 @@ function HostNotices(props: { readonly notices: readonly HostNotice[]; readonly 
 
 /**
  * The Pull Requests tab: the pull requests of every paired host in one list,
- * newest activity first. The hosts answer the state and the search text; the
- * pill filters narrow the rows on the device. A host that cannot be read now
+ * newest activity first. The hosts answer the state, the search text, and the
+ * label, author and draft filters; the other pill filters narrow the rows on
+ * the device. A host that cannot be read now
  * shows its device copy with a notice, or says why it shows nothing.
  */
 export function PullRequestsScreen(props: {
@@ -127,7 +128,8 @@ export function PullRequestsScreen(props: {
   const pairedHostIds = useMemo(() => hostOptions.map((host) => host.id), [hostOptions])
   const { preferences, onPreferencesChange } = props
   const scope = useMemo(() => resolvePullRequestListScope(preferences, pairedHostIds), [preferences, pairedHostIds])
-  const query = useDebouncedValue(props.query.trim(), SEARCH_DELAY_MS)
+  const typed = useDebouncedValue(props.query.trim(), SEARCH_DELAY_MS)
+  const query = useMemo(() => pullRequestHostQuery(typed, preferences.filters), [typed, preferences.filters])
   const list = usePullRequestList(scope.hostIds, { state: preferences.state, query }, scope.project)
 
   const viewerOf = useMemo(() => {
@@ -256,8 +258,8 @@ export function PullRequestsScreen(props: {
         ) : reads.every((host) => host.state.kind === 'error') ? undefined : (
           <EmptyState
             variant="plain"
-            title={query ? 'No results' : 'No matching pull requests'}
-            detail={query ? 'No pull request matches this search.' : 'Pull requests of the selected hosts’ projects appear here. Pull to refresh.'}
+            title={typed ? 'No results' : 'No matching pull requests'}
+            detail={typed ? 'No pull request matches this search.' : 'Pull requests of the selected hosts’ projects appear here. Pull to refresh.'}
           />
         )
       }
