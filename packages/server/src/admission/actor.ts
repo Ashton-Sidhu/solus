@@ -65,14 +65,22 @@ export function ownerKeyOf(actor: Actor): string | null {
   return kind === 'owner' ? hostUserKey() : null
 }
 
+/** The agent session that did something, as an attribution names it. `title` is the session's name then. */
+export interface AgentVia {
+  sessionId: string
+  provider?: AgentId
+  title?: string
+}
+
 /**
  * Who did something for this actor (§2): the user, or the host itself. Work done
  * through an agent's turn or an automation names it, and the person it was for.
  */
-export function attributionOf(actor: Actor, via?: { sessionId: string; provider?: AgentId } | { automationId: string; name?: string }): Attribution {
+export function attributionOf(actor: Actor, via?: AgentVia | { automationId: string; name?: string }): Attribution {
   if (via && 'sessionId' in via) {
     const agent: Attribution = { kind: 'agent', sessionId: via.sessionId }
     if (via.provider) agent.provider = via.provider
+    if (via.title) agent.title = via.title
     if (actor.user) agent.for = actor.user
     return agent
   }

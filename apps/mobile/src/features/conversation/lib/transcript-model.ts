@@ -214,6 +214,7 @@ export class TranscriptModel {
     if (row.activity?.kind === 'mcp_app') return this.addMcpApp(row.activity, false)
     if (row.activity?.kind === 'worktree_offered') return this.addWorktreeOffer(row.activity, false)
     if (row.activity?.kind === 'agent_switched') return this.addHandoff(row.activity, false)
+    if (row.activity?.kind === 'stopped') return this.addAgentStop(row.activity, false)
     if (row.activity) return null
     const id = row.messageId ?? this.mintId('h')
     if (row.compaction) {
@@ -854,6 +855,23 @@ export class TranscriptModel {
     else if (activity.kind === 'worktree_offered') this.addWorktreeOffer(activity, true)
     else if (activity.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(activity.offerId, activity.resolution)
     else if (activity.kind === 'agent_switched') this.addHandoff(activity, true)
+    else if (activity.kind === 'stopped') this.addAgentStop(activity, true)
+  }
+
+  /** A stop another agent session made, as a notice that names it. The phone
+   *  shows no row for a person's stop, so only an agent's stop gets one. */
+  private addAgentStop(activity: Activity, append: boolean): string | null {
+    if (activity.by.kind !== 'agent') return null
+    const id = `activity:${activity.id}`
+    if (this.items.has(id)) return null
+    const item: TranscriptItem = { kind: 'notice', id, text: `Stopped by ${activity.by.title ?? 'an agent'}`, tone: 'info' }
+    if (append) {
+      this.streamTarget = null
+      this.append(item)
+    } else {
+      this.items.set(id, item)
+    }
+    return id
   }
 
   private addMcpApp(activity: Extract<Activity, { kind: 'mcp_app' }>, append: boolean): string | null {

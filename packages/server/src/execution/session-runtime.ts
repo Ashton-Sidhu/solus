@@ -29,7 +29,7 @@ import { isSessionBusyStatus, isSteerableStatus, projectScopeOf } from '@solus/c
 import { activityLeases } from './activity-leases'
 import { SessionEmitter } from './observability/session-emitter'
 import { isSeatProvider, type SeatStore, type TurnSeat } from './seats/seat-manager'
-import { attributionOf, HOST_ACTOR, seatFor, type Actor } from '../admission/actor'
+import { attributionOf, HOST_ACTOR, seatFor, type Actor, type AgentVia } from '../admission/actor'
 import type { Activity, ActivityKind, ActivitySubject } from '@solus/contracts/activity'
 import { appendActivity, newActivity } from '../data/activity/activity'
 import { RunScheduler } from './sessions/run-scheduler'
@@ -641,9 +641,10 @@ export class SessionRuntime extends EventEmitter {
   /**
    * Interrupt a session. Covers every phase — a queue waiting its turn, a worktree still being
    * prepared, a live provider turn, and a run that has not reached session_init.
-   * A person's stop is recorded as a `stopped` activity, inside the turn it ended.
+   * A person's stop, or an agent's (`agent` names the session that asked), is
+   * recorded as a `stopped` activity, inside the turn it ended.
    */
-  stopSession(sessionId: string, actor: Actor): boolean {
+  stopSession(sessionId: string, actor: Actor, agent?: AgentVia): boolean {
     if (!this.hasSession(sessionId)) return false
     this.restarts.restartRuns?.remove(sessionId)
     for (const entry of [...(this.scheduler.requestQueue.get(sessionId) ?? [])]) {
@@ -652,7 +653,7 @@ export class SessionRuntime extends EventEmitter {
     this.scheduler.publishQueue(sessionId)
     const stopped = (): void => {
       // Recorded before the status settles the turn, so it carries that turn's id.
-      if (actor.user) void this.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'stopped' })
+      if (actor.user || agent) void this.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'stopped' }, undefined, agent)
       this.statuses.setStatus(sessionId, 'interrupted')
     }
 
@@ -793,9 +794,9 @@ export class SessionRuntime extends EventEmitter {
    * turn's id, so the history read places it inside the turn. `at` names the
    * moment when another record holds it too (a handoff's lineage member).
    */
-  async recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor, kind: ActivityKind, at?: number): Promise<Activity> {
+  async recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor, kind: ActivityKind, at?: number, via?: AgentVia): Promise<Activity> {
     const sessionId = subject.id
-    const activity = newActivity({ kind: 'session', id: sessionId }, attributionOf(actor), kind, at)
+    const activity = newActivity({ kind: 'session', id: sessionId }, attributionOf(actor, via), kind, at)
     const session = this.activeSessions.get(sessionId)
     if (session?.activeTurnId && session.settledTurnId !== session.activeTurnId) activity.turnId = session.activeTurnId
     try {

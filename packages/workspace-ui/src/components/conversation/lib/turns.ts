@@ -177,6 +177,8 @@ export type TurnEnd = {
   timestamp: number
   /** The person who stopped the run: the turn's `stopped` activity. */
   by?: User
+  /** The agent session that stopped the run, when an agent did: the turn's `stopped` activity. */
+  byAgent?: { sessionId: string; title?: string }
 }
 
 /**
@@ -267,6 +269,7 @@ function isStopActivity(item: GroupedItem): boolean {
 function endNamingStopper(end: TurnEnd | null, stop: Activity): TurnEnd {
   const named = end ?? { kind: 'stopped', cause: '', detail: '', timestamp: stop.at }
   if (named.kind === 'stopped' && stop.by.kind === 'user') named.by = stop.by.user
+  if (named.kind === 'stopped' && stop.by.kind === 'agent') named.byAgent = stop.by.title ? { sessionId: stop.by.sessionId, title: stop.by.title } : { sessionId: stop.by.sessionId }
   return named
 }
 

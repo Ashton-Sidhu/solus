@@ -1,5 +1,5 @@
 import type { SessionRuntime } from '../session-runtime'
-import { HOST_ACTOR } from '../../admission/actor'
+import { HOST_ACTOR, type AgentVia } from '../../admission/actor'
 import { getIndexedSession } from '../../db/session-indexer'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { sessionIsLead, taskIdForSession } from '../../data/tasks/task-sessions'
@@ -19,8 +19,11 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
       ...order,
       actor: senderSessionId ? sessionRuntime.actorOfSession(senderSessionId) : undefined,
     }),
-    // The orchestrator acts as the host until P7 names whose turn it is (plans/012 §4).
-    stopSession: (id) => sessionRuntime.stopSession(id, HOST_ACTOR),
+    // An agent's stop acts for the person its sender works for, and names the
+    // sender, so the stopped turn says an agent ended it. With no sender, the host's.
+    stopSession: (id, senderSessionId) => senderSessionId
+      ? sessionRuntime.stopSession(id, sessionRuntime.actorOfSession(senderSessionId) ?? HOST_ACTOR, stoppingAgent(senderSessionId))
+      : sessionRuntime.stopSession(id, HOST_ACTOR),
     respondToPermission: (askingSessionId, questionId, optionId, updatedPlan) => sessionRuntime.inputRequests.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, HOST_ACTOR),
     pendingInputEvents: (sessionId) => sessionRuntime.inputRequests.pendingInputEventsForSession(sessionId),
     replaceQueuedPrompt: (sessionId, queueId, text, reportExchangeIds, exchangeIds) => sessionRuntime.scheduler.replaceQueuedPrompt(sessionId, queueId, text, reportExchangeIds, exchangeIds),
@@ -47,4 +50,14 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
   }, sessionRuntime.runLedger)
   sessionRuntime.useOrchestration(orchestrator)
   return orchestrator
+}
+
+/** The agent session that asked for a stop, named as it reads now. */
+function stoppingAgent(sessionId: string): AgentVia {
+  const meta = getIndexedSession(sessionId)
+  const agent: AgentVia = { sessionId }
+  if (meta?.provider) agent.provider = meta.provider
+  const title = meta?.customTitle || meta?.slug || meta?.firstMessage?.slice(0, 80)
+  if (title) agent.title = title
+  return agent
 }

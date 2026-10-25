@@ -32,7 +32,14 @@
   let { end, onRetry, skipMotion = false, serverId }: Props = $props();
 
   // Only a stop the host named has a person; "by you" only when it was the reader.
-  const stopper = $derived(end.by && serverId ? actorName(end.by, presenceStore.currentUserId(serverId)) : null);
+  // An agent's stop names the agent's session.
+  const stopper = $derived(
+    end.by && serverId
+      ? actorName(end.by, presenceStore.currentUserId(serverId))
+      : end.byAgent
+        ? (end.byAgent.title ?? "an agent")
+        : null,
+  );
 
   // §17 — the same words on whichever surface fired, so there is one retry
   // pattern to learn.

@@ -563,6 +563,27 @@ describe('session orchestration', () => {
     }
   })
 
+  // WHY: a stop the host did for itself names nobody, so the target's transcript
+  // read a bare "Stopped". An agent's stop must say an agent ended the run, and
+  // which session it was, so a reader does not think a person or a crash did it.
+  test("an agent's stop records a stopped activity that names the stopping session", async () => {
+    const { backend, plane, orchestrator } = await sessions()
+    try {
+      await orchestrator.send('solus-sender', 'solus-target', { prompt: 'long job', delivery: 'queue', notify: true })
+      backend.complete('thread-1')
+      await backend.started(3)
+      const recorded: Activity[] = []
+      plane.on('event', (sessionId: string, event: NormalizedEvent) => {
+        if (sessionId === 'solus-target' && event.type === 'activity') recorded.push(event.activity)
+      })
+      expect(orchestrator.stop('solus-sender', 'solus-target')).toBe(true)
+      await until(() => recorded.length > 0)
+      expect(recorded).toEqual([expect.objectContaining({ kind: 'stopped', subject: { kind: 'session', id: 'solus-target' }, by: expect.objectContaining({ kind: 'agent', sessionId: 'solus-sender' }) })])
+    } finally {
+      plane.shutdown()
+    }
+  })
+
   // plans/004-shared-host-collaboration.md D12: Stop ends the running turn only.
   test('a message queued behind a stopped turn stays open and runs next', async () => {
     const { backend, plane, orchestrator, updates } = await sessions()
