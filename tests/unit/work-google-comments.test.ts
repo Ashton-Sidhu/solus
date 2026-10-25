@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import type { Attribution } from '@solus/contracts/user'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 mock.module('@solus/server/google/oauth', () => ({ getAccessToken: async () => 'test-token', grantedGoogleScopes: () => [], isGoogleOAuthConfigured: () => true }))
 const externalComments = await import('@solus/server/google/comments')
 let postCount = 0

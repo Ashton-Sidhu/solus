@@ -34,7 +34,8 @@ describe('AccountStore', () => {
     const { store, file } = storeIn(reversingCipher())
     store.save(account)
     expect(readFileSync(file, 'utf8')).not.toContain('secret-refresh-token')
-    expect(statSync(file).mode & 0o777).toBe(0o600)
+    // Windows has no POSIX file modes.
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600)
     expect(store.load()).toEqual(account)
   })
 

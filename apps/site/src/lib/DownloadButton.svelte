@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, type Snippet } from "svelte";
-	import { BREW_COMMAND, DOWNLOADS, SERVER_COMMAND, SERVER_TARGETS, detectPlatform, type DownloadPlatform } from "./download";
+	import { BREW_COMMAND, DOWNLOADS, SERVER_COMMANDS, SERVER_TARGETS, detectPlatform, type DownloadPlatform } from "./download";
 
 	// The download call to action for the visitor's OS: the desktop app for
 	// macOS, Windows, or Linux. The page is prerendered, so it shows macOS until
@@ -80,13 +80,13 @@
 				<!-- The server install command for this OS: one click copies it. -->
 				<button
 					type="button"
-					onclick={() => copy(SERVER_COMMAND, "server")}
+					onclick={() => copy(SERVER_COMMANDS[platform].command, "server")}
 					class="ml-1 inline-flex cursor-pointer items-center gap-2 rounded-full bg-surface py-1 pr-2.5 pl-3 font-mono text-[12.5px] text-ink-2 transition-colors hover:bg-[#e6e4dd] hover:text-ink"
-					title="{SERVER_TARGETS[platform]}: {SERVER_COMMAND}"
+					title="{SERVER_TARGETS[platform]}: {SERVER_COMMANDS[platform].command}"
 					aria-label="Copy the server install command"
 				>
 					<span class="font-sans font-medium">Server</span>
-					<span class="text-ink-3">$</span>curl -fsSL …/install.sh | sh
+					<span class="text-ink-3">{SERVER_COMMANDS[platform].prompt}</span>{SERVER_COMMANDS[platform].label}
 					{#if copied === "server"}{@render checkIcon()}{:else}{@render copyIcon()}{/if}
 				</button>
 			{/if}

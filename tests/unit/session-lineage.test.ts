@@ -1,7 +1,8 @@
 import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type LineageRepository = typeof import('@solus/server/data/sessions/session-lineage')
 let repository: LineageRepository

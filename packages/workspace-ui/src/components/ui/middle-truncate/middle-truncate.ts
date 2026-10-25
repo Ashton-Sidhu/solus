@@ -17,7 +17,8 @@ export function splitForMiddleTruncate(
   const chars = Array.from(value)
   let keep = tail ?? DEFAULT_TAIL
   if (tail === undefined) {
-    const slash = chars.lastIndexOf('/')
+    // A Windows host path separates with `\` as well as `/`.
+    const slash = Math.max(chars.lastIndexOf('/'), chars.lastIndexOf('\\'))
     if (slash > 0 && slash < chars.length - 1) {
       const segment = chars.length - slash - 1
       keep = segment <= MAX_SEGMENT_TAIL ? segment : DEFAULT_TAIL

@@ -12,6 +12,7 @@ import type { HostOption, ProjectSource } from './lib/open-project-flow'
 import { openProjectStore } from './open-project.store.svelte'
 import { isRunOnHostLocked, moveTabToHost } from './run-on'
 import { checkoutPlace, openFolder, runHost } from '../../contexts/workspace/run-location'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 
 type PickerIntent = 'dispatch' | 'open-project'
 
@@ -285,7 +286,7 @@ export function createProjectPicker(session: WorkspaceContext) {
     if (!serverId) return
 
     const project = projectsStore.addProject(serverId, serverConnections.apiFor(serverId), path)
-    const name = path.split(/[\\/]/).pop() || path
+    const name = hostPathBaseName(path) || path
 
     // The flow may have been started from a draft (RunOnPicker passes its
     // requester id through `tabId`); re-aim that draft instead of opening a

@@ -2,11 +2,11 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { MetricsTurnPageRequest } from '@solus/contracts/observability-types'
 import type { Principal } from '@solus/server/admission/principal'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/access-model.md §4 D2: in Insights a person sees the turns they ran;
 // a host administrator sees every turn in their scope. Every filtered read (the

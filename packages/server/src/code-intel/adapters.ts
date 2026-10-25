@@ -108,6 +108,6 @@ export function resolveToolBinary(adapter: CodeIntelAdapter, root: string | null
     if (existsSync(goInstallDefault)) return goInstallDefault
   }
   if (!root) return null
-  const local = join(root, 'node_modules', '.bin', adapter.toolName)
-  return existsSync(local) ? local : null
+  // A Windows install there is a `.cmd` or `.exe`, found as a PATH lookup finds it.
+  return findOnPath(adapter.toolName, join(root, 'node_modules', '.bin'))
 }

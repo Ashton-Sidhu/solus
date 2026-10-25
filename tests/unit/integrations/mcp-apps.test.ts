@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, expect, mock, spyOn, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from '../helpers/bun-sqlite'
 import type { Integration } from '@solus/contracts/integration-types'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import type { IntegrationAppCapture } from '@solus/server/integrations/gateway'
 import type { Activity } from '@solus/contracts/activity'
 import { memberPrincipal, withActor } from '../helpers/actors'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { IntegrationGateway } = await import('@solus/server/integrations/gateway')
 const { integrationAgentTools, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
 const { IntegrationApps } = await import('@solus/server/integrations/mcp-apps')

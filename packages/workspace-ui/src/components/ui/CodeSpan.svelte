@@ -3,8 +3,9 @@
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { getSurfaceContext, hasSurfaceContext } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
-  import { basename, codeSpanFileTarget, leadingDirs, parentDir } from "./lib/code-span-path";
+  import { codeSpanFileTarget, leadingDirs, parentDir } from "./lib/code-span-path";
   import { boldTextInCodeSpan } from "@solus/document-model/markdown";
+  import { hostPathBaseName } from "@solus/contracts/host-path";
 
   interface Props {
     raw?: string;
@@ -48,9 +49,9 @@
     class={tokenClassName("file")}
     title={copyText}
     onclick={handleFileClick}
-  ><span class="solus-token__icon"><svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(basename(filePath))} /></svg></span><span
+  ><span class="solus-token__icon"><svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(hostPathBaseName(filePath))} /></svg></span><span
       class="solus-token__copy-only">{leadingDirs(filePath)}</span>{#if parentDir(filePath)}<span
-      class="solus-token__dir">{parentDir(filePath)}</span>{/if}{basename(filePath)}{fileLine ? `:${fileLine}` : ''}</button>
+      class="solus-token__dir">{parentDir(filePath)}</span>{/if}{hostPathBaseName(filePath)}{fileLine ? `:${fileLine}` : ''}</button>
 {:else if boldText !== null}
   <strong>{boldText}</strong>
 {:else}

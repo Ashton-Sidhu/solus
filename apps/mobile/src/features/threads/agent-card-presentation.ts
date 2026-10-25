@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/threadAgentsPresentation.ts
 // and subagent-card-presentation.ts (MIT, see UPSTREAM.md), on Solus's agents.
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import type { AgentExchangeStatus, AgentId, SessionRecord } from '@solus/contracts/types'
 import { agentCardStatus, type AgentItem } from '../conversation/lib/agent-cards'
 import { modelLabel } from '../conversation/lib/run-settings'
@@ -90,7 +91,7 @@ function metaLine(provider: AgentId | null, model: string | null): string | null
 }
 
 function basename(path: string): string {
-  return path.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || path
+  return hostPathBaseName(path) || path
 }
 
 type WorkspaceRecord = Pick<SessionRecord, 'cwd' | 'projectRoot' | 'branch' | 'isWorktree'>

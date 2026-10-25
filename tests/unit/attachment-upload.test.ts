@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto'
 import { existsSync } from 'fs'
 import { mkdtemp, readFile, readdir, rm } from 'fs/promises'
 import { tmpdir } from 'os'
-import { dirname, isAbsolute, join, relative } from 'path'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'path'
 import {
   ATTACHMENT_UPLOAD_TOKEN_TTL_MS,
   createAttachmentUploadToken,
@@ -148,7 +148,7 @@ describe('attachment upload handler', () => {
 
     expect(isAbsolute(path)).toBe(true)
     expect(relative(root, path).startsWith('..')).toBe(false)
-    expect(relative(root, path).split('/')).toHaveLength(2)
+    expect(relative(root, path).split(sep)).toHaveLength(2)
     expect(path.endsWith('-notes.txt')).toBe(true)
     expect(await readFile(path)).toEqual(contents)
   })
@@ -164,7 +164,7 @@ describe('attachment upload handler', () => {
       { attachmentsDir: root },
     )
 
-    expect(relative(root, path).split('/')).toHaveLength(2)
+    expect(relative(root, path).split(sep)).toHaveLength(2)
     expect(await readFile(path)).toEqual(contents)
   })
 
@@ -177,7 +177,7 @@ describe('attachment upload handler', () => {
       { name: 'shot.png', mime: 'text/plain', dataUrl: dataUrl(Buffer.from('x')) },
       { attachmentsDir: root },
     )
-    const folderOf = (path: string) => relative(root, path).split('/')[0]
+    const folderOf = (path: string) => relative(root, path).split(sep)[0]
 
     const draft = await write(draftContext('draft-one'))
     const otherDraft = await write(draftContext('draft-two'))
@@ -284,12 +284,12 @@ describe('streamed attachment upload', () => {
 
     expect(relativeUrl.startsWith('/api/uploads/')).toBe(true)
     expect(expiresAt).toBe(now + ATTACHMENT_UPLOAD_TOKEN_TTL_MS)
-    expect(relative(root, hostPath).split('/')).toHaveLength(2)
+    expect(relative(root, hostPath).split(sep)).toHaveLength(2)
     const response = await receiveAttachmentUpload(token, { contentLength: String(bytes.length), body: chunks(bytes.subarray(0, 4), bytes.subarray(4)) }, { secret, now })
 
     expect(response.status).toBe(204)
     expect(await readFile(hostPath)).toEqual(bytes)
-    expect(await bucketFiles(hostPath)).toEqual([hostPath.split('/').pop()!])
+    expect(await bucketFiles(hostPath)).toEqual([basename(hostPath)])
   })
 
   test('the stored video keeps a playable extension when the picker omits it or the name is truncated', async () => {

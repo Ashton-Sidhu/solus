@@ -21,6 +21,8 @@ import { AccountReads } from '@solus/server/vault/account-reads'
 import { AGENT_PROFILE_PATH } from '@solus/contracts/agent-profile'
 import { VAULT_PATH } from '@solus/contracts/vault'
 
+// Windows has no POSIX file modes or executable bit.
+const hasFileModes = process.platform !== 'win32'
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
 
@@ -192,7 +194,7 @@ test('copying again replaces the profile and leaves everything else in the seat 
   const claudeHome = target.homeFor('claude-code')
   expect(readFileSync(join(claudeHome, 'agents/reviewer.md'), 'utf8')).toBe('Review carefully.')
   expect(existsSync(join(claudeHome, 'CLAUDE.md'))).toBe(false)
-  expect(statSync(join(claudeHome, 'skills/review/scripts/run.sh')).mode & 0o100).toBeTruthy()
+  if (hasFileModes) expect(statSync(join(claudeHome, 'skills/review/scripts/run.sh')).mode & 0o100).toBeTruthy()
 
   const withoutReview: AgentProfileCopy = { profile: Object.fromEntries(Object.entries(read.profile).filter(([key]) => !key.includes('skills/review'))), skipped: read.skipped }
   target.at(2000)
@@ -224,7 +226,7 @@ test('a registry skill is written as files into every agent home, kept when the 
   expect(status.skipped).toEqual([{ path: 'broken', reason: 'install-failed' }])
   for (const home of [claudeHome, codexHome]) {
     expect(readFileSync(join(home, 'skills/frontend-design/SKILL.md'), 'utf8')).toBe('# frontend-design')
-    expect(statSync(join(home, 'skills/frontend-design/scripts/run.sh')).mode & 0o100).toBe(0o100)
+    if (hasFileModes) expect(statSync(join(home, 'skills/frontend-design/scripts/run.sh')).mode & 0o100).toBe(0o100)
   }
 
   // The registry is unreachable: the files an earlier copy wrote stay, and the skill is reported.
@@ -354,7 +356,7 @@ test('a link in the seat is never written or removed through', async () => {
   expect(readFileSync(join(outside, 'rules.md'), 'utf8')).toBe('host rules')
 })
 
-test('a copy updates the executable bit of a file already in the seat', async () => {
+test.if(hasFileModes)('a copy updates the executable bit of a file already in the seat', async () => {
   // WHY: a script made executable on the laptop must run on the host too.
   const target = seat()
   const script = join(target.homeFor('claude-code'), 'skills/tool/run.sh')

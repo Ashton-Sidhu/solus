@@ -1,16 +1,18 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import { runtimeInstructions } from '@solus/server/execution/agents/runtime-instructions'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const realCliEnv = await import('@solus/server/cli-env')
 mock.module('@solus/server/cli-env', () => ({
   ...realCliEnv,
   warmCliPath: async () => '/fixture/bin',
   findOnPath: () => '/fixture/bin/claude',
+  // On win32 resolveClaudeExecutable asks startableCommand too; the fixture is an .exe there.
+  startableCommand: () => ({ file: '/fixture/bin/claude.exe', args: [] }),
 }))
 
 let capturedOptions: Options | null = null

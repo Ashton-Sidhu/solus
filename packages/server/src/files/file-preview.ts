@@ -1,16 +1,17 @@
 import { open, readFile, realpath, stat } from 'fs/promises'
-import { relative, resolve } from 'path'
+import { isAbsoluteHostPath, relativeHostPath } from '@solus/contracts/host-path'
+import { resolve } from 'path'
 import type { FilePreviewRequest, FilePreviewResult, IpcContext } from '@solus/contracts/types'
 import { mediaTypeFor, mimeTypeFor } from '@solus/contracts/media-types'
 import { isInsideRoot } from '../paths'
-import { expandHome } from './host-path'
+import { expandHome, startsAtHome } from './host-path'
 import { resolveProjectPathBySuffix } from './path-suffix-match'
 
 /** Unlike `expandHome`, a bare relative path resolves against the *request's*
  *  cwd rather than the server process's. Only the `~` rule is shared. */
 export function resolvePreviewPath(rawPath: string, cwd: string | undefined): string {
-  if (rawPath === '~' || rawPath.startsWith('~/')) return expandHome(rawPath)
-  if (rawPath.startsWith('/')) return resolve(rawPath)
+  if (startsAtHome(rawPath)) return expandHome(rawPath)
+  if (isAbsoluteHostPath(rawPath)) return resolve(rawPath)
   return resolve(cwd || process.cwd(), rawPath)
 }
 
@@ -85,7 +86,7 @@ export async function readFilePreview(
     if (!fileStat.isFile()) {
       return { ok: false, path: target, error: 'Only files can be previewed.' }
     }
-    const displayPath = root && isInsideRoot(root, target) ? relative(root, target) : target
+    const displayPath = (root && isInsideRoot(root, target) ? relativeHostPath(root, target) : null) ?? target
     // Media is named, not sent: the client loads it from a signed asset URL.
     const media = mediaTypeFor(target)
     if (media) return { ok: true, kind: 'media', path: target, displayPath, size: fileStat.size, media }

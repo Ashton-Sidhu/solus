@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { actorFor } from '@solus/server/admission/actor'
 import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
@@ -16,7 +17,7 @@ import { resetTestDatabase } from './helpers/test-db'
 // typed turn makes, so a change that adds a write to every turn fails here
 // instead of shipping (plans/003-session-message-integration.md, stage 1).
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let dataDir = ''
 let previousDataDir: string | undefined

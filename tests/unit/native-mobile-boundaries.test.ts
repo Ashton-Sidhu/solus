@@ -12,6 +12,8 @@ import { dirname, join, relative, resolve } from 'node:path'
 
 const root = resolve(import.meta.dir, '../..')
 const mobile = join(root, 'apps/mobile')
+/** A path from the repo root with '/', as the checks below name it; Windows gives '\\'. */
+const fromRoot = (file: string) => relative(root, file).replaceAll('\\', '/')
 
 /** client-core modules that touch the DOM, the Electron bridge, or browser
  *  storage when used. Native code has its own adapters instead. */
@@ -40,13 +42,13 @@ function resolveFile(base: string): string | null {
 function resolveSpecifier(from: string, specifier: string): { file: string } | { package: string } {
   if (specifier.startsWith('.')) {
     const file = resolveFile(resolve(dirname(from), specifier))
-    if (!file) throw new Error(`unresolved ${specifier} from ${relative(root, from)}`)
+    if (!file) throw new Error(`unresolved ${specifier} from ${fromRoot(from)}`)
     return { file }
   }
   const workspace = /^@solus\/(contracts|client-core)\/(.+)$/.exec(specifier)
   if (workspace) {
     const file = resolveFile(join(root, 'packages', workspace[1]!, 'src', workspace[2]!.replace(/\.json$/, '.json')))
-    if (!file) throw new Error(`unresolved ${specifier} from ${relative(root, from)}`)
+    if (!file) throw new Error(`unresolved ${specifier} from ${fromRoot(from)}`)
     return { file }
   }
   const name = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]!
@@ -94,10 +96,10 @@ function buildGraph(entries: string[]): Graph {
     for (const specifier of runtimeSpecifiers(readFileSync(file, 'utf8'))) {
       const target = resolveSpecifier(file, specifier)
       if ('package' in target) {
-        if (!graph.packages.has(target.package)) graph.packages.set(target.package, relative(root, file))
+        if (!graph.packages.has(target.package)) graph.packages.set(target.package, fromRoot(file))
         continue
       }
-      graph.edges.push({ from: relative(root, file), to: relative(root, target.file) })
+      graph.edges.push({ from: fromRoot(file), to: fromRoot(target.file) })
       queue.push(target.file)
     }
   }
@@ -106,7 +108,7 @@ function buildGraph(entries: string[]): Graph {
 
 describe('native mobile import boundary', () => {
   const graph = buildGraph(nativeEntryPoints())
-  const files = [...graph.files].map((file) => relative(root, file))
+  const files = [...graph.files].map((file) => fromRoot(file))
 
   test('the native graph reaches the shared transport, not a copy of it', () => {
     expect(files).toContain('packages/client-core/src/ws-transport.ts')
@@ -131,6 +133,6 @@ describe('native mobile import boundary', () => {
 
   test('a browser-only import would be caught', () => {
     const probe = buildGraph([join(root, 'packages/client-core/src/server-connection.ts')])
-    expect([...probe.files].map((file) => relative(root, file))).toContain('packages/client-core/src/ws-browser-api.ts')
+    expect([...probe.files].map((file) => fromRoot(file))).toContain('packages/client-core/src/ws-browser-api.ts')
   })
 })

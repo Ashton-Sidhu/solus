@@ -910,12 +910,20 @@
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Self-hosted server</h3>
 				<p class="text-base/7 sm:text-[14px]">
-					Run the standalone server on any macOS or Linux box and reach it entirely from the
+					Run the standalone server on any macOS, Linux, or Windows box and reach it entirely from the
 					browser. Download install.sh from a server release, then run:
 				</p>
 				<div class="mt-4 p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)] font-mono text-[13px] text-[#6B6158] whitespace-pre-wrap">sh install.sh
 export PATH="$HOME/.local/bin:$PATH"
 solus setup
+solus pair</div>
+				<p class="mt-4 text-base/7 sm:text-[14px]">
+					On Windows (x64), download install.ps1 from the same release and run it in PowerShell. It
+					installs <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus.cmd</code> in
+					<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">%USERPROFILE%\.local\bin</code> and adds that folder to your user PATH:
+				</p>
+				<div class="mt-4 p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)] font-mono text-[13px] text-[#6B6158] whitespace-pre-wrap">powershell -ExecutionPolicy Bypass -File install.ps1 -Setup
+# then, in a new terminal:
 solus pair</div>
 				<ul class="mt-4 flex flex-col gap-3 list-none p-0">
 					{#each [

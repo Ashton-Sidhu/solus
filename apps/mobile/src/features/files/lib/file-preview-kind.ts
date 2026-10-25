@@ -1,3 +1,4 @@
+import { hostPathSegments, hostPathSeparator, isAbsoluteHostPath } from '@solus/contracts/host-path'
 import { mediaTypeFor } from '@solus/contracts/media-types'
 
 /**
@@ -26,18 +27,18 @@ export function fileMediaView(path: string): FileMediaView | null {
   return media.kind === 'video' ? 'video' : 'document'
 }
 
-function isAbsoluteHostPath(path: string): boolean {
-  return path.startsWith('/') || path.startsWith('~') || /^[A-Za-z]:[\\/]/.test(path)
-}
-
-/** `target` relative to the folder of `filePath`, with `.` and `..` segments applied. */
+/** `target` relative to the folder of `filePath`, with `.` and `..` segments
+ *  applied, in `filePath`'s own separator. */
 export function resolveMarkdownRelativePath(filePath: string, target: string): string {
-  if (isAbsoluteHostPath(target)) return target
-  const segments = filePath.split('/').slice(0, -1)
-  for (const segment of target.split('/')) {
-    if (segment === '' || segment === '.') continue
+  if (isAbsoluteHostPath(target) || target.startsWith('~')) return target
+  const segments = hostPathSegments(filePath).slice(0, -1)
+  for (const segment of hostPathSegments(target)) {
+    if (segment === '.') continue
     if (segment === '..' && segments.length > 0 && segments.at(-1) !== '..') segments.pop()
     else segments.push(segment)
   }
-  return segments.join('/')
+  // The segments drop a POSIX or UNC root; a drive root is the first segment.
+  // oxlint-disable-next-line solus/host-path-separators
+  const root = filePath.startsWith('/') ? '/' : filePath.startsWith('\\\\') ? '\\\\' : ''
+  return root + segments.join(hostPathSeparator(filePath))
 }

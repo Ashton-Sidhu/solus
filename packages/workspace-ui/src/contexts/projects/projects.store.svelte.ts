@@ -18,6 +18,7 @@ import {
   type ProjectRef,
 } from './project-catalog'
 import { projectDirLabel } from '../../lib/paths'
+import { isInsideHostPath } from '@solus/contracts/host-path'
 
 /** The last project list read from each host (docs/plans/project-model.md §2).
  *  A cache for hosts that are away, never a record of its own. */
@@ -61,11 +62,6 @@ function checkoutOf(serverId: string, project: ProjectEntry): ProjectCatalogEntr
     lastSeenAt: Date.parse(project.lastUsedAt) || Date.parse(project.addedAt) || 0,
     repositoryKey: project.repositoryKey,
   }
-}
-
-/** Whether `path` is `root` or a folder inside it. */
-function holds(root: string, path: string): boolean {
-  return path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`)
 }
 
 type FetchRecentProjects = (serverId: string) => Promise<RecentProject[]>
@@ -128,7 +124,7 @@ export class ProjectsStore {
     const folder = normalizeProjectRoot(path)
     let found: ProjectEntry | null = null
     for (const project of this.projectsFor(serverId)) {
-      if (holds(project.path, folder) && (!found || project.path.length > found.path.length)) found = project
+      if (isInsideHostPath(project.path, folder) && (!found || project.path.length > found.path.length)) found = project
     }
     return found ? checkoutOf(serverId, found) : null
   }

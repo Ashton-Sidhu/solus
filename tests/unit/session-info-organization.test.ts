@@ -2,13 +2,13 @@ import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { SessionMeta } from '@solus/contracts/types'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
 import { resetTestDatabase } from './helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/workspace-and-machines.md §6: a host names the organization of a
 // session's record when it describes the session, so a client can still find

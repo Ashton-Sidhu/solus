@@ -1,8 +1,8 @@
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { describe, expect, mock, test } from 'bun:test'
 
 // The Codex normalizer reaches the session database through its utilities.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { ClaudeTurnNormalizer } = await import('@solus/server/execution/agents/claude/claude-event-normalizer')
 const { CodexTurnNormalizer } = await import('@solus/server/execution/agents/codex/codex-event-normalizer')
 const { codexTurnToMessages } = await import('@solus/server/execution/agents/codex/codex-utils')

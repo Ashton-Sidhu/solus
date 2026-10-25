@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import { joinHostPath } from '@solus/contracts/host-path'
 import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema, type DeviceProjectInfo, type DeviceRunProfile, type DeviceSigningTeam } from '@solus/contracts/device-types'
 import type { HostApi } from './host-api'
 import { profileTargetLabel } from './device-builds'
@@ -156,7 +157,7 @@ export async function fitPresetToProject(
   if (profile.platform !== 'ios') return projectPreset(profile, info)
   const folder = presetFolder(profile, info)
   const [listing, teams] = await Promise.all([
-    api.listDirectory(`${checkoutPath.replace(/\/+$/, '')}/${folder}`).catch(() => null),
+    api.listDirectory(joinHostPath(checkoutPath, folder)).catch(() => null),
     profile.target === 'device' ? api.deviceSigningTeams().catch(() => []) : [],
   ])
   const fitted = projectPreset(profile, info, listing?.entries.map((entry) => entry.name) ?? [])

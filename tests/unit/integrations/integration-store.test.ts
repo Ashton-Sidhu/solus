@@ -2,10 +2,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from '../helpers/bun-sqlite'
 import { resetTestDatabase } from '../helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/mcp-integrations.md §3.3 and docs/plans/access-model.md (D3): an
 // integration is a root record of one organization and of one person, its owner;

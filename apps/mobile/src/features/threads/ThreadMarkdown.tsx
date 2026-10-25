@@ -41,11 +41,13 @@ import {
   ThreadMarkdownImageView,
 } from "./ThreadMarkdownImage";
 import { ThreadMarkdownVideo } from "./ThreadMarkdownVideo";
+import { isAbsoluteHostPath } from "@solus/contracts/host-path";
 import { parseReviewCommentMessageSegments } from "@solus/contracts/review-comment";
 import { ReviewCommentCard } from "../review/ReviewCommentCard";
 
-function isAbsoluteHostPath(path: string): boolean {
-  return path.startsWith("/") || path.startsWith("~") || /^[A-Za-z]:[\\/]/.test(path);
+/** A path the host resolves without the working directory: `~` is its home. */
+function isHostRootedPath(path: string): boolean {
+  return isAbsoluteHostPath(path) || path.startsWith("~");
 }
 
 /**
@@ -91,7 +93,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
 
   const hostRequest = useCallback(
     (path: string): HostPathRequest | null =>
-      isAbsoluteHostPath(path)
+      isHostRootedPath(path)
         ? { path }
         : workingDirectory
           ? { path, ctx: projectContext(workingDirectory, organizationId) }
@@ -110,7 +112,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
         if (!request) return null;
         return {
           path,
-          relativePath: isAbsoluteHostPath(path) ? undefined : path,
+          relativePath: isHostRootedPath(path) ? undefined : path,
           resolveUri: async () => {
             const connection = app.connections.connection(hostId);
             return connection ? resolveHostMediaUrl(connection, request) : null;
@@ -133,7 +135,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
       }
       const presentation = resolveMarkdownLinkPresentation(href);
       if (presentation.kind === "file") {
-        if (!isAbsoluteHostPath(presentation.path) && !workingDirectory) return;
+        if (!isHostRootedPath(presentation.path) && !workingDirectory) return;
         void Haptics.selectionAsync();
         // A partial or `~` path goes to the host as written: `readProjectFile`
         // expands `~` and completes a basename against the project index.

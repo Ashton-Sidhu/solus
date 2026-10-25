@@ -87,6 +87,7 @@ import {
 } from './pr-link-discovery'
 import { projectHome, runHost, workingPlace } from './run-location'
 import { visibleInWindow } from '@solus/client-core/organization-filter'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 
 function restoredSessionActivityAt(
   liveActivityAt: number,
@@ -139,7 +140,7 @@ export type SidebarSessionChild = {
 /** A row's project name. A chat has no project, so it reads "Chat". */
 function projectLabel(projectKey: string): string {
   if (isChat(projectKey)) return CHAT_LABEL
-  return projectKey === '~' ? '~' : projectKey.replace(/\/$/, '').split('/').at(-1) ?? '~'
+  return projectKey === '~' ? '~' : hostPathBaseName(projectKey)
 }
 
 /** The project a run works in. A dispatched run keeps its project's path on

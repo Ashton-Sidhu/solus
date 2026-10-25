@@ -9,8 +9,8 @@ import type { IpcContext } from '@solus/contracts/types'
 // lineage. The lineage table is the host's; here one Solus session owns one
 // provider thread working in a temp repository.
 let lineageCwd = ''
-const { Database } = await import('bun:sqlite')
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+const { DatabaseSync } = await import('./helpers/bun-sqlite')
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const realLineage = await import('@solus/server/data/sessions/session-lineage')
 mock.module('@solus/server/data/sessions/session-lineage', () => ({
   ...realLineage,

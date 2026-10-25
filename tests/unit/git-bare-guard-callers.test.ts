@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { spawnSync, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import type { SetupCloneProjectResult } from '@solus/contracts/types'
+import { sameHostPath } from '@solus/contracts/host-path'
 import { runDeviceCommand } from '@solus/server/devices/device-process'
 import { DeviceRunSources } from '@solus/server/devices/device-run-source'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
@@ -19,7 +20,7 @@ import { installTestIdentities } from './helpers/acting-identities'
 // found implicitly, it would make that folder look like a checkout. Synthetic
 // data only; probes read config, and nothing writes the developer's config.
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { registerSetupHandlers } = await import('@solus/server/transport/handlers/setup-handlers')
 const { SolusServer } = await import('@solus/server/transport/server')
 const { defaultSpawn } = await import('@solus/server/devices/device-run')
@@ -45,7 +46,8 @@ function fixtureGit(args: string[], cwd: string): string {
 }
 
 beforeAll(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), 'solus-bare-guard-callers-')))
+  // native: on Windows it also expands an 8.3 temp folder name, as git prints the long one.
+  base = realpathSync.native(mkdtempSync(join(tmpdir(), 'solus-bare-guard-callers-')))
   checkout = join(base, 'checkout')
   mkdirSync(checkout)
   fixtureGit(['init', '-q', '-b', 'main'], checkout)
@@ -58,7 +60,8 @@ beforeAll(() => {
   fixtureGit(['--git-dir', redirect, 'config', 'core.worktree', checkout], base)
   fixtureGit(['--git-dir', redirect, 'config', 'remote.origin.url', 'https://github.com/owner/repo.git'], base)
   // Without the guard, Git finds the folder and follows its config.
-  expect(fixtureGit(['rev-parse', '--show-toplevel'], redirect)).toBe(checkout)
+  // Git for Windows prints C:/x where Node has C:\x.
+  expect(sameHostPath(fixtureGit(['rev-parse', '--show-toplevel'], redirect), checkout)).toBe(true)
 })
 
 afterAll(() => { if (base) rmSync(base, { recursive: true, force: true }) })
@@ -69,7 +72,8 @@ describe('device runners', () => {
     expect(refused.code).toBe(128)
     expect(refused.stderr).toMatch(REFUSED)
     const kept = await runDeviceCommand('git', ['rev-parse', '--show-toplevel'], { cwd: checkout, env: ISOLATED })
-    expect({ code: kept.code, stdout: kept.stdout.trim() }).toEqual({ code: 0, stdout: checkout })
+    expect(kept.code).toBe(0)
+    expect(sameHostPath(kept.stdout.trim(), checkout)).toBe(true)
   })
 
   test('an owned run checkout is prepared through the guarded runner, upload-pack included', async () => {
@@ -136,7 +140,8 @@ describe('setup handlers', () => {
     }], TEST_HANDLER_CTX) as SetupCloneProjectResult
     expect(result.path).toBe(join(base, 'clone-target'))
     expect(spawned).toHaveLength(1)
-    expect(spawned[0]!.file).toBe('git')
+    // WHY: the program matters, not its spelling: Windows resolves the full `git.exe` path.
+    expect(basename(spawned[0]!.file, '.exe')).toBe('git')
     expect(spawned[0]!.args.slice(0, 2)).toEqual(['-c', 'safe.bareRepository=explicit'])
     expect(spawned[0]!.args.slice(2)).toContain('clone')
   })

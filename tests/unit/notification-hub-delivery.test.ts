@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'b
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { Principal } from '@solus/server/admission/principal'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
@@ -11,7 +11,7 @@ import type { SolusApiClient } from '@solus/contracts/solus-api/client'
 import { resetTestDatabase } from './helpers/test-db'
 import { notificationReader } from './helpers/actors'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/015-notifications-hub.md §5, stage 3: where notifications are written for
 // organization work. A record whose home is the Solus API is changed there, and its

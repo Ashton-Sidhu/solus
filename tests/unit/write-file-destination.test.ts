@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtemp, mkdir, readFile, realpath, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { IpcContext, WriteFileRequest, WriteFileResult } from '@solus/contracts/types'
 
 // bun has no node:sqlite; the handler module's import chain reaches the db even
 // though these tests never open it.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // Shared, not desktop-only: a paired headless host saves files the same way.
 const { registerFilesystemHandlers } = await import('@solus/server/transport/handlers/filesystem-handlers')
@@ -96,6 +96,7 @@ describe('writeFile destinations', () => {
     // `~` is a directory, so the write fails — but on EISDIR, which proves the
     // alias was expanded on the host rather than taken as a literal name.
     expect(result.ok).toBe(false)
+    expect(result.ok === false && result.error).toMatch(/EISDIR/)
     expect(result.path).not.toContain('~')
   })
 })

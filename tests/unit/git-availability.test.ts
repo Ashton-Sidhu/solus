@@ -44,7 +44,8 @@ describe('probeGit', () => {
     expect(probeGit('darwin', '/usr/bin', () => emptyTools)).toBe(false)
   })
 
-  test('a git outside the macOS stub is usable without asking the Mac', () => {
+  // The fixture is a `#!/bin/sh` file named git; Windows needs git.exe.
+  test.skipIf(process.platform === 'win32')('a git outside the macOS stub is usable without asking the Mac', () => {
     const dir = folderWithGit()
     const bin = join(dir, 'usr', 'bin')
     expect(probeGit('linux', bin)).toBe(true)

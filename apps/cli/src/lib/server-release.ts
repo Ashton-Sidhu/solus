@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { serverReleaseManifestSchema } from '@solus/contracts/server-update'
 import { isManagedVersion } from '@solus/contracts/host-install'
 import { verifyArchiveSha256 } from './update'
+import { nodeBinary, windowsSystemTool } from './runtime'
 import { versionsDir } from './version-store'
 
 const releaseSchema = z.object({
@@ -37,6 +38,21 @@ export async function runReleaseCommand(command: string, args: string[]): Promis
   })
 }
 
+/** The release archive for this host. Windows gets a `.zip`; Windows on ARM
+ *  is not built (`docs/plans/windows.md` §6). */
+export function serverArchiveName(platform: NodeJS.Platform, arch: string): string {
+  if (platform !== 'win32') return `solus-server-${platform}-${arch}.tar.gz`
+  if (arch !== 'x64') throw new Error(`Solus does not support Windows on ${arch}. Only x64 Windows is built and tested.`)
+  return 'solus-server-win32-x64.zip'
+}
+
+/** Windows 10 and later ship bsdtar as `System32\tar.exe`, which reads a zip.
+ *  Its full path is used, so an MSYS `tar` on PATH, which cannot, is never run. */
+export function extractCommand(archive: string, destination: string, platform: NodeJS.Platform): [string, string[]] {
+  if (platform === 'win32') return [windowsSystemTool('tar.exe'), ['-xf', archive, '-C', destination]]
+  return ['tar', ['-xzf', archive, '-C', destination]]
+}
+
 /** Stage beside `versions/`. Never touch `current` here — the caller
  *  finalizes into `versions/<version>` and activates it only once the
  *  running child confirms it started. */
@@ -50,7 +66,7 @@ export async function stageServerRelease(runtimeDir: string, currentDir: string,
   if (!response.ok) throw new Error(`Release lookup failed: HTTP ${response.status}`)
   const release = releaseSchema.parse(await response.json())
   if (release.tag_name !== `v${version}` && release.tag_name !== version) throw new Error('Release version mismatch.')
-  const artifact = `solus-server-${process.platform}-${process.arch}.tar.gz`
+  const artifact = serverArchiveName(process.platform, process.arch)
   const asset = release.assets.find((entry) => entry.name === artifact)
   const sums = release.assets.find((entry) => entry.name === 'SHA256SUMS')
   if (!asset || !sums) throw new Error('This release has no server archive for this host.')
@@ -63,9 +79,9 @@ export async function stageServerRelease(runtimeDir: string, currentDir: string,
     await Promise.all([download(asset.browser_download_url, archive), download(sums.browser_download_url, checksum)])
     verifyArchiveSha256(archive, readFileSync(checksum, 'utf8'), artifact)
     mkdirSync(next)
-    await runReleaseCommand('tar', ['-xzf', archive, '-C', next])
+    await runReleaseCommand(...extractCommand(archive, next, process.platform))
     assertCompatibleRelease(currentDir, next, version)
-    await runReleaseCommand(join(next, 'bin/node'), ['--version'])
+    await runReleaseCommand(nodeBinary(next), ['--version'])
     return next
   } catch (error) {
     rmSync(stage, { recursive: true, force: true })

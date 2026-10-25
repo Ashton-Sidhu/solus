@@ -3,12 +3,12 @@ import type { Server } from 'http'
 import { existsSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { io as connect } from 'socket.io-client'
 
 // bun has no node:sqlite; the http module's import chain reaches the db even
 // though these tests never open it. Same seam tunnel-listener.test.ts uses.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const hostCategory = await import('@solus/server/host/host-category')
 const hostLinkEnv = await import('@solus/server/host/host-link-env')
@@ -188,7 +188,8 @@ describe('managed host', () => {
     expect(projectsVisibleTo(undefined, projects, root)).toHaveLength(5)
   })
 
-  test('the projects root follows SOLUS_PROJECTS_ROOT until an administrator sets one (§3)', () => {
+  // POSIX paths: a managed host is a Linux machine.
+  test.skipIf(process.platform === 'win32')('the projects root follows SOLUS_PROJECTS_ROOT until an administrator sets one (§3)', () => {
     expect(setupProjectsRoot({}, '/data/home', { SOLUS_PROJECTS_ROOT: '/data/projects' })).toBe('/data/projects')
     expect(setupProjectsRoot({ projectsBaseDirectory: '~/work' }, '/data/home', { SOLUS_PROJECTS_ROOT: '/data/projects' })).toBe('/data/home/work')
     // WHY: a new project must never land loose in the home folder.

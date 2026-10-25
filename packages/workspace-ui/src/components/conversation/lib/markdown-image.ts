@@ -2,6 +2,7 @@ import { getContext, setContext } from "svelte";
 import type { IpcContext } from "@solus/contracts/types";
 import type { HostApi } from "@solus/client-core/host-api";
 import { videoMimeType } from "@solus/contracts/media-types";
+import { isWindowsHostPath, joinHostPath } from "@solus/contracts/host-path";
 
 const MARKDOWN_IMAGE_CONTEXT = Symbol("markdown-image-context");
 
@@ -30,9 +31,10 @@ export function markdownAssetId(href: string): string | null {
 export function markdownImagePath(href: string, cwd: string | undefined): string | null {
   const trimmed = href.trim();
   const isFileUrl = /^file:/i.test(trimmed);
+  if (!trimmed || ((!cwd || cwd === "~") && !isFileUrl)) return null;
+  // `C:\x.png` reads as a URL with the scheme `c:`, but it is a path on a Windows host.
+  if (isWindowsHostPath(trimmed)) return trimmed;
   if (
-    !trimmed ||
-    ((!cwd || cwd === "~") && !isFileUrl) ||
     trimmed.startsWith("//") ||
     trimmed.startsWith("#") ||
     trimmed.startsWith("?") ||
@@ -42,12 +44,15 @@ export function markdownImagePath(href: string, cwd: string | undefined): string
   }
 
   try {
-    const filePath = isFileUrl
-      ? decodeURIComponent(new URL(trimmed).pathname)
-      : decodeURIComponent(
-          new URL(trimmed, `file://${cwd!.replace(/\/+$/, "")}/`).pathname,
-        );
-    return filePath;
+    if (isFileUrl) return decodeURIComponent(new URL(trimmed).pathname);
+    // A URL base would read a Windows cwd as `/C:/repo`; join it in its own separators.
+    if (isWindowsHostPath(cwd!)) {
+      const relative = decodeURIComponent(trimmed.split(/[?#]/, 1)[0]).replace(/^(?:\.[\\/])+/, "");
+      return joinHostPath(cwd!, relative);
+    }
+    return decodeURIComponent(
+      new URL(trimmed, `file://${cwd!.replace(/\/+$/, "")}/`).pathname,
+    );
   } catch {
     return null;
   }

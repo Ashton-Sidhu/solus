@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let solusToolbox: typeof import('@solus/server/execution/agents/tools/solus-toolbox')['solusToolbox']
 let adaptClaudeTools: typeof import('@solus/server/execution/agents/claude/claude-tool-adapter')['adaptClaudeTools']

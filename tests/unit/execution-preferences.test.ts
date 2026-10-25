@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
@@ -11,7 +11,7 @@ import type { AgentId, AgentMetadata, NormalizedEvent, PermissionMode, SessionRu
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/018 §3.1: a host runs work with the preferences of the person it works
 // for, captured with the work, never with its own config. A child session

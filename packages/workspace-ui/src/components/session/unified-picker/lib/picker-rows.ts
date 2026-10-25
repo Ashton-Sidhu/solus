@@ -27,6 +27,7 @@ import {
   type SessionOwner,
   type TaskSession,
 } from './picker-session-listings'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 
 export { sessionIdentity } from './picker-session-listings'
 
@@ -128,7 +129,7 @@ export function isTaskGroup(row: Extract<PickerRow, { kind: 'task' }>): boolean 
 export function projectLabel(task: Task): string {
   if (!task.projectKey) return 'Inbox'
   if (isChat(task.projectKey)) return CHAT_LABEL
-  return task.projectKey.replace(/\/$/, '').split('/').at(-1) || task.projectKey
+  return hostPathBaseName(task.projectKey) || task.projectKey
 }
 
 /** The task's human id as it is shown everywhere: `T-<n>`. Empty for a task
@@ -150,8 +151,7 @@ export function conversationTitle(meta: SessionMeta): string {
 
 /** The folder a conversation ran in: its repo root, else its directory. */
 export function conversationProjectLabel(meta: SessionMeta): string {
-  const dir = (meta.projectRoot || meta.cwd || '').replace(/\/$/, '')
-  return dir.split('/').at(-1) || '~'
+  return hostPathBaseName(meta.projectRoot || meta.cwd || '') || '~'
 }
 
 /**

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +7,7 @@ import type { Attribution } from '@solus/contracts/user'
 
 const dataDir = mkdtempSync(join(tmpdir(), 'solus-work-version-'))
 process.env.SOLUS_DATA_DIR = dataDir
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let works: typeof import('@solus/server/data/works/works')
 let workModule: typeof import('@solus/server/data/works/work')
 let documentContentHash: typeof import('@solus/server/docs/content-hash').documentContentHash

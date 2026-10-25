@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from '../helpers/bun-sqlite'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpOAuth } from '@solus/contracts/integrations/oauth-protocol'
@@ -8,7 +8,7 @@ import { googleCalendarServer, GOOGLE_CALENDAR_SCOPES } from '@solus/server/inte
 import { boundFetch, solusMcpServer, SolusServerAuthError, vendorJson, type SolusSessionDeps } from '@solus/server/integrations/solus-servers/solus-server'
 
 // The gateway's input requests open the session store, which Bun reads through its own SQLite.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 /**
  * Solus MCP servers (docs/plans/mcp-integrations.md §13.6). What matters: the

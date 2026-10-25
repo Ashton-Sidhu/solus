@@ -2,11 +2,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import { UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let dataDir: string
 let states: typeof import('@solus/server/data/sessions/session-states')

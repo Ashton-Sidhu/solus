@@ -1,4 +1,5 @@
 import type { SubagentRow } from './subagent-group'
+import { hostPathBaseName, hostPathSegments, hostPathSeparator } from '@solus/contracts/host-path'
 
 /** Three segments places a file. The worktree prefix above it is identical for
  *  every row in the session. */
@@ -11,8 +12,8 @@ const PATH_SEGMENTS = 3
  */
 export function subagentTargetPath(target: string): string {
   const trimmed = target.trim()
-  if (!trimmed.includes('/') || /\s/.test(trimmed)) return trimmed
-  return trimmed.split('/').filter(Boolean).slice(-PATH_SEGMENTS).join('/')
+  if (hostPathBaseName(trimmed) === trimmed || /\s/.test(trimmed)) return trimmed
+  return hostPathSegments(trimmed).slice(-PATH_SEGMENTS).join(hostPathSeparator(trimmed))
 }
 
 /**

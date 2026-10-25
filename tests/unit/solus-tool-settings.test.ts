@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CONFIGURABLE_SOLUS_TOOL_NAMES, SOLUS_TOOL_GROUPS } from '@solus/contracts/agent-tools'
@@ -8,7 +8,7 @@ import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig } from '@so
 import { matchingToolGroups, groupPatch, groupSummary } from '../../packages/workspace-ui/src/components/settings/lib/solus-tool-groups'
 import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const dataDir = mkdtempSync(join(tmpdir(), 'solus-tool-settings-'))
 const previousDataDir = process.env.SOLUS_DATA_DIR

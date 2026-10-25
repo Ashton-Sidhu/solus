@@ -4,12 +4,12 @@ import { createServer, type Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { z } from 'zod'
 import type { HostRegistration } from '@solus/contracts/uplink'
 import { resetTestDatabase } from './helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/simplify-auth-and-sync.md §4.5, plans/010-standard-oauth.md: every row of
 // the host's one queue — session record facts and mirrored rows — names its

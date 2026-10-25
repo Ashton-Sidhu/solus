@@ -107,6 +107,8 @@ export function buildHeatMapTree(
   const nodeByKey = new Map<string, HeatMapNode>()
 
   function insert(displayPath: string, entry: FileEntry): void {
+    // A diff path is git's, written with `/` on every host.
+    // oxlint-disable-next-line solus/host-path-separators
     const segments = displayPath.split('/')
     root.additions += entry.additions
     root.deletions += entry.deletions

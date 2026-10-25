@@ -3,7 +3,7 @@ import { createServer } from 'http'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { io, type Socket } from 'socket.io-client'
 import { type HandshakeCredential } from '@solus/contracts/uplink'
 import type { ResolvedLinkShare } from '@solus/server/sharing/share-manager'
@@ -11,7 +11,7 @@ import { fakeAccessTokens, handshake } from './helpers/socket-handshake'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { issueSessionToken, resetAuthStateForTests, revokeDevice } = await import('@solus/server/admission/auth')
 const { createDoors } = await import('@solus/server/admission/doors')
 const { SolusServer } = await import('@solus/server/transport/server')

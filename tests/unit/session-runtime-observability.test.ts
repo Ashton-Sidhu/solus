@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
@@ -13,7 +13,7 @@ import type { AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput, WireN
 import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
 import { parseOrchestrationItems } from '@solus/contracts/session-exchange'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type SessionRuntimeModule = typeof import('@solus/server/execution/session-runtime')
 type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')

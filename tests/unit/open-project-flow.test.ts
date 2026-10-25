@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { folderLabel, joinHostPath, newProjectPath } from '@solus/workspace-ui/components/servers/lib/open-project-flow'
+import { joinHostPath } from '@solus/contracts/host-path'
+import { folderLabel, newProjectPath } from '@solus/workspace-ui/components/servers/lib/open-project-flow'
 
 describe('open project path math', () => {
   test('a clone destination is built with the target host separator, not this one', () => {

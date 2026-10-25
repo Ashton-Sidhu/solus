@@ -5,7 +5,7 @@ import { basename, dirname, join, sep } from 'path'
 import { homedir } from 'os'
 import type { CloneProtocol, PackageInstallCommand, SetupAgent } from '@solus/contracts/types'
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
-import { hostCliEnv } from '../../cli-env'
+import { findOnPath, getCliPath, hostCliEnv, startableCommand } from '../../cli-env'
 
 /**
  * The commands host setup runs, and the parsing that decides them. Everything
@@ -16,6 +16,7 @@ import { hostCliEnv } from '../../cli-env'
 
 const CODEX_NPM_PACKAGE = '@openai/codex'
 const CLAUDE_INSTALL_SCRIPT = 'curl -fsSL https://claude.ai/install.sh | bash -s'
+const CLAUDE_WINDOWS_INSTALL_SCRIPT = 'irm https://claude.ai/install.ps1 | iex'
 const GH_APT_INSTALL_SCRIPT = [
   'set -eu',
   'if ! command -v wget >/dev/null 2>&1; then apt-get update; apt-get install -y wget; fi',
@@ -32,12 +33,7 @@ const GH_APT_INSTALL_SCRIPT = [
 ].join('\n')
 
 export function commandExists(command: string): boolean {
-  try {
-    execFileSync('which', [command], { encoding: 'utf8', env: hostCliEnv(), timeout: 3000 })
-    return true
-  } catch {
-    return false
-  }
+  return resolveCommandPath(command) !== null
 }
 
 export interface InstallCommandSpec {
@@ -49,6 +45,7 @@ export interface InstallCommandSpec {
 
 export interface BuildInstallCommandOptions {
   hasCommand?: (command: string) => boolean
+  platform?: NodeJS.Platform
 }
 
 export interface AgentInstallCompatibilityOptions {
@@ -61,7 +58,6 @@ export interface AgentInstallCompatibilityOptions {
 export type InstallablePackage = 'git' | 'gh'
 
 export interface PackageInstallCommandOptions extends BuildInstallCommandOptions {
-  platform?: NodeJS.Platform
   isRoot?: boolean
   canElevate?: boolean
 }
@@ -136,6 +132,15 @@ export function agentInstallCompatibilityError(
  */
 export function buildAgentInstallCommand(agent: SetupAgent, opts: BuildInstallCommandOptions = {}): InstallCommandSpec {
   const hasCommand = opts.hasCommand ?? commandExists
+  if (agent === 'claude' && (opts.platform ?? process.platform) === 'win32') {
+    // Anthropic's Windows installer; it needs no administrator rights.
+    return {
+      command: 'powershell.exe',
+      args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', CLAUDE_WINDOWS_INSTALL_SCRIPT],
+      display: CLAUDE_WINDOWS_INSTALL_SCRIPT,
+      strategy: 'claude-install-script',
+    }
+  }
   if (agent === 'claude') {
     return {
       command: 'bash',
@@ -165,19 +170,19 @@ export interface AgentOwnershipOptions {
   home?: string
 }
 
-/** `which`, but a miss returns null instead of throwing. */
+/** Where a command is on the host's PATH, or null. Windows has no `which`. */
 export function resolveCommandPath(command: string): string | null {
-  try {
-    return execFileSync('which', [command], { encoding: 'utf8', env: hostCliEnv(), timeout: 3000 }).trim() || null
-  } catch {
-    return null
-  }
+  return findOnPath(command, getCliPath())
 }
 
 export function npmGlobalBinDir(): string | null {
   try {
-    const prefix = execFileSync('npm', ['config', 'get', 'prefix'], { encoding: 'utf8', env: hostCliEnv(), timeout: 5000 }).trim()
-    return prefix ? join(prefix, 'bin') : null
+    const env = hostCliEnv()
+    const npm = startableCommand('npm', env)
+    const prefix = execFileSync(npm.file, [...npm.args, 'config', 'get', 'prefix'], { encoding: 'utf8', env, timeout: 5000 }).trim()
+    // npm puts its Windows shims in the prefix itself.
+    if (!prefix) return null
+    return process.platform === 'win32' ? prefix : join(prefix, 'bin')
   } catch {
     return null
   }
@@ -204,15 +209,21 @@ export function resolveAgentOwnership(agent: SetupAgent, opts: AgentOwnershipOpt
     const home = opts.home ?? homedir()
     const managedDir = join(home, '.local', 'share', 'claude')
     const managedLink = join(home, '.local', 'bin', 'claude')
-    const managed = real === managedDir || real.startsWith(`${managedDir}${sep}`) || resolved === managedLink
+    // The Windows installer puts `claude.exe` itself in that folder.
+    const managed = real === managedDir || real.startsWith(`${managedDir}${sep}`) || samePath(resolved, managedLink) || samePath(resolved, `${managedLink}.exe`)
     return managed ? { kind: 'solus-managed', resolvedPath: resolved } : { kind: 'unmanaged', resolvedPath: resolved }
   }
 
   const binDir = (opts.npmGlobalBinDir ?? npmGlobalBinDir)()
   let realBinDir: string | null = null
   if (binDir) { try { realBinDir = realpathSync(binDir) } catch { realBinDir = binDir } }
-  const managed = !!realBinDir && (dirname(real) === realBinDir || (dirname(resolved) === binDir && real.includes('/node_modules/@openai/codex/')))
+  const managed = !!realBinDir && (samePath(dirname(real), realBinDir) || (samePath(dirname(resolved), binDir ?? '') && /[\\/]node_modules[\\/]@openai[\\/]codex[\\/]/.test(real)))
   return managed ? { kind: 'solus-managed', resolvedPath: resolved } : { kind: 'unmanaged', resolvedPath: resolved }
+}
+
+/** Windows paths name the same file in any case. */
+function samePath(a: string, b: string): boolean {
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 }
 
 export function validateCloneUrl(raw: string): CloneUrlInfo {

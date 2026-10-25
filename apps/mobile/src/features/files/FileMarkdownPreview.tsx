@@ -1,6 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/files/FileMarkdownPreview.tsx (MIT, see UPSTREAM.md).
 // Images and file links resolve on the host, next to the Markdown file. A media
 // link (image, PDF, video) opens its viewer before the file screen.
+import { isAbsoluteHostPath } from "@solus/contracts/host-path";
 import { useCallback, useMemo, useState } from "react";
 import { Linking, RefreshControl, ScrollView, View } from "react-native";
 
@@ -67,7 +68,7 @@ export function FileMarkdownPreview(props: {
         const path = resolveMarkdownRelativePath(props.path, target);
         return {
           path,
-          relativePath: path.startsWith("/") || path.startsWith("~") ? undefined : path,
+          relativePath: isAbsoluteHostPath(path) || path.startsWith("~") ? undefined : path,
           resolveUri: async () => {
             const connection = app.connections.connection(props.hostId);
             return connection ? resolveHostMediaUrl(connection, { path, ctx }) : null;

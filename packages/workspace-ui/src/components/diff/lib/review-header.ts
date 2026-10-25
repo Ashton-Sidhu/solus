@@ -79,6 +79,8 @@ export function toChangedFileSummaries(files: FileDiffMetadata[]): ChangedFileSu
   return files.map((file) => {
     const path = diffFilePath(file)
     const displayPath = toTreeDisplayPath(path)
+    // A diff path is git's, written with `/` on every host.
+    // oxlint-disable-next-line solus/host-path-separators
     const cut = displayPath.lastIndexOf('/')
     const stats = diffFileStats(file)
     return {

@@ -37,7 +37,8 @@ function fakeDownload(placed: (id: string) => string | null) {
   return { download, calls }
 }
 
-test('a skill is downloaded once and read from the cache after, with its executable bit and without hidden files', async () => {
+// Windows has no executable bit.
+test.skipIf(process.platform === 'win32')('a skill is downloaded once and read from the cache after, with its executable bit and without hidden files', async () => {
   const { download, calls } = fakeDownload(() => 'grill-me')
   const cache = new RegistrySkillCache(cacheRoot(), download)
   const [first, second] = await Promise.all([cache.files('mattpocock/skills@grill-me', 'grill-me'), cache.files('mattpocock/skills@grill-me', 'grill-me')])

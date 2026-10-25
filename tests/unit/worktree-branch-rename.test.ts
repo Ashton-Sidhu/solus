@@ -2,8 +2,8 @@ import { afterEach, beforeAll, expect, mock, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+import { DatabaseSync } from './helpers/bun-sqlite'
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let createWorktree: typeof import('@solus/server/git/worktree-manager')['createWorktree']
 let renameWorktreeBranch: typeof import('@solus/server/git/worktree-manager')['renameWorktreeBranch']
 beforeAll(async () => {

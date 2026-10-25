@@ -1,15 +1,17 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const realCliEnv = await import('@solus/server/cli-env')
 mock.module('@solus/server/cli-env', () => ({
   ...realCliEnv,
   warmCliPath: async () => '/fixture/bin',
   findOnPath: () => '/fixture/bin/claude',
+  // On win32 resolveClaudeExecutable asks startableCommand too; the fixture is an .exe there.
+  startableCommand: () => ({ file: '/fixture/bin/claude.exe', args: [] }),
 }))
 
 /** Raw provider messages the mocked SDK replays for the turn-lifetime tests.

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { resetTestDatabase } from './helpers/test-db'
@@ -11,7 +11,7 @@ import type { WorkspaceOperations } from '@solus/server/data/workspace/operation
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import { sessionLinkInputSchema } from '@solus/contracts/session-links'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let directory: string
 let operations: WorkspaceOperations
 let stopTools: () => void

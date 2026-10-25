@@ -1,3 +1,5 @@
+import { hostPathBaseName, isAbsoluteHostPath, joinHostPath, trimTrailingSeparators } from "@solus/contracts/host-path";
+
 export type MarkdownFileViewMode = "rendered" | "source";
 
 export const MARKDOWN_FILE_VIEW_OPTIONS: {
@@ -41,12 +43,11 @@ function pathWithoutQueryOrHash(path: string): string {
 }
 
 export function markdownFileDirectory(filePath: string, cwd: string): string {
-  const cleanPath = pathWithoutQueryOrHash(filePath);
-  const directory = cleanPath.includes("/")
-    ? cleanPath.slice(0, cleanPath.lastIndexOf("/"))
-    : "";
-  if (cleanPath.startsWith("/")) return directory || "/";
-  return directory ? `${cwd.replace(/\/+$/, "")}/${directory}` : cwd;
+  const cleanPath = trimTrailingSeparators(pathWithoutQueryOrHash(filePath));
+  const name = hostPathBaseName(cleanPath);
+  const directory = trimTrailingSeparators(cleanPath.slice(0, cleanPath.length - name.length));
+  if (isAbsoluteHostPath(cleanPath)) return directory || "/";
+  return directory ? joinHostPath(cwd, directory) : cwd;
 }
 
 /**
@@ -59,6 +60,6 @@ export function workTitleForMarkdownFile(filePath: string, content: string): str
   const heading = content.match(/^#\s+(.+?)\s*#*\s*$/m)?.[1]?.trim();
   if (heading) return heading;
   const cleanPath = pathWithoutQueryOrHash(filePath);
-  const fileName = cleanPath.slice(cleanPath.lastIndexOf("/") + 1);
+  const fileName = hostPathBaseName(cleanPath);
   return fileName.replace(/\.(md|markdown)$/i, "") || "Untitled document";
 }

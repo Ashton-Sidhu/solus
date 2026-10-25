@@ -1,7 +1,8 @@
-import { discardUpdateData, restoreUpdateData, syncDirectory } from './update-data'
+import { discardUpdateData, restoreUpdateData, syncDirectory, syncFile } from './update-data'
+import { renameRetrying } from './rename-retry'
 import { isProcessAlive, readLockFile } from './runtime'
 import { z } from 'zod'
-import { accessSync, closeSync, fsyncSync, openSync, constants, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { serverUpdateOperationSchema, type ServerUpdateOperation } from '@solus/contracts/server-update'
 import { isManagedVersion } from '@solus/contracts/host-install'
@@ -21,9 +22,8 @@ function lockPath(runtimeDir: string): string {
 export function writeUpdateReceipt(runtimeDir: string, operation: ServerUpdateOperation | null, previousVersion?: string): void {
   const path = receiptPath(runtimeDir)
   writeFileSync(`${path}.tmp`, JSON.stringify(operation ? { ...operation, previousVersion } : null), { mode: 0o600 })
-  const fd = openSync(`${path}.tmp`, 'r')
-  try { fsyncSync(fd) } finally { closeSync(fd) }
-  renameSync(`${path}.tmp`, path)
+  syncFile(`${path}.tmp`)
+  renameRetrying(`${path}.tmp`, path)
   syncDirectory(runtimeDir)
 }
 

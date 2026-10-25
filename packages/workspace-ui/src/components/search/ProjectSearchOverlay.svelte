@@ -21,6 +21,7 @@
     visibleLine,
   } from "./lib/project-search";
   import { languageForPath, lineHighlighter } from "./lib/line-highlighter.svelte";
+  import { hostPathBaseName } from "@solus/contracts/host-path";
 
   interface Props {
     open: boolean;
@@ -69,7 +70,7 @@
   // search mid-agent-turn for no reason.
   const searchCwd = $derived(environment.cwd);
   const scopeName = $derived(
-    environment.isolated ? environment.name : (environment.cwd?.split("/").pop() ?? "project"),
+    environment.isolated ? environment.name : (environment.cwd ? hostPathBaseName(environment.cwd) : "project"),
   );
   const theme = $derived(lineHighlighter.themeFor(isDark));
   const hasQuery = $derived(query.trim().length > 0);

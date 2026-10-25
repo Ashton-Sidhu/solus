@@ -2,14 +2,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { IpcContext } from '@solus/contracts/types'
 import type { Principal } from '@solus/server/admission/principal'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 
 // bun has no node:sqlite; the handler modules' import chain reaches the db even
 // though these tests never open it.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // A chat (docs/plans/projectless-chat.md) is a session with no project. Each chat
 // runs in a folder of its own, `solus-chats/<id>` in the host's data folder (a

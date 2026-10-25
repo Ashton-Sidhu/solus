@@ -19,7 +19,7 @@ import {
 import { hostOrganizationsStatusSchema, type HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { installCloudflared } from './cloudflared'
 import { requireRunningServerUrl, withLocalRpc } from './local-rpc'
-import { runtimePaths } from './runtime'
+import { runtimePaths, windowsSystemTool } from './runtime'
 
 export const CLI_DEVICE_CLIENT_ID = SOLUS_CLIENT_IDS.cli
 export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
@@ -229,9 +229,23 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+/**
+ * The program that opens a web page. On Windows the server's opener uses
+ * `cmd /c start`, but cmd reads `&` in a URL as a new command, so the CLI uses
+ * `rundll32 url.dll,FileProtocolHandler`, which takes the URL as one argument.
+ * That handler opens any path, so only an http(s) URL is passed to it.
+ */
+export function browserOpenCommand(url: string, platform: NodeJS.Platform): [string, string[]] | null {
+  if (!/^https?:\/\//i.test(url)) return null
+  if (platform === 'darwin') return ['open', [url]]
+  if (platform === 'win32') return [windowsSystemTool('rundll32.exe'), ['url.dll,FileProtocolHandler', url]]
+  return ['xdg-open', [url]]
+}
+
 function openBrowser(url: string): void {
-  const command = process.platform === 'darwin' ? 'open' : 'xdg-open'
-  const child = spawn(command, [url], { detached: true, stdio: 'ignore' })
+  const opener = browserOpenCommand(url, process.platform)
+  if (!opener) return
+  const child = spawn(opener[0], opener[1], { detached: true, stdio: 'ignore' })
   child.once('error', () => {})
   child.unref()
 }

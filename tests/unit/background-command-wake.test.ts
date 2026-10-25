@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { backgroundCommandWake, backgroundCommandWakeSummary } from '@solus/client-core/background-command-wake'
 
 // The Codex utilities reach the server's database module; the test needs only the wake template.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let codexBackgroundCommandWake: typeof import('@solus/server/execution/agents/codex/codex-utils')['codexBackgroundCommandWake']
 beforeAll(async () => {
   ;({ codexBackgroundCommandWake } = await import('@solus/server/execution/agents/codex/codex-utils'))

@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let read: typeof import('@solus/server/data/insights/api-operations')
 let turns: typeof import('@solus/server/data/insights/api-turns')
 let database: typeof import('@solus/server/db/database')

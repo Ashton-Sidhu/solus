@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { parseUserKey, sameUser, userKey, type UserId } from '@solus/contracts/user'
 import { seedResource } from './helpers/resource-rows'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/012-user-actor-and-activity.md §1: one user id per person. The host's owner
 // is a `local` user minted once; the rows that named them by the `host-owner`

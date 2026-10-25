@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/mobile-connections.md "When a host freezes": a host that stalls past the
 // ping timeout drops its clients, and only the host can say why after it recovers.

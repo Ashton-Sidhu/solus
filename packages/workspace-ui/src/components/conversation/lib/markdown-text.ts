@@ -1,5 +1,6 @@
 import { decodeHtmlEntities } from "./html-entities";
 import { fileReferenceText } from "../../editor/reference-tokens";
+import { hostPathBaseName } from "@solus/contracts/host-path";
 
 export type MarkdownTextSegment =
   | { type: "text"; value: string }
@@ -36,9 +37,7 @@ export interface FileChipParts {
  */
 export function fileChipParts(path: string): FileChipParts {
   const token = fileReferenceText(path);
-  const stripped = path.replace(/\/+$/, "");
-  const separator = stripped.lastIndexOf("/");
-  const label = separator === -1 ? stripped : stripped.slice(separator + 1);
+  const label = hostPathBaseName(path);
   const start = label ? token.lastIndexOf(label) : token.length;
   return {
     prefix: token.slice(0, start),

@@ -3,6 +3,7 @@
 import { CommonActions, StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
+import { hostPathBaseName } from "@solus/contracts/host-path";
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from "@solus/contracts/rpc";
 import type { PermissionMode } from "@solus/contracts/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -555,7 +556,7 @@ function NewTaskDraftContent(props: {
   const host = hosts.find((candidate) => candidate.id === props.hostId);
   const selectedEnvironmentLabel = host?.label ?? "Host";
   const { scope, environments } = useNewTaskEnvironments(props.hostId, props.projectPath);
-  const projectTitle = scope?.title ?? props.projectPath.split("/").filter(Boolean).at(-1) ?? "project";
+  const projectTitle = scope?.title ?? (hostPathBaseName(props.projectPath) || "project");
   const attachmentsFull = meta.attachments.length + meta.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT;
   const isComposerInteractionLocked = submitting;
   const canStart =

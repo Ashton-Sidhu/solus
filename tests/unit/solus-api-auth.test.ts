@@ -3,7 +3,7 @@ import type { Server } from 'http'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { CLIENT_SOLUS_API_SCOPES, solusApiScopeSchema } from '@solus/contracts/solus-api'
 import { SOLUS_API_ORGANIZATION_HEADER } from '@solus/contracts/solus-api/request'
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
@@ -11,7 +11,7 @@ import { fakeAccessTokens } from './helpers/socket-handshake'
 
 // bun has no node:sqlite; the http module's import chain reaches the db even though
 // these tests never open it.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { buildHttpServer } = await import('@solus/server/transport/http')
 const { createDoors } = await import('@solus/server/admission/doors')
 const { workspaceAdmissionFor } = await import('@solus/server/transport/solus-api/admission')

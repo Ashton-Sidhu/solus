@@ -4,7 +4,8 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { computeCliPathAsync, importLoginShellEnv, loginShellEnvToImport } from '@solus/server/cli-env'
 
-test('the login-shell PATH probe does not wait on stdin', async () => {
+// POSIX login-shell probe: Windows has no login shell to read.
+test.skipIf(process.platform === 'win32')('the login-shell PATH probe does not wait on stdin', async () => {
   // WHY: the real probe is an interactive login shell. With stdin left open it
   // sits reading it until the timeout kills it, so the "warm" PATH lost the race
   // with the first RPC every boot, and that RPC paid a synchronous shell on the
@@ -16,7 +17,8 @@ test('the login-shell PATH probe does not wait on stdin', async () => {
   expect(performance.now() - startedAt).toBeLessThan(1_000)
 })
 
-test('the PATH probe runs where the server runs: an ES module under Node', () => {
+// POSIX login-shell probe: Windows has no login shell to read.
+test.skipIf(process.platform === 'win32')('the PATH probe runs where the server runs: an ES module under Node', () => {
   // WHY: the shipped server is an ES module, where `require` does not exist.
   // Bun defines it anyway, so the tests above cannot see a bare `require`. One
   // in the probe made every CLI version read throw, and a manual update check
@@ -30,7 +32,8 @@ test('the PATH probe runs where the server runs: an ES module under Node', () =>
   expect(result.stdout.toString().split(':')).toContain('/probe/bin')
 })
 
-test('the PATH probe reads the login shell PATH, not the PATH Solus was launched with', () => {
+// POSIX login-shell probe: Windows has no login shell to read.
+test.skipIf(process.platform === 'win32')('the PATH probe reads the login shell PATH, not the PATH Solus was launched with', () => {
   // WHY: a Dock launch has only a minimal PATH, and the probe exists to find the
   // tools a profile adds. Double-quoted under `/bin/sh -c`, `$PATH` expanded to
   // the launch PATH before zsh started, so the probe echoed back what it had.
@@ -53,7 +56,8 @@ test('the PATH probe reads the login shell PATH, not the PATH Solus was launched
   }
 })
 
-test('the login shell PATH comes before the fallback install folders', async () => {
+// POSIX login-shell probe: Windows has no login shell to read.
+test.skipIf(process.platform === 'win32')('the login shell PATH comes before the fallback install folders', async () => {
   // WHY: on a mise host the profile puts the tool folders ahead of ~/.local/bin,
   // which holds wrappers that run `mise x codex -- codex`. With ~/.local/bin
   // first, that `codex` was the wrapper again: the Codex app-server looped
@@ -70,7 +74,8 @@ test('the login shell PATH comes before the fallback install folders', async () 
   }
 })
 
-test('a probe that answers nothing falls through to the next one', async () => {
+// POSIX login-shell probe: Windows has no login shell to read.
+test.skipIf(process.platform === 'win32')('a probe that answers nothing falls through to the next one', async () => {
   const path = await computeCliPathAsync(['true', 'echo /second/bin'], 2_000)
   expect(path.split(':')).toContain('/second/bin')
 })
@@ -116,7 +121,8 @@ test('profile noise and multiline values do not corrupt the environment', () => 
   expect(loginShellEnvToImport('SOLUS_DATA_DIR=/x\n', {}).size).toBe(0)
 })
 
-test('importing the login shell environment sets only what is missing in process.env', async () => {
+// POSIX login-shell probe: Windows has no login shell to read.
+test.skipIf(process.platform === 'win32')('importing the login shell environment sets only what is missing in process.env', async () => {
   const names = ['SOLUS_LOGIN_ENV_TEST_NEW', 'SOLUS_LOGIN_ENV_TEST_SET']
   process.env.SOLUS_LOGIN_ENV_TEST_SET = 'launch'
   try {

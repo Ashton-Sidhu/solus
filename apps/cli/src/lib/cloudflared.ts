@@ -43,6 +43,12 @@ const RELEASE_ASSETS = {
     sha256: '5286698547f03df745adb2355f04c12dde52ef425491e81f433642d695521886',
     archive: 'binary',
   },
+  // A bare exe, stored as `cloudflared.exe` (`managedCloudflaredPath`).
+  'win32-x64': {
+    url: `https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-windows-amd64.exe`,
+    sha256: '20b9638f685333d623798e733effbad2487093f15ba592f6c7752360ff3b7ab7',
+    archive: 'binary',
+  },
 } satisfies Partial<Record<string, ReleaseAsset>>
 
 export interface CloudflaredInstallOptions {
@@ -111,6 +117,7 @@ function releaseAssetFor(platform: NodeJS.Platform, arch: string): ReleaseAsset 
     case 'darwin-x64': return RELEASE_ASSETS['darwin-x64']
     case 'linux-arm64': return RELEASE_ASSETS['linux-arm64']
     case 'linux-x64': return RELEASE_ASSETS['linux-x64']
+    case 'win32-x64': return RELEASE_ASSETS['win32-x64']
     default: return undefined
   }
 }

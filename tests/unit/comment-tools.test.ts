@@ -2,10 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'b
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { PlanAnnotations, SessionMeta } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type CommentToolsModule = typeof import('@solus/server/annotations/comment-tools')
 type SessionToolsModule = typeof import('@solus/server/execution/agents/tools/session-tools')

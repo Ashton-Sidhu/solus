@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
 import { tmpdir } from 'os'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 
 mock.module('electron', () => ({
   app: { isPackaged: false, getPath: () => tmpdir() },
@@ -8,7 +8,7 @@ mock.module('electron', () => ({
   shell: {},
   utilityProcess: { fork: () => ({ on() {}, postMessage() {}, kill() {} }) },
 }))
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { registerFileHandlers } = await import('@solus/desktop-main/server/handlers/file-handlers')
 

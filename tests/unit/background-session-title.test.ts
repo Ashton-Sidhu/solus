@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { SessionMeta } from '@solus/contracts/types'
 import type { BackgroundSessionTitlePorts } from '@solus/server/execution/sessions/background-session-title'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { ensureBackgroundSessionTitle } = await import('@solus/server/execution/sessions/background-session-title')
 
 const records = new Map<string, SessionMeta>()

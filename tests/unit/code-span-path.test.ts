@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { hostPathBaseName as basename } from "@solus/contracts/host-path";
 import {
-  basename,
   codeSpanFileTarget,
   leadingDirs,
   parentDir,

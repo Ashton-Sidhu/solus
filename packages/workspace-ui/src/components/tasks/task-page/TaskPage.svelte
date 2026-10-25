@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { projectDirLabel } from "../../../lib/paths";
   import { tick, untrack } from "svelte";
   import type {
     Task,
@@ -157,7 +158,7 @@
     },
   });
   const projectLabel = $derived(
-    projectCwd ? (projectCwd.split("/").pop() ?? projectCwd) : "Inbox",
+    projectCwd ? projectDirLabel(projectCwd) : "Inbox",
   );
   const upstream = $derived(
     task

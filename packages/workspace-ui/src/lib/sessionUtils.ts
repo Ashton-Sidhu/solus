@@ -14,6 +14,7 @@ import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '@solus/cont
 import type { TabGroupMode } from '../contexts'
 import { hasAnswerableRequest } from '../contexts/workspace/session.utils'
 import { checkoutGit, checkoutPlace, runHost } from '../contexts/workspace/run-location'
+import { isInsideHostPath } from '@solus/contracts/host-path'
 
 export type PickerEntry =
   | { kind: 'open'; tabId: string; tab: Tab; session: Session }
@@ -31,9 +32,7 @@ export type AttentionState = 'awaiting' | 'awaiting_plan' | 'error' | 'unread' |
  *  project's repo root. */
 export function isPathUnderRoot(path: string | undefined, root: string): boolean {
   if (!path) return false
-  const p = path.replace(/\/+$/, '')
-  const r = root.replace(/\/+$/, '')
-  return p === r || p.startsWith(r + '/')
+  return isInsideHostPath(root, path)
 }
 
 /** True when `path` falls under any of the given project scope roots. */

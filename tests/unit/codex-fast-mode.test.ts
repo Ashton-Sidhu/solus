@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import { CodexRpcError } from '@solus/server/execution/agents/codex/codex-agent'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let CodexBackend: typeof import('@solus/server/execution/agents/codex/codex-backend')['CodexBackend']
 

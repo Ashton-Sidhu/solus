@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { Principal } from '@solus/server/admission/principal'
 import type { ShareAccessError as ShareAccessErrorType, ShareChange, ShareManager as ShareManagerType } from '@solus/server/sharing/share-manager'
@@ -10,7 +10,7 @@ import { hostUserKey } from '@solus/server/host/host-user'
 import { resetTestDatabase } from './helpers/test-db'
 import { seedResource } from './helpers/resource-rows'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/access-model.md §2.2–§2.3 and multiplayer-sharing.md §3.4–§3.5: a
 // resource's owner is its own row's `owner_key`; the ACL entries hold only what

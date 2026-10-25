@@ -20,7 +20,8 @@ import type { WorkspaceTab } from "../../apps/mobile/src/features/workspace/work
 // Load the same router as native navigation without importing React Native into Node.
 const requireNavigation = NodeModule.createRequire(
   NodeModule.createRequire(
-    new URL("../../apps/mobile/package.json", import.meta.url).pathname,
+    // The URL itself: its pathname is "/C:/..." on Windows, which is not a path.
+    new URL("../../apps/mobile/package.json", import.meta.url),
   ).resolve("@react-navigation/native/package.json"),
 );
 const { StackRouter, StackActions, CommonActions } = requireNavigation("@react-navigation/routers") as {

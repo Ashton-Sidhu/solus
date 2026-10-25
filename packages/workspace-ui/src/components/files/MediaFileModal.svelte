@@ -5,12 +5,13 @@
   import { markdownAssetId, markdownImagePath } from "../conversation/lib/markdown-image";
   import { HostVideoPlayer, VideoPlayer } from "../ui/video-player";
   import ImageFilePreview from "./ImageFilePreview.svelte";
+  import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
 
   let { request, onclose }: { request: FilePreviewRequest; onclose: () => void } = $props();
   let dialog: HTMLDialogElement;
-  const label = $derived(request.path.split(/[?#]/, 1)[0].split("/").pop() || "Media");
+  const label = $derived(hostPathBaseName(request.path.split(/[?#]/, 1)[0]) || "Media");
   const assetId = $derived(markdownAssetId(request.path));
-  const path = $derived(markdownImagePath(request.path, request.source?.cwd ?? (request.path.startsWith("/") ? "/" : undefined)));
+  const path = $derived(markdownImagePath(request.path, request.source?.cwd ?? (isAbsoluteHostPath(request.path) ? "/" : undefined)));
   const hostRequest = $derived<HostMediaRequest | null>(
     request.source?.serverId && (path || assetId)
       ? { serverId: request.source.serverId, path: path ?? undefined, assetId: assetId ?? undefined, ctx: request.source.ctx }

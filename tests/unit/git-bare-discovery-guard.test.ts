@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { sameHostPath } from '@solus/contracts/host-path'
 import { git, gitCommitExists, runAsync } from '@solus/server/git/exec'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
@@ -21,13 +22,16 @@ const AUTHOR: NodeJS.ProcessEnv = {
   GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
 }
 const run = (args: string[], cwd: string, env: NodeJS.ProcessEnv = AUTHOR) => runAsync('git', args, cwd, { env })
+// Git for Windows prints C:/x where Node has C:\x.
+const expectSamePath = (actual: string, expected: string) => expect(sameHostPath(actual, expected)).toBe(true)
 
 let base = ''
 let bare = ''
 let checkout = ''
 
 beforeAll(async () => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), 'solus-bare-guard-')))
+  // native: on Windows it also expands an 8.3 temp folder name, as git prints the long one.
+  base = realpathSync.native(mkdtempSync(join(tmpdir(), 'solus-bare-guard-')))
   bare = join(base, 'shared.git')
   checkout = join(base, 'checkout')
   mkdirSync(checkout)
@@ -84,15 +88,15 @@ describe('repositories Solus reaches on purpose', () => {
   test('a checkout, its .git folder, and the caller options before the subcommand', async () => {
     expect(await run(['status', '--porcelain'], checkout)).toBe('')
     expect(await run(['rev-parse', '--git-dir'], join(checkout, '.git'))).toBe('.')
-    expect(await run(['-C', checkout, '-c', 'core.quotepath=false', 'rev-parse', '--show-toplevel'], base)).toBe(checkout)
-    expect(git(['rev-parse', '--show-toplevel'], checkout, { env: ISOLATED })).toBe(checkout)
+    expectSamePath(await run(['-C', checkout, '-c', 'core.quotepath=false', 'rev-parse', '--show-toplevel'], base), checkout)
+    expectSamePath(git(['rev-parse', '--show-toplevel'], checkout, { env: ISOLATED }), checkout)
     expect(await gitCommitExists(checkout, 'HEAD')).toBe(true)
   })
 
   test("a bare repository's worktree, and a new worktree added from it", async () => {
     const worktree = join(base, 'bare-worktree')
     await run(['--git-dir', bare, 'worktree', 'add', '-q', '-b', 'feature', worktree, 'main'], base)
-    expect(await run(['rev-parse', '--git-common-dir'], worktree)).toBe(bare)
+    expectSamePath(await run(['rev-parse', '--git-common-dir'], worktree), bare)
     expect(await run(['status', '--porcelain'], worktree)).toBe('')
     const second = join(base, 'bare-worktree-2')
     await run(['worktree', 'add', '-q', '-b', 'second', second, 'main'], worktree)
@@ -105,7 +109,7 @@ describe('repositories Solus reaches on purpose', () => {
     await run(['clone', '-q', '--bare', checkout, join(root, '.bare')], base)
     writeFileSync(join(root, '.git'), 'gitdir: ./.bare\n')
     await run(['worktree', 'add', '-q', join(root, 'main'), 'main'], root)
-    expect(await run(['rev-parse', '--git-common-dir'], join(root, 'main'))).toBe(join(root, '.bare'))
+    expectSamePath(await run(['rev-parse', '--git-common-dir'], join(root, 'main')), join(root, '.bare'))
     expect(await run(['status', '--porcelain'], join(root, 'main'))).toBe('')
   })
 
@@ -118,7 +122,7 @@ describe('repositories Solus reaches on purpose', () => {
     mkdirSync(superproject)
     await run(['init', '-q', '-b', 'main'], superproject)
     await run(['-c', 'protocol.file.allow=always', 'submodule', '--quiet', 'add', checkout, 'child'], superproject)
-    expect(await run(['rev-parse', '--show-toplevel'], join(superproject, 'child'))).toBe(join(superproject, 'child'))
+    expectSamePath(await run(['rev-parse', '--show-toplevel'], join(superproject, 'child')), join(superproject, 'child'))
     expect(await run(['submodule', 'status'], superproject)).toContain('child')
   })
 
@@ -127,10 +131,14 @@ describe('repositories Solus reaches on purpose', () => {
     await run(['clone', '-q', checkout, hooked], base)
     const seen = join(base, 'hook-saw.txt')
     const hook = join(hooked, '.git', 'hooks', 'pre-commit')
-    writeFileSync(hook, `#!/bin/sh\ngit config --get safe.bareRepository > "${seen}"\ngit rev-parse --show-toplevel >> "${seen}"\n`)
+    // `/` separators: Git for Windows runs the hook in its own sh.
+    const seenInHook = seen.replaceAll('\\', '/')
+    writeFileSync(hook, `#!/bin/sh\ngit config --get safe.bareRepository > "${seenInHook}"\ngit rev-parse --show-toplevel >> "${seenInHook}"\n`)
     chmodSync(hook, 0o755)
     writeFileSync(join(hooked, 'file.txt'), 'changed\n')
     await run(['commit', '-q', '-am', 'Through a hook'], hooked)
-    expect(readFileSync(seen, 'utf8')).toBe(`explicit\n${hooked}\n`)
+    const [guard, topLevel] = readFileSync(seen, 'utf8').split('\n')
+    expect(guard).toBe('explicit')
+    expectSamePath(topLevel ?? '', hooked)
   })
 })

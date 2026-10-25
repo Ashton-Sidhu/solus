@@ -15,7 +15,7 @@ import type { SolusServer, HandlerCtx } from '../server'
 import type { Principal } from '../../admission/principal'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { DispatchCheckoutPathOf, PrepareDispatchCheckout, RepositoryProgress } from '../../execution/sessions/dispatch-repository'
-import { launchedProcess, launchProcess } from '../../cli-env'
+import { findOnPath, launchedProcess, launchProcess, warmCliPath } from '../../cli-env'
 import { runAsync } from '../../git/exec'
 import { withBareRepositoryGuard } from '../../git/bare-repository-guard'
 import { isGitUsable } from '../../git/git-availability'
@@ -180,6 +180,8 @@ export async function probeHostCapabilities(opts: CapabilityProbeOptions): Promi
 function whichAgentBinary(agentId: AgentId): Promise<string | null> {
   const bin = AGENT_BIN[agentId]
   if (!bin) return Promise.resolve(null)
+  // Windows has no `which`, and no member runs as another user there.
+  if (process.platform === 'win32') return warmCliPath().then((path) => findOnPath(bin, path))
   return new Promise((resolve) => {
     const run = launchProcess('which', [bin])
     execFile(run.file, run.args, { encoding: 'utf8', env: run.env, timeout: 3000 }, (error, stdout) => {

@@ -671,6 +671,8 @@ export function codexSubagentActivityInput(item: {
   agentPath?: unknown
 }): string {
   const agentPath = parsedString(item.agentPath) ?? ''
+  // Codex names a sub-agent by a `/` path of agent names, not a file path.
+  // oxlint-disable-next-line solus/host-path-separators
   const taskName = agentPath.split('/').filter(Boolean).at(-1)?.replaceAll('_', ' ') || 'Sub-agent'
   return JSON.stringify({
     subagent_type: 'codex',

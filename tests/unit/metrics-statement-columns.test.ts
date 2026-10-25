@@ -28,6 +28,7 @@ interface ReadOnlyOpenOptions {
 
 class NodeShapedDatabase {
   private readonly db: Database
+  private readonly statements = new Set<ReturnType<Database['prepare']>>()
 
   constructor(path: string, options?: ReadOnlyOpenOptions) {
     // node:sqlite spells the flag `readOnly`; bun rejects that spelling with a
@@ -40,12 +41,17 @@ class NodeShapedDatabase {
     this.db.exec(sql)
   }
 
+  // As helpers/bun-sqlite.ts: release the file at once, as node:sqlite does.
+  // Bun's default close keeps it open, and Windows cannot delete an open file.
   close(): void {
-    this.db.close()
+    for (const statement of this.statements) statement.finalize()
+    this.statements.clear()
+    this.db.close(true)
   }
 
   prepare(sql: string): NodeShapedStatement {
     const statement = this.db.prepare(sql)
+    this.statements.add(statement)
     const shaped: NodeShapedStatement = {
       all: (...params) => statement.all(...params),
       get: (...params) => statement.get(...params),

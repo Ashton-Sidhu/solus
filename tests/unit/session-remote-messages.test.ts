@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +10,7 @@ import type { AttachmentUploadRequest } from '@solus/contracts/rpc'
 import type { RemoteHost } from '@solus/server/execution/orchestration/remote-hosts'
 import type { OrchestratedRuntime, RemoteTarget } from '@solus/server/execution/orchestration/session-orchestrator'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // WHY: an agent on one host works with a session it started on another the
 // way it works with a local one (docs/session-orchestration.md). Its files

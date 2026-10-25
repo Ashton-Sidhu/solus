@@ -2,14 +2,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'b
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { HubNotification } from '@solus/contracts/notification-hub'
 import type { Attribution } from '@solus/contracts/user'
 import { resetTestDatabase } from './helpers/test-db'
 import { notificationReader } from './helpers/actors'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/015-notifications-hub.md v2, stage 1: one table at each record home. A
 // row commits with the change that caused it; an event is one row per recipient

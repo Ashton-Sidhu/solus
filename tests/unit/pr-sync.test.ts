@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { PrSyncChange, PullRequest, PullRequestOverview, RepoRef } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { Provider } from '@solus/server/providers/types'
@@ -26,7 +26,7 @@ const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, acco
  * Each test names its own repository, because `PrIndex` is a process-wide cache.
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const providers = new Map<string, Provider>()
 mock.module('@solus/server/providers/registry', () => ({

@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { MetricsQuerySpec } from '@solus/contracts/observability-types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type DbModule = typeof import('@solus/server/db')
 type SavedQueriesModule = typeof import('@solus/server/data/insights/saved-queries')

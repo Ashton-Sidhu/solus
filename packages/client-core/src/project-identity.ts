@@ -1,3 +1,4 @@
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import { localProjectKey } from '@solus/contracts/repository-key'
 import { remoteDispatchRepositoryKey } from '@solus/contracts/types'
 
@@ -46,9 +47,11 @@ export function groupByProject<Checkout>(
   return [...groups.values()]
 }
 
-/** The host and folder a local-only project key names, or null for any other key. */
+/** The host and folder a local-only project key names, or null for any other key.
+ *  The path starts at the first colon that a POSIX, `~`, drive, or UNC path
+ *  follows; a repository key has no colon. */
 export function localProjectParts(projectKey: string): CheckoutFacts | null {
-  const at = projectKey.search(/:[/~]/)
+  const at = projectKey.search(/:(?:[/~]|[A-Za-z]:(?:[\\/]|$)|\\\\)/)
   if (at <= 0) return null
   return { serverId: projectKey.slice(0, at), path: projectKey.slice(at + 1) }
 }
@@ -57,5 +60,5 @@ export function localProjectParts(projectKey: string): CheckoutFacts | null {
  *  repository or folder. */
 export function projectKeyLabel(projectKey: string): string {
   const path = localProjectParts(projectKey)?.path ?? projectKey
-  return path.replace(/\/+$/, '').split('/').at(-1) || path
+  return hostPathBaseName(path) || path
 }

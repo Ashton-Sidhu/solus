@@ -1,5 +1,6 @@
 import { Cron } from 'croner'
 import { SOLUS_WORKTREE_DIR, type AutomationRun, type AutomationRunPoint, type AutomationTrigger, type AutomationRunStatus } from '@solus/contracts/types'
+import { hostPathBaseName, joinHostPath } from '@solus/contracts/host-path'
 
 // Pure formatting + trigger <-> builder-preset mapping for the Automations UI.
 // Kept out of the .svelte files so the cron math and human summaries are easy to
@@ -381,8 +382,7 @@ export const RUN_STATUS_META = {
 /** The folder an automation runs in, as the trailing path segment — the list
  *  row's secondary label, and what the page's search matches against. */
 export function folderLabel(cwd: string): string {
-  const parts = cwd.split(/[\\/]/).filter(Boolean)
-  return parts[parts.length - 1] ?? cwd
+  return hostPathBaseName(cwd) || cwd
 }
 
 /** Resolve the provider transcript directory for an automation run. Older run
@@ -394,8 +394,8 @@ export function automationRunCwd(run: AutomationRun, automationCwd: string, home
 
   const expandedCwd = automationCwd === '~'
     ? homePath ?? automationCwd
-    : automationCwd.startsWith('~/') && homePath
-      ? `${homePath}/${automationCwd.slice(2)}`
+    : /^~[\\/]/.test(automationCwd) && homePath
+      ? joinHostPath(homePath, automationCwd.slice(2))
       : automationCwd
-  return `${expandedCwd.replace(/\/$/, '')}/${SOLUS_WORKTREE_DIR}/${run.branch.replace(/\//g, '-')}`
+  return joinHostPath(joinHostPath(expandedCwd, SOLUS_WORKTREE_DIR), run.branch.replace(/\//g, '-'))
 }

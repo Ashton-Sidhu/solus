@@ -1,5 +1,6 @@
 import type { Attachment } from '@solus/contracts/types'
 import { videoMimeType } from '@solus/contracts/media-types'
+import { isAbsoluteHostPath } from '@solus/contracts/host-path'
 
 /** A video attachment is a `file` with a video type, never an image. */
 export function isVideoAttachment(attachment: Pick<Attachment, 'type' | 'name' | 'mimeType'>): boolean {
@@ -13,5 +14,5 @@ export function isVideoAttachment(attachment: Pick<Attachment, 'type' | 'name' |
  */
 export function videoAttachmentPath(attachment: Pick<Attachment, 'path' | 'hostPath'>): string | null {
   if (attachment.hostPath) return attachment.hostPath
-  return attachment.path.startsWith('/') ? attachment.path : null
+  return isAbsoluteHostPath(attachment.path) ? attachment.path : null
 }

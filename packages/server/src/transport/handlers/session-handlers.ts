@@ -101,6 +101,8 @@ async function probeAgentBinary(agentId: AgentId): Promise<string | null> {
   // Wait for the async PATH warmup instead of letting launchProcess() fall back to
   // the synchronous login-shell probes, which would block the main process.
   const path = await warmCliPath()
+  // Windows has no `which`; the PATH scan below is the whole answer there.
+  if (process.platform === 'win32') return findOnPath(bin, path)
   try {
     const run = launchProcess('which', [bin])
     const { stdout } = await execFileAsync(run.file, run.args, { encoding: 'utf8', env: run.env, timeout: 3000 })

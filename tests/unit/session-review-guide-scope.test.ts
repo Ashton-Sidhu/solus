@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +9,7 @@ import type { ReviewGuideRequestOptions, ReviewGuideStatusEvent } from '@solus/c
 import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // A synchronous spawn on the main thread stalls every transcript read behind
 // it. The status path must never take one; count them at the module boundary.

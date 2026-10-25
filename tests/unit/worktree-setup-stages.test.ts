@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentMetadata, NormalizedEvent, SessionRunInput, StatusCardState, WireNormalizedEvent } from '@solus/contracts/types'
@@ -16,7 +16,7 @@ import type { WorktreeSetupStage, WorktreeStageUpdate } from '@solus/server/git/
  * for the project folder while it runs.
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 // The account that holds a TypeSafe key is not part of this test.
 mock.module('@solus/server/typesafe/credentials', () => ({
   typeSafeKey: () => Promise.reject(new Error('unavailable')),

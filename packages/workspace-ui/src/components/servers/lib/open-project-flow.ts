@@ -3,6 +3,7 @@
  * host-agnostic: the host's platform is passed in, because the paths belong to
  * whichever machine the project is being opened on — never to this client.
  */
+import { hostPathBaseName, joinHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import { abbreviateHome } from '../../../lib/paths'
 
@@ -22,16 +23,6 @@ export interface HostOption {
   local: boolean
 }
 
-function separatorFor(platform: string | null | undefined): '/' | '\\' {
-  return platform === 'win32' ? '\\' : '/'
-}
-
-/** Joins a host-absolute directory to a child name using that host's separator. */
-export function joinHostPath(directory: string, name: string, platform?: string | null): string {
-  const base = directory.replace(/[\\/]+$/, '')
-  return `${base}${separatorFor(platform)}${name}`
-}
-
 /** Where "Create" makes a new project, named the way the host will name it;
  *  null until a name is typed. */
 export function newProjectPath(parent: string, name: string, platform?: string | null): string | null {
@@ -41,7 +32,7 @@ export function newProjectPath(parent: string, name: string, platform?: string |
 
 /** A folder as a person names it — its own name, not the path to it. */
 export function folderLabel(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, '')
+  const trimmed = trimTrailingSeparators(path)
   if (abbreviateHome(trimmed) === '~') return 'your home folder'
-  return trimmed.split(/[\\/]/).pop() || trimmed
+  return hostPathBaseName(trimmed) || trimmed
 }

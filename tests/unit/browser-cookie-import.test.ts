@@ -1,9 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { createCipheriv, createHash, pbkdf2Sync } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import * as realOs from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
 
 /**
  * Importing a browser profile's cookies into a Solus browser profile.
@@ -27,7 +27,13 @@ const fakeHome = mkdtempSync(join(realOs.tmpdir(), 'solus-fake-home-'))
 const dataDir = mkdtempSync(join(realOs.tmpdir(), 'solus-cookie-import-'))
 
 mock.module('node:os', () => ({ ...realOs, homedir: () => fakeHome }))
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+// Windows keeps browser profiles under APPDATA and LOCALAPPDATA, not the home folder.
+const previousAppData = { APPDATA: process.env.APPDATA, LOCALAPPDATA: process.env.LOCALAPPDATA }
+if (process.platform === 'win32') {
+  process.env.APPDATA = fakeHome
+  process.env.LOCALAPPDATA = fakeHome
+}
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type SourcesModule = typeof import('@solus/server/browser/cookie-sources')
 type ChromiumModule = typeof import('@solus/server/browser/chromium-cookies')
@@ -54,6 +60,7 @@ const FIREFOX_ID = `firefox:${FIREFOX_DIR}`
 const CHROME_ID = 'chrome:Default'
 const SAFARI_ID = 'safari:default'
 const ON_MACOS = process.platform === 'darwin'
+const ON_WINDOWS = process.platform === 'win32'
 
 const NOW_SECONDS = Math.floor(Date.now() / 1000)
 const FUTURE = NOW_SECONDS + 86_400
@@ -86,7 +93,8 @@ function seedFirefox(): void {
     ['[Profile0]', 'Name=Work', 'IsRelative=1', `Path=Profiles/${FIREFOX_DIR}`, ''].join('\n'),
   )
 
-  const store = new Database(join(profileDir, 'cookies.sqlite'))
+  // WHY: this close releases the file, so Windows can remove the fake home afterwards.
+  const store = new DatabaseSync(join(profileDir, 'cookies.sqlite'))
   store.exec(`
     CREATE TABLE moz_cookies (
       id INTEGER PRIMARY KEY,
@@ -161,7 +169,7 @@ function seedChrome(): void {
     ['Profile 1', join(root, 'Profile 1', 'Cookies')],
     ['Guest Profile', join(root, 'Guest Profile', 'Network', 'Cookies')],
   ] as const) {
-    const db = new Database(store)
+    const db = new DatabaseSync(store)
     db.exec(`
       CREATE TABLE cookies (
         creation_utc INTEGER PRIMARY KEY,
@@ -299,6 +307,10 @@ afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
+  for (const [name, value] of Object.entries(previousAppData)) {
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
 })
 
 describe('what the host offers to import from', () => {
@@ -319,7 +331,8 @@ describe('what the host offers to import from', () => {
     expect(byId.has('chrome:Guest Profile')).toBe(false)
   })
 
-  test('a scan never unlocks anything, so opening the list cannot prompt', () => {
+  // Chrome on Windows is refused (ADR 0026); the test below checks the refusal.
+  test.skipIf(ON_WINDOWS)('a scan never unlocks anything, so opening the list cannot prompt', () => {
     // WHY: Chrome's key is in the OS keychain. Counting by decrypting would make
     // *looking at the list* show a system password dialog, which is the one thing
     // a person browsing their options has not consented to.
@@ -335,6 +348,14 @@ describe('what the host offers to import from', () => {
     )
     // The keychain asks by itself; there is no setting for the host to open.
     expect(chrome?.canRequestAccess).toBeUndefined()
+  })
+
+  test.skipIf(!ON_WINDOWS)('Chrome on Windows is offered as unavailable, with the reason, and cannot be read', () => {
+    // WHY: Chrome's app-bound encryption refuses other applications (ADR 0026).
+    // The profile stays in the list so the user sees why it cannot be imported.
+    const chrome = sources.discoverCookieSources().sources.find((source) => source.id === CHROME_ID)
+    expect(chrome?.unavailable).toMatch(/Chrome on Windows does not share its cookie key/)
+    expect(() => sources.resolveCookieSource(CHROME_ID)).toThrow(/Chrome on Windows does not share its cookie key/)
   })
 
   test('Firefox needs no unlock at all, and says so by carrying no prompt', () => {
@@ -438,7 +459,8 @@ describe('Chrome: cookies behind a key', () => {
     expect(chromium.decryptChromiumValue(v11, CHROME_KEY, '.example.com')).toBeNull()
   })
 
-  test('an undecryptable row is counted as encrypted, under its own name', () => {
+  // Chrome on Windows is refused (ADR 0026).
+  test.skipIf(ON_WINDOWS)('an undecryptable row is counted as encrypted, under its own name', () => {
     // WHY: filing it under "unsupported" would suggest the cookie was the
     // problem, when what failed was this host's access to the key.
     const read = chromium.readChromiumCookies(sources.resolveCookieSource(CHROME_ID), CHROME_KEY)
@@ -454,7 +476,8 @@ describe('Chrome: cookies behind a key', () => {
     })
   })
 
-  test('Chromium’s own timestamps and flags survive the copy', () => {
+  // Chrome on Windows is refused (ADR 0026).
+  test.skipIf(ON_WINDOWS)('Chromium’s own timestamps and flags survive the copy', () => {
     // WHY: Chrome counts microseconds from 1601. Copying that number as seconds
     // would date every cookie to the seventeenth millennium and never expire one.
     const read = chromium.readChromiumCookies(sources.resolveCookieSource(CHROME_ID), CHROME_KEY)
@@ -475,7 +498,8 @@ describe('Chrome: cookies behind a key', () => {
     expect(sessionless?.expiresAt).toBeUndefined()
   })
 
-  test('the count and the import agree except on what a key refuses', () => {
+  // Chrome on Windows is refused (ADR 0026).
+  test.skipIf(ON_WINDOWS)('the count and the import agree except on what a key refuses', () => {
     // WHY: those are the only two numbers a user sees, and the one honest reason
     // they can differ is a value the host could not open.
     const source = sources.resolveCookieSource(CHROME_ID)
@@ -597,7 +621,8 @@ describe('the source store is never opened, and no copy outlives the read', () =
     const before = statSync(cookiesPath)
 
     await sources.readCookieSource(sources.resolveCookieSource(FIREFOX_ID))
-    chromium.readChromiumCookies(sources.resolveCookieSource(CHROME_ID), CHROME_KEY)
+    // Chrome on Windows is refused (ADR 0026), so only Firefox is read there.
+    if (!ON_WINDOWS) chromium.readChromiumCookies(sources.resolveCookieSource(CHROME_ID), CHROME_KEY)
 
     const after = statSync(cookiesPath)
     expect(after.size).toBe(before.size)

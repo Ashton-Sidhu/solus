@@ -25,7 +25,7 @@
     "preview": "electron-vite preview",
     "dist": "bash scripts/build-parallel.sh --mode production && electron-builder --mac",
     "dist:dir": "bash scripts/build-parallel.sh --mode production && electron-builder --mac --dir",
-    "postinstall": "install-electron && electron-builder install-app-deps && bash scripts/patch-dev-icon.sh",
+    "postinstall": "install-electron && electron-builder install-app-deps && bun scripts/patch-dev-icon.ts",
     "start": "electron-forge start",
     "package": "electron-forge package",
     "premake": "electron-vite build",

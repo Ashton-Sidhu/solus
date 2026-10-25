@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { actorFor } from '@solus/server/admission/actor'
 import { memberActor } from './helpers/actors'
 import { installTestIdentities } from './helpers/acting-identities'
@@ -12,7 +13,7 @@ import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runne
 import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { IpcContext } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let SessionRuntime: typeof import('@solus/server/execution/session-runtime')['SessionRuntime']
 let SeatManager: typeof import('@solus/server/execution/seats/seat-manager')['SeatManager']

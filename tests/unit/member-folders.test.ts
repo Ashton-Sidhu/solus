@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { Database } from 'bun:sqlite'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Principal } from '@solus/server/admission/principal'
 
 // bun has no node:sqlite; the handlers' import chain reaches the db even though these tests never open it.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { MemberFolders, memberFolderFor, memberFolderName, memberUserIdOf, recordedMemberFolder, useMemberFolders } = await import('@solus/server/host/member-folders')
 const { projectsRootFor } = await import('@solus/server/workspace')
 const { dispatchCheckoutOwnerKeyOf, dispatchCheckoutPath } = await import('@solus/server/project-config/dispatch-checkouts')
@@ -105,11 +106,13 @@ describe('member folders', () => {
     const { projects } = setup()
     const memberRoot = projectsRootFor(member(ADA, 'Ada'), projects)
     const checkout = dispatchCheckoutPath(memberRoot, ADA, 'github.com/acme/app')
-    expect(checkout.split('/')).toContain('ada-k3x9q2')
-    expect(checkout.split('/')).not.toContain(ADA)
+    expect(checkout.split(sep)).toContain('ada-k3x9q2')
+    expect(checkout.split(sep)).not.toContain(ADA)
     expect(dispatchCheckoutOwnerKeyOf(checkout)).toBe(ADA)
     // A paired device's key is no member's: it stays as it is.
     expect(recordedMemberFolder('device.1')).toBe('device.1')
     expect(dispatchCheckoutOwnerKeyOf(dispatchCheckoutPath(projects, 'device.1', 'github.com/acme/app'))).toBe('device.1')
+    // A Windows host writes the same layout with `\`.
+    expect(dispatchCheckoutOwnerKeyOf(dispatchCheckoutPath(projects, 'device.1', 'github.com/acme/app').replaceAll('/', '\\'))).toBe('device.1')
   })
 })

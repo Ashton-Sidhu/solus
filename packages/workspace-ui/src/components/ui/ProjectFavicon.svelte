@@ -12,6 +12,7 @@
     projectsStore,
   } from "../../contexts";
   import { projectFaviconResolver } from "../../lib/project-favicon";
+  import { isAbsoluteHostPath } from "@solus/contracts/host-path";
 
   let {
     projectKey,
@@ -33,7 +34,7 @@
     checkout ? serverConnections.resolveId(checkout.serverId) : "",
   );
   const projectRoot = $derived(checkout?.projectRoot ?? "");
-  const hasRoot = $derived(projectRoot.startsWith("/"));
+  const hasRoot = $derived(isAbsoluteHostPath(projectRoot));
   const requestKey = $derived(`${resolvedServerId}\0${projectRoot}`);
   let source = $state<{
     key: string;

@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { GitHubTaskProvider } = await import('@solus/server/data/tasks/providers/github')
 

@@ -3,13 +3,13 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentId, AgentMetadata, NormalizedEvent, PermissionRequest, QuestionRequest, Session, SessionRunInput, Tab } from '@solus/contracts/types'
 import type { Principal } from '@solus/server/admission/principal'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // A pending permission or question is answerable only while the run that asked
 // it is alive. When the run ends, the host closes it and every client must learn

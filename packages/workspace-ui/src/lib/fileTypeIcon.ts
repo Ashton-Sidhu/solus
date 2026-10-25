@@ -2,6 +2,8 @@
 // or null when the type has no brand logo. A build-time subset keeps only these
 // icons locally; @iconify/svelte re-renders once that subset registers.
 
+import { hostPathBaseName } from "@solus/contracts/host-path";
+
 // Full filename matches (no extension) take priority over extension lookup.
 const ICON_BY_FILENAME = new Map([["dockerfile", "logos:docker-icon"]]);
 
@@ -53,7 +55,7 @@ export const FILE_TYPE_ICON_NAMES = Array.from(
 );
 
 export function fileTypeIcon(path: string): string | null {
-  const name = (path.split("/").pop() ?? path).toLowerCase();
+  const name = hostPathBaseName(path).toLowerCase();
   const filenameIcon = ICON_BY_FILENAME.get(name);
   if (filenameIcon) return filenameIcon;
   const dot = name.lastIndexOf(".");

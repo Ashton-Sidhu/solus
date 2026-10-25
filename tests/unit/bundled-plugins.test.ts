@@ -51,7 +51,7 @@ describe('bundled plugin sync', () => {
   test('resolves the bundled source from the install root, not the calling module', () => {
     configurePlatformServices({})
     process.env.SOLUS_INSTALL_DIR = '/opt/solus-server'
-    expect(bundledResourcesDir()).toBe('/opt/solus-server/resources')
+    expect(bundledResourcesDir()).toBe(join('/opt/solus-server', 'resources'))
   })
 
   test('leaves the state dir untouched when the bundled source is missing', async () => {
@@ -67,7 +67,8 @@ describe('bundled plugin sync', () => {
    * reach the next agent without a restart, and the copy path is pinned by an
    * app version that never changes between dev builds.
    */
-  describe('development', () => {
+  // Dev links with a directory symlink, which Windows refuses without Developer Mode or admin.
+  describe.skipIf(process.platform === 'win32')('development', () => {
     const source = join(installDir, 'resources', 'plugins')
 
     test('links the state dir at the working tree so plugin edits go live', async () => {

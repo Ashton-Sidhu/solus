@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   package:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     environment: CD
     strategy:
       fail-fast: false
@@ -18,12 +18,31 @@ jobs:
         include:
           - platform: darwin
             arch: arm64
+            runner: ubuntu-latest
+            archive: tar.gz
           - platform: linux
             arch: x64
+            runner: ubuntu-latest
+            archive: tar.gz
           - platform: linux
             arch: arm64
+            runner: ubuntu-latest
+            archive: tar.gz
+          # Windows' own tar writes the zip, and npm runs through the
+          # downloaded node.exe, so this target packages on Windows. x64 only
+          # (docs/plans/windows.md §6).
+          - platform: win32
+            arch: x64
+            runner: windows-latest
+            archive: zip
 
     steps:
+      # Git for Windows turns core.autocrlf on. The package must carry the
+      # files as the repository has them.
+      - name: Keep LF line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -53,13 +72,14 @@ jobs:
 
       # Keep the public names used by the installer and server updater.
       - name: Use the standard release archive name
-        run: mv release/solus-server-headless-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz release/solus-server-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+        shell: bash
+        run: mv release/solus-server-headless-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }} release/solus-server-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
 
       - name: Upload packaged server
         uses: actions/upload-artifact@v4
         with:
           name: solus-server-${{ matrix.platform }}-${{ matrix.arch }}
-          path: release/solus-server-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+          path: release/solus-server-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.archive }}
           if-no-files-found: error
 
   publish:
@@ -71,10 +91,12 @@ jobs:
         with:
           path: release
 
+      # One SHA256SUMS for every archive: install.sh, install.ps1, and the
+      # updater all read it.
       - name: Write SHA256SUMS
         run: |
           cd release
-          find . -name 'solus-server-*.tar.gz' -type f -print0 | sort -z | xargs -0 sha256sum | sed 's#  ./[^/]*/#  #' > SHA256SUMS
+          find . \( -name 'solus-server-*.tar.gz' -o -name 'solus-server-*.zip' \) -type f -print0 | sort -z | xargs -0 sha256sum | sed 's#  ./[^/]*/#  #' > SHA256SUMS
 
       - name: Checkout Solus
         uses: actions/checkout@v4
@@ -86,6 +108,8 @@ jobs:
         with:
           files: |
             release/**/*.tar.gz
+            release/**/*.zip
             release/SHA256SUMS
             solus/scripts/install.sh
+            solus/scripts/install.ps1
           generate_release_notes: true

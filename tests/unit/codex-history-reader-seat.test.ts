@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { CodexAppServerClient } from '@solus/server/execution/agents/codex/codex-agent'
 import type { TurnSeat } from '@solus/server/execution/seats/seat-manager'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // WORKAROUND(openai/codex#54472): delete this file with the workaround.
 //

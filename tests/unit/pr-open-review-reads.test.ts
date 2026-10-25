@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import type { IpcContext } from '@solus/contracts/types'
@@ -13,7 +13,7 @@ import type { Provider } from '@solus/server/providers/types'
 
 // The handlers reach the production database module, which imports node:sqlite
 // (absent under Bun's test runtime).
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const repo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'repo' }
 

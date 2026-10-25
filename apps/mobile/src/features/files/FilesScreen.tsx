@@ -1,6 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/files/FileTreeBrowser.tsx (MIT, see UPSTREAM.md).
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native'
 import { useApp, useListened } from '../../app/app-context'
 import { SymbolView } from '../../components/AppSymbol'
@@ -67,7 +68,7 @@ export function FilesScreen({ navigation, route }: ScreenProps<'Files'>) {
   const readiness = useListened(app.connections.changes, () => app.connections.state(hostId)?.readiness)
   const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(() => new Set())
   const [searchQuery, setSearchQuery] = useState('')
-  const projectName = projectPath.slice(projectPath.lastIndexOf('/') + 1) || projectPath
+  const projectName = hostPathBaseName(projectPath) || projectPath
   const reload = useCallback(() => { void app.files.load(hostId, projectPath) }, [app, hostId, projectPath])
 
   useLayoutEffect(() => {

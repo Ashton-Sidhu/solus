@@ -1,10 +1,10 @@
 import { permissionOf, isResourceMethod, resourceVerbOf } from '@solus/contracts/permissions'
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { Principal } from '@solus/server/admission/principal'
 import { RPC_PLANES } from '@solus/contracts/rpc-planes'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let notificationRecipientClients: typeof import('@solus/server/notifications/hub-events').notificationRecipientClients
 

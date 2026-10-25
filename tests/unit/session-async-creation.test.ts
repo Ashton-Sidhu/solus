@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { OrchestratedRuntime, CreateSessionOrder } from '@solus/server/execution/orchestration/session-orchestrator'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let SessionOrchestrator: typeof import('@solus/server/execution/orchestration/session-orchestrator')['SessionOrchestrator']
 beforeAll(async () => {
   ;({ SessionOrchestrator } = await import('@solus/server/execution/orchestration/session-orchestrator'))

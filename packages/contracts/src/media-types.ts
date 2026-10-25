@@ -1,3 +1,5 @@
+import { hostPathBaseName } from './host-path'
+
 /** Largest video one upload or recording may be. Images keep the 10 MB attachment limit. */
 export const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024
 
@@ -41,7 +43,7 @@ const TEXT_MIME_BY_EXTENSION = new Map([
 ])
 
 function extensionOf(path: string): string {
-  const leaf = path.slice(path.lastIndexOf('/') + 1)
+  const leaf = hostPathBaseName(path)
   const dot = leaf.lastIndexOf('.')
   return dot > 0 ? leaf.slice(dot + 1).toLowerCase() : ''
 }

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { ACCESS_TOKEN_TYPE, CLIENT_ASSERTION_TYPE, TOKEN_EXCHANGE_GRANT_TYPE, tokenEndpoint, type EnrollHostResponse, type HostRegistration } from '@solus/contracts/uplink'
 import { clientCredential, generateHostKey } from '@solus/server/host/host-credential'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/009-organization-vms.md §4, §5: a self-hosted server's organization
 // attachment is persisted with its registration before organization work is

@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -16,7 +17,7 @@ const BOB: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } 
 const EVE: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'eve' } }
 
 // The flows reach the seat manager, which opens the host database module; bun has no node:sqlite.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let AgentAuthFlows: typeof import('@solus/server/execution/seats/agent-auth')['AgentAuthFlows']
 let SeatManager: typeof import('@solus/server/execution/seats/seat-manager')['SeatManager']

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, mock, spyOn, test } from 'bun:te
 import { randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from '../helpers/bun-sqlite'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
@@ -11,7 +11,7 @@ import type { NormalizedEvent } from '@solus/contracts/types'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { IntegrationGateway } = await import('@solus/server/integrations/gateway')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')

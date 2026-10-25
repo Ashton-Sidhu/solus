@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline'
+import { isInsideHostPath } from '@solus/contracts/host-path'
 import { createReadStream, existsSync } from 'node:fs'
 import { readdir, stat as fsStat } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -168,7 +169,7 @@ export async function scanPlansInDir(
   const files = (await readdir(sessionsDir)).filter((f: string) => f.endsWith('.jsonl'))
   const livePaths = new Set(files.map((file) => join(sessionsDir, file)))
   for (const filePath of _planFileCache.keys()) {
-    if (filePath.startsWith(`${sessionsDir}/`) && !livePaths.has(filePath)) _planFileCache.delete(filePath)
+    if (isInsideHostPath(sessionsDir, filePath) && !livePaths.has(filePath)) _planFileCache.delete(filePath)
   }
 
   const tasks = files.map((file) => {

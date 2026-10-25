@@ -1,4 +1,5 @@
 import { execFile as execFileCb, execFileSync, spawn } from 'child_process'
+import { resolve as resolvePath } from 'path'
 import { promisify } from 'util'
 import { launchedProcess, launchProcess } from '../cli-env'
 import { currentIdentity } from '../vault/acting-scope'
@@ -112,6 +113,16 @@ export async function runStreamed(
       else reject(new Error(`Command failed: ${bin} ${args.join(' ')}${signal ? ` (${signal})` : ''}\n${stderrTail.trim()}`))
     })
   })
+}
+
+/**
+ * A path git printed, as this host names it: Git for Windows prints `C:/x`
+ * where Node and every other path on the host have `C:\x`, so a raw compare of
+ * the two never matches. Relative output is from `cwd`. Every path read from
+ * git's stdout goes through here (docs/plans/windows.md §5.4).
+ */
+export function gitOutputPath(cwd: string, output: string): string {
+  return resolvePath(cwd, output.trim())
 }
 
 /** Whether a revision resolves to a commit object in this repository. */

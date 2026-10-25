@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { GoalSync } from '@solus/workspace-ui/contexts/workspace/goal-sync'
 import type { Session } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let ClaudeGoalStore: typeof import('@solus/server/data/sessions/claude-goal-store')['ClaudeGoalStore']
 

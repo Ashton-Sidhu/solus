@@ -12,6 +12,7 @@ import type { SurfaceContext } from '../app/surface-context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { showsActivity } from '../../components/activity/lib/activity-line'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
+import { isAbsoluteHostPath, joinHostPath } from '@solus/contracts/host-path'
 
 // ─── Transcript loader ───
 
@@ -446,7 +447,7 @@ export function materializeSessionTranscript(
         let path = input.path
         // The stored path may be relative to the working directory; resolve it so
         // the host can sign a URL for the file on reload.
-        if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
+        if (path && !isAbsoluteHostPath(path)) path = joinHostPath(args.displayCwd, path)
         let workRef: Message['workRef']
         if (kind === 'html' && (html || historyHtml)) {
           // Never infer artifact identity from a title: two artifacts can share
@@ -486,7 +487,7 @@ export function materializeSessionTranscript(
       try {
         const input = imageInputSchema.parse(JSON.parse(m.toolInput || '{}'))
         let path = input.path
-        if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
+        if (path && !isAbsoluteHostPath(path)) path = joinHostPath(args.displayCwd, path)
         if (path) {
           messages.push({
             id: nextMsgId(),

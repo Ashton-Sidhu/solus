@@ -2,14 +2,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
 import { z } from 'zod'
 import type { ExternalTicketRef } from '@solus/contracts/task-types'
 import type { AtlassianRequest } from '@solus/server/atlassian/api'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 /**
  * Jira takes a file as an issue attachment, not as a URL in the body. These

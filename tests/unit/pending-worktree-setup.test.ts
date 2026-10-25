@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { NormalizedEvent, Session, SessionRunInput, Tab, WireNormalizedEvent } from '@solus/contracts/types'
 
 /**
@@ -14,7 +14,7 @@ import type { NormalizedEvent, Session, SessionRunInput, Tab, WireNormalizedEven
  * same paths as the host's card when the send stops or makes no worktree.
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type TestGlobal = typeof globalThis & { $state?: unknown }
 // SAFETY: This test installs the Svelte rune shim on the test process global and restores it after all cases.
@@ -40,8 +40,11 @@ beforeAll(async () => {
 afterAll(async () => {
   const { closeDatabase } = await import('@solus/server/db/database')
   const { closeDb } = await import('@solus/server/db')
+  const { closeMetricsDb } = await import('@solus/server/data/insights/metrics-db')
   await closeDatabase()
   closeDb()
+  // Windows cannot remove the data folder while the metrics database is open.
+  closeMetricsDb()
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir

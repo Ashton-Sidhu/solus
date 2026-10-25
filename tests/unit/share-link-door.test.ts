@@ -3,7 +3,7 @@ import type { Server } from 'http'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { SOLUS_API_AUDIENCE, type AccessTokenClaims } from '@solus/contracts/uplink'
 import type { TokenVerdict } from '@solus/server/admission/access-tokens'
 import type { Principal } from '@solus/server/admission/principal'
@@ -11,7 +11,7 @@ import type { ResolvedLinkShare } from '@solus/server/sharing/share-manager'
 
 // bun has no node:sqlite; the http module's import chain reaches the db even though
 // these tests never open it.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { buildHttpServer } = await import('@solus/server/transport/http')
 const { ShareLinkResolver } = await import('@solus/server/sharing/share-link-resolver')
 const auth = await import('@solus/server/admission/auth')

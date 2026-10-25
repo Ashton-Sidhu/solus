@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
@@ -11,7 +11,7 @@ import { workspaceTaskSchema, workspaceWorkSchema, workspaceTranscriptPageSchema
 import { installTestIdentities } from './helpers/acting-identities'
 import type { SolusApiRequest } from '@solus/contracts/solus-api/request'
 import type { Principal } from '@solus/server/admission/principal'
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let operations: WorkspaceOperations
 let dataDir: string
 let database: typeof import('@solus/server/db/database')

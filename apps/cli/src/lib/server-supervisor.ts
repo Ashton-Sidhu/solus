@@ -8,13 +8,23 @@ import { stageServerRelease } from './server-release'
 import { runtimePaths } from './runtime'
 import { activateVersion, currentVersionDir, finalizeStagedVersion, removeVersion, versionDir } from './version-store'
 
+/** How long a Windows server has to shut down after its IPC channel closes, before it is killed. */
+const WINDOWS_STOP_TIMEOUT_MS = 30_000
+
 interface SupervisorOptions {
   runtimeDir: string
   dataDir: string
   env: NodeJS.ProcessEnv
   stage?: typeof stageServerRelease
   startupTimeoutMs?: number
+  /** Start the server again after it crashes. Windows' logon task has no
+   *  service manager to do it, as systemd and launchd do elsewhere. */
+  restartOnCrash?: boolean
 }
+
+/** The wait before the first restart after a crash; it doubles up to the cap. */
+const RESTART_FIRST_MS = 2_000
+const RESTART_MAX_MS = 60_000
 
 /** The original `solus start` process remains the service manager's child. */
 export async function superviseServer(options: SupervisorOptions): Promise<number> {
@@ -33,6 +43,9 @@ export async function superviseServer(options: SupervisorOptions): Promise<numbe
   let candidate = false
   let startupTimer: ReturnType<typeof setTimeout> | null = null
   let shutdownTimer: ReturnType<typeof setTimeout> | null = null
+  let restartTimer: ReturnType<typeof setTimeout> | null = null
+  /** Crashes since the server last reported ready. */
+  let crashesInRow = 0
   let finish!: (code: number) => void
   const finished = new Promise<number>((resolve) => { finish = resolve })
   const support = (): ServerUpdateSupport => ({ supported, reason, operation })
@@ -48,8 +61,10 @@ export async function superviseServer(options: SupervisorOptions): Promise<numbe
   const clearTimers = () => {
     if (startupTimer) clearTimeout(startupTimer)
     if (shutdownTimer) clearTimeout(shutdownTimer)
+    if (restartTimer) clearTimeout(restartTimer)
     startupTimer = null
     shutdownTimer = null
+    restartTimer = null
   }
   const cancelStagedUpdate = () => {
         if (staged) rmSync(dirname(staged), { recursive: true, force: true })
@@ -79,6 +94,7 @@ export async function superviseServer(options: SupervisorOptions): Promise<numbe
       const message = parsed.data
       const matchesWaitingUpdate = matchesWaiting(message)
       if (message.type === 'solus:ready') {
+        crashesInRow = 0
         if (candidate && operation) {
           if (message.version !== operation.version) { launched.kill('SIGKILL'); return }
           clearTimers()
@@ -151,6 +167,9 @@ export async function superviseServer(options: SupervisorOptions): Promise<numbe
           fail(error instanceof Error ? error.message : String(error))
         }
         launch()
+      } else if (options.restartOnCrash && !updating && code !== 0) {
+        const delay = Math.min(RESTART_MAX_MS, RESTART_FIRST_MS * 2 ** crashesInRow++)
+        restartTimer = setTimeout(() => { restartTimer = null; launch() }, delay)
       } else {
         if (updating) fail('The server stopped before the update could finish.')
         finish(code ?? 1)
@@ -161,8 +180,17 @@ export async function superviseServer(options: SupervisorOptions): Promise<numbe
   }
   const stop = (signal: NodeJS.Signals) => {
     stopping = true
-    if (child) child.kill(signal)
-    else finish(0)
+    // Between a crash and its restart there is no server to stop.
+    if (!child || restartTimer) { clearTimers(); finish(0); return }
+    // A signal on Windows is TerminateProcess, so the server would never shut
+    // down. It stops on its own when the IPC channel closes.
+    if (process.platform === 'win32' && child.connected) {
+      const stopped = child
+      stopped.disconnect()
+      setTimeout(() => stopped.kill(), WINDOWS_STOP_TIMEOUT_MS).unref()
+      return
+    }
+    child.kill(signal)
   }
   const sigterm = () => stop('SIGTERM')
   const sigint = () => stop('SIGINT')

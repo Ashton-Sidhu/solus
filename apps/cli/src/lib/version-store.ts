@@ -4,9 +4,14 @@
  * and a `current` symlink naming the active one. `current` is repointed with
  * a rename, which POSIX guarantees is atomic, so a reader never observes a
  * half-updated link.
+ *
+ * On Windows `current` is a directory junction, which needs no privilege
+ * (`docs/plans/windows.md` §5.7). A rename over a junction fails with EPERM,
+ * so the old junction is removed and the new one is made in its place.
  */
-import { existsSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import { renameRetrying } from './rename-retry'
 
 export function versionsDir(runtimeDir: string): string {
   return join(runtimeDir, 'versions')
@@ -41,10 +46,18 @@ export function currentVersionName(runtimeDir: string): string | null {
 }
 
 /** Repoints `current` at `versions/<version>`, which must already exist. */
-export function activateVersion(runtimeDir: string, version: string): void {
+export function activateVersion(runtimeDir: string, version: string, platform: NodeJS.Platform = process.platform): void {
   const target = versionDir(runtimeDir, version)
   if (!existsSync(target)) throw new Error(`Version ${version} is not installed at ${target}`)
   const link = currentLink(runtimeDir)
+  if (platform === 'win32') {
+    // unlink removes the junction itself, never the version it names.
+    try { unlinkSync(link) } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+    }
+    symlinkSync(target, link, 'junction')
+    return
+  }
   const staged = `${link}.next-${process.pid}`
   rmSync(staged, { force: true })
   symlinkSync(target, staged)
@@ -58,7 +71,7 @@ export function removeVersion(runtimeDir: string, version: string): void {
 /** Moves a verified, extracted release from its download staging directory
  *  into `versions/<version>`, then discards the rest of the staging dir. */
 export function finalizeStagedVersion(stagedDir: string, runtimeDir: string, version: string): void {
-  renameSync(stagedDir, versionDir(runtimeDir, version))
+  renameRetrying(stagedDir, versionDir(runtimeDir, version))
   rmSync(dirname(stagedDir), { recursive: true, force: true })
 }
 

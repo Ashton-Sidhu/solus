@@ -1,9 +1,10 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
@@ -12,7 +13,7 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
 const BOB: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }
 
 // The connector reaches setup-handlers, which opens the host database module; bun has no node:sqlite.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let SeatConnector: typeof import('@solus/server/execution/seats/seat-connect')['SeatConnector']
 let SeatManager: typeof import('@solus/server/execution/seats/seat-manager')['SeatManager']
@@ -71,7 +72,8 @@ describe('SeatConnector', () => {
       const started = connector.start(BOB, 'claude-code')
       await new Promise((resolve) => setTimeout(resolve, 0))
       const [spawn] = spawned
-      expect(spawn?.command).toBe('claude')
+      // WHY: the program matters, not its spelling: Windows resolves the full `claude.exe` path.
+      expect(basename(spawn?.command ?? '', '.exe')).toBe('claude')
       expect(spawn?.args).toEqual(['auth', 'login'])
       expect(spawn?.env.CLAUDE_CONFIG_DIR).toBe(seats.homeFor(BOB, 'claude-code'))
       expect(spawn?.env.PATH?.startsWith(seats.shimBinDir())).toBe(true)
@@ -123,7 +125,7 @@ describe('SeatConnector', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     const [spawn] = spawned
     expect(spawn?.env.CLAUDE_CONFIG_DIR).toBeUndefined()
-    expect(spawn?.env.PATH?.includes('/bin')).toBe(true)
+    expect(spawn?.env.PATH?.includes(`${sep}bin`)).toBe(true)
     spawn!.child.stdout.emit('data', 'Browser didn\'t open, visit: https://claude.ai/oauth/authorize\n')
     await started
     spawn!.child.emit('close', 0, null)

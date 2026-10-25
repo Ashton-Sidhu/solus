@@ -3,11 +3,11 @@ import { spawnSync } from 'child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 // bun has no node:sqlite; the review context's import chain reaches the metrics db.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let resolveReviewContext: typeof import('@solus/server/review/review-context')['resolveReviewContext']
 

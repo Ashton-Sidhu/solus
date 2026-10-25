@@ -1,10 +1,11 @@
 import { beforeAll, afterAll, afterEach, describe, expect, test, mock, spyOn } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { Database } from 'bun:sqlite'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { RestartRun, SavedQueueEntry } from '@solus/server/data/sessions/run-ledger'
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let directory: string
 let RunLedger: typeof import('@solus/server/data/sessions/run-ledger')['RunLedger']

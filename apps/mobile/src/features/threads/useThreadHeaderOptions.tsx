@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/useThreadHeaderOptions.tsx (MIT, see UPSTREAM.md).
 import { StackActions, useNavigation } from "@react-navigation/native";
+import { hostPathBaseName } from "@solus/contracts/host-path";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo } from "react";
 import { Platform, View } from "react-native";
@@ -75,7 +76,7 @@ export function useThreadHeaderOptions(props: {
   // native back button does not render; Home is the way out.
   const canGoBack = navigation.canGoBack();
   const { faviconRoot } = props;
-  const projectTitle = faviconRoot ? faviconRoot.split(/[\\/]/).at(-1) || faviconRoot : "";
+  const projectTitle = faviconRoot ? hostPathBaseName(faviconRoot) || faviconRoot : "";
   const favicon = (size: number) =>
     faviconRoot ? (
       <ProjectFavicon environmentId={hostId} size={size} projectTitle={projectTitle} workspaceRoot={faviconRoot} />

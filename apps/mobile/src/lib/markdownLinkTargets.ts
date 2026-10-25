@@ -1,5 +1,6 @@
 // Adapted from T3 Code packages/client-runtime/src/markdownLinks.ts and packages/shared/src/path.ts (MIT, see UPSTREAM.md).
 // A local copy: this app does not depend on T3 packages.
+import { hostPathBaseName } from "@solus/contracts/host-path";
 
 function isWindowsDrivePath(value: string): boolean {
   return /^[a-zA-Z]:([/\\]|$)/.test(value);
@@ -211,11 +212,7 @@ export function parseMarkdownFileLink(href: string): FilePathPosition | null {
 }
 
 export function fileBasename(path: string): string {
-  // A trailing separator is a valid way to write a directory. Trim it before
-  // taking the final segment so the label is never empty.
-  const trimmed = path.replace(/[/\\]+$/, "");
-  if (trimmed.length === 0) return path;
-  const separatorIndex = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed;
+  // A root has no name; its label is the path itself, never empty.
+  return hostPathBaseName(path) || path;
 }
 

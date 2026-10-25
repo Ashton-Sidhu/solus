@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { Attribution } from '@solus/contracts/user'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,7 +16,7 @@ import { DocVersionConflictError } from '@solus/server/docs/types'
  * forgets on reload is not a conflict — so only the provider is stubbed.
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const now = '2026-08-22T10:00:00.000Z'
 

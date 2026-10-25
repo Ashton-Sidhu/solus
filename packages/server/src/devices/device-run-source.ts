@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { gitOutputPath } from '../git/exec'
 import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -46,7 +47,8 @@ export class DeviceRunSources {
     const list = await this.git(project, ['worktree', 'list', '--porcelain'])
     for (const entry of list.split('\n\n')) {
       const lines = entry.split('\n')
-      if (lines.includes(`branch refs/heads/${branch}`)) return lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length) ?? null
+      const path = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length)
+      if (lines.includes(`branch refs/heads/${branch}`)) return path ? gitOutputPath(project, path) : null
     }
     return null
   }

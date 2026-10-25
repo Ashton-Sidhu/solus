@@ -1,6 +1,7 @@
 import type { Root, RootContent } from 'mdast'
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import { mediaTypeFor } from '@solus/contracts/media-types'
 
 export interface ReplyImage {
@@ -15,7 +16,7 @@ export function replyImage(href: string, alt = ''): ReplyImage {
   const dataFormat = /^data:image\/([^;,]+)/i.exec(href)?.[1]
   if (dataFormat) return { href, label: alt || 'Image', format: dataFormat.toUpperCase() }
   const path = href.split(/[?#]/, 1)[0]
-  let name = path.slice(path.lastIndexOf('/') + 1)
+  let name = hostPathBaseName(path)
   try { name = decodeURIComponent(name) } catch {}
   return { href, label: name || alt || 'Image', format: mediaTypeFor(path)?.mime.split('/')[1]?.toUpperCase() ?? 'IMAGE' }
 }

@@ -6,7 +6,7 @@ import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } fro
 import { TurnInputChannel } from './claude-turn-input'
 import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
-import { findOnPath, launchedProcess, warmCliPath, type ProcessUser } from '../../../cli-env'
+import { findOnPath, launchedProcess, startableCommand, warmCliPath, type ProcessUser } from '../../../cli-env'
 import { solusPluginsDir } from '../plugins'
 import { claudeUsageFromApi, parseClaudeUsageReport } from './claude-usage'
 import { toContextBreakdown } from './claude-context-usage'
@@ -124,7 +124,13 @@ const BLOCKED_TOOLS = [
 // Wait for PATH discovery before querying, and check the file on every request
 // so an install or removal after boot is visible without restarting Solus.
 export async function resolveClaudeExecutable(): Promise<string> {
-  const executable = findOnPath('claude', await warmCliPath())
+  const path = await warmCliPath()
+  let executable = findOnPath('claude', path)
+  // The SDK cannot start an npm `.cmd` shim, but it runs a `.js` entry with Node itself.
+  if (executable && process.platform === 'win32') {
+    const command = startableCommand('claude', { PATH: path })
+    executable = command.args[0] ?? (/\.(exe|com)$/i.test(command.file) ? command.file : null)
+  }
   if (!executable) {
     throw new Error('Claude Code was not found on this host. Install it through Solus setup, then try again.')
   }

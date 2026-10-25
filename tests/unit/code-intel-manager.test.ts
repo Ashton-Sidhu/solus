@@ -17,6 +17,9 @@ import { CodeIntelManager } from '@solus/server/code-intel/code-intel-manager'
 
 const FIXTURE_ROOT = join(import.meta.dir, '__fixtures__', 'scip', 'typescript-project')
 
+// The fake indexer is a `#!/bin/sh` script; Windows needs a .cmd fixture.
+const indexerRuns = process.platform !== 'win32'
+
 let dataDir: string
 let projectRoot: string
 let manager: CodeIntelManager
@@ -60,7 +63,7 @@ afterAll(() => {
 })
 
 describe('CodeIntelManager', () => {
-  test('the first query on a root starts the build and reports it', async () => {
+  test.if(indexerRuns)('the first query on a root starts the build and reports it', async () => {
     const ready = waitForState('ready')
     const first = await manager.symbolAt(projectRoot, { path: 'src/main.ts', line: 3, character: 19 })
     expect(first.ok && first.symbol).toBeNull()
@@ -71,7 +74,7 @@ describe('CodeIntelManager', () => {
     expect(typescript.indexedAt).not.toBeNull()
   })
 
-  test('the built index answers with the definition across files', async () => {
+  test.if(indexerRuns)('the built index answers with the definition across files', async () => {
     const result = await manager.symbolAt(projectRoot, { path: 'src/main.ts', line: 3, character: 19 })
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -80,7 +83,7 @@ describe('CodeIntelManager', () => {
     expect(result.symbol?.definition?.path).toBe('src/math.ts')
   })
 
-  test('loads a later reference page with source previews', async () => {
+  test.if(indexerRuns)('loads a later reference page with source previews', async () => {
     const symbolResult = await manager.symbolAt(projectRoot, { path: 'src/math.ts', line: 1, character: 17 })
     expect(symbolResult.ok && symbolResult.symbol).not.toBeNull()
     if (!symbolResult.ok || !symbolResult.symbol) return
@@ -108,7 +111,7 @@ describe('CodeIntelManager', () => {
     expect(result.ok && result.symbol).toBeNull()
   })
 
-  test('a file edited after indexing still answers, marked stale', async () => {
+  test.if(indexerRuns)('a file edited after indexing still answers, marked stale', async () => {
     writeFileSync(join(projectRoot, 'src/main.ts'), `// edited\n${'\n'}import { add } from './math'\n`)
     const result = await manager.symbolAt(projectRoot, { path: 'src/main.ts', line: 3, character: 19 })
     // WHY: hiding the answer would make every click after an agent edit a dead
@@ -129,7 +132,7 @@ describe('CodeIntelManager', () => {
     for (const language of status.languages) expect(language.installCommand.length).toBeGreaterThan(0)
   })
 
-  test('a second manager adopts the cached index from disk without rebuilding', async () => {
+  test.if(indexerRuns)('a second manager adopts the cached index from disk without rebuilding', async () => {
     const second = new CodeIntelManager()
     try {
       const status = await second.status(projectRoot)

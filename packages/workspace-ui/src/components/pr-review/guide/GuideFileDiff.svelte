@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { hostPathBaseName } from "@solus/contracts/host-path";
   import { mount, unmount, onMount, untrack } from "svelte";
   import {
     FileDiff,
@@ -126,11 +127,11 @@
 
   const collapsedSummary = $derived.by(() => {
     if (noiseAnalysis?.kind) {
-      return `${filePath.split("/").pop() ?? filePath} · ${diffNoiseLabel(noiseAnalysis)} · unreviewed`;
+      return `${hostPathBaseName(filePath) || filePath} · ${diffNoiseLabel(noiseAnalysis)} · unreviewed`;
     }
     if (movedSummary?.allChangesMovedUnchanged) {
       const count = movedSummary.unchangedMovedLines;
-      return `${filePath.split("/").pop() ?? filePath} · ${count.toLocaleString()} line${count === 1 ? "" : "s"} · moved (unchanged) · collapsed · unreviewed`;
+      return `${hostPathBaseName(filePath) || filePath} · ${count.toLocaleString()} line${count === 1 ? "" : "s"} · moved (unchanged) · collapsed · unreviewed`;
     }
     return "";
   });

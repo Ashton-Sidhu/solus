@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { IpcContext } from '@solus/contracts/types'
 import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
 import { resetTestDatabase } from './helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/organization-scope.md §3, §6.1, R9–R11: at the start of a turn
 // an unassigned Local session is assigned to the window's organization, once:

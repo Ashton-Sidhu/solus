@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { TaskSidebarFilter, TaskSidebarSnapshot } from '@solus/contracts/task-types'
 import type { SessionMeta } from '@solus/contracts/types'
 import type { HandlerCtx } from '@solus/server/transport/server'
@@ -15,7 +15,7 @@ import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 // thousand tasks, even when nothing changed. A resume must send almost nothing
 // when nothing changed, and must never let a client keep a row that changed.
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
 

@@ -1,6 +1,6 @@
 import { watch, type FSWatcher } from 'fs'
 import path from 'path'
-import { runAsync } from './exec'
+import { gitOutputPath, runAsync } from './exec'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'git-watcher')
@@ -179,7 +179,7 @@ export class GitWatcher {
         runAsync('git', ['rev-parse', '--git-path', 'HEAD'], checkoutCwd),
         runAsync('git', ['rev-parse', '--git-path', 'index'], checkoutCwd),
       ])
-      const absolute = (value: string) => path.isAbsolute(value) ? value : path.resolve(checkoutCwd, value)
+      const absolute = (value: string) => gitOutputPath(checkoutCwd, value)
       return {
         commonDir: absolute(commonDirRaw),
         headPath: absolute(headPathRaw),

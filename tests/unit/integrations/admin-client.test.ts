@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { OAUTH_CLIENT_REQUIRED_MESSAGE } from '@solus/contracts/integrations/oauth-protocol'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from '../helpers/bun-sqlite'
 import type { IntegrationChangedEvent } from '@solus/contracts/integration-types'
 import type { Principal } from '@solus/server/admission/principal'
 import { TEST_HANDLER_CTX } from '../helpers/handler-ctx'
@@ -11,7 +11,7 @@ import { installTestIdentities } from '../helpers/acting-identities'
 import { startFakeServers, type FakeServers } from './fake-servers'
 import { memoryClients, memorySecretStore } from './memory-secrets'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { IntegrationOAuth } = await import('@solus/server/integrations/oauth')
 const { IntegrationConnectionStore } = await import('@solus/server/integrations/connection-store')

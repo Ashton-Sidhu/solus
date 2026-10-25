@@ -1,10 +1,10 @@
 import { afterAll, afterEach, describe, expect, mock, test } from 'bun:test'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from '../helpers/bun-sqlite'
 import { resetTestDatabase } from '../helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { IntegrationConnectionStore } = await import('@solus/server/integrations/connection-store')
 const { dataDir } = await import('@solus/server/platform/paths')

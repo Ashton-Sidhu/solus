@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { Provider } from '@solus/server/providers/types'
 import type { RepoRef } from '@solus/contracts/providers'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 /**
  * Which credential may act is decided by the chain, never by this host's own

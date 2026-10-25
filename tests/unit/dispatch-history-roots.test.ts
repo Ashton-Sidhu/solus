@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { dispatchCheckoutOwnerKey, dispatchCheckoutPath, resolveDispatchHistoryRoots } = await import('@solus/server/project-config/dispatch-checkouts')
 const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
 

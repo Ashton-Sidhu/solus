@@ -1,4 +1,4 @@
-import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
 import type { Seat, SeatConnectStartResult, SeatProvider } from '@solus/contracts/seats'
 import { launchProcess } from '../../cli-env'
 import { createLogger } from '../../logger'
@@ -218,7 +218,12 @@ export function coerceAgentSignInCode(value: string): string {
 
 /** The login runs in its own process group, so cancelling reaches the CLI's wrappers and children too. */
 export function terminateProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (process.platform !== 'win32' && child.pid) {
+  // Windows has no process groups and no signals: `taskkill /T` ends the CLI and every process it started.
+  if (process.platform === 'win32' && child.pid) {
+    execFile('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true }, () => {})
+    return
+  }
+  if (child.pid) {
     try {
       process.kill(-child.pid, signal)
       return

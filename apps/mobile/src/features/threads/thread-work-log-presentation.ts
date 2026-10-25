@@ -1,6 +1,7 @@
 // Adapted from T3 Code packages/client-runtime/src/work-log/presentation.ts and
 // apps/mobile/src/lib/threadActivity.ts (MIT, see UPSTREAM.md).
 import { z } from 'zod'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 /**
@@ -104,7 +105,7 @@ function filePath(parsed: ParsedToolInput | null): string | null {
 }
 
 function basename(path: string): string {
-  return path.split('/').filter(Boolean).at(-1) ?? path
+  return hostPathBaseName(path) || path
 }
 
 /** The first word of a command, without a leading env assignment or path. */

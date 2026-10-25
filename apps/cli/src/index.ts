@@ -5,7 +5,9 @@ import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
 import { connectHost, connectStatus, disconnectHost, removeOrganization } from './lib/connect'
-import { describeConnection, onboard, type OnboardingDeps, type Provider } from './lib/onboarding'
+import { describeConnection, onboard, type OnboardingDeps } from './lib/onboarding'
+import { followFile, readLastLines } from './lib/logs'
+import { setUpProvider } from './lib/provider-login'
 import { isInteractive, terminalPrompter } from './lib/prompts'
 import { renderQrAscii } from './lib/qr'
 import { defaultDataDir, defaultRuntimeDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type RuntimePaths, type ServerLock } from './lib/runtime'
@@ -161,19 +163,6 @@ async function withOnboarding(paths: RuntimePaths, run: (deps: OnboardingDeps) =
   }
 }
 
-/** The provider's own sign-in, in this terminal, as the account the service runs as. */
-function setUpProvider(provider: Provider): Promise<boolean> {
-  const [command, args] = provider === 'claude-code' ? ['claude', ['auth', 'login']] as const : ['codex', ['login', '--device-auth']] as const
-  return new Promise((resolve) => {
-    const child = spawn(command, [...args], { stdio: 'inherit' })
-    child.once('error', (error) => {
-      console.log(`${command} is not installed on this server (${error.message}). Install it, then run \`${command} ${args.join(' ')}\`.`)
-      resolve(false)
-    })
-    child.once('exit', (code) => resolve(code === 0))
-  })
-}
-
 async function status(opts: CommonOptions): Promise<void> {
   await reportStatus(runtimePaths(opts.dataDir), (line) => console.log(line))
 }
@@ -247,7 +236,12 @@ async function start(opts: StartOptions): Promise<void> {
   mkdirSync(paths.dataDir, { recursive: true })
   mkdirSync(dirname(paths.logFile), { recursive: true })
 
-  process.exitCode = await superviseServer({ runtimeDir: defaultRuntimeDir(), dataDir: opts.dataDir, env: serverEnv(opts) })
+  process.exitCode = await superviseServer({
+    runtimeDir: defaultRuntimeDir(),
+    dataDir: opts.dataDir,
+    env: serverEnv(opts),
+    restartOnCrash: process.env.SOLUS_SUPERVISOR_RESTARTS === '1',
+  })
 }
 
 
@@ -257,9 +251,10 @@ async function logs(opts: LogsOptions): Promise<void> {
     console.log(`No log file yet: ${paths.logFile}`)
     return
   }
-  const child = spawn('tail', ['-n', String(opts.lines), '-f', paths.logFile], { stdio: 'inherit' })
-  const { code } = await waitForExit(child)
-  process.exitCode = code ?? 1
+  const { text, end } = readLastLines(paths.logFile, opts.lines)
+  process.stdout.write(text)
+  // The file watch keeps the process alive until Ctrl+C, as `tail -f` does.
+  followFile(paths.logFile, end, (chunk) => process.stdout.write(chunk))
 }
 
 async function pair(opts: CommonOptions): Promise<void> {

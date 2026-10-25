@@ -4,6 +4,7 @@ import type { AgentId, IpcContext } from "@solus/contracts/types";
 import type { HostApi } from "@solus/client-core/host-api";
 import { AGENT_AUTH_COMMANDS } from "@solus/contracts/agent-auth";
 import { agentAuthStore, seatProviderOf, seatsStore } from "../../contexts";
+import { hostPathBaseName } from "@solus/contracts/host-path";
 export { parseReviewCommand } from "@solus/contracts/review";
 
 export const REVIEW_SLASH_COMMANDS = [
@@ -174,7 +175,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
       const result = await api.updateAgentFiles(ipcContext, argument);
       if (result.success) {
         addSystemMessage(
-          `Updated ${result.files?.map((file) => file.split("/").pop()).join(" and ") ?? "agent files"}.`,
+          `Updated ${result.files?.map((file) => hostPathBaseName(file)).join(" and ") ?? "agent files"}.`,
         );
       } else {
         addSystemMessage(

@@ -3,12 +3,12 @@ import { beforeEach, afterAll, afterEach, beforeAll, describe, expect, mock, tes
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import { artifactPreview, resolveArtifactTitle, workPreview } from '@solus/contracts/work-preview'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type DbModule = typeof import('@solus/server/db')
 type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')

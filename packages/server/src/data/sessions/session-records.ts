@@ -1,4 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm'
+import { trimTrailingSeparators } from '@solus/contracts/host-path'
 import { z } from 'zod'
 import {
   encodePathAsFolder,
@@ -724,7 +725,7 @@ export async function listSessionRecords(scope: RecordScope, query: SessionRecor
     clauses.push(sql`project_path IN (${sql.join(query.projectPaths.map((path) => sql`${path}`), sql`, `)})`)
   }
   if (query.projectPath !== undefined) {
-    const normalized = query.projectPath.replace(/\/$/, '')
+    const normalized = trimTrailingSeparators(query.projectPath)
     const encoded = encodePathAsFolder(normalized)
     const withWorktrees = query.includeWorktrees === true && !isSolusWorktreePath(normalized)
     clauses.push(withWorktrees

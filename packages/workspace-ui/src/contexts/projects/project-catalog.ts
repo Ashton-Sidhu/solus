@@ -3,6 +3,7 @@ import type { WorkspaceProject } from '@solus/contracts/workspace-projects'
 import { hostKey } from '@solus/client-core/host-key'
 import { localProjectParts, projectKeyLabel, projectKeyOf } from '@solus/client-core/project-identity'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
+import { trimTrailingSeparators } from '@solus/contracts/host-path'
 
 /**
  * Canonical client-side project identity: a host and the repo root on it.
@@ -175,7 +176,7 @@ export function logicalProjectKeyFor(checkout: Pick<ProjectCatalogEntry, 'server
  *  key as its project root. */
 export function normalizeProjectRoot(path: string): string {
   const stripped = worktreeProjectRoot(path)
-  return stripped.length > 1 ? stripped.replace(/\/+$/, '') : stripped
+  return trimTrailingSeparators(stripped)
 }
 
 export function projectRefKey(ref: ProjectRef): string {

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentTool, AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import { executeAgentTool } from '@solus/server/execution/agents/tools/agent-tool'
@@ -7,7 +7,7 @@ import type { NormalizedEvent } from '@solus/contracts/types'
 import type { SeatResolver, TurnSeat } from '@solus/server/execution/seats/seat-manager'
 import { MODEL_PROFILES } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let createClaudeSubagentAgentTool: (dispatcher: AgentDispatcher, seatFor?: SeatResolver) => AgentTool
 let createCodexSubagentAgentTool: (dispatcher: AgentDispatcher, seatFor?: SeatResolver) => AgentTool

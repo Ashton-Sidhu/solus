@@ -1,11 +1,11 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { EventEmitter } from 'node:events'
 import type { BackendSession, NormalizedEvent, SessionStatus } from '@solus/contracts/types'
 import type { AgentBackend } from '@solus/server/execution/agents/agent-backend'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let ProviderEvents: typeof import('@solus/server/execution/sessions/provider-events')['ProviderEvents']
 beforeAll(async () => {

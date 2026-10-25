@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { OrchestrationItem } from '@solus/contracts/session-exchange'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // WHY: the acting session tools are thin adapters over the orchestrator. What
 // matters is that each hands the orchestrator the order the agent asked for,

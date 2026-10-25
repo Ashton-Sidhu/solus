@@ -1,6 +1,7 @@
 import type { Message } from "@solus/contracts/types";
 import { z } from "zod";
 import { patchFileChunks } from "./pierre-diff";
+import { isAbsoluteHostPath, joinHostPath, relativeHostPath } from "@solus/contracts/host-path";
 
 const SHELL_WRAPPED = /^(?:\/\S+\/)?(?:sh|bash|zsh)\s+(?:-[A-Za-z]*\s+)*-[A-Za-z]*c[A-Za-z]*\s+(?:'([^']*)'|"([^"]*)"|(.+))$/;
 
@@ -19,8 +20,7 @@ export function isGitCommand(command: string | undefined): boolean {
 
 /** A path under the project, as the reader knows it: relative to the project. */
 export function projectRelativePath(path: string, projectPath?: string | null): string {
-  const prefix = projectPath ? projectPath.replace(/\/$/, "") + "/" : "";
-  return prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
+  return (projectPath && relativeHostPath(projectPath, path)) || path;
 }
 
 function addStringPath(paths: Set<string>, value: string | undefined, projectPath?: string): void {
@@ -128,9 +128,8 @@ export function extractChangedFilePathsFromMessage(
 }
 
 export function toAbsoluteFilePaths(filePaths: readonly string[], cwd?: string): string[] {
-  const root = cwd?.replace(/\/$/, "");
   return filePaths.map((path) => {
-    if (!root || path.startsWith("/") || path.startsWith("~")) return path;
-    return `${root}/${path}`;
+    if (!cwd || isAbsoluteHostPath(path) || path.startsWith("~")) return path;
+    return joinHostPath(cwd, path);
   });
 }

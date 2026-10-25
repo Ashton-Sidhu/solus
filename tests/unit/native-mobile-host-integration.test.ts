@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server as HttpServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -14,7 +14,7 @@ import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/pl
  * subscription, and one record HTTP read. No live data or token is used.
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const previousDataDir = process.env.SOLUS_DATA_DIR
 process.env.SOLUS_DATA_DIR = join(mkdtempSync(join(tmpdir(), 'solus-native-host-')), 'data')
 

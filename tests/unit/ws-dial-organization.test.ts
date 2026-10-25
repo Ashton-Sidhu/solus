@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { createServer } from 'http'
 import type { AddressInfo } from 'net'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { HandshakeCredential } from '@solus/contracts/uplink'
 import { WsTransport } from '@solus/client-core/ws-transport'
 import { SolusApiClient, SolusApiHttp } from '@solus/contracts/solus-api/client'
@@ -11,7 +11,7 @@ import { organizationIdFor } from '@solus/client-core/uplink-session'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
 const { attachWebSocketTransport } = await import('@solus/server/transport/websocket')

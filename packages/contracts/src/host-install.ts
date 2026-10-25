@@ -5,6 +5,8 @@ import { join } from 'node:path'
 /** True when `installDir` holds one complete, self-contained server release
  *  payload (vendored Node + server + CLI bundles) — a "version". */
 export function isManagedVersion(installDir: string): boolean {
-  return ['bin/node', 'libexec/server/standalone.js', 'libexec/cli/solus.js'].every((file) => existsSync(join(installDir, file)))
+  // A Windows release holds `bin\node.exe`.
+  const hasNode = existsSync(join(installDir, 'bin', 'node')) || existsSync(join(installDir, 'bin', 'node.exe'))
+  return hasNode && ['libexec/server/standalone.js', 'libexec/cli/solus.js'].every((file) => existsSync(join(installDir, file)))
 }
 

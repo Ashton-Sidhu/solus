@@ -3,7 +3,7 @@ import { resolveHomePath } from '../platform/paths'
 import type { CheckoutChange, CheckoutSnapshot, CheckoutState } from '@solus/contracts/checkout'
 import { gitCheckoutFromState, sameGitCheckout, type GitCheckout, type GitState } from '@solus/contracts/types'
 import { computeGitState } from './git-helpers'
-import { runAsync } from './exec'
+import { gitOutputPath, runAsync } from './exec'
 import { createWorktree, ensureBranchWorktree, fetchAndCheckoutPr, renameWorktreeBranch, type CreateWorktreeOptions } from './worktree-manager'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { SeatResolver } from '../execution/seats/seat-manager'
@@ -130,7 +130,7 @@ export class CheckoutService {
         this.pending.delete(cwd)
         const revision = this.states.get(cwd)?.revision
         const status = await this.readState(cwd)
-        const checkoutRoot = status ? await runAsync('git', ['rev-parse', '--show-toplevel'], cwd) : null
+        const checkoutRoot = status ? gitOutputPath(cwd, await runAsync('git', ['rev-parse', '--show-toplevel'], cwd)) : null
         if (this.states.get(cwd)?.revision !== revision) { this.pending.add(cwd); continue }
         const projectRoot = this.states.get(cwd)?.checkout?.repoRoot ?? status?.repoRoot
         const checkout = status ? gitCheckoutFromState(status, checkoutRoot !== status.repoRoot ? cwd : undefined, projectRoot) : null

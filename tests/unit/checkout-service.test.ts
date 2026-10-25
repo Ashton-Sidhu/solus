@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +7,7 @@ import { git } from '@solus/server/git/exec'
 import type { CheckoutChange } from '@solus/contracts/checkout'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let CheckoutService: typeof import('@solus/server/git/checkout-service')['CheckoutService']
 const directory = mkdtempSync(join(tmpdir(), 'solus-checkout-service-'))
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -115,5 +115,18 @@ test('a status scan already in flight cannot undo a confirmed rename', async () 
       expect(racing.get(cwd)?.checkout?.branch).toBe('solus/fresh-identity')
       expect(observed.every((change) => change.state.checkout?.branch === 'solus/fresh-identity')).toBe(true)
     } finally { racing.dispose() }
+  } finally { service.dispose() }
+})
+
+test('the main checkout is the repository, not a worktree of it', async () => {
+  // WHY: Git for Windows prints `C:/x` for the top level while the root is
+  // `C:\x`. Read as unequal, the main checkout became a "worktree", and the
+  // composer's New worktree did nothing for a project on a Windows host.
+  const service = new CheckoutService(() => false)
+  try {
+    // The real path: macOS's temporary folder is behind a symlink, which is another question.
+    const state = await service.refresh(realpathSync(directory))
+    expect(state.checkout?.branch).toBe('main')
+    expect(state.checkout?.worktreePath).toBeUndefined()
   } finally { service.dispose() }
 })

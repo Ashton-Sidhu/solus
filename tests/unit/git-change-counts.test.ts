@@ -1,5 +1,5 @@
 import { afterAll, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,7 +8,7 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
 
 // The Git helpers reach the server's database module, which Bun loads only
 // through its own SQLite.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { computeGitState, parseStatus } = await import('@solus/server/git/git-helpers')
 
 const directories: string[] = []

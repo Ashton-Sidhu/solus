@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { SetupAdoptProjectResult } from '@solus/contracts/types'
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import type { HandlerCtx } from '@solus/server/transport/server'
@@ -11,7 +11,7 @@ import { installTestIdentities } from './helpers/acting-identities'
 
 // bun has no node:sqlite; the handlers' import chain reaches the db even though
 // these tests never open it (registerProject is injected).
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { registerSetupHandlers } = await import('@solus/server/transport/handlers/setup-handlers')
 const { SolusServer } = await import('@solus/server/transport/server')

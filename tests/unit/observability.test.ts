@@ -2,10 +2,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { ROOT_CONTEXT, context, trace } from '@opentelemetry/api'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type SpanTableModule = typeof import('@solus/server/data/insights/span-table')
 type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')
@@ -66,7 +66,9 @@ afterEach(() => {
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `metrics.db${suffix}`), { force: true })
 })
 
-afterAll(() => {
+afterAll(async () => {
+  // The tracer opened the host database too; Windows cannot delete an open file.
+  ;(await import('@solus/server/db')).closeDb()
   metricsDb.closeMetricsDb()
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR

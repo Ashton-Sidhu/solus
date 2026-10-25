@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -10,7 +10,7 @@ import { SessionPermissionStore } from '@solus/server/data/sessions/session-perm
 import { childPermissionMode } from '@solus/server/execution/sessions/child-permissions'
 import { HandoffCarryStore } from '@solus/server/data/sessions/handoff-carry-store'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
 let SessionRequestQueue: typeof import('@solus/server/execution/sessions/session-request-queue')['SessionRequestQueue']

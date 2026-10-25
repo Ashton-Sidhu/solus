@@ -21,7 +21,10 @@ function portal(code: number, uri = 'file:///tmp/a%20b.png', immediate = false) 
   return { bus, connection, isClosed: () => closed }
 }
 
-test('subscribes before capture and decodes a portal file URI', async () => {
+// The xdg portal is Linux only: its file URI decodes to a POSIX path, and on win32 a URI host is a UNC share.
+const decodesPosixUris = process.platform !== 'win32'
+
+test.if(decodesPosixUris)('subscribes before capture and decodes a portal file URI', async () => {
   const fake = portal(0, 'file:///tmp/a%20b.png', true)
   // The fake owns no real socket; only stream.end is used by the capture boundary.
   const result = await requestLinuxScreenshot(undefined, () => fake.bus)
@@ -38,7 +41,7 @@ test('cancellation returns no attachment; denial reports a failure', async () =>
     expect(fake.connection.listenerCount('message')).toBe(0)
   }
 })
-test('refuses remote file hosts and non-file portal results', () => {
+test.if(decodesPosixUris)('refuses remote file hosts and non-file portal results', () => {
   expect(() => screenshotPath('https://example.com/image.png')).toThrow()
   expect(() => screenshotPath('file://other-host/image.png')).toThrow()
 })

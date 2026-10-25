@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +7,7 @@ import type { AgentToolContext } from '@solus/server/execution/agents/tools/agen
 
 // The browser tools import the production database module (node:sqlite is
 // absent under Bun's test runtime).
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 // The real scan reads the host's listening ports; this test is about the request.
 mock.module('@solus/server/browser/target-scanner', () => ({
   discoverBrowserTargets: async () => [],
@@ -71,7 +71,9 @@ afterEach(() => {
   setBrowserHeadlessHost(null)
 })
 
-afterAll(() => {
+afterAll(async () => {
+  // The tools opened the host database; Windows cannot delete an open file.
+  ;(await import('@solus/server/db')).closeDb()
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
   rmSync(dataDir, { recursive: true, force: true })

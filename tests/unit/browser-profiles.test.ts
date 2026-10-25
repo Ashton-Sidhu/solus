@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import {
   BROWSER_DEFAULT_PROFILE_ID,
   BROWSER_PARTITION_PREFIX,
@@ -13,7 +13,7 @@ import {
   isBrowserProfileId,
 } from '@solus/contracts/browser-types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 /**
  * Named browser profiles.

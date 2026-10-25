@@ -61,7 +61,8 @@ describe('the cloudflared connector', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('runs the binary with the token in the environment and reads "online" off its output', async () => {
+  // The fake cloudflared is a `#!/usr/bin/env node` script, which Windows cannot start.
+  test.skipIf(process.platform === 'win32')('runs the binary with the token in the environment and reads "online" off its output', async () => {
     const binary = fakeCloudflared(dir, 'serve')
     const { observations } = collect()
     const seen: string[] = []
@@ -90,7 +91,8 @@ describe('the cloudflared connector', () => {
     expect(observations.at(-1)).toEqual({ observed: 'offline' })
   })
 
-  test('a crashed connector is scheduled to restart with backoff; a stopped one is not', async () => {
+  // The fake cloudflared is a `#!/usr/bin/env node` script, which Windows cannot start.
+  test.skipIf(process.platform === 'win32')('a crashed connector is scheduled to restart with backoff; a stopped one is not', async () => {
     const binary = fakeCloudflared(dir, 'crash')
     const { observations } = collect()
     const scheduled: number[] = []

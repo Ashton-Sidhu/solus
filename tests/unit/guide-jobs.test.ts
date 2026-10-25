@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,7 +11,7 @@ import type { ReviewGuide, ReviewGuideStatusEvent } from '@solus/contracts/revie
 import type { GuideJobRequest, GuideRevision, GuideSource } from '@solus/server/review/guide-jobs'
 import type { ResolvedPrGuideTarget } from '@solus/server/review/pr-guide-context'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let ReviewGuideJobs: typeof import('@solus/server/review/guide-jobs')['ReviewGuideJobs']
 let prGuideKey: typeof import('@solus/server/review/pr-guide-store')['prGuideKey']
 let prGuideRepository: typeof import('@solus/server/review/pr-guide-store')['prGuideRepository']

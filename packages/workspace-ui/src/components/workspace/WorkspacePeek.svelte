@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { projectDirLabel } from "../../lib/paths";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { untrack } from "svelte";
   import { Pin as PushPinIcon, Trash2 as TrashIcon } from "@lucide/svelte";
@@ -102,12 +103,6 @@
   });
   const statusLabel = $derived(rowStatus(item)?.label ?? "");
 
-  function projectShort(cwd: string): string {
-    const dir = cwd?.replace(/\/$/, "");
-    if (!dir || dir === "~") return "~";
-    return dir.split("/").at(-1) || "~";
-  }
-
   // ── Anchoring ──
   // The card only; the sheet is positioned by the viewport and needs none of
   // this, which is why the measurement is skipped rather than thrown away.
@@ -138,7 +133,7 @@
     </span>
     <span class="opacity-35" aria-hidden="true">·</span>
     <span class="truncate opacity-85" title={item.cwd}>
-      {projectShort(item.cwd)}
+      {projectDirLabel(item.cwd)}
     </span>
     <span class="opacity-35" aria-hidden="true">·</span>
     <span class="shrink-0">{formatPeekAge(item.timestamp)}</span>

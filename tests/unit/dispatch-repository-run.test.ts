@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events'
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { NormalizedEvent, SessionRunInput, StatusCardState, WireNormalizedEvent } from '@solus/contracts/types'
 import { progressPercent, progressThrottle } from '@solus/server/execution/sessions/dispatch-repository'
 
@@ -14,7 +14,7 @@ import { progressPercent, progressThrottle } from '@solus/server/execution/sessi
  * setup card, so a reader sees one operation, and a failed copy starts nothing.
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'solus-dispatch-repository-')))

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, jest, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import type { Provider } from '@solus/server/providers/types'
 import { pullRequestFixture } from './__fixtures__/pull-request'
@@ -14,7 +14,7 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
  * other PR sync tests share a database full of interest.
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let dataDir: string
 const previousDataDir = process.env.SOLUS_DATA_DIR

@@ -2,13 +2,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { encodePathAsFolder } from '@solus/contracts/types'
 
 // The DB layer imports `node:sqlite`, which Bun's test runtime lacks; the
 // indexer's calls work the same on bun:sqlite. Modules load after the mock.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type IndexerModule = typeof import('@solus/server/db/session-indexer')
 type SearchModule = typeof import('@solus/server/db/session-search')

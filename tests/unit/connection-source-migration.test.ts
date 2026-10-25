@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync as BunDatabaseSync } from './helpers/bun-sqlite'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync: BunDatabaseSync }))
 
 const { DatabaseSync } = await import('node:sqlite')
 const { migrations, runMigrations } = await import('@solus/server/db/migrations')

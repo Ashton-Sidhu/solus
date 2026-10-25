@@ -76,6 +76,7 @@
   import type { CodeSymbolHit } from "../code-intel/lib/hit-test";
   import type { CodeSymbolAvailability, CodeSymbolLookup } from "../code-intel/lib/symbol-card";
   import { checkoutGit } from "../../contexts/workspace/run-location";
+  import { joinHostPath } from "@solus/contracts/host-path";
 
   type ExternalDiffCommentSave = {
     id?: string;
@@ -699,7 +700,7 @@
     const root = symbolLookup?.root;
     symbolLookup = null;
     if (!root) return;
-    session.openFileInFiles({ path: `${root}/${path}`, line }, tabId);
+    session.openFileInFiles({ path: joinHostPath(root, path), line }, tabId);
   }
 
   // Single entry point for both selection gestures — the gutter "+" button

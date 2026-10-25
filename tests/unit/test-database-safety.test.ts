@@ -50,9 +50,9 @@ test('direct bun test isolates inherited data and Postgres settings before impor
   const testFile = join(directory, 'isolation.test.ts')
   writeFileSync(testFile, `
 import { expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from ${JSON.stringify(join(root, 'tests/unit/helpers/bun-sqlite.ts'))}
 import { writeFileSync } from 'node:fs'
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 test('write only to the isolated database', async () => {
   const { getDb, closeDb } = await import(${JSON.stringify(join(root, 'packages/server/src/db/index.ts'))})
   const { getDatabase, closeDatabase } = await import(${JSON.stringify(join(root, 'packages/server/src/db/database.ts'))})

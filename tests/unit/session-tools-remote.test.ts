@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import type { RemoteTarget } from '@solus/server/execution/orchestration/session-orchestrator'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // WHY: `start_session` with `host` starts the work on another host the turn's person
 // reaches, as if they started it there (docs/plans/cross-host-sessions.md,

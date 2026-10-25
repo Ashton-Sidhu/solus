@@ -18,6 +18,7 @@
   import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
   import { checkoutPlace } from "../../contexts/workspace/run-location";
+  import { hostPathBaseName } from "@solus/contracts/host-path";
 
   interface Props {
     href?: string;
@@ -109,12 +110,6 @@
 
   const faviconUrl = $derived(faviconUrlForHref(href));
   let failedFaviconUrl = $state<string | null>(null);
-
-  function basename(path: string): string {
-    const stripped = path.replace(/\/+$/, "");
-    const idx = stripped.lastIndexOf("/");
-    return idx === -1 ? stripped : stripped.slice(idx + 1);
-  }
 
   function isMarkdownPath(path: string): boolean {
     return /\.(md|mdx|markdown)$/i.test(path.split(/[?#]/, 1)[0] ?? path);
@@ -215,7 +210,7 @@
       {#if isMarkdownPath(fileRef?.path ?? href)}
         <FileTextIcon size={12} />
       {:else}
-        <svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(basename(fileRef?.path ?? text ?? href))} /></svg>
+        <svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(hostPathBaseName(fileRef?.path ?? text ?? href))} /></svg>
       {/if}
 </span><span>{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef?.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
   </button>

@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { CheckItem } from '@solus/contracts/checks-types'
 import type { PrConversationItem, PullRequest } from '@solus/contracts/providers'
 import { resetTestDatabase } from './helpers/test-db'
@@ -14,7 +14,7 @@ import { installTestIdentities } from './helpers/acting-identities'
  * (docs/plans/pr-watch.md).
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // The pull request index is one per process and keeps the provider it first
 // saw for a pull request, so each test reads its own repository.

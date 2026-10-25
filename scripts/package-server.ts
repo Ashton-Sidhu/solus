@@ -7,10 +7,10 @@ import { spawn } from 'child_process'
 import { once } from 'events'
 
 const NODE_VERSION = '24.18.0'
-const SUPPORTED_TARGETS = new Set(['darwin-arm64', 'linux-x64', 'linux-arm64'])
+const SUPPORTED_TARGETS = new Set(['darwin-arm64', 'linux-x64', 'linux-arm64', 'win32-x64'])
 
 interface Target {
-  platform: 'darwin' | 'linux'
+  platform: 'darwin' | 'linux' | 'win32'
   arch: 'x64' | 'arm64'
   headless: boolean
 }
@@ -21,6 +21,11 @@ async function main(): Promise<void> {
   const target = parseTarget(process.argv.slice(2))
   const targetName = `${target.platform}-${target.arch}`
   if (!SUPPORTED_TARGETS.has(targetName)) throw new Error(`Unsupported server target: ${targetName}`)
+  // The zip comes from Windows' own tar (bsdtar), and npm runs through the
+  // downloaded node.exe. A CI runner on Windows packages this target.
+  if (target.platform === 'win32' && process.platform !== 'win32') {
+    throw new Error('Package the win32-x64 server on Windows.')
+  }
 
   const releaseDir = join(repoRoot, 'release')
   mkdirSync(releaseDir, { recursive: true })
@@ -37,7 +42,7 @@ async function main(): Promise<void> {
     copyBundledPlugins(staging)
     copyPreviewBrowserDriver(staging)
     await installFileFinder(target, staging, workDir)
-    writeLaunchers(staging)
+    writeLaunchers(staging, target.platform)
     if (target.platform === 'linux') copyManagedBoot(staging)
     writeNativeNote(staging)
     mkdirSync(join(staging, 'docs'), { recursive: true })
@@ -48,9 +53,11 @@ async function main(): Promise<void> {
       storage: createHash('sha256').update(String(SERVER_STORAGE_EPOCH)).update(readFileSync(join(repoRoot, 'packages/server/src/db/migrations.ts'))).digest('hex'),
     }))
 
-    const out = join(releaseDir, `solus-server-${target.headless ? 'headless-' : ''}${targetName}.tar.gz`)
+    const out = join(releaseDir, `solus-server-${target.headless ? 'headless-' : ''}${targetName}.${target.platform === 'win32' ? 'zip' : 'tar.gz'}`)
     rmSync(out, { force: true })
-    await run('tar', ['--no-xattrs', '-czf', out, '-C', staging, '.'])
+    // The zip lists the top-level names, not `.`, so no entry starts with `./`.
+    if (target.platform === 'win32') await run(windowsTar(), ['-a', '-c', '-f', out, '-C', staging, ...readdirSync(staging)])
+    else await run('tar', ['--no-xattrs', '-czf', out, '-C', staging, '.'])
     writeSha256Sums(releaseDir)
     console.log(`Wrote ${out}`)
   } finally {
@@ -71,11 +78,15 @@ export function parseTarget(args: string[]): Target {
     else if (arg.startsWith('--arch=')) arch = normalizeArch(arg.slice('--arch='.length))
     else throw new Error(`Unknown package-server option: ${arg}`)
   }
+  // docs/plans/windows.md §6: Solus builds and tests win32-x64 only.
+  if (platform === 'win32' && arch !== 'x64') {
+    throw new Error(`Solus builds the Windows server for x64 only; Windows on ARM (win32-${arch}) is not supported.`)
+  }
   return { platform, arch, headless }
 }
 
 function normalizePlatform(value: string): Target['platform'] {
-  if (value === 'darwin' || value === 'linux') return value
+  if (value === 'darwin' || value === 'linux' || value === 'win32') return value
   throw new Error(`Unsupported --platform: ${value}`)
 }
 
@@ -95,24 +106,46 @@ function takeValue(args: string[], index: number, flag: string): string {
 async function installNodeRuntime(target: Target, staging: string): Promise<void> {
   const binDir = join(staging, 'bin')
   mkdirSync(binDir, { recursive: true })
+  if (target.platform === 'win32') return installWindowsNodeRuntime(staging)
 
   const nodeName = `node-v${NODE_VERSION}-${target.platform}-${target.arch}`
-  const tarName = `${nodeName}.tar.gz`
+  const archive = await downloadNodeArchive(staging, `${nodeName}.tar.gz`)
+  await run('tar', ['-xzf', archive, '-C', binDir, '--strip-components=2', `${nodeName}/bin/node`])
+  chmodSync(join(binDir, 'node'), 0o755)
+}
+
+/** The verified Node archive for `name`, written beside the staging folder. */
+async function downloadNodeArchive(staging: string, name: string): Promise<string> {
   const baseUrl = `https://nodejs.org/dist/v${NODE_VERSION}`
   const shasums = await fetchText(`${baseUrl}/SHASUMS256.txt`)
   const expected = shasums.split(/\r?\n/)
     .map((line) => line.trim().split(/\s+/))
-    .find((parts) => parts[1] === tarName)?.[0]
-  if (!expected) throw new Error(`Node SHASUMS256.txt did not contain ${tarName}`)
-
-  const archive = join(dirname(staging), tarName)
-  const data = await fetchBytes(`${baseUrl}/${tarName}`)
+    .find((parts) => parts[1] === name)?.[0]
+  if (!expected) throw new Error(`Node SHASUMS256.txt did not contain ${name}`)
+  const data = await fetchBytes(`${baseUrl}/${name}`)
   const actual = createHash('sha256').update(data).digest('hex')
-  if (actual !== expected) throw new Error(`Node runtime checksum mismatch for ${tarName}`)
+  if (actual !== expected) throw new Error(`Node runtime checksum mismatch for ${name}`)
+  const archive = join(dirname(staging), name)
   writeFileSync(archive, data)
+  return archive
+}
 
-  await run('tar', ['-xzf', archive, '-C', binDir, '--strip-components=2', `${nodeName}/bin/node`])
-  chmodSync(join(binDir, 'node'), 0o755)
+/**
+ * Windows Node is a zip with `node.exe` at its root. npm from the same zip
+ * goes to the work folder: `installFileFinder` runs it through this node.exe,
+ * because `npm` on a Windows PATH is a `.cmd` shim that spawn cannot start
+ * without a shell.
+ */
+async function installWindowsNodeRuntime(staging: string): Promise<void> {
+  const nodeName = `node-v${NODE_VERSION}-win-x64`
+  const archive = await downloadNodeArchive(staging, `${nodeName}.zip`)
+  await run(windowsTar(), ['-xf', archive, '-C', join(staging, 'bin'), '--strip-components=1', `${nodeName}/node.exe`])
+  await run(windowsTar(), ['-xf', archive, '-C', dirname(staging), '--strip-components=1', `${nodeName}/node_modules/npm`])
+}
+
+/** Windows' own bsdtar, which reads and writes zip. Git's GNU tar can come first on PATH and cannot. */
+function windowsTar(): string {
+  return join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
 }
 
 /**
@@ -227,7 +260,11 @@ async function installFileFinder(target: Target, staging: string, workDir: strin
   writeFileSync(join(installDir, 'package.json'), '{ "private": true }\n')
   const packages = ['@ff-labs/fff-node', 'ffi-rs'].map((name) =>
     `${name}@${JSON.parse(readFileSync(join(repoRoot, 'node_modules', name, 'package.json'), 'utf8')).version}`)
-  await run('npm', [
+  const npm = target.platform === 'win32'
+    ? { command: join(staging, 'bin', 'node.exe'), args: [join(workDir, 'node_modules', 'npm', 'bin', 'npm-cli.js')] }
+    : { command: 'npm', args: [] }
+  await run(npm.command, [
+    ...npm.args,
     'install', '--prefix', installDir,
     '--no-save', '--no-package-lock', '--no-audit', '--no-fund', '--ignore-scripts', '--omit=dev',
     `--os=${target.platform}`, `--cpu=${target.arch}`,
@@ -243,9 +280,10 @@ function copyBundledPlugins(staging: string): void {
   cpSync(join(repoRoot, 'resources', 'plugins'), join(staging, 'resources', 'plugins'), { recursive: true })
 }
 
-function writeLaunchers(staging: string): void {
+export function writeLaunchers(staging: string, platform: Target['platform']): void {
   const binDir = join(staging, 'bin')
   mkdirSync(binDir, { recursive: true })
+  if (platform === 'win32') return writeWindowsLaunchers(binDir)
   writeExecutable(join(binDir, 'solus'), `#!/usr/bin/env sh
 set -eu
 SELF="$0"
@@ -279,6 +317,41 @@ case "\${1-}" in
   *) exec "$ROOT/bin/node" "$ROOT/libexec/cli/solus.js" start "$@" ;;
 esac
 `)
+}
+
+/**
+ * The `.cmd` forms of the two launchers above. `%~dp0` is this file's folder.
+ * `setlocal` keeps SOLUS_INSTALL_DIR out of the caller's console. There is no
+ * `chcp 65001`: it changes the code page of the whole console after the
+ * launcher ends, and Node writes UTF-8 to a pipe and Unicode to a console
+ * without it. CRLF, because cmd.exe misreads labels in a file with LF only.
+ */
+function writeWindowsLaunchers(binDir: string): void {
+  const head = [
+    '@echo off',
+    'setlocal',
+    'for %%I in ("%~dp0..") do set "SOLUS_INSTALL_DIR=%%~fI"',
+  ]
+  const node = '"%SOLUS_INSTALL_DIR%\\bin\\node.exe"'
+  writeFileSync(join(binDir, 'solus.cmd'), crlf([
+    ...head,
+    `${node} "%SOLUS_INSTALL_DIR%\\libexec\\cli\\solus.js" %*`,
+    'exit /b %ERRORLEVEL%',
+  ]))
+  writeFileSync(join(binDir, 'solus-server.cmd'), crlf([
+    ...head,
+    'if "%~1"=="auth" goto server',
+    'if "%~1"=="git-credential" goto server',
+    `${node} "%SOLUS_INSTALL_DIR%\\libexec\\cli\\solus.js" start %*`,
+    'exit /b %ERRORLEVEL%',
+    ':server',
+    `${node} "%SOLUS_INSTALL_DIR%\\libexec\\server\\standalone.js" %*`,
+    'exit /b %ERRORLEVEL%',
+  ]))
+}
+
+function crlf(lines: string[]): string {
+  return `${lines.join('\r\n')}\r\n`
 }
 
 /** A managed host's boot on its Sprite (packaging/managed-host/sprite-boot.sh), run from the release it ships in. */
@@ -322,9 +395,9 @@ function writeExecutable(file: string, content: string): void {
   chmodSync(file, 0o755)
 }
 
-function writeSha256Sums(releaseDir: string): void {
+export function writeSha256Sums(releaseDir: string): void {
   const lines = readdirSync(releaseDir)
-    .filter((name) => /^solus-server-.+\.tar\.gz$/.test(name))
+    .filter((name) => /^solus-server-.+\.(tar\.gz|zip)$/.test(name))
     .sort()
     .map((name) => {
       const hash = createHash('sha256').update(readFileSync(join(releaseDir, name))).digest('hex')
@@ -354,7 +427,8 @@ async function run(command: string, args: string[]): Promise<void> {
 }
 
 function esbuildBin(): string {
-  const bin = join(repoRoot, 'node_modules', '.bin', 'esbuild')
+  // Bun links the binary as esbuild.exe on Windows.
+  const bin = join(repoRoot, 'node_modules', '.bin', process.platform === 'win32' ? 'esbuild.exe' : 'esbuild')
   if (!existsSync(bin)) throw new Error('esbuild binary not found; run bun install first')
   return bin
 }

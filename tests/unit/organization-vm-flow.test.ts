@@ -4,7 +4,7 @@ import { createPublicKey, generateKeyPairSync, randomUUID, sign, verify, type Ke
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import {
   ACCOUNT_AUDIENCE,
   TOKEN_EXCHANGE_GRANT_TYPE,
@@ -18,7 +18,7 @@ import { clientCredential, generateHostKey } from '@solus/server/host/host-crede
 import { resetTestDatabase } from './helpers/test-db'
 import { handshake } from './helpers/socket-handshake'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/010-standard-oauth.md across the real HTTP seams: a VM trades the access token
 // its person's client presented for its own delegated tokens at the account plane's

@@ -4,6 +4,7 @@ import type { IpcContext } from '@solus/contracts/types'
 import { codeIntelStore } from '../../code-intel/code-intel.store.svelte'
 import type { CodeSymbolHit } from '../../code-intel/lib/hit-test'
 import { symbolAvailability, type CodeSymbolAvailability, type CodeSymbolLookup } from '../../code-intel/lib/symbol-card'
+import { isAbsoluteHostPath } from '@solus/contracts/host-path'
 
 interface FileSymbolTarget {
   api: HostApi
@@ -20,7 +21,7 @@ export class FileSymbols {
   private lookupFor(hit: CodeSymbolHit): CodeSymbolLookup | null {
     const { api, ctx, cwd, path } = this.target()
     // The host returns absolute display paths for files outside the project.
-    if (!path || path.startsWith('/')) return null
+    if (!path || isAbsoluteHostPath(path)) return null
     return {
       serverId: serverConnections.serverIdForApi(api), api, ctx,
       root: cwd, path: path.replaceAll('\\', '/'),

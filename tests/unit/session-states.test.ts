@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import { sql } from 'drizzle-orm'
 import { EMPTY_SESSION_VIEW, SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
@@ -13,7 +13,7 @@ import { EMPTY_SESSION_VIEW, SESSION_LIST_IDLE_MS } from '@solus/contracts/sessi
  * work ends, and a prompt makes it active again.
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const PERSON = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
 const REPOSITORY = 'github.com/acme/solus'

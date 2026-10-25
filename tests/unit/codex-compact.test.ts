@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentId, IpcContext, NormalizedEvent } from '@solus/contracts/types'
 import { asHostApi } from '@solus/client-core/host-api'
 import type { SlashCommandRunContext } from '@solus/workspace-ui/components/input/slash-commands'
@@ -7,7 +7,7 @@ let commands: typeof import('@solus/workspace-ui/components/input/slash-commands
 import { conversationContext, DEFAULT_RUN_SETTINGS } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 // Commands do not need the mounted Svelte workspace or its sign-in stores.
 mock.module('../../packages/workspace-ui/src/contexts/index.ts', () => ({ agentAuthStore: {}, seatsStore: {}, seatProviderOf: () => null }))
 

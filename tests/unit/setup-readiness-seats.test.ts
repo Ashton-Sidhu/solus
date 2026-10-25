@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { Seat, SeatProvider, SeatStatus } from '@solus/contracts/seats'
 import type { HostReadiness, SetupAgentAuthCheckResult } from '@solus/contracts/types'
 import type { HandlerCtx } from '@solus/server/transport/server'
@@ -8,7 +8,7 @@ import { installTestIdentities } from './helpers/acting-identities'
 
 // bun has no node:sqlite; the handlers' import chain reaches the db even though
 // these tests never open it.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { registerSetupHandlers } = await import('@solus/server/transport/handlers/setup-handlers')
 const { SolusServer } = await import('@solus/server/transport/server')

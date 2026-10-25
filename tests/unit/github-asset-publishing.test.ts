@@ -2,14 +2,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
 import type { ExternalTicketRef } from '@solus/contracts/task-types'
 import { githubClientState, installGithubClientMock, mockedGithubClient, mockedRepository } from './helpers/github-client-mock.ts'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // The upload endpoint is not in the REST reference, so these tests pin the exact
 // request the GitHub CLI makes (cli/cli#14180). A silent drift in the query

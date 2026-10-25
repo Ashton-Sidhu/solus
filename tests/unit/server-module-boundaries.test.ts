@@ -12,6 +12,9 @@ import { dirname, join, relative, resolve } from 'path'
 
 const serverSrc = resolve(import.meta.dir, '../../packages/server/src')
 
+/** A module path from serverSrc with '/', as the rules below name it; Windows gives '\\'. */
+const toPosix = (path: string) => path.replaceAll('\\', '/')
+
 /** The top-level folder (or file) a server module belongs to. */
 function areaOf(file: string): string {
   const [head] = file.split('/')
@@ -49,13 +52,13 @@ function resolveSpecifier(fromFile: string, specifier: string): string | null {
   else if (specifier.startsWith('.')) base = resolve(dirname(join(serverSrc, fromFile)), specifier)
   else return null
   for (const candidate of [`${base}.ts`, join(base, 'index.ts'), base]) {
-    if (existsSync(candidate) && statSync(candidate).isFile()) return relative(serverSrc, candidate)
+    if (existsSync(candidate) && statSync(candidate).isFile()) return toPosix(relative(serverSrc, candidate))
   }
   return null
 }
 
 function crossings(): { violations: string[]; unusedExceptions: string[] } {
-  const files = Array.from(new Bun.Glob('**/*.ts').scanSync({ cwd: serverSrc })).filter((file) => !file.includes('/generated/'))
+  const files = Array.from(new Bun.Glob('**/*.ts').scanSync({ cwd: serverSrc })).map(toPosix).filter((file) => !file.includes('/generated/'))
   const seen = new Set<string>()
   const violations: string[] = []
   for (const file of files.sort()) {

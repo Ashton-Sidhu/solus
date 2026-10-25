@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentConversationUpdate, AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
@@ -22,7 +22,7 @@ const decider = () => ({ ...HOST_ACTOR, user: BY.user })
 // its content; a busy sender wakes once for everything that waited; and a
 // sender that stopped the target itself is not told about its own stop.
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type SessionRuntimeModule = typeof import('@solus/server/execution/session-runtime')
 type RuntimeModule = typeof import('@solus/server/execution/orchestration/orchestrate-sessions')

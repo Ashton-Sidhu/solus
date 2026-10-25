@@ -13,6 +13,7 @@ import { hosts } from '../../../../contexts/hosts/hosts.svelte'
 import { activeSince, type PickerFilters } from './picker-filters'
 import type { PickerResultType } from './picker-preferences'
 import type { PickerSearchMode } from './picker-search'
+import { isAbsoluteHostPath } from '@solus/contracts/host-path'
 
 /** The homes a search reads. */
 export interface ConversationSearchHosts<Api = Pick<HostApi, 'sessionRecordSearch'>> {
@@ -81,7 +82,7 @@ export function scopeFromCheckouts(
 
 function checkoutScopeOnHost(serverId: string, projectKey: string): HostScope | null {
   // A scope that is a path no host has named is sent as it is.
-  if (projectKey.startsWith('/') || projectKey.startsWith('~')) return { projectRoot: projectKey }
+  if (isAbsoluteHostPath(projectKey) || projectKey.startsWith('~')) return { projectRoot: projectKey }
   const local = localProjectParts(projectKey)
   const catalogued = projectsStore.checkoutsOf(projectKey)
   const checkouts = catalogued.length || !local ? catalogued : [{ serverId: local.serverId, projectRoot: local.path }]

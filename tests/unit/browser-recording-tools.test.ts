@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,7 +25,7 @@ import type { BrowserConsoleEntry, BrowserNetworkEntry } from '@solus/contracts/
 
 // Evidence reaches the task domain, which opens the production database
 // module (node:sqlite is absent under Bun's test runtime).
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const repo: RepoRef = { host: 'github.com', owner: 'acme', repo: 'widgets' }
 const realGitHelpers = await import('@solus/server/git/git-helpers')
@@ -62,7 +62,9 @@ const tools = await import('@solus/server/browser/browser-tools')
 const { actAsHostForTests } = await import('@solus/server/execution/seats/acting-identity')
 actAsHostForTests()
 
-afterAll(() => {
+afterAll(async () => {
+  // The tools opened the host database; Windows cannot delete an open file.
+  ;(await import('@solus/server/db')).closeDb()
   surface.setBrowserWebviewHost(null)
   surface.setBrowserRecordingEncoderHost(null)
   rmSync(dataDir, { recursive: true, force: true })

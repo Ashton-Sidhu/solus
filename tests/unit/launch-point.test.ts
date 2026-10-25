@@ -17,6 +17,9 @@ import { withActingScope } from '@solus/server/vault/acting-scope'
  * and read every other member's seat.
  */
 
+// A member as their own OS user, and the member switch, are Linux only (docs/plans/windows.md §6).
+const switchesUsers = process.platform !== 'win32'
+
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
 
@@ -36,7 +39,7 @@ function host(users?: Map<string, ProcessUser>) {
   })
 }
 
-test('on a shared host a member’s process runs as their own user, with their own home', async () => {
+test.if(switchesUsers)('on a shared host a member’s process runs as their own user, with their own home', async () => {
   const identities = host(new Map([['alice', { uid: 20001 }], ['bob', { uid: 20002 }]]))
   const alice = identities.for(member('alice'))
   const bob = identities.for(member('bob'))
@@ -61,13 +64,13 @@ test('where members share the server’s user, the launch point gives no user', 
   expect(launch.env.HOME).toContain('alice')
 })
 
-test('the Claude CLI is spawned as the member only when the seat names a user', () => {
+test.if(switchesUsers)('the Claude CLI is spawned as the member only when the seat names a user', () => {
   // WHY: the SDK's own spawn waits for stderr before it reports an exit; replace it only where the user must change.
   expect(claudeLaunch({ home: '/seats/claude/alice' }).spawnClaudeCodeProcess).toBeUndefined()
   expect(claudeLaunch({ home: '/seats/claude/alice', user: { uid: 20001 } }).spawnClaudeCodeProcess).toBeFunction()
 })
 
-test('a member\'s process starts through the member switch; every other process starts as it is', () => {
+test.if(switchesUsers)('a member\'s process starts through the member switch; every other process starts as it is', () => {
   // WHY: the server holds no capability; only the switch can make a process a member (§2 decision 1).
   const env = { HOME: '/seats/home/alice' }
   const member = launchedProcess({ env, user: { uid: 20001 } }, 'git', ['push'])

@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // A client that opens a session while its run is still in setup was too late
 // for the prompt's live echo, and the provider has not written the prompt to

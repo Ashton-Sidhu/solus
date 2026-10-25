@@ -11,6 +11,7 @@
   import { ensureIconCollections } from "../diagram/iconify";
   import PickerSkeletonRows from "../pickers/PickerSkeletonRows.svelte";
   import { fuzzyIndices, highlightSegments, splitFilePath } from "./lib/file-picker";
+  import { hostPathBaseName } from "@solus/contracts/host-path";
 
   interface Props {
     open: boolean;
@@ -44,7 +45,7 @@
   const environment = $derived(environmentStore.environmentFor(session.sessionFor(targetTabId)?.run));
   const searchCwd = $derived(environment.cwd);
   const scopeName = $derived(
-    environment.isolated ? environment.name : (searchCwd?.split("/").pop() ?? "project"),
+    environment.isolated ? environment.name : (searchCwd ? hostPathBaseName(searchCwd) : "project"),
   );
 
   useScope("go-to-file", { exclusive: true, active: () => open });

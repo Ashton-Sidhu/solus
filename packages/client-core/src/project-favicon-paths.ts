@@ -1,3 +1,5 @@
+import { joinHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
+
 /** Filenames a project may keep its own mark under, in the order we prefer. */
 const FAVICON_FILENAMES = [
   'favicon.ico',
@@ -19,13 +21,10 @@ const NESTED_FAVICON_PATHS = [
 /** The host paths a project's favicon may live at, in preference order. Every
  *  client asks the project's host for the first one it can serve. */
 export function faviconCandidatePaths(projectRoot: string): string[] {
-  const root = normalizedProjectRoot(projectRoot)
-  return [
-    ...FAVICON_FILENAMES.map((name) => `${root}/${name}`),
-    ...NESTED_FAVICON_PATHS.map((path) => `${root}/${path}`),
-  ]
+  // In the host's own separator, so the path the host answers with is one it names.
+  return [...FAVICON_FILENAMES, ...NESTED_FAVICON_PATHS].map((name) => joinHostPath(projectRoot, name))
 }
 
 export function normalizedProjectRoot(projectRoot: string): string {
-  return projectRoot.length > 1 ? projectRoot.replace(/\/+$/, '') : projectRoot
+  return trimTrailingSeparators(projectRoot)
 }

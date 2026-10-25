@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { Attribution, User } from '@solus/contracts/user'
 import type { AutomationAction, PlanComment } from '@solus/contracts/types'
@@ -20,7 +20,7 @@ import type { HandlerCtx, SolusServer } from '@solus/server/transport/server'
 import { memberPrincipal } from './helpers/actors'
 import { resetTestDatabase } from './helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let dataDir: string
 const previousDataDir = process.env.SOLUS_DATA_DIR

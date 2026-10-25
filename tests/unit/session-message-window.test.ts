@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { plainSnippet, SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
@@ -11,7 +11,7 @@ import type { SessionLoadMessage } from '@solus/contracts/session-history'
 // not provide. bun:sqlite is API-compatible for what the indexer uses, so shim
 // it in before the DB module loads; the modules under test are imported in
 // beforeAll, after the mock is in place.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type IndexerModule = typeof import('@solus/server/db/session-indexer')
 type SearchModule = typeof import('@solus/server/db/session-search')

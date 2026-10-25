@@ -1,10 +1,10 @@
 import { afterEach, beforeAll, describe, expect, jest, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { ActivityLeases } from '@solus/server/execution/activity-leases'
 import { refreshingSessionIndexOnList } from '@solus/server/transport/solus-api/session-index-refresh'
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let CodexBackend: typeof import('@solus/server/execution/agents/codex/codex-backend')['CodexBackend']
 beforeAll(async () => {

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +7,7 @@ import type { NormalizedEvent } from '@solus/contracts/types'
 import { git } from '@solus/server/git/exec'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 mock.module('@solus/server/git/worktree-name', () => ({ generateWorktreeName: async () => 'Fix Layout' }))
 
 const previousDataDir = process.env.SOLUS_DATA_DIR

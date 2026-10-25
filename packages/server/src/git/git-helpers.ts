@@ -2,7 +2,7 @@ import path from 'path'
 import type { BranchChanges, GitIdentity, GitState, GitStateOptions, UncommittedFile } from '@solus/contracts/types'
 import type { RepoRef } from '@solus/contracts/providers'
 import { createLogger } from '../logger'
-import { runAsync } from './exec'
+import { gitOutputPath, runAsync } from './exec'
 import { GitUnavailableError } from './git-availability'
 import { getEpisodeNumstat } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
@@ -236,8 +236,7 @@ async function computeGitIdentityUncached(cwd: string): Promise<GitIdentity | nu
 export async function resolveRepoRoot(workTree: string): Promise<string | null> {
   try {
     const commonDir = await runAsync('git', ['rev-parse', '--git-common-dir'], workTree)
-    const absolute = path.isAbsolute(commonDir) ? commonDir : path.resolve(workTree, commonDir)
-    return path.dirname(absolute)
+    return path.dirname(gitOutputPath(workTree, commonDir))
   } catch (err: any) {
     // A host without git has no repositories. That is its normal state, not a failure.
     if (err instanceof GitUnavailableError) return null

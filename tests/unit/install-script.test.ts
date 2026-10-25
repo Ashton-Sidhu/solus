@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const INSTALL_SCRIPT = join(import.meta.dir, '../../scripts/install.sh')
+// install.sh runs under sh on macOS and Linux; install-ps1.test.ts covers the Windows installer.
+const hasSh = process.platform !== 'win32'
 const dirs: string[] = []
 
 afterEach(() => {
@@ -33,7 +35,7 @@ function runInstall(host: ReturnType<typeof installedHost>, args: string[]) {
 
 // WHY: the onboarding one-liner carries a link code. A user who already has
 // Solus must still get the host linked, not a "use solus update" dead end.
-test('a link code on an existing install runs setup with that code', () => {
+test.if(hasSh)('a link code on an existing install runs setup with that code', () => {
   const host = installedHost()
   const result = runInstall(host, ['--link', 'TICKET-1', '--cloud-url', 'https://cloud.example'])
   expect(result.exitCode).toBe(0)
@@ -41,20 +43,20 @@ test('a link code on an existing install runs setup with that code', () => {
     .toEqual(['setup', '--link', 'TICKET-1', '--cloud-url', 'https://cloud.example'])
 })
 
-test('a plain second install still refuses and points at solus update', () => {
+test.if(hasSh)('a plain second install still refuses and points at solus update', () => {
   const result = runInstall(installedHost(), [])
   expect(result.exitCode).not.toBe(0)
   expect(result.stderr).toContain('Use solus update')
 })
 
-test('a link flag without a code fails before anything runs', () => {
+test.if(hasSh)('a link flag without a code fails before anything runs', () => {
   const host = installedHost()
   const result = runInstall(host, ['--link'])
   expect(result.exitCode).not.toBe(0)
   expect(result.stderr).toContain('--link requires a code')
 })
 
-test('an unknown flag fails instead of being ignored', () => {
+test.if(hasSh)('an unknown flag fails instead of being ignored', () => {
   const result = runInstall(installedHost(), ['--lnk', 'TICKET-1'])
   expect(result.exitCode).not.toBe(0)
   expect(result.stderr).toContain('Unknown option: --lnk')

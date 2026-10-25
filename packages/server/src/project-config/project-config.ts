@@ -6,7 +6,7 @@ import type { ProjectConfig } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import { worktreeBranchNamingSchema } from '@solus/contracts/worktree-branch-naming'
 import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema } from '@solus/contracts/device-types'
-import { git } from '../git/exec'
+import { git, gitOutputPath } from '../git/exec'
 
 /**
  * Project config lives in the repository, at `.solus/config.json`.
@@ -57,7 +57,7 @@ export function resolveProjectRoot(cwd: string): string {
   if (cached) return cached
   let root: string
   try {
-    root = worktreeProjectRoot(git(['rev-parse', '--show-toplevel'], cwd, { timeout: 5_000 }))
+    root = worktreeProjectRoot(gitOutputPath(cwd, git(['rev-parse', '--show-toplevel'], cwd, { timeout: 5_000 })))
   } catch {
     // Not a repository — the directory is its own project.
     root = cwd

@@ -63,6 +63,8 @@ import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
 import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
 
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
+import { hostPathBaseName } from "@solus/contracts/host-path";
+
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 import type { DesktopDialogs } from "./desktop-dialogs.svelte";
 import { checkoutGit, checkoutPlace, runHost, workingPlace } from "@solus/workspace-ui/contexts/workspace/run-location";
@@ -599,8 +601,7 @@ export function createDesktopPalette(
     const taskContext = session.taskCreationContext;
     const taskCwd = taskContext?.projectKey ?? null;
     if (taskContext && taskCwd) {
-      const taskProjectName =
-        taskCwd.split("/").filter(Boolean).pop() ?? taskCwd;
+      const taskProjectName = hostPathBaseName(taskCwd) || taskCwd;
       commands.push({
         id: "create-task",
         label: `Create task in ${taskProjectName}`,
@@ -616,7 +617,7 @@ export function createDesktopPalette(
       ? paletteProjects.map((p) => ({
           id: `create-task-in:${p.path}`,
           label:
-            p.folderName || (p.path.split("/").filter(Boolean).pop() ?? p.path),
+            p.folderName || hostPathBaseName(p.path) || p.path,
           group: "Projects",
           icon: FolderIcon,
           keywords: [p.folderName, p.path],

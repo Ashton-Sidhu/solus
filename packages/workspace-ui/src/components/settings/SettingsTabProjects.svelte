@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { projectDirLabel } from "../../lib/paths";
   import {
     Folder as FolderIcon,
     Trash2 as TrashIcon,
@@ -25,16 +26,10 @@
   let selected = $state<string | null>(null);
   let confirming = $state<string | null>(null);
 
-  function folderName(path: string): string {
-    const dir = path.replace(/\/$/, "");
-    const parts = dir.split("/");
-    return parts[parts.length - 1] || dir;
-  }
-
   function withPresetProject(list: ProjectEntry[], preset: string | null | undefined): ProjectEntry[] {
     if (!preset || list.some((p) => p.path === preset)) return list;
     // Not listed by the host yet, so its repository is not known yet either.
-    return [{ key: "", path: preset, folderName: folderName(preset), addedAt: "", lastUsedAt: "", repositoryKey: null }, ...list];
+    return [{ key: "", path: preset, folderName: projectDirLabel(preset), addedAt: "", lastUsedAt: "", repositoryKey: null }, ...list];
   }
 
   const projects = $derived(
@@ -96,7 +91,7 @@
         >
           <FolderIcon size={15} weight={active ? "fill" : "regular"} class="shrink-0 {active ? 'text-(--solus-accent)' : 'text-(--solus-text-tertiary)'}" />
           <span class="flex flex-col min-w-0 gap-px">
-            <span class="text-workspace-chrome {active ? 'font-medium' : 'font-normal'} whitespace-nowrap overflow-hidden text-ellipsis">{project.folderName || folderName(project.path)}</span>
+            <span class="text-workspace-chrome {active ? 'font-medium' : 'font-normal'} whitespace-nowrap overflow-hidden text-ellipsis">{project.folderName || projectDirLabel(project.path)}</span>
             <span class="text-xs text-(--solus-text-tertiary) whitespace-nowrap overflow-hidden text-ellipsis">{project.path}</span>
           </span>
         </button>
@@ -128,7 +123,7 @@
             size="icon-sm"
             class="mr-1 text-(--solus-text-tertiary) hover:text-(--solus-status-error) hover:bg-(--solus-status-error)/12 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100
               {selected === project.path ? '!opacity-100' : ''}"
-            aria-label="Remove {project.folderName || folderName(project.path)}"
+            aria-label="Remove {project.folderName || projectDirLabel(project.path)}"
             onclick={() => (confirming = project.path)}
           >
             <TrashIcon size={14} />

@@ -1,5 +1,6 @@
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
-import { basename, dirname, join, relative as pathRelative, resolve as pathResolve } from 'path'
+import { relativeHostPath, sameHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
+import { basename, dirname, join, resolve as pathResolve } from 'path'
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'fs/promises'
 import { z } from 'zod'
 import type { CreateDirectoryResult, DirectoryEntry, DirectoryListResult, FileMatch, ProjectContentSearchResult, ProjectFileMutationResult, ProjectFilesResult, WriteFileResult } from '@solus/contracts/types'
@@ -132,6 +133,14 @@ function friendlyFsError(error: Error, fallback: string): string {
   return fallback
 }
 
+/** Bun on Windows writes zero bytes to a folder with no error, so a folder is refused here. */
+async function writeFileNotFolder(target: string, payload: Buffer): Promise<void> {
+  if ((await stat(target).catch(() => null))?.isDirectory()) {
+    throw new Error(`EISDIR: illegal operation on a directory, open '${target}'`)
+  }
+  await writeFile(target, payload)
+}
+
 export function registerFilesystemHandlers(server: SolusServer): void {
   server.register('listDirectory', async (args, handlerCtx) => {
     const [rawPath, showHidden, annotate] = args
@@ -250,9 +259,10 @@ export function registerFilesystemHandlers(server: SolusServer): void {
     // dot-directories, so hidden paths are intentionally absent from results.
     const MAX = 25
 
-    const cwdRoot = cwd.replace(/\/+$/, '')
-    const toDisplay = (p: string): string =>
-      p === cwdRoot ? basename(p) : p.startsWith(cwdRoot + '/') ? p.slice(cwdRoot.length + 1) : p
+    // Relative to the project, so an `@` mention resolves in the session's own
+    // checkout. A `/` prefix cut never matched a Windows path, and the mention
+    // was the main checkout's absolute path even in a worktree.
+    const toDisplay = (p: string): string => relativeHostPath(cwd, p) || (sameHostPath(cwd, p) ? basename(p) : p)
 
     // Explicit paths browse one directory, including paths outside the project.
     // Only plain project queries may create a recursive index.
@@ -279,9 +289,9 @@ export function registerFilesystemHandlers(server: SolusServer): void {
           entry.item.relativePath === '.' ||
           entry.item.relativePath === '/'
         )
-          ? entry.item.dirName.replace(/\/$/, '')
+          ? trimTrailingSeparators(entry.item.dirName)
           : entry.item.relativePath
-      const path = join(base, relativePath).replace(/\/+$/, '')
+      const path = trimTrailingSeparators(join(base, relativePath))
       files.push({ path, display: toDisplay(path), isDir: entry.type === 'directory' })
     }
 
@@ -372,14 +382,14 @@ export function registerFilesystemHandlers(server: SolusServer): void {
       }
       const encoding = request.encoding === 'base64' ? 'base64' : 'utf8'
       const payload = Buffer.from(request.contents, encoding)
-      await writeFile(target, payload)
+      await writeFileNotFolder(target, payload)
       if (root && insideRoot) await refreshFinder(root)
       return {
         ok: true,
         path: target,
         // Relative to the project it belongs to; an export has no project to be
         // relative to, so it reports where it actually landed.
-        displayPath: root && insideRoot ? pathRelative(root, target) || basename(target) : target,
+        displayPath: root && insideRoot ? relativeHostPath(root, target) || basename(target) : target,
         size: payload.byteLength,
       } satisfies WriteFileResult
     } catch (err) {

@@ -7,6 +7,7 @@ import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { videoMimeType } from '@solus/contracts/media-types'
 import { z } from 'zod'
 import { pendingHandoffProvider } from '../../components/conversation/lib/pending-handoff'
+import { hostPathBaseName, isAbsoluteHostPath } from '@solus/contracts/host-path'
 import { readAnnotationPrompt } from '../../components/browser/lib/annotation-prompt'
 
 let msgCounter = 0
@@ -396,14 +397,10 @@ const ANNOTATION_MARK_LINE = /^\d+\. /
 /** The slot and random prefix the host puts before an uploaded file's name. */
 const UPLOAD_NAME_PREFIX = /^\d+-[0-9a-f]{12}-/
 
-function isHostPath(path: string): boolean {
-  return path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(path)
-}
-
 function attachedFile(path: string, index: number, serverId: string | undefined): Attachment {
-  const name = (path.split(/[\\/]/).pop() || path).replace(UPLOAD_NAME_PREFIX, '')
+  const name = (hostPathBaseName(path) || path).replace(UPLOAD_NAME_PREFIX, '')
   const attachment: Attachment = { id: `history-file-${index}-${path}`, type: 'file', name, path }
-  if (isHostPath(path)) {
+  if (isAbsoluteHostPath(path)) {
     attachment.hostPath = path
     if (serverId) attachment.hostServerId = serverId
   }
@@ -445,7 +442,7 @@ function attachedAnnotation(
       annotationContext: contextLines.join('\n'),
     },
   }
-  if (capture && isHostPath(capture)) {
+  if (capture && isAbsoluteHostPath(capture)) {
     attachment.hostPath = capture
     attachment.mimeType = 'image/png'
     if (serverId) attachment.hostServerId = serverId

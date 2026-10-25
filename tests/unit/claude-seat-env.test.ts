@@ -46,7 +46,7 @@ describe('claudeConfigDir', () => {
   test('a member who is their own Linux user reads the `.claude` in their own home', () => {
     process.env.CLAUDE_CONFIG_DIR = '/data/home/.claude'
     const dir = claudeConfigDir({ home: '/run/solus-seats/claude/ada', env: { HOME: '/data/members/ada' }, user: { uid: 20000 } })
-    expect(dir).toBe('/data/members/ada/.claude')
+    expect(dir).toBe(join('/data/members/ada', '.claude'))
   })
 
   test('a member seat without its own user reads the seat home', () => {

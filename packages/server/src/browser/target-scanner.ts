@@ -1,4 +1,4 @@
-import { runAsync } from '../git/exec'
+import { gitOutputPath, runAsync } from '../git/exec'
 import { resolveRepoRoot } from '../git/git-helpers'
 import { createLogger } from '../logger'
 import type { BrowserDiscoveredTarget } from '@solus/contracts/browser-types'
@@ -193,8 +193,9 @@ function titleOf(html: string): string | undefined {
 async function attributeToWorktree(target: BrowserDiscoveredTarget): Promise<void> {
   if (!target.cwd) return
   try {
-    const worktreePath = await runAsync('git', ['rev-parse', '--show-toplevel'], target.cwd, { timeout: 5000 })
-    if (!worktreePath) return
+    const toplevel = await runAsync('git', ['rev-parse', '--show-toplevel'], target.cwd, { timeout: 5000 })
+    if (!toplevel) return
+    const worktreePath = gitOutputPath(target.cwd, toplevel)
     target.worktreePath = worktreePath
     const branch = await runAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], worktreePath, { timeout: 5000 })
     if (branch && branch !== 'HEAD') target.branch = branch

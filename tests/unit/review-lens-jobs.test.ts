@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentDispatcher } from '@solus/server/execution/agents/agent-runner'
 import type { IpcContext } from '@solus/contracts/types'
 import type {
@@ -11,7 +11,7 @@ import type {
 import type { ReviewLensJobDependencies, ResolvedLensChange } from '@solus/server/review/lens-jobs'
 import type { LensAgentInput } from '@solus/server/review/lens-agent'
 import type { LensDraft } from '@solus/server/review/review-lens-tool'
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let ReviewLensJobs: typeof import('@solus/server/review/lens-jobs')['ReviewLensJobs']
 beforeAll(async () => {
   ;({ ReviewLensJobs } = await import('@solus/server/review/lens-jobs'))

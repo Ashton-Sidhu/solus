@@ -1,3 +1,5 @@
+import { hostPathBaseName, isAbsoluteHostPath, relativeHostPath } from '@solus/contracts/host-path'
+
 /**
  * A project's folders built once from the host's flat file index
  * (`listProjectFiles`): root-relative file paths, plus folders that hold no
@@ -73,13 +75,9 @@ export function childPath(folderPath: string, name: string): string {
  */
 export function linkedFolderPath(linkPath: string, projectPath: string): string | null {
   if (!/[\\/]$/.test(linkPath) || linkPath.startsWith('~')) return null
-  const path = linkPath.replaceAll('\\', '/')
-  let relative = path
-  if (path.startsWith('/') || /^[A-Za-z]:\//.test(path)) {
-    const root = projectPath.replaceAll('\\', '/').replace(/\/+$/, '')
-    if (!root || !path.startsWith(`${root}/`)) return null
-    relative = path.slice(root.length)
-  }
+  let relative: string | null = linkPath.replaceAll('\\', '/')
+  if (isAbsoluteHostPath(linkPath)) relative = projectPath ? relativeHostPath(projectPath, linkPath) : null
+  if (relative === null) return null
   const segments: string[] = []
   for (const segment of relative.split('/')) {
     if (segment === '' || segment === '.') continue
@@ -91,7 +89,7 @@ export function linkedFolderPath(linkPath: string, projectPath: string): string 
 
 /** The name a screen title shows for a folder; the root shows the project's. */
 export function folderTitle(folderPath: string, projectName: string): string {
-  return folderPath ? folderPath.slice(folderPath.lastIndexOf('/') + 1) : projectName
+  return folderPath ? hostPathBaseName(folderPath) : projectName
 }
 
 /** "1.2 KB" — the size a binary file shows in place of its contents. */

@@ -10,6 +10,7 @@
 // CodeMirror prompt input and the Tiptap document editor without leaking either
 // editor's transaction model.
 import { planKey } from "@solus/contracts/types";
+import { joinHostPath } from "@solus/contracts/host-path";
 import type {
   AgentId,
   FileMatch,
@@ -578,7 +579,7 @@ export class UnifiedAutocompleteController {
     const editor = this.deps.getEditor();
     editor?.replaceTrigger(
       triggerRunPattern(this.#textBeforeCursor, trigger.anchor),
-      `@${item.directoryPath.replace(/\/+$/, "")}/`,
+      `@${joinHostPath(item.directoryPath, "")}`,
     );
     this.#selectedIndex = 0;
     editor?.focus();

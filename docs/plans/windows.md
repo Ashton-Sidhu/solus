@@ -271,9 +271,10 @@ Windows change.
 
 ### 5.1 One command resolver
 
-One module, `packages/server/src/platform/command-path.ts`, answers "where is
-program X, and how do I start it". It replaces `findOnPath` and the login-shell
-PATH as the thing callers touch.
+`packages/server/src/cli-env.ts` answers "where is program X, and how do I
+start it" (`findOnPath`, `startableCommand`, and `launchedProcess`, which every
+launch goes through). It is not a separate module: `cli-env.ts` must load on its
+own under Node, and the tsconfig allows no `.ts` import extension.
 
 ```ts
 interface ResolvedCommand {
@@ -297,7 +298,10 @@ resolveCommand(name: string, env: NodeJS.ProcessEnv): ResolvedCommand | null
   the binary path.
 - Git: a `git.exe` under `Git\cmd` is replaced by the one under `mingw64\bin`
   or `ucrt64\bin` when present. This is T3 Code's fix for the launcher's
-  kernel token leak.
+  kernel token leak. Git for Windows 2.56 has `ucrt64` only.
+- A bun install (`~\.bun\bin\codex.exe`) is a real `.exe` and starts as it is.
+- An absolute `.cmd` or `.bat` path (a project's `node_modules\.bin\x.cmd`) is
+  resolved like a bare name.
 - `hostCliEnv` and `launchedProcess` spawn `resolved.file` with
   `[...resolved.args, ...callerArgs]`. No call site uses `shell: true`.
 
@@ -332,12 +336,25 @@ PATH miss into a one-field fix.
 
 ### 5.4 Paths
 
-- A path marker test normalizes `\` to `/` before `includes`. The marker
-  constants do not change.
-- `resolveHomePath` accepts `~\` and delegates to `files/host-path.ts`.
+One module, `packages/contracts/src/host-path.ts`, answers every question about
+a host path: is it absolute, its names, its last name, whether two spellings
+are one path, whether it is inside a root, the rest from that root, and how to
+join a name to it. The server and all three clients use it, because a client
+on a Mac reads paths from a Windows host. `solus/host-path-separators` rejects
+a `'/'` written against a value whose name says it is a host path.
+
+- **The wire rule.** A project-relative path crosses the wire with `/`, as git
+  and `toRootRelativePath` write it (`relativeHostPath` gives that). An
+  absolute path keeps its host's form (`C:\code\x`).
+- **Git's output.** Git for Windows prints `C:/x` where Node has `C:\x`.
+  Every path read from git's stdout goes through `gitOutputPath` in
+  `git/exec.ts`. Without it the main checkout read as a linked worktree, and
+  New worktree did nothing for a Windows project.
+- A path marker test uses `hostPathKey`; the marker constants do not change.
+- `resolveHomePath`, `expandHome`, and the file preview share one `~` rule,
+  `startsAtHome` in `files/host-path.ts`.
 - `client-core` reads a project key as `<serverId>:` followed by a path that
-  starts with `/`, `~`, or a drive letter and `:`. Path labels split on both
-  separators.
+  starts with `/`, `~`, a drive letter, or `\\`.
 - The local host is "This computer" on every platform.
 
 ### 5.5 Atomic writes
@@ -410,10 +427,16 @@ restarts, and a logon task is the cheapest one.
 
 ### 5.11 Secrets on the standalone server
 
-`FileSecretStore` on Windows wraps each value with DPAPI through one PowerShell
-call (`[Security.Cryptography.ProtectedData]::Protect`, `CurrentUser` scope)
-and stores the base64. Reads unwrap the same way. The file gains a
-`dpapi: true` marker so a file written elsewhere still reads.
+POSIX keeps the secrets folder to its user with `0o700`. On Windows the
+`FileSecretStore` gives a new secrets folder the same protection with one
+`icacls` call: the folder stops inheriting its parent's access and grants it to
+this user and SYSTEM only. A folder inside the user profile already has that
+access, but a data folder outside it (`C:\solus-data`) inherits write access
+for every user.
+
+DPAPI through PowerShell was built first and dropped: each call started
+PowerShell for one to two seconds and stopped the server while it ran, and it
+protects more than `0o600` does on POSIX.
 
 ### 5.12 Desktop app
 
@@ -740,3 +763,140 @@ Windows file system says so and skips elsewhere.
 7. **WSL step order.** Step 4 after step 3 (the plan), or before it, since a
    Windows machine with WSL could run Solus with fewer native fixes. Step 1
    is needed either way for the desktop's own server.
+
+## 11. Step 1 results (2026-10-23)
+
+Run on a Windows 11 x64 machine (build 26200) from source, paired with the Mac
+desktop app over the LAN.
+
+### 11.1 What works
+
+- `bun install` and `bun scripts/build-headless.ts` (the icon script is Bun,
+  the build finds `esbuild.exe`).
+- The server boots in about 200 ms and pairs with a code. Claude Code 2.1.309
+  (`claude.exe`) and Codex 0.164.0 (a bun `.exe`) run sessions.
+- Worktrees, the diff, and `@` file mentions in a worktree, after the path
+  fixes in §5.4.
+- Git: the real `ucrt64\bin\git.exe` runs hooks that need `sh`, `worktree add`,
+  and SSH fetches.
+- The manual run of §7.1 item 10 passed from the Mac desktop app with the
+  Windows host in Run on: a Claude session, a Codex session, a new worktree,
+  the diff, a commit from the UI, and reopening a session. Claude names the
+  worktree's project folder `C--code-scratch--git-solus-worktrees-<slug>`, as
+  `encodePathAsFolder` gives.
+
+### 11.2 Corrections to §4
+
+- `update-data.ts` and `update-journal.ts` call `fsync` on a directory, which
+  Windows refuses (`EPERM`). This is step 2 work with the junctions (§5.7).
+- The "already encoded" Claude folder check needs no change:
+  `encodePathAsFolder` gives the same result when it runs twice.
+- Git for Windows turns `core.autocrlf` on. A clone for tests needs
+  `core.autocrlf false`, or tests that read source text see `\r\n`.
+
+### 11.3 Not done in step 1
+
+These came from the T3 Code parity list, not from a fault seen on Windows. They
+wait until someone sees the fault, and each names what to look for:
+
+- Atomic-write retries (§5.5): a write that fails with `EPERM` or `EBUSY` on
+  rename in `dev.log`. None was seen.
+- The provider binary path (§5.3): a CLI that is installed but not found. The
+  PATH lookup found Claude Code and Codex every time.
+- The PowerShell PATH probe (§5.2): a server started at logon that cannot find
+  `node` or a CLI installed after logon.
+- `solus` CLI login spawns `claude` and `codex` by name; with an npm `.cmd`
+  install this fails. It moves to step 2 with the `solus` command.
+- SSH connect from Add server runs a `sh` script that calls `solus`, so it
+  cannot connect to Windows. It now says so. A PowerShell bootstrap belongs in
+  step 2, once `solus.cmd` exists.
+
+### 11.4 The unit suite on Windows
+
+With LF line endings and only this branch, 53 test files fail on Windows that
+pass on macOS. The Windows CI job (§5.10) needs each one fixed or skipped with
+its reason:
+
+- **POSIX fixtures (about 30).** A `#!/bin/sh` fake tool (`claude-executable`,
+  `claude-steering`, `claude-usage-read`, `cli-path-lookup`,
+  `code-intel-manager`, `runtime-instructions`, `git-availability`,
+  `install-script`, `ssh-bootstrap`, `cli-env`), POSIX paths written in the
+  test (`bundled-plugins`, `claude-seat-env`, `desktop-compile-cache`,
+  `managed-host`, `worktree-move`, `git-watcher`, `attachment-upload`,
+  `managed-pr-checkout`, `git-bare-guard-callers`, `git-bare-discovery-guard`,
+  `device-local-host`, `device-project`, `service`), a bare `claude` where the
+  resolver now gives `claude.exe` (`seat-login`, `seat-connect`), the
+  executable bit or file modes (`registry-skill-cache`, `agent-profile`,
+  `account-store`, `seat-manager`), a symlink (`write-file-destination`),
+  signals (`uplink-connector`), and `cli-cloudflared`.
+- **Step 2 and 3 work (about 12).** `version-store` and `server-supervisor`
+  (junctions, `fsync`), `headless-build` and `desktop-package-layout`
+  (win32 targets), `desktop-capture`, `file-manager`, keybindings (`match`,
+  `browser-guest-shortcuts`), and members (`launch-point`, `acting-identity`).
+- **Test setup.** Four files keep their own SQLite handle open
+  (`browser-open-tool`, `browser-recording-tools`,
+  `metrics-statement-columns`, `observability`). Four boundary checks read
+  file paths with `/` (`server-module-boundaries`, `native-mobile-boundaries`,
+  `startup-import-graph`, `native-mobile-navigation-destinations`).
+
+The other 120 files that failed on Windows deleted a SQLite file that Bun had
+not closed. `tests/unit/helpers/bun-sqlite.ts` is now the one `node:sqlite`
+mock; its `close()` releases the file.
+
+## 12. Step 2 results (2026-10-23)
+
+### 12.1 What works on the Windows machine
+
+- `bun scripts/package-server.ts --headless` builds
+  `solus-server-headless-win32-x64.zip` (47 MB) and its `SHA256SUMS` line on
+  Windows. The package with the web client needs the client build, which the
+  release workflow runs on its Windows runner.
+- `install.ps1` with `SOLUS_INSTALL_ARCHIVE` installs to
+  `%LOCALAPPDATA%\solus\runtime\versions\<version>`, makes `current` a
+  junction, and writes `%USERPROFILE%\.local\bin\solus.cmd`. In a new session
+  `solus --version` answers.
+- `solus setup` registers the `Solus server` logon task, starts the server,
+  and prints the pair link. The server runs after the SSH session ends.
+- `solus service stop`, `restart`, and `uninstall`, `solus status`.
+- A server that crashes is started again by its supervisor.
+- SSH connect from a Mac to the Windows host returns a session credential in
+  about 3 s.
+
+### 12.2 What the machine showed that the tests did not
+
+- **The account name.** Under SSH, `USERDOMAIN` is `WORKGROUP`, which names no
+  account. The task names its user by SID (`whoami /user`); the secrets folder
+  uses the plain user name.
+- **`schtasks /end` ends only the task's own processes.** The server that the
+  supervisor started kept the port, and the next start failed. Stop, restart,
+  and uninstall also end the server from `server.lock`, and only when that PID
+  is still this install's `standalone.js`. It is not a clean shutdown: SQLite
+  recovers from its WAL, and the next start replaces a dead lock.
+- **Task Scheduler does not restart a program that exits with an error.**
+  `RestartOnFailure` covers a task that fails to start. Under the logon task
+  (`SOLUS_SUPERVISOR_RESTARTS=1`) the supervisor starts a crashed server again
+  after 2 s, doubling to 60 s, and starts over when the server reports ready.
+  `solus start` in a terminal still ends on a crash.
+- **Codex runs commands through PowerShell.** It reports each one as
+  `"C:\…\powershell.exe" -Command '<script>'`. `worktreeAddPaths` read POSIX
+  shells only and named the program with a POSIX basename, so a worktree Codex
+  made was never offered for a move. It now names the program with
+  `hostPathBaseName` (without `.exe`) and reads `powershell` and `pwsh` with
+  `-Command` or `-c`.
+- **cmd.exe exits 0 when `sh` is missing.** It prints the error and echoes the
+  piped script. The SSH bootstrap reads the error, not the exit code, before it
+  asks PowerShell.
+
+### 12.3 Not proven on Windows
+
+- `solus update` from a GitHub release: it needs a published `win32-x64`
+  release.
+- The full package with the web client, and the Windows CI jobs: they run on
+  GitHub's runners.
+- A host that links to Solus Cloud, where the first secret is written.
+
+### 12.4 Known gaps
+
+- **`cloud-build-boundaries.test.ts`** took more than 30 s in a full Windows run
+  under load; alone it passes in 2 s.
+

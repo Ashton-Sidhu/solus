@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
+import { copyFileSync, linkSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { restoreUpdateData, snapshotUpdateData } from '../../apps/cli/src/lib/update-data'
 import { superviseServer } from '../../apps/cli/src/lib/server-supervisor'
 import { assertCompatibleRelease } from '../../apps/cli/src/lib/server-release'
 import { activateVersion, currentVersionDir, currentVersionName, versionsDir } from '../../apps/cli/src/lib/version-store'
+import { nodeBinary as releaseNode } from '../../apps/cli/src/lib/runtime'
 
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
@@ -17,7 +18,12 @@ function install(directory: string, version: string, fail = false) {
   mkdirSync(join(directory, 'bin'), { recursive: true })
   mkdirSync(join(directory, 'libexec/server'), { recursive: true })
   mkdirSync(join(directory, 'libexec/cli'), { recursive: true })
-  symlinkSync(nodeBinary, join(directory, 'bin/node'))
+  // WHY: a release starts its own `bin/node` (`bin\node.exe` on Windows). A
+  // symlink needs a privilege on Windows, so the fixture uses a hard link there.
+  if (process.platform !== 'win32') symlinkSync(nodeBinary, releaseNode(directory))
+  else {
+    try { linkSync(nodeBinary, releaseNode(directory)) } catch { copyFileSync(nodeBinary, releaseNode(directory)) }
+  }
   writeFileSync(join(directory, 'libexec/cli/solus.js'), '')
   writeFileSync(join(directory, 'server-release.json'), JSON.stringify({ protocol: 1, version, storage: 'same' }))
   writeFileSync(join(directory, 'libexec/server/standalone.js'), `
@@ -194,4 +200,25 @@ test('recovery cannot restore a snapshot into a different host data directory', 
   writeFileSync(join(other, 'keep'), 'other host')
   expect(() => restoreUpdateData(f.runtimeDir, other)).toThrow('another data directory')
   expect(readFileSync(join(other, 'keep'), 'utf8')).toBe('other host')
+})
+
+test('under the Windows logon task a crashed server is started again; elsewhere a crash ends the supervisor', async () => {
+  // WHY: Task Scheduler does not restart a program that exits with an error,
+  // so a crash under the logon task left the host down until the next logon.
+  // A crash in a terminal still ends `solus start`, as before.
+  for (const restartOnCrash of [true, false]) {
+    const f = fixture()
+    mkdirSync(f.dataDir)
+    writeFileSync(join(versionsDir(f.runtimeDir), '1.0.0', 'libexec/server/standalone.js'), `
+      const fs = require('node:fs'); const p = require('node:path');
+      const file = p.join(process.env.SOLUS_DATA_DIR, 'starts');
+      const starts = (fs.existsSync(file) ? Number(fs.readFileSync(file, 'utf8')) : 0) + 1;
+      fs.writeFileSync(file, String(starts));
+      if (starts === 1) process.exit(1);
+      process.send({ type: 'solus:ready', version: '1.0.0' });
+      process.exit(0);
+    `)
+    const code = await superviseServer({ runtimeDir: f.runtimeDir, dataDir: f.dataDir, env: { ...process.env, SOLUS_DATA_DIR: f.dataDir }, restartOnCrash })
+    expect([code, readFileSync(join(f.dataDir, 'starts'), 'utf8')]).toEqual(restartOnCrash ? [0, '2'] : [1, '1'])
+  }
 })

@@ -1,4 +1,5 @@
 import type { ReviewView, RouteName, RouteRef } from '../../../contexts/workspace/routing/route-registry'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 
 /** Where a surface's label comes from: the stores that know each subject's name. */
 export interface SurfaceTitleSources {
@@ -60,7 +61,7 @@ function subjectName(ref: RouteRef, sources: SurfaceTitleSources): string | unde
     case 'automation':
       return ref.params.automationId ? sources.automationName(ref.params.automationId) : undefined
     case 'files':
-      return ref.params.path?.split('/').at(-1)
+      return ref.params.path && hostPathBaseName(ref.params.path)
     case 'review':
       return REVIEW_VIEW_LABELS[ref.params.view ?? 'diff']
     case 'prReview':

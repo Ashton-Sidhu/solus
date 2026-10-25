@@ -2,11 +2,11 @@ import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { questionReply } from '@solus/contracts/question-history'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const previousDataDir = process.env.SOLUS_DATA_DIR
 const dataDir = mkdtempSync(join(tmpdir(), 'solus-question-history-'))
 let db: typeof import('@solus/server/db')

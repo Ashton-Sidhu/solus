@@ -3,11 +3,11 @@ import type { Server } from 'http'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 
 // bun has no node:sqlite; the http module's import chain reaches the db even
 // though these tests never open it. Same seam health-auth-advertisement.test.ts uses.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { buildHttpServer } = await import('@solus/server/transport/http')
 type HttpServerOptions = NonNullable<Parameters<typeof buildHttpServer>[0]>

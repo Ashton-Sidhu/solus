@@ -1,10 +1,9 @@
-import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { text } from 'node:stream/consumers'
 import { z } from 'zod'
-import { hostCliEnv } from '../../cli-env'
+import { findOnPath, getCliPath } from '../../cli-env'
 import { readHostCredential } from '../../vault/vault'
 import { githubCredentials, githubStoredTokenSchema } from './credentials'
 
@@ -21,11 +20,7 @@ export const GITHUB_CREDENTIAL_KEY = 'credential.https://github.com.helper'
 
 /** Absolute path so the credential helper keeps working under git's own PATH. */
 function resolveSolusCli(): string | null {
-  try {
-    return execFileSync('which', ['solus'], { encoding: 'utf8', env: hostCliEnv(), timeout: 2_000 }).trim() || null
-  } catch {
-    return null
-  }
+  return findOnPath('solus', getCliPath())
 }
 
 let serverEntry: { runtime: string; entry: string } | null = null

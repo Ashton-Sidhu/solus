@@ -37,7 +37,8 @@ beforeEach(() => {
 afterEach(() => rmSync(directory, { recursive: true, force: true }))
 
 function installClaude(): string {
-  const executable = join(directory, 'claude')
+  // WHY: Windows starts only a file with a startable extension, so the installed CLI is `claude.exe` there.
+  const executable = join(directory, process.platform === 'win32' ? 'claude.exe' : 'claude')
   writeFileSync(executable, '#!/bin/sh\nexit 0\n')
   chmodSync(executable, 0o755)
   return executable

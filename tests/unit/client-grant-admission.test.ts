@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { hostAudience, type DelegatedAccessTokenClaims, type PersonAccessTokenClaims } from '@solus/contracts/uplink'
 import type { Principal } from '@solus/server/admission/principal'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { renewalExpiry } = await import('@solus/server/admission/principal')
 const { resetAuthStateForTests, revokeDevice } = await import('@solus/server/admission/auth')
 const { principalForClaims } = await import('@solus/server/admission/doors')

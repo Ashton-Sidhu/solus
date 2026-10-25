@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import {
   SCHEMA_RELATIONSHIPS,
   metricsSchema,
@@ -11,7 +11,7 @@ import type { TimeRange } from '@solus/workspace-ui/components/insights/lib/time
 
 // `declaredSourceView` is pure, but its module reaches the metrics database at
 // import time, which is not a built-in under the test runtime.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type SqlGuardModule = typeof import('@solus/server/data/insights/sql-guard')
 let sqlGuard: SqlGuardModule

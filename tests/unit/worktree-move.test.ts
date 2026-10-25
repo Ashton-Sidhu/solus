@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { Activity, ActivityKind } from '@solus/contracts/activity'
 import type { GitCheckout, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
 import { ulid } from '@solus/contracts/ulid'
@@ -10,7 +10,7 @@ import type { Actor } from '@solus/server/admission/actor'
 import type { WorktreeMoveRuntime } from '@solus/server/execution/sessions/worktree-move'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 // The host's git probe asks `xcode-select`, which a sandbox can refuse. These
 // tests make their own repositories with the git on PATH.
 const gitAvailability = await import('@solus/server/git/git-availability')
@@ -49,6 +49,11 @@ function git(cwd: string, ...args: string[]): string {
   return result.stdout.toString().trim()
 }
 
+/** A path as an agent writes it in a POSIX shell. A shell reads `\` as an escape, so Git Bash on Windows takes `C:/...`. */
+function shellPath(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
 function makeRepo(name: string): string {
   const repo = join(root, name)
   mkdirSync(repo, { recursive: true })
@@ -64,7 +69,10 @@ const otherRepo = makeRepo('other')
 const foreignWorktree = join(root, 'other-feature')
 git(otherRepo, 'worktree', 'add', '-q', '-b', 'other-feature', foreignWorktree)
 
-afterAll(() => {
+afterAll(async () => {
+  // Windows cannot remove the data folder while the database is open.
+  const { closeDb } = await import('@solus/server/db')
+  closeDb()
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
   rmSync(root, { recursive: true, force: true })
@@ -103,7 +111,8 @@ function fakeRuntime(options: { create?: WorktreeMoveRuntime['checkouts']['creat
 // The helpers under test start processes; with no caller, they act as the host (plans/019).
 actAsHostForTests()
 
-describe('worktreeAddPaths reads the paths a shell command creates worktrees at', () => {
+// The expected paths are POSIX paths resolved against '/repo'.
+describe.skipIf(process.platform === 'win32')('worktreeAddPaths reads the paths a shell command creates worktrees at', () => {
   test.each([
     ['git worktree add ../wt -b feat', ['/wt']],
     ['git worktree add -b feat ../wt main', ['/wt']],
@@ -123,6 +132,24 @@ describe('worktreeAddPaths reads the paths a shell command creates worktrees at'
     const [path] = worktreeAddPaths('git worktree add ~/trees/x', '/repo')
     expect(path?.startsWith('~')).toBe(false)
     expect(path?.endsWith('/trees/x')).toBe(true)
+  })
+})
+
+describe('worktreeAddPaths reads Codex on Windows', () => {
+  // WHY: Codex on Windows runs each command through PowerShell. A worktree it
+  // made was never offered, because only POSIX shells were read and the
+  // program was named by a POSIX basename, which keeps a whole Windows path.
+  const cwd = resolve('repo')
+  const powershell = '"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"'
+
+  test('as Codex sends it: the PowerShell program by its full path, and -Command', () => {
+    expect(worktreeAddPaths(`${powershell} -Command 'git worktree add ../scratch-codex-probe -b codex-probe-branch'`, cwd))
+      .toEqual([resolve(cwd, '../scratch-codex-probe')])
+  })
+
+  test('pwsh, -c, and git.exe; -ExecutionPolicy is not the script', () => {
+    expect(worktreeAddPaths(`pwsh.exe -NoProfile -ExecutionPolicy Bypass -c 'git.exe worktree add ../a'`, cwd)).toEqual([resolve(cwd, '../a')])
+    expect(worktreeAddPaths(`${powershell} -ExecutionPolicy Bypass -File x.ps1`, cwd)).toEqual([])
   })
 })
 
@@ -322,7 +349,7 @@ describe('WorktreeOffers', () => {
 
   test('a Codex command offers the new worktree once its command succeeds', async () => {
     const { offers, offered } = offersHarness()
-    offers.observe('s1', { type: 'tool_call', toolName: 'exec_command', toolId: 'c1', index: 0, toolInput: `/bin/zsh -lc 'git worktree add ${worktree}'` })
+    offers.observe('s1', { type: 'tool_call', toolName: 'exec_command', toolId: 'c1', index: 0, toolInput: `/bin/zsh -lc 'git worktree add ${shellPath(worktree)}'` })
     offers.observe('s1', { type: 'tool_call_complete', index: 0, toolId: 'c1', outcome: { status: 'completed', exitCode: 0 } })
     await offers.settled('s1')
     expect(offered()).toMatchObject([{ path: worktree }])
@@ -330,9 +357,9 @@ describe('WorktreeOffers', () => {
 
   test('a failed command, a path outside the repository, and a sub-agent call offer nothing', async () => {
     const { offers, offered } = offersHarness()
-    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${worktree}` }, 'fatal', true)
-    await claudeTool(offers, 't2', 'Bash', { command: `git worktree add ${foreignWorktree}` })
-    offers.observe('s1', { type: 'tool_call', toolName: 'Bash', toolId: 't3', index: 2, parentToolUseId: 'agent', toolInput: JSON.stringify({ command: `git worktree add ${worktree}` }) })
+    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${shellPath(worktree)}` }, 'fatal', true)
+    await claudeTool(offers, 't2', 'Bash', { command: `git worktree add ${shellPath(foreignWorktree)}` })
+    offers.observe('s1', { type: 'tool_call', toolName: 'Bash', toolId: 't3', index: 2, parentToolUseId: 'agent', toolInput: JSON.stringify({ command: `git worktree add ${shellPath(worktree)}` }) })
     offers.observe('s1', { type: 'tool_result', toolUseId: 't3', content: '', parentToolUseId: 'agent' })
     await offers.settled('s1')
     expect(offered()).toHaveLength(0)
@@ -341,13 +368,13 @@ describe('WorktreeOffers', () => {
   test('a worktree the session is already bound to is not offered', async () => {
     const { offers, offered, bindings } = offersHarness()
     bindings.set('s1', { repoRoot: repo, worktreePath: worktree, branch: 'feature', targetBranch: 'main' })
-    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${worktree}` })
+    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${shellPath(worktree)}` })
     expect(offered()).toHaveLength(0)
   })
 
   test('after Keep current the same worktree is not offered again', async () => {
     const { offers, offered } = offersHarness()
-    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${worktree}` })
+    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${shellPath(worktree)}` })
     const [offer] = offered()
     expect(await offers.decide('s1', offer!.id, 'keep', HOST_ACTOR, { cwd: repo })).toEqual({ decision: 'kept' })
     await claudeTool(offers, 't2', 'EnterWorktree', {}, `Switched to ${worktree}`)
@@ -361,13 +388,13 @@ describe('WorktreeOffers', () => {
       { kind: 'worktree_offer_decided', offerId, resolution: { decision: 'kept' }, id: ulid(), subject: { kind: 'session', id: 's1' }, at: 2, by: { kind: 'system' } },
     ] as Activity[]
     const { offers, offered } = offersHarness(stored)
-    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${worktree}` })
+    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${shellPath(worktree)}` })
     expect(offered()).toHaveLength(1)
   })
 
   test('Switch moves the session, and the answer is recorded once', async () => {
     const { offers, offered, recorded, bindings } = offersHarness()
-    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${worktree}` })
+    await claudeTool(offers, 't1', 'Bash', { command: `git worktree add ${shellPath(worktree)}` })
     const [offer] = offered()
     const [first, second] = await Promise.all([
       offers.decide('s1', offer!.id, 'switch', HOST_ACTOR, { cwd: repo }),

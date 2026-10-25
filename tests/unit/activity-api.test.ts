@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { Activity } from '@solus/contracts/activity'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
@@ -12,7 +12,7 @@ import type { WorkspaceOperations } from '@solus/server/data/workspace/operation
 import type { RunnerDeliverItem } from '@solus/server/sync/runner-protocol'
 import { resetTestDatabase } from './helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/012-user-actor-and-activity.md §5, stage 8: on the Solus API. A runner's
 // mirrored session activity lands in the API's own activity record once, however

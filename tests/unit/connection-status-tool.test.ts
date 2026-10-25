@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { ConnectionConnectNeeded } from '@solus/contracts/connections'
 import type { Integration, IntegrationConnection, IntegrationConnectNeeded } from '@solus/contracts/integration-types'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
@@ -15,7 +15,7 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
  */
 
 // The gateway's input requests open the session store, which Bun reads through its own SQLite.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 
 // A build ships an Atlassian OAuth client or it does not, and the tool answers

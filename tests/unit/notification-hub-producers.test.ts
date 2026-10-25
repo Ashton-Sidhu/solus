@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'b
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { HubNotification } from '@solus/contracts/notification-hub'
 import type { AutomationAction } from '@solus/contracts/types'
@@ -14,7 +14,7 @@ import type { HandlerCtx, SolusServer } from '@solus/server/transport/server'
 import { resetTestDatabase } from './helpers/test-db'
 import { notificationReader } from './helpers/actors'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/015-notifications-hub.md, stage 3: each producer writes durable recipient
 // rows inside the change that caused them. A review request reaches the reviewer

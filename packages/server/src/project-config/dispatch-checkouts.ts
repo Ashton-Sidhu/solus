@@ -1,4 +1,5 @@
 import { existsSync, realpathSync } from 'node:fs'
+import { hostPathSegments } from '@solus/contracts/host-path'
 import { join } from 'node:path'
 import { SOLUS_REMOTE_DISPATCH_DIR, type DispatchHistoryRoot } from '@solus/contracts/types'
 import { resolveRepositoryKey } from '../git/git-helpers'
@@ -50,10 +51,10 @@ export function dispatchCheckoutPath(projectsRoot: string, ownerKey: string, rep
  * the checkout keep the segment, so they resolve to the same owner.
  */
 export function dispatchCheckoutOwnerKeyOf(cwd: string): string | null {
-  const marker = `/${SOLUS_REMOTE_DISPATCH_DIR}/`
-  const markerIndex = cwd.indexOf(marker)
+  const segments = hostPathSegments(cwd)
+  const markerIndex = segments.indexOf(SOLUS_REMOTE_DISPATCH_DIR)
   if (markerIndex === -1) return null
-  const ownerKey = cwd.slice(markerIndex + marker.length).split('/')[0]
+  const ownerKey = segments[markerIndex + 1]
   return ownerKey && SAFE_PATH_SEGMENT.test(ownerKey) ? memberUserIdOf(ownerKey) : null
 }
 

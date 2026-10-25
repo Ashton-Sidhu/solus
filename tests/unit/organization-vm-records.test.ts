@@ -2,13 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'b
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { IpcContext } from '@solus/contracts/types'
 import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
 import type { WorkspaceCreateTask, WorkspaceCreateWork, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
 import { resetTestDatabase } from './helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/009-organization-vms.md §1, §3, §4: on a machine attached for organization
 // work, a new root session starts in an organization on the Solus API or not at all;

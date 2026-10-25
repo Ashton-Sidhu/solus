@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { hostAudience, type AccessTokenClaims } from '@solus/contracts/uplink'
 import type { TokenVerdict } from '@solus/server/admission/access-tokens'
 import type { DelegationScope } from '@solus/server/sync/delegations'
 
 // bun has no node:sqlite; the http module's import chain reaches the db even though
 // these tests never open it.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { buildHttpServer } = await import('@solus/server/transport/http')
 const auth = await import('@solus/server/admission/auth')
 

@@ -292,7 +292,8 @@ function profileDirectory(partition: string): string {
   if (!partition.startsWith(BROWSER_PARTITION_PREFIX) || /[\\/]/.test(partition)) {
     throw new Error(`Refusing to touch a profile outside the browser profiles: ${partition}`)
   }
-  return join(dataDir(), 'browser-profiles', partition)
+  // Windows refuses `:` in a folder name (`persist:` would name a data stream), so it becomes `-` there.
+  return join(dataDir(), 'browser-profiles', process.platform === 'win32' ? partition.replaceAll(':', '-') : partition)
 }
 
 /**

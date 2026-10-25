@@ -1,4 +1,5 @@
 import { restoreAsyncQuestionAnswers } from '../../../data/sessions/async-questions'
+import { sameHostPath, trimTrailingSeparators } from '@solus/contracts/host-path'
 import { loadCodexHistoryPage } from './codex-history-page'
 import { BaseAgentBackend } from '../base-backend'
 import type { AgentToolImage } from '../tools/agent-tool'
@@ -959,7 +960,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     options: { scanActivity?: boolean } = {},
   ): Promise<SessionMeta> {
     const cwd = resolveHomePath(thread.cwd || projectPath || process.cwd())
-    const normalizedCwd = cwd.replace(/\/$/, '')
+    const normalizedCwd = trimTrailingSeparators(cwd)
     const activityTimestamp = options.scanActivity === false
       ? null
       : await scanCodexThreadActivityTimestamp(thread)
@@ -1050,7 +1051,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
     const cacheKey = allProjects ? 'all' : projectPath || process.cwd()
     return this.planListCache.getOrLoad(cacheKey, async () => {
-      const projectRoot = projectPath?.replace(/\/$/, '')
+      const projectRoot = projectPath === undefined ? undefined : trimTrailingSeparators(projectPath)
       const threads = await this.listAllThreads(allProjects ? undefined : projectRoot)
       const annotations = await loadAllAnnotations(ANY_ORGANIZATION)
       const scanned: ScannedCodexPlan[] = []
@@ -1058,7 +1059,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const candidates = threads.filter((thread) => {
         if (!thread.id) return false
         if (allProjects || !projectRoot) return true
-        return thread.cwd?.replace(/\/$/, '') === projectRoot
+        return thread.cwd !== undefined && sameHostPath(thread.cwd, projectRoot)
       })
       await runWithConcurrency(candidates, CODEX_PLAN_SCAN_CONCURRENCY, async (thread) => {
         scanned.push(...await scanCodexPlans(thread, annotations))
@@ -1081,7 +1082,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const indexed = await loadIndexedPlanContent(ANY_ORGANIZATION, 'codex', sessionId, planToolUseId)
     if (indexed !== null) return indexed
     const threadId = activeThreadOf(sessionId) ?? sessionId
-    const threads = await this.listAllThreads(projectPath.replace(/\/$/, ''))
+    const threads = await this.listAllThreads(trimTrailingSeparators(projectPath))
     const thread = threads.find((candidate) => candidate.id === threadId)
     if (!thread) return null
     const plans = await scanCodexPlans(thread, {})

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { isRecordServicePath } from '@solus/contracts/solus-api/routes'
 import { resetTestDatabase } from './helpers/test-db'
 
@@ -12,7 +12,7 @@ import { resetTestDatabase } from './helpers/test-db'
 // answer only the paths the shared route contract gives it, and release everything
 // it opened, after a successful boot and after a failed one.
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const environment = ['SOLUS_DATA_DIR', 'SOLUS_API', 'SOLUS_DB', 'DATABASE_URL', 'SOLUS_CLOUD_ISSUER', 'SOLUS_CLOUD_JWKS_URL', 'SOLUS_API_SIGNING_KEY'] as const
 const previous = environment.map(key => [key, process.env[key]] as const)
 type ServiceModule = typeof import('@solus/server/boot-solus-api')

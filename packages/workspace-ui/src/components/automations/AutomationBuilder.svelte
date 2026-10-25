@@ -71,6 +71,7 @@
 
   import { tick, untrack } from "svelte";
   import { checkoutGit } from "../../contexts/workspace/run-location";
+  import { hostPathBaseName } from "@solus/contracts/host-path";
 
   interface Props {
     automation: Automation | null;
@@ -255,7 +256,7 @@
     value: r,
     label: REASONING_EFFORT_LABELS[r] ?? r,
   }));
-  const projectName = $derived(cwd.split("/").filter(Boolean).pop() ?? cwd);
+  const projectName = $derived(hostPathBaseName(cwd) || cwd);
   // Run history for the live automation. Keyed on the id (not `current`, which
   // is replaced on every save/push) so history only reloads when the id changes;
   // subsequent run updates arrive through `automation.changed`.

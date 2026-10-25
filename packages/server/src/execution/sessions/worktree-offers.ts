@@ -1,5 +1,6 @@
 import { realpath } from 'node:fs/promises'
 import { basename, isAbsolute, join, resolve } from 'node:path'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import { z } from 'zod'
 import type { Activity, ActivityKind, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
@@ -298,6 +299,23 @@ function doubleQuoted(command: string, index: number): [string, number] {
 }
 
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish'])
+/**
+ * Codex on Windows runs each command as
+ * `"C:\…\powershell.exe" -Command '<script>'`. The script's commands and
+ * quoting are read as a POSIX shell's: a `git worktree add` there splits the same.
+ */
+const POWERSHELLS = new Set(['powershell', 'pwsh'])
+
+/** A program as a command line names it: `git` for `C:\…\git.exe`. */
+function programName(word: string): string {
+  return hostPathBaseName(word).toLowerCase().replace(/\.exe$/, '')
+}
+
+/** The flag that hands a shell its script: `-c` and its bundles, or PowerShell's `-Command`. */
+function isScriptFlag(program: string, word: string): boolean {
+  if (POWERSHELLS.has(program)) return /^-(?:c|command)$/i.test(word)
+  return /^-[a-z]*c[a-z]*$/.test(word)
+}
 /** `git worktree add` options that take a value. */
 const ADD_VALUE_OPTIONS = new Set(['-b', '-B', '--reason'])
 /** Git's own options that take a value, before the subcommand. */
@@ -330,10 +348,10 @@ function readSimpleCommand(words: string[], directory: string, paths: string[]):
   let start = 0
   while (start < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[start])) start++
   const argv = words.slice(start)
-  const program = argv[0] ? basename(argv[0]) : ''
+  const program = programName(argv[0] ?? '')
   if (program === 'cd') return argv[1] && argv[1] !== '-' ? absolutePath(argv[1], directory) : directory
-  if (SHELLS.has(program)) {
-    const script = argv.findIndex((word, index) => index > 0 && /^-[a-z]*c[a-z]*$/.test(word))
+  if (SHELLS.has(program) || POWERSHELLS.has(program)) {
+    const script = argv.findIndex((word, index) => index > 0 && isScriptFlag(program, word))
     if (script !== -1 && argv[script + 1]) paths.push(...worktreeAddPaths(argv[script + 1], directory))
   } else if (program === 'git') {
     const path = gitWorktreeAddPath(argv, directory)

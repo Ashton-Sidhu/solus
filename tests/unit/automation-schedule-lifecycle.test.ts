@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, mock, test, setSystemTime } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema } from '@solus/contracts/host-config'
 import { scheduleCardState } from '@solus/workspace-ui/components/automations/lib/schedule-card'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const directory = mkdtempSync(join(tmpdir(), 'solus-automation-schedule-'))
 const previousDataDir = process.env.SOLUS_DATA_DIR
 process.env.SOLUS_DATA_DIR = directory

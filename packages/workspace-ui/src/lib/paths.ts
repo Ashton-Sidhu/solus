@@ -1,8 +1,12 @@
 import { isChat } from '@solus/contracts/chat'
+import { hostPathBaseName, trimTrailingSeparators } from '@solus/contracts/host-path'
 
 export function abbreviateHome(path: string | null | undefined): string {
   if (!path) return '~'
-  return path.replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~')
+  return path
+    .replace(/^\/Users\/[^/]+/, '~')
+    .replace(/^\/home\/[^/]+/, '~')
+    .replace(/^[A-Za-z]:[\\/]Users[\\/][^\\/]+/i, '~')
 }
 
 /**
@@ -34,7 +38,7 @@ export function displayDirName(path: string | null | undefined): string {
  */
 export function projectDirLabel(path: string | null | undefined): string {
   if (isChat(path)) return CHAT_LABEL
-  const dir = path?.replace(/\/+$/, '')
+  const dir = path ? trimTrailingSeparators(path) : path
   if (!dir || dir === '~') return '~'
-  return dir.split('/').pop() || abbreviateHome(dir)
+  return hostPathBaseName(dir) || abbreviateHome(dir)
 }

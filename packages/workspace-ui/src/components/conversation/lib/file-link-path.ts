@@ -1,8 +1,4 @@
-const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/
-
-function isAbsolutePath(path: string): boolean {
-  return path.startsWith('/') || path.startsWith('~') || WINDOWS_DRIVE_RE.test(path)
-}
+import { isAbsoluteHostPath } from '@solus/contracts/host-path'
 
 /**
  * The path a file chip's tooltip should state.
@@ -19,7 +15,7 @@ export function fileLinkTooltip(
   workingDirectory: string | undefined,
 ): string {
   const lineSuffix = line ? `:${line}` : ''
-  if (isAbsolutePath(path) || !workingDirectory || workingDirectory === '~') {
+  if (isAbsoluteHostPath(path) || path.startsWith('~') || !workingDirectory || workingDirectory === '~') {
     return `${path}${lineSuffix}`
   }
   const separator = workingDirectory.includes('\\') && !workingDirectory.includes('/') ? '\\' : '/'

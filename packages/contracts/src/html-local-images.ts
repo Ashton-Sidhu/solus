@@ -1,4 +1,5 @@
 import { mediaTypeFor } from "./media-types";
+import { isAbsoluteHostPath } from "./host-path";
 
 /**
  * Local images in agent HTML. An agent points a page at a screenshot it just
@@ -41,7 +42,8 @@ export function localImagePath(reference: string): string | null {
     } catch {
       return null;
     }
-  } else if (reference.startsWith("/") && !reference.startsWith("//")) {
+  } else if (isAbsoluteHostPath(reference) && !reference.startsWith("//")) {
+    // A Windows host's images are `C:\x.png`, a POSIX host's `/x.png`.
     path = reference;
   } else {
     return null;

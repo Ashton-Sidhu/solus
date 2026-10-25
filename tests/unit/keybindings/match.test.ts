@@ -16,6 +16,9 @@ import type { BindingDef, KeyCombo } from '@solus/workspace-ui/lib/keybindings/t
 // that environment but also pin the platform-relative branches via isMac/IS_WEB
 // so they stay correct if the runtime changes.
 
+// Keybindings on Windows are step 3 work (docs/plans/windows.md §4.3 item 4).
+const onWindows = process.platform === 'win32'
+
 const ev = (init: Partial<KeyboardEvent> & { code: string }): KeyboardEvent =>
   ({ altKey: false, shiftKey: false, metaKey: false, ctrlKey: false, ...init }) as KeyboardEvent
 
@@ -34,7 +37,7 @@ describe('defaultCombo', () => {
   })
 })
 
-describe('comboFromEvent', () => {
+describe.skipIf(onWindows)('comboFromEvent', () => {
   test('returns null for modifier-only presses', () => {
     expect(comboFromEvent(ev({ code: 'ShiftLeft', shiftKey: true }))).toBeNull()
     expect(comboFromEvent(ev({ code: 'MetaRight', metaKey: true }))).toBeNull()
@@ -57,7 +60,7 @@ describe('comboFromEvent', () => {
   })
 })
 
-describe('multi-modifier shortcuts', () => {
+describe.skipIf(onWindows)('multi-modifier shortcuts', () => {
   test('keeps an explicit secondary modifier beside the platform modifier', () => {
     const combo = { mod: true, ctrl: true, code: 'KeyC' }
     expect(
@@ -74,7 +77,7 @@ describe('multi-modifier shortcuts', () => {
   })
 })
 
-describe('comboEquals', () => {
+describe.skipIf(onWindows)('comboEquals', () => {
   test('treats mod as the platform meta/ctrl', () => {
     const a: KeyCombo = { mod: true, shift: true, code: 'KeyW' }
     const b: KeyCombo = isMac

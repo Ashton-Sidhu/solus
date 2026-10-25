@@ -1,3 +1,4 @@
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import type { DirectoryEntry, SetupGithubRepo } from '@solus/contracts/types'
 
@@ -5,7 +6,7 @@ import type { DirectoryEntry, SetupGithubRepo } from '@solus/contracts/types'
 export function folderNameOf(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, '')
   if (trimmed === '~' || trimmed === '') return 'your home folder'
-  return trimmed.split(/[\\/]/).pop() || trimmed
+  return hostPathBaseName(trimmed) || trimmed
 }
 
 /** The quiet line under "Project name": where the host puts the new folder. */

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'b
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { Principal } from '@solus/server/admission/principal'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
@@ -10,7 +10,7 @@ import type { WorkspaceOperations } from '@solus/server/data/workspace/operation
 import type { Attribution } from '@solus/contracts/user'
 import { resetTestDatabase } from './helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/015-notifications-hub.md, stage 2: the personal feed on the record API
 // and on RPC. The recipient is always the admitted person; a row whose work the

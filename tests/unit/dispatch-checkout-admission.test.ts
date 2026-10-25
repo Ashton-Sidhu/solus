@@ -3,12 +3,12 @@ import { execFileSync, spawn as nodeSpawn } from 'node:child_process'
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { IpcContext } from '@solus/contracts/types'
 import type { SessionRunRequest } from '@solus/server/execution/session-runtime'
 import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // A Run on send names its repository; the folder the client sends is a path on
 // the client, or `~` (docs/run-on.md). On a machine attached for organization

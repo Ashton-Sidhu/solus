@@ -6,7 +6,7 @@ import { readReleaseManifest } from './server-release'
 import { withLocalRpc } from './local-rpc'
 import { isProcessAlive, localConnectHost, readLockFile, type RuntimePaths } from './runtime'
 import { serviceEnvFor } from './setup'
-import { hasServiceDefinition, serviceStatus } from './service'
+import { isServicePlatform, serviceStatus } from './service'
 import { hostForUrl } from '@solus/contracts/entrypoint'
 
 export async function reportStatus(paths: RuntimePaths, log: (line: string) => void): Promise<void> {
@@ -38,15 +38,13 @@ export async function reportStatus(paths: RuntimePaths, log: (line: string) => v
 }
 
 function reportService(paths: RuntimePaths, log: (line: string) => void): void {
-  if (process.platform === 'linux' || process.platform === 'darwin') {
-    if (!hasServiceDefinition(serviceEnvFor(paths).home, process.platform)) {
-      log('Service: not installed — run `solus setup` to run Solus in the background.')
-    } else {
-      const svc = serviceStatus(serviceEnvFor(paths))
-      log(`Service: ${svc.active ? 'active' : svc.enabled ? 'enabled, not running' : 'installed, disabled'}`)
-      if (!svc.active) log('  Start or repair with `solus setup`; inspect `solus logs` if startup fails.')
-      if (svc.detail) log(`  ${svc.detail}`)
-    }
+  if (!isServicePlatform(process.platform)) return
+  const svc = serviceStatus(serviceEnvFor(paths))
+  if (!svc.installed) {
+    log('Service: not installed — run `solus setup` to run Solus in the background.')
+    return
   }
-
+  log(`Service: ${svc.active ? 'active' : svc.enabled ? 'enabled, not running' : 'installed, disabled'}`)
+  if (!svc.active) log('  Start or repair with `solus setup`; inspect `solus logs` if startup fails.')
+  if (svc.detail) log(`  ${svc.detail}`)
 }

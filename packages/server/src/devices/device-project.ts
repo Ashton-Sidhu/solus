@@ -1,4 +1,5 @@
 import type { Dirent } from 'node:fs'
+import { relativeHostPath } from '@solus/contracts/host-path'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { DevicePlatform, DeviceProjectInfo } from '@solus/contracts/device-types'
@@ -75,7 +76,8 @@ export async function scanDeviceProject(root: string): Promise<DeviceProjectInfo
     for (const folder of queue) {
       if (visited++ >= MAX_FOLDERS || found.size === 2) break
       const entries = await readdir(folder.path, { withFileTypes: true }).catch(() => [])
-      const relative = folder.path === root ? '' : folder.path.slice(root.length + 1)
+      // Written with `/` on every host, as every project-relative path on the wire is.
+      const relative = relativeHostPath(root, folder.path) ?? ''
       const at = (name: string) => (relative ? `${relative}/${name}` : name)
       const packages = await inspectFolder(folder.path, relative, entries, mark)
       if (packages.usesExpo) usesExpo = true

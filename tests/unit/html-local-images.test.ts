@@ -62,3 +62,10 @@ describe('writing local images into the page', () => {
     expect(reads).toBe(0)
   })
 })
+
+test('a Windows host image path is a local image', () => {
+  // WHY: a Windows host names a screenshot `C:\…\shot.png`; read as remote, a
+  // saved artifact kept a path no other client can open, and showed no image.
+  expect(localImagePath(String.raw`C:\Users\me\shot.png`)).toBe(String.raw`C:\Users\me\shot.png`)
+  expect(localImagePath('//cdn.example/shot.png')).toBeNull()
+})

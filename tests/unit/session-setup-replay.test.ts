@@ -1,8 +1,8 @@
 import { afterAll, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { SessionRuntime } = await import('@solus/server/execution/session-runtime')
 const { closeDb } = await import('@solus/server/db')
 const { closeDatabase } = await import('@solus/server/db/database')

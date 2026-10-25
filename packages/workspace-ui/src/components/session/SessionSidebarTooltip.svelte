@@ -17,6 +17,7 @@
   import { modelLabelFor, type AgentId } from "@solus/contracts/types";
   import type { ReviewGuideIndicatorStatus } from "./lib/task-list";
   import ProviderMark from "../ui/ProviderMark.svelte";
+  import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
 
   interface Props {
     title: string;
@@ -60,7 +61,7 @@
   // the icon falls back to a globe in that case.
   const remoteOs = $derived(host && "os" in host ? host.os : undefined);
   const resolvedProjectLabel = $derived(
-    projectLabel ?? projectKey?.replace(/\/$/, "").split("/").at(-1),
+    projectLabel ?? (projectKey ? hostPathBaseName(projectKey) : undefined),
   );
   // The `solus/` namespace is true of every worktree Solus mints, so it names
   // nothing here either — the tooltip reads the same slug as the row.
@@ -84,7 +85,7 @@
     <div class="grid gap-1.5 pl-0.5 text-workspace-chrome text-(--solus-text-tertiary)">
       {#if resolvedProjectLabel}
         <div class="flex min-w-0 items-center gap-2">
-          {#if groupKey && projectKey?.startsWith("/")}
+          {#if groupKey && projectKey && isAbsoluteHostPath(projectKey)}
             <ProjectFavicon projectKey={groupKey} class="size-3.5 shrink-0" />
           {:else}
             <LaptopIcon class="size-3.5 shrink-0" />

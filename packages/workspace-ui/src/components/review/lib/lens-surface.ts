@@ -19,6 +19,7 @@ import {
   type PickerSelection,
 } from "../../pickers/lib/picker-selection";
 import { LENS_PROGRESS_STEPS } from "./review-progress";
+import { isAbsoluteHostPath } from "@solus/contracts/host-path";
 
 /** What a pull-request review hands the Lens tab so a lens comment can reach
  *  the pull request: the draft review it adds line comments to, and the patch
@@ -146,7 +147,7 @@ export function parseAnchorReply(reply: Pick<z.output<typeof anchorReplySchema>,
   const quote = reply.text?.trim().slice(0, 280);
   if (quote) target.quote = quote;
   const path = reply.path?.trim();
-  if (path && reply.line && !path.startsWith("/") && !path.includes("..")) {
+  if (path && reply.line && !isAbsoluteHostPath(path) && !path.includes("..")) {
     target.codeAnchor = { path, line: reply.line };
   }
   return target;

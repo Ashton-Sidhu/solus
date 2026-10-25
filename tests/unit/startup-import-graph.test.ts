@@ -102,7 +102,8 @@ const DEFERRED_COMPONENTS = [
 describe('startup import graph', () => {
   for (const [client, roots] of Object.entries(CLIENTS)) {
     const graph = staticGraph(roots)
-    const reached = new Set([...graph.files].map((file) => relative(ROOT, file)))
+    // '/' as the paths below name them; Windows gives '\\'.
+    const reached = new Set([...graph.files].map((file) => relative(ROOT, file).replaceAll('\\', '/')))
 
     test(`${client}: the walk reaches the workspace it mounts`, () => {
       // Guards the walker itself: a resolver that silently stops early would

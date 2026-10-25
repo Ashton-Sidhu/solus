@@ -19,7 +19,7 @@ export async function runSetup(paths: RuntimePaths, log: (line: string) => void)
   if (existing && isProcessAlive(existing.pid) && !serviceStatus(env).active) {
     throw new Error('A foreground Solus server is already running. Stop it before installing the service.')
   }
-  log(env.platform === 'linux' ? 'Installing the systemd user service...' : 'Installing the launchd service...')
+  log(env.platform === 'linux' ? 'Installing the systemd user service...' : env.platform === 'win32' ? 'Installing the Solus logon task...' : 'Installing the launchd service...')
   const { lingerAdvice } = installService(env)
   if (lingerAdvice) log(lingerAdvice)
 

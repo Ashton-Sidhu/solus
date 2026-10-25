@@ -1,5 +1,6 @@
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { Message } from '@solus/contracts/types'
+import { hostPathSegments, hostPathSeparator } from '@solus/contracts/host-path'
 
 /**
  * The worktree offer card (docs/worktree-names.md, "Agent worktrees"). The host
@@ -34,8 +35,9 @@ export function foldWorktreeOfferDecision(messages: readonly Message[], decided:
 
 /** The last two folders of a worktree path, which name it without the host's layout. */
 export function shortWorktreePath(path: string): string {
-  const parts = path.split('/').filter(Boolean)
-  return parts.length <= 2 ? path : `…/${parts.slice(-2).join('/')}`
+  const parts = hostPathSegments(path)
+  const separator = hostPathSeparator(path)
+  return parts.length <= 2 ? path : `…${separator}${parts.slice(-2).join(separator)}`
 }
 
 export interface WorktreeOfferView {

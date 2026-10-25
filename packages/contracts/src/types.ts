@@ -1,4 +1,5 @@
 import type { QueueEntryDetails, QueueAttachment } from './session-queue'
+import { hostPathKey } from './host-path'
 import type { WireSessionLoadMessage } from './session-history'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
@@ -3250,7 +3251,7 @@ export function encodePathAsFolder(cwd: string): string {
 
 /** True if `path` lives inside a Solus-managed worktree (`<root>/.git/solus/worktrees/<slug>`). */
 export function isSolusWorktreePath(path: string): boolean {
-  return path.includes(SOLUS_WORKTREE_PATH_MARKER)
+  return hostPathKey(path).includes(SOLUS_WORKTREE_PATH_MARKER)
 }
 
 /**
@@ -3272,7 +3273,7 @@ export const SOLUS_REMOTE_DISPATCH_PATH_MARKER = `/${SOLUS_REMOTE_DISPATCH_DIR}/
  * Null for any other path.
  */
 export function remoteDispatchRepositoryKey(path: string): string | null {
-  const root = worktreeProjectRoot(path)
+  const root = hostPathKey(worktreeProjectRoot(path))
   const markerIndex = root.indexOf(SOLUS_REMOTE_DISPATCH_PATH_MARKER)
   if (markerIndex === -1) return null
   const segments = root.slice(markerIndex + SOLUS_REMOTE_DISPATCH_PATH_MARKER.length).split('/').filter(Boolean).slice(1)
@@ -3281,7 +3282,8 @@ export function remoteDispatchRepositoryKey(path: string): string | null {
 
 /** The base project root for a worktree path, or `path` unchanged when it isn't a worktree. */
 export function worktreeProjectRoot(path: string): string {
-  const idx = path.indexOf(SOLUS_WORKTREE_PATH_MARKER)
+  // The key has the path's length, so its index is the path's.
+  const idx = hostPathKey(path).indexOf(SOLUS_WORKTREE_PATH_MARKER)
   return idx === -1 ? path : path.slice(0, idx)
 }
 

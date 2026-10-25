@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,7 +8,7 @@ import { seedResource } from './helpers/resource-rows'
 
 const dataDir = mkdtempSync(join(tmpdir(), 'solus-notify-test-'))
 process.env.SOLUS_DATA_DIR = dataDir
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let database: typeof import('@solus/server/db/database')
 let sharing: typeof import('@solus/server/sharing/share-manager')
 beforeAll(async () => {

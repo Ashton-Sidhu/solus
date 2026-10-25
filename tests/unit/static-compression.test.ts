@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import type { Server } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { buildHttpServer } = await import('@solus/server/transport/http')
 

@@ -113,7 +113,8 @@ describe('the host login is not a user', () => {
 })
 
 describe('layout', () => {
-  test('a seat is a private directory whose transcripts link into the host\'s own provider home', async () => {
+  // POSIX modes, symlinks, and a sh browser shim; member seats are not on Windows (docs/plans/windows.md §6).
+  test.skipIf(process.platform === 'win32')('a seat is a private directory whose transcripts link into the host\'s own provider home', async () => {
     const { seats, root } = manager()
     const claudeHome = seats.homeFor(BOB_SEAT, 'claude-code')
     const codexHome = seats.homeFor(BOB_SEAT, 'codex')
@@ -218,7 +219,8 @@ describe('resolving a turn', () => {
     const seat = await seats.resolveForTurn(BOB_SEAT, 'claude-code')
     expect(seat?.envToken).toBe('sk-ant-oat01-test')
     expect(await seats.status(BOB_SEAT, 'claude-code')).toMatchObject({ state: 'connected', method: 'token', usageCapable: false })
-    expect(statSync(join(seat!.home, 'solus-seat-token')).mode & 0o777).toBe(0o600)
+    // Windows has no POSIX file modes.
+    if (process.platform !== 'win32') expect(statSync(join(seat!.home, 'solus-seat-token')).mode & 0o777).toBe(0o600)
   })
 
   test('a pasted Codex credential must be its auth.json; it lands in the seat home', async () => {

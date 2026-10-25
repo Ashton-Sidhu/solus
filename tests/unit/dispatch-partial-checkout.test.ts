@@ -2,8 +2,8 @@ import { afterEach, beforeAll, expect, mock, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+import { DatabaseSync } from './helpers/bun-sqlite'
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 import { git } from '@solus/server/git/exec'
 import { PARTIAL_CLONE_ARGS, ensureFullHistory } from '@solus/server/git/partial-clone'
 import { readPullRequestAuthoringContext } from '@solus/server/git/pull-request-authoring'

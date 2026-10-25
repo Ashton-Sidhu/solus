@@ -13,6 +13,8 @@ export function directoriesHoldingFiles(files: readonly string[]): Set<string> {
       const directory = file.slice(0, slash)
       if (holders.has(directory)) break
       holders.add(directory)
+      // Listing paths are project-relative, written with `/` on every host.
+      // oxlint-disable-next-line solus/host-path-separators
       slash = directory.lastIndexOf('/')
     }
   }

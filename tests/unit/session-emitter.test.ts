@@ -2,10 +2,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { hostOperatingSystem } from '@solus/server/platform/host-operating-system'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type SessionEmitterModule = typeof import('@solus/server/execution/observability/session-emitter')
 type MetricsDbModule = typeof import('@solus/server/data/insights/metrics-db')

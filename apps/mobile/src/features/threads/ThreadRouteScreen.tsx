@@ -2,6 +2,7 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { isChat } from "@solus/contracts/chat";
+import { hostPathBaseName } from "@solus/contracts/host-path";
 import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
 import type { SessionRecord } from "@solus/contracts/types";
 import { useEffect, useMemo, useState } from "react";
@@ -40,7 +41,7 @@ function recordOf(record: SessionRecord): ConversationRecord {
 }
 
 function lastFolderName(path: string): string {
-  return path.split("/").filter(Boolean).at(-1) ?? path;
+  return hostPathBaseName(path) || path;
 }
 
 function OpeningThreadLoadingScreen() {

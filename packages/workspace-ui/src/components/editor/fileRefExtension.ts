@@ -2,6 +2,7 @@ import { Node, mergeAttributes } from '@tiptap/core'
 import { serializeReferenceToken, type FileReferenceToken } from './reference-tokens'
 import { tokenClassName } from './tokenStyle'
 import { FILE_ICON_VIEWBOX, getFileIconPath, FOLDER_ICON_PATH } from './fileIcons'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -10,12 +11,6 @@ export interface FileRefAttrs {
   path: string
   /** Basename shown inside the token. */
   name: string
-}
-
-function basename(path: string): string {
-  const stripped = path.replace(/\/+$/, '')
-  const idx = stripped.lastIndexOf('/')
-  return idx === -1 ? stripped : stripped.slice(idx + 1)
 }
 
 function fileToken(attrs: Partial<FileRefAttrs> | undefined): FileReferenceToken {
@@ -47,7 +42,7 @@ export const FileRefExtension = Node.create({
 
   renderHTML({ node, HTMLAttributes }) {
     const isDir = node.attrs.path.endsWith('/')
-    const name = node.attrs.name || basename(node.attrs.path)
+    const name = node.attrs.name || hostPathBaseName(node.attrs.path)
     const iconPath = isDir ? FOLDER_ICON_PATH : getFileIconPath(name)
 
     return ['span', mergeAttributes(HTMLAttributes, {

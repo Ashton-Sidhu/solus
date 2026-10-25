@@ -2,13 +2,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'b
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { PullRequest } from '@solus/contracts/providers'
 import { resetTestDatabase } from './helpers/test-db'
 import { notificationReader } from './helpers/actors'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/015-notifications-hub.md v2 §5, stage 2: pull request assignments and
 // review requests are recorded from answers an existing authorized refresh read;

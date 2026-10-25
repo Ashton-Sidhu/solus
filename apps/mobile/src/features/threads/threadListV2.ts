@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/threadListV2.ts (MIT, see UPSTREAM.md).
 import { isChat } from "@solus/contracts/chat";
+import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
 import {
   EMPTY_SESSION_VIEW,
@@ -153,14 +154,14 @@ export function threadFaviconRoot(
   if (listedProjectPath) return listedProjectPath;
   if (isChatSession(record)) return null;
   const path = threadProjectPath(record);
-  return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) ? path : null;
+  return isAbsoluteHostPath(path) ? path : null;
 }
 
 /** The project label for a session whose project the host does not list. */
 export function threadProjectFallbackTitle(record: SessionRecord): string {
   if (isChatSession(record)) return "Chat";
-  const path = threadProjectPath(record).replace(/[\\/]+$/, "");
-  return path.split(/[\\/]/).at(-1) || path;
+  const path = threadProjectPath(record);
+  return hostPathBaseName(path) || path;
 }
 
 /* ─── Pull requests ──────────────────────────────────────────────────── */

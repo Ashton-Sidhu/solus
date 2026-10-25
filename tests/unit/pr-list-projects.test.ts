@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { PrFilter, PrListPage, PrProjectListing, PullRequest, RepoRef } from '@solus/contracts/providers'
@@ -11,7 +11,7 @@ import type { AgentDispatcher } from '@solus/server/execution/agents/agent-runne
 
 // The handlers reach the production database module, which imports node:sqlite
 // (absent under Bun's test runtime).
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 /** Each project root is its own repository, named after the root. */
 function repoOf(scope: string): RepoRef | null {

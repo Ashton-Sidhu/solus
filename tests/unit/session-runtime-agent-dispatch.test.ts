@@ -1,12 +1,12 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { HOST_ACTOR } from '@solus/server/admission/actor'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { EventEmitter } from 'node:events'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { AgentBackend } from '@solus/server/execution/agents/agent-backend'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let SessionRuntime: typeof import('@solus/server/execution/session-runtime')['SessionRuntime']
 

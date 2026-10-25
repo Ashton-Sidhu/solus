@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, spyOn, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,7 +9,7 @@ import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/age
 import type { IpcContext, NormalizedEvent, QueuedPromptSnapshot } from '@solus/contracts/types'
 import { installTestIdentities } from './helpers/acting-identities'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type SessionRuntimeModule = typeof import('@solus/server/execution/session-runtime')
 type DbModule = typeof import('@solus/server/db')

@@ -1,3 +1,4 @@
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import { videoMimeType } from '@solus/contracts/media-types'
 import type { PromptImageRef } from '@solus/contracts/types'
 import type { QueueAttachment } from '@solus/contracts/session-queue'
@@ -19,7 +20,7 @@ const ATTACHED_FILE_LINE = /^\[Attached file: (.+)\]$/
 const UPLOAD_NAME_PREFIX = /^\d+-[0-9a-f]{12}-/
 
 function fileAttachment(hostPath: string, index: number, name?: string): MessageAttachment {
-  const fileName = name || (hostPath.split(/[\\/]/).pop() || hostPath).replace(UPLOAD_NAME_PREFIX, '')
+  const fileName = name || (hostPathBaseName(hostPath) || hostPath).replace(UPLOAD_NAME_PREFIX, '')
   return { kind: 'file', key: `file:${index}:${hostPath}`, name: fileName, hostPath, video: videoMimeType({ name: fileName }) !== null }
 }
 

@@ -1,6 +1,6 @@
 import { installTestWorkspaceTools } from './helpers/workspace-tools'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +11,7 @@ const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, acco
 /** An agent's session, as the doer of what it wrote. */
 const AGENT = { kind: 'agent' as const, sessionId: 'agent-session' }
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let createTask: typeof import('@solus/server/data/tasks/task-store')['createTask']
 let TaskModule: typeof import('@solus/server/data/tasks/task')

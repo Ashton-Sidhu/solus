@@ -3,8 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, symlinkSyn
 import * as filesystem from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+import { DatabaseSync } from './helpers/bun-sqlite'
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 let createWorktree: typeof import('@solus/server/git/worktree-manager')['createWorktree']
 beforeAll(async () => { ({ createWorktree } = await import('@solus/server/git/worktree-manager')) })
 import { worktreePathFor } from '@solus/server/git/worktree-path'
@@ -19,6 +19,8 @@ function repository(commit = true): string {
   git(['init', '-b', 'main'], directory)
   git(['config', 'user.name', 'Test'], directory)
   git(['config', 'user.email', 'test@example.invalid'], directory)
+  // WHY: the file contents must not depend on the machine's global core.autocrlf.
+  git(['config', 'core.autocrlf', 'false'], directory)
   if (commit) git(['commit', '--allow-empty', '-m', 'Initial'], directory)
   return directory
 }
@@ -104,7 +106,7 @@ test('a stale local origin base starts the checkout at once and ends at the fetc
   const upstream = repository()
   const clone = mkdtempSync(join(tmpdir(), 'solus-worktree-clone-'))
   directories.push(clone)
-  git(['clone', '--quiet', upstream, clone], tmpdir())
+  git(['clone', '--quiet', '-c', 'core.autocrlf=false', upstream, clone], tmpdir())
   git(['config', 'user.name', 'Test'], clone)
   git(['config', 'user.email', 'test@example.invalid'], clone)
   // The base moves after the clone, so the local `origin/main` is old.

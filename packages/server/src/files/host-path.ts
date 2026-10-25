@@ -1,6 +1,11 @@
 import { homedir } from 'os'
 import { posix, resolve as pathResolve, win32 } from 'path'
 
+/** Whether a path starts at the home folder: `~`, `~/x`, and `~\x` on Windows. */
+export function startsAtHome(rawPath: string, platform: NodeJS.Platform = process.platform): boolean {
+  return rawPath === '~' || rawPath.startsWith('~/') || (platform === 'win32' && rawPath.startsWith('~\\'))
+}
+
 /** `~` is expanded on the host that owns the filesystem being browsed. */
 export function expandHome(
   rawPath: string,
@@ -9,7 +14,7 @@ export function expandHome(
 ): string {
   const pathApi = platform === 'win32' ? win32 : posix
   if (rawPath === '~') return homeDirectory
-  if (rawPath.startsWith('~/') || (platform === 'win32' && rawPath.startsWith('~\\'))) {
+  if (startsAtHome(rawPath, platform)) {
     return pathApi.join(homeDirectory, rawPath.slice(2))
   }
   return platform === process.platform ? pathResolve(rawPath) : pathApi.resolve(rawPath)

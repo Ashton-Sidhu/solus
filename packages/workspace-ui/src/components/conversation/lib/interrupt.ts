@@ -1,6 +1,7 @@
 import type { PermissionOption, PermissionRequest, Session } from '@solus/contracts/types'
 import { z } from 'zod'
 import { checkoutGit, checkoutPlace } from '../../../contexts/workspace/run-location'
+import { hostPathBaseName, trimTrailingSeparators } from '@solus/contracts/host-path'
 
 const permissionCommandSchema = z.object({ command: z.string().optional() })
 const permissionCwdSchema = z.object({ cwd: z.string().optional() })
@@ -97,10 +98,10 @@ export interface SplitPathTail {
 }
 
 export function splitPathTail(path: string): SplitPathTail {
-  const trimmed = path.replace(/\/+$/, '')
-  const cut = trimmed.lastIndexOf('/')
-  if (cut < 0) return { head: '', tail: trimmed }
-  return { head: trimmed.slice(0, cut + 1), tail: trimmed.slice(cut + 1) }
+  const trimmed = trimTrailingSeparators(path)
+  const tail = hostPathBaseName(trimmed)
+  if (!tail || tail === trimmed) return { head: '', tail: trimmed }
+  return { head: trimmed.slice(0, trimmed.length - tail.length), tail }
 }
 
 /**

@@ -1,13 +1,16 @@
 import { networkInterfaces, type NetworkInterfaceInfo } from 'os'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
+import { win32 } from 'path'
 import { createLogger } from '../logger'
+import { findOnPath, getCliPath } from '../cli-env'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import { z } from 'zod'
 
 const log = createLogger('main', 'endpoints')
 
-const TAILSCALE_PATHS = ['/usr/local/bin/tailscale', '/usr/bin/tailscale', '/opt/homebrew/bin/tailscale']
+// `tailscale status` on Windows can take seconds: the CLI is slow to start there, and a kill on timeout goes through `taskkill` (as in T3 Code).
+const TAILSCALE_STATUS_TIMEOUT_MS = process.platform === 'win32' ? 5_000 : 1_500
 const DEFAULT_DISCOVERY_PORT = parseInt(process.env.SOLUS_PORT ?? '') || 3000
 const DISCOVERY_PROBE_TIMEOUT_MS = 1500
 const DISCOVERY_CONCURRENCY = 8
@@ -171,11 +174,18 @@ export function parseTailscalePeerCandidates<T>(status: T): TailnetPeerCandidate
   return out
 }
 
+/** The fixed places Tailscale installs its CLI on each platform. */
+export function tailscaleInstallPaths(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string[] {
+  if (platform === 'win32') return [win32.join(env.ProgramFiles ?? 'C:\\Program Files', 'Tailscale', 'tailscale.exe')]
+  return ['/usr/local/bin/tailscale', '/usr/bin/tailscale', '/opt/homebrew/bin/tailscale']
+}
+
 function findTailscaleBin(): string | null {
-  for (const p of TAILSCALE_PATHS) {
+  for (const p of tailscaleInstallPaths(process.platform, process.env)) {
     if (existsSync(p)) return p
   }
-  return null
+  // A Windows install in another folder, or a scoop or winget shim, is on PATH.
+  return process.platform === 'win32' ? findOnPath('tailscale', getCliPath()) : null
 }
 
 async function readTailscaleStatus(): Promise<TailscaleStatus | null> {
@@ -190,7 +200,7 @@ async function readTailscaleStatus(): Promise<TailscaleStatus | null> {
     execFile(
       bin,
       ['status', '--json'],
-      { encoding: 'utf8', timeout: 1_500, maxBuffer: TAILSCALE_STATUS_MAX_BYTES },
+      { encoding: 'utf8', timeout: TAILSCALE_STATUS_TIMEOUT_MS, windowsHide: true, maxBuffer: TAILSCALE_STATUS_MAX_BYTES },
       (error, stdout) => {
         if (error) {
           log.debug('tailscale_not_reachable', { error: error.message })

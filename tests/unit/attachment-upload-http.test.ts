@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { request as httpRequest, type Server as HttpServer } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IpcContext } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 mock.module('@solus/server/project-config/projects-manifest', () => ({
   listProjects: async () => [],
 }))

@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bu
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import type { ResourceRole } from '@solus/contracts/sharing'
 import type { Principal } from '@solus/server/admission/principal'
@@ -11,7 +11,7 @@ import type { ResourceKind } from '@solus/contracts/permissions'
 import { resetTestDatabase } from './helpers/test-db'
 import { seedResource } from './helpers/resource-rows'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/access-model.md §2.3: one function decides a resource role. Outside
 // the person's organization scope: none. The owner: owner. A personal resource

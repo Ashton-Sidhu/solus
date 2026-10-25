@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 let CodexBackend: typeof import('@solus/server/execution/agents/codex/codex-backend')['CodexBackend']
 let codexBackgroundCommandWake: typeof import('@solus/server/execution/agents/codex/codex-utils')['codexBackgroundCommandWake']

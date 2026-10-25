@@ -65,7 +65,8 @@ describe('platform probes', () => {
   })
 
   test('the Android SDK is found from ANDROID_HOME and each missing tool is named', () => {
-    const present = new Set(['/sdk/platform-tools/adb', '/sdk/emulator/emulator'])
+    // The probe joins with the host's separator; the tool names follow hostPlatform.
+    const present = new Set([join('/sdk', 'platform-tools', 'adb'), join('/sdk', 'emulator', 'emulator')])
     const sdk = findAndroidSdk({ env: { ANDROID_HOME: '/sdk' }, hostPlatform: 'darwin', exists: (path) => present.has(path) })
     expect(sdk.root).toBe('/sdk')
     expect(androidUnavailableReason(sdk)).toContain('Command-line Tools (latest)')
@@ -142,7 +143,7 @@ describe('local device host', () => {
     const dir = mkdtempSync(join(tmpdir(), 'solus-local-host-'))
     const run: DeviceCommandRunner = async () => ({ code: 0, stdout: 'v20.1.0', stderr: '' })
     const binDir = mkdtempSync(join(tmpdir(), 'solus-node-'))
-    writeFileSync(join(binDir, 'node'), '')
+    writeFileSync(join(binDir, process.platform === 'win32' ? 'node.exe' : 'node'), '')
     const host = new LocalDeviceHost({
       stateDir: join(dir, 'state'),
       toolchain: installedToolchain(dir),

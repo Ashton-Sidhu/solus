@@ -5,7 +5,7 @@ import path from 'path'
 import { isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitDiscardResult, type GitSyncResult, type WorktreeEntry } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import { dispatchStep } from '../execution/observability/session-emitter'
-import { git, gitCommitExists, runAsync, runStreamed } from './exec'
+import { git, gitCommitExists, gitOutputPath, runAsync, runStreamed } from './exec'
 import { progressPercent } from '../execution/sessions/dispatch-repository'
 import type { StatusCardStep, StatusCardStepStatus } from '@solus/contracts/types'
 import type { WORKTREE_SETUP_STEPS } from '@solus/contracts/setup-card'
@@ -854,7 +854,7 @@ export function listProjectWorktrees(projectPath: string): WorktreeEntry[] {
     for (const line of output.split('\n')) {
       if (line.startsWith('worktree ')) {
         if (current.path) entries.push(current)
-        current = { path: line.slice(9), branch: '', isBare: false }
+        current = { path: gitOutputPath(projectPath, line.slice(9)), branch: '', isBare: false }
       } else if (line.startsWith('branch ')) {
         current.branch = line.slice(7).replace('refs/heads/', '')
       } else if (line === 'bare') {

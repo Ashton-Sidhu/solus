@@ -1,4 +1,5 @@
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import { expandHome, startsAtHome } from '../files/host-path'
 import { homedir } from 'os'
 import { join } from 'path'
 import packageJson from '../../../../package.json'
@@ -21,7 +22,8 @@ export function solusDir(): string {
  * `spawn` reads a bare `'~'` as a literal directory name and fails with ENOENT,
  * which the Claude SDK reports as "the native binary exists but failed to
  * launch" — naming the executable for a fault in its working directory. Resolve
- * before a path reaches a process. `'~'` and `'~/x'` are the home folder.
+ * before a path reaches a process. `'~'` and `'~/x'` are the home folder, and
+ * `'~\x'` on Windows.
  *
  * A new chat (`NEW_CHAT_DIRECTORY`) is not a path: the session handlers give it
  * the chat's own folder before anything runs. One that arrives here was not
@@ -29,9 +31,8 @@ export function solusDir(): string {
  */
 export function resolveHomePath(path: string): string {
   if (path === NEW_CHAT_DIRECTORY) throw new Error('A new chat has no folder until its session starts')
-  if (!path || path === '~') return homedir()
-  if (path.startsWith('~/')) return join(homedir(), path.slice(2))
-  return path
+  if (!path) return homedir()
+  return startsAtHome(path) ? expandHome(path) : path
 }
 
 export function logsDir(): string {

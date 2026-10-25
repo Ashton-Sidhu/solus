@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { EventEmitter } from 'node:events'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -12,7 +12,7 @@ import type { AgentId, GitCheckout, IpcContext, NormalizedEvent } from '@solus/c
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { resetTestDatabase } from './helpers/test-db'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/012-user-actor-and-activity.md §5, stage 6: accepting a plan, a fork, a
 // move into a worktree, an agent switch and a mention are facts the host records

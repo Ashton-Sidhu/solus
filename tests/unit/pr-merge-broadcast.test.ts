@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { PullRequest as PullRequestFacts, RepoRef } from '@solus/contracts/providers'
 import type { IpcContext } from '@solus/contracts/types'
 import type { Provider } from '@solus/server/providers/types'
@@ -13,7 +13,7 @@ import type { ResourceRole } from '@solus/contracts/sharing'
 
 // The handlers reach the production database module, which imports node:sqlite
 // (absent under Bun's test runtime).
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const repo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'repo' }
 const HEAD_SHA = 'sha-1'

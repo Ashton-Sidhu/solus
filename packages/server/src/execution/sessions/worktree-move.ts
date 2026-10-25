@@ -6,7 +6,7 @@ import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { GitCheckout, GitCheckoutBranchResult } from '@solus/contracts/types'
 import type { Actor } from '../../admission/actor'
 import type { CheckoutService } from '../../git/checkout-service'
-import { runAsync } from '../../git/exec'
+import { gitOutputPath, runAsync } from '../../git/exec'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
@@ -189,7 +189,7 @@ export async function repositoryCheckouts(repoDirectory: string): Promise<Reposi
     const path = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length)
     if (!path) return []
     const ref = lines.find((line) => line.startsWith('branch '))?.slice('branch '.length)
-    return [{ path, branch: ref ? ref.replace(/^refs\/heads\//, '') : null }]
+    return [{ path: gitOutputPath(repoDirectory, path), branch: ref ? ref.replace(/^refs\/heads\//, '') : null }]
   })
 }
 

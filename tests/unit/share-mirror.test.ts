@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import type { Principal } from '@solus/server/admission/principal'
 import { seedResource } from './helpers/resource-rows'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { ShareManager } = await import('@solus/server/sharing/share-manager')
 const { applyMirrorItem } = await import('@solus/server/sync/mirror/mirror-sinks')
 const { getDatabase } = await import('@solus/server/db/database')

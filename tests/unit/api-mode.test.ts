@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { DelegatedAccessTokenClaims, PersonAccessTokenClaims } from '@solus/contracts/uplink'
 import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
@@ -12,7 +12,7 @@ import type { HostEventPublisher } from '@solus/server/transport/events/host-eve
 import { resetTestDatabase } from './helpers/test-db'
 import { installTestIdentities } from './helpers/acting-identities'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/cloud-service-model.md §15: the workspace service is one process for
 // every organization. A member reaches the records of their organization and no

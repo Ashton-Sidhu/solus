@@ -18,6 +18,9 @@ import { withActingScope } from '@solus/server/vault/acting-scope'
  * key agent, no token variable, no helper the host or a checkout configured.
  */
 
+// A member as their own OS user is Linux only, and the git helpers here run under sh (docs/plans/windows.md §6).
+const posixHost = process.platform !== 'win32'
+
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
 
@@ -94,7 +97,7 @@ async function githubPassword(checkout: string): Promise<string | null> {
   }
 }
 
-test('the host acts as the host: its environment, and no account read', async () => {
+test.if(posixHost)('the host acts as the host: its environment, and no account read', async () => {
   const { identities, reads } = host()
   expect(identities.for({ kind: 'host-login' })).toBe(HOST_IDENTITY)
   expect(HOST_IDENTITY.github()).toBeNull()
@@ -102,7 +105,7 @@ test('the host acts as the host: its environment, and no account read', async ()
   expect(reads).toEqual([])
 })
 
-test('two members commit and authenticate as themselves, never as each other or the host', async () => {
+test.if(posixHost)('two members commit and authenticate as themselves, never as each other or the host', async () => {
   const { accounts, identities, checkout, hostHelperMark } = host()
   accounts.set('alice', { accessToken: 'alice-token', login: 'alice-gh' })
   accounts.set('bob', { accessToken: 'bob-token', login: 'bob-gh' })
@@ -119,7 +122,7 @@ test('two members commit and authenticate as themselves, never as each other or 
   expect(JSON.stringify(await identities.for(member('alice')).env())).not.toContain('alice-token')
 })
 
-test('a member’s process carries nothing of the host’s: no key agent, no token, no home', async () => {
+test.if(posixHost)('a member’s process carries nothing of the host’s: no key agent, no token, no home', async () => {
   // WHY: a cloud host failed a member's sync with "Host key verification failed"
   // because git ran with the host's environment and SSH setup.
   const { accounts, identities, root } = host()
@@ -145,7 +148,7 @@ test('a member’s process carries nothing of the host’s: no key agent, no tok
   }
 })
 
-test('a member without GitHub cannot commit or authenticate, and no host helper answers for them', async () => {
+test.if(posixHost)('a member without GitHub cannot commit or authenticate, and no host helper answers for them', async () => {
   const { identities, checkout, hostHelperMark } = host()
   const bob = identities.for(member('bob'))
   expect(await bob.gitUnavailableReason()).toContain('Connect GitHub')
@@ -154,7 +157,7 @@ test('a member without GitHub cannot commit or authenticate, and no host helper 
   expect(existsSync(hostHelperMark)).toBe(false)
 })
 
-test('a Solus commit for a member without GitHub is refused before git runs', async () => {
+test.if(posixHost)('a Solus commit for a member without GitHub is refused before git runs', async () => {
   // WHY: the action runs in the server process, which has the host's author;
   // without the refusal the member's commit would be the host's.
   const { identities, checkout } = host()
@@ -175,7 +178,7 @@ test('a Solus commit for a member without GitHub is refused before git runs', as
   expect(await withHostScope(() => runAsync('git', ['log', '--format=%s'], checkout))).toBe('Base')
 })
 
-test('concurrent processes share one account read, and it is asked again after its lifetime or a failure', async () => {
+test.if(posixHost)('concurrent processes share one account read, and it is asked again after its lifetime or a failure', async () => {
   const { accounts, identities, reads, advance } = host()
   accounts.set('alice', new Error('account service down'))
   const alice = identities.for(member('alice'))
@@ -189,7 +192,7 @@ test('concurrent processes share one account read, and it is asked again after i
   expect(reads).toEqual(['alice', 'alice', 'alice'])
 })
 
-test('a renewed token reaches a process that is already running, and revoking removes it at once', async () => {
+test.if(posixHost)('a renewed token reaches a process that is already running, and revoking removes it at once', async () => {
   const { accounts, identities, checkout, root, advance } = host()
   accounts.set('alice', { accessToken: 'old-token', login: 'alice-gh' })
   expect(await asMember(identities, 'alice', () => githubPassword(checkout))).toBe('old-token')
@@ -205,7 +208,7 @@ test('a renewed token reaches a process that is already running, and revoking re
   expect(existsSync(join(root, 'home', 'alice', '.config', 'gh', 'hosts.yml'))).toBe(false)
 })
 
-test('a caller’s chosen token is the host’s alone; a member’s git answers from their home', () => {
+test.if(posixHost)('a caller’s chosen token is the host’s alone; a member’s git answers from their home', () => {
   const { identities } = host()
   const hostAuth = withHostScope(() => gitCommandAuth({ isHttps: true, token: 'chosen' }))
   expect(hostAuth.args.slice(0, 2)).toEqual(['-c', 'credential.helper='])
@@ -215,12 +218,12 @@ test('a caller’s chosen token is the host’s alone; a member’s git answers 
   expect(memberAuth).toEqual({ args: [], env: {} })
 })
 
-test('an id that could reach the filesystem or a shell gets no home', () => {
+test.if(posixHost)('an id that could reach the filesystem or a shell gets no home', () => {
   const { identities } = host()
   expect(() => identities.for(member("x'; rm -rf ~")).envSync()).toThrow()
 })
 
-test('two members never share a review checkout their own connections fetched; the host keeps its path', async () => {
+test.if(posixHost)('two members never share a review checkout their own connections fetched; the host keeps its path', async () => {
   // WHY: a checkout holds what one person's connection could read. Another
   // member reading it would see a private repository they cannot reach.
   const { identities } = host()

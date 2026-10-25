@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 type Principal = import('@solus/server/admission/principal').Principal
@@ -10,7 +10,7 @@ import { resetTestDatabase } from './helpers/test-db'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 import { installTestIdentities } from './helpers/acting-identities'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // docs/plans/simplify-auth-and-sync.md §4.5: the Solus API applies a host's batch in
 // sequence order, in the host's organization, in one transaction with one cursor

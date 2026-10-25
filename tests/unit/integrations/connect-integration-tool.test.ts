@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from '../helpers/bun-sqlite'
 import type { CatalogEntry, Integration, IntegrationConnection, IntegrationConnectNeeded, IntegrationCreateRequest } from '@solus/contracts/integration-types'
 
 /**
@@ -10,7 +10,7 @@ import type { CatalogEntry, Integration, IntegrationConnection, IntegrationConne
  */
 
 // The gateway's input requests open the session store, which Bun reads through its own SQLite.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type ToolModule = typeof import('@solus/server/integrations/connect-integration-tool')
 type AgentToolModule = typeof import('@solus/server/execution/agents/tools/agent-tool')

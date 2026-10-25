@@ -18,7 +18,7 @@ const RECORD_PATH_ROOTS = ['/ws', '/runner', '/api/assets', '/api/uploads'] as c
 
 export function isRecordServicePath(pathname: string): boolean {
   if (RECORD_PATHS.has(pathname)) return true
-  if (RECORD_PATH_ROOTS.some(root => pathname === root || pathname.startsWith(root + '/'))) return true
+  if (RECORD_PATH_ROOTS.some(route => pathname === route || pathname.startsWith(route + '/'))) return true
   if (!pathname.startsWith('/v1/')) return false
   return RECORD_V1_SEGMENTS.has(pathname.slice(4).split('/')[0])
 }

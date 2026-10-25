@@ -5,21 +5,18 @@
  * wrote, not the two segments that happened to fit.
  */
 
-export function basename(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index === -1 ? path : path.slice(index + 1);
-}
+import { hostPathBaseName, hostPathSegments, hostPathSeparator } from "@solus/contracts/host-path";
 
 /** The one directory the chip shows, with its slash. Empty for a bare name. */
 export function parentDir(path: string): string {
-  const parts = path.split("/").filter(Boolean);
+  const parts = hostPathSegments(path);
   if (parts.length < 2) return "";
-  return `${parts[parts.length - 2]}/`;
+  return `${parts[parts.length - 2]}${hostPathSeparator(path)}`;
 }
 
 /** Everything ahead of what the chip shows. Empty when the chip shows it all. */
 export function leadingDirs(path: string): string {
-  return path.slice(0, path.length - (parentDir(path) + basename(path)).length);
+  return path.slice(0, path.length - (parentDir(path) + hostPathBaseName(path)).length);
 }
 
 /*
@@ -106,7 +103,7 @@ export function codeSpanFileTarget(codeText: string): CodeSpanFileTarget | null 
   if (!position && !PATH_SEPARATOR_RE.test(candidate)) return null;
 
   const path = position ? candidate.slice(0, position.index) : candidate;
-  const name = path.replace(/\/+$/, "").split("/").at(-1) ?? "";
+  const name = hostPathBaseName(path);
   const namesFile = FILE_EXTENSION_RE.test(name) || EXTENSIONLESS_FILE_NAMES.has(name);
 
   if (isWindowsAbsolute || RELATIVE_PATH_PREFIX_RE.test(candidate)) {

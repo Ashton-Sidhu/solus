@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Principal } from '@solus/server/admission/principal'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const directory = mkdtempSync(join(tmpdir(), 'solus-automation-access-'))
 const previousDataDir = process.env.SOLUS_DATA_DIR
 process.env.SOLUS_DATA_DIR = directory

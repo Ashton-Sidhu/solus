@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestsScreen.tsx (MIT, see UPSTREAM.md).
 import { useNavigation } from '@react-navigation/native'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Keyboard, Platform, Pressable, RefreshControl, ScrollView, View, type ScrollViewProps } from 'react-native'
@@ -148,7 +149,7 @@ export function PullRequestsScreen(props: {
     // A saved project stays a choice while its host has not listed it.
     const saved = scope.project
     if (saved && !result.some((project) => project.hostId === saved.hostId && project.projectPath === saved.projectPath)) {
-      result.push({ ...saved, label: saved.projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? saved.projectPath })
+      result.push({ ...saved, label: hostPathBaseName(saved.projectPath) || saved.projectPath })
     }
     return result
     // `list.hosts` changes when a shown host's read changes; only those reads change the projects here.

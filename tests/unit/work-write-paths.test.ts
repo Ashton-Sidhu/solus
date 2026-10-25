@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,7 +18,7 @@ import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
  * (docs/plans/work-editing-foundation.md §2). Temporary fixture databases only.
  */
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 /** The provider a pull reads. `read` waits on `gate`, so a test can act while the pull is in flight. */
 const upstream = {

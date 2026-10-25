@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { join } from 'node:path'
 import { buildGitWatchTargets } from '@solus/server/git/git-watcher'
 
 describe('GitWatcher targets', () => {
@@ -13,9 +14,10 @@ describe('GitWatcher targets', () => {
     expect(worktreeTarget?.recursive).toBe(false)
     expect([...worktreeTarget!.names!].sort()).toEqual(['HEAD', 'index'])
 
-    const refsTarget = targets.find((target) => target.directory === '/repo/.git/refs/heads')
+    // The refs folder is joined with the host's separator.
+    const refsTarget = targets.find((target) => target.directory === join('/repo/.git', 'refs', 'heads'))
     expect(refsTarget).toEqual({
-      directory: '/repo/.git/refs/heads',
+      directory: join('/repo/.git', 'refs', 'heads'),
       recursive: true,
       names: null,
     })

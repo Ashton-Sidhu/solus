@@ -1,6 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import { ActivityIndicator, Pressable, View } from 'react-native'
+import { hostPathBaseName, isAbsoluteHostPath } from '@solus/contracts/host-path'
 import { mediaTypeFor } from '@solus/contracts/media-types'
 import type { FilePreviewResult } from '@solus/contracts/types'
 import { useApp, useListened } from '../../app/app-context'
@@ -66,13 +67,13 @@ function HostFileMedia(props: {
   const { state, refresh } = useHostMediaUrl(connection, { path: props.path, ctx })
   const [audioAttempt, setAudioAttempt] = useState(0)
   const [document, setDocument] = useState<ResolvedFilePreviewSource | null>(null)
-  const name = props.path.slice(props.path.lastIndexOf('/') + 1)
+  const name = hostPathBaseName(props.path)
   const mimeType = mediaTypeFor(props.path)?.mime ?? 'application/octet-stream'
   const actionsSource = useMemo<MediaActionsSource>(() => ({
     reference: {
       kind: 'file',
       path: props.path,
-      relativePath: props.path.startsWith('/') || props.path.startsWith('~') ? undefined : props.path,
+      relativePath: isAbsoluteHostPath(props.path) || props.path.startsWith('~') ? undefined : props.path,
     },
     name,
     mimeType,
@@ -152,7 +153,7 @@ export function FileScreen({ navigation, route }: ScreenProps<'File'>) {
       ...(contents !== null ? [{ id: 'copy-contents', title: truncated ? 'Copy preview' : 'Copy contents', image: 'doc.on.doc' }] : []),
     ]
     navigation.setOptions({
-      title: path.slice(path.lastIndexOf('/') + 1),
+      title: hostPathBaseName(path),
       headerRight: () => (
         <ControlPillMenu
           accessibilityLabel="File actions"

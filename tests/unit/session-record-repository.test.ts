@@ -2,11 +2,11 @@ import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import { installTestIdentities } from './helpers/acting-identities'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 installTestIdentities()
 
 // The repository of a folder is read from git (resolveRepositoryKey, tested on

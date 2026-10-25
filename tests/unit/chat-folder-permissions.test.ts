@@ -2,11 +2,11 @@ import { afterAll, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import type { MemberFileChange } from '@solus/server/execution/seats/member-files'
 import type { ProcessUser } from '@solus/server/cli-env'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const apply = mock((_user: ProcessUser | null, _changes: MemberFileChange[]) => {})
 mock.module('@solus/server/execution/seats/member-files', () => ({ applyMemberFiles: apply }))
 const { makeChatFolder } = await import('@solus/server/workspace')

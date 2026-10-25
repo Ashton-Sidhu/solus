@@ -2,11 +2,11 @@ import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { encodePathAsFolder } from '@solus/contracts/types'
 
 // bun has no node:sqlite; the indexer's import chain reaches it.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // Mobile lists the chats of a host in one place (docs/plans/projectless-chat.md).
 // Each chat has its own folder, so "the chats" is a filter on the folder's name,

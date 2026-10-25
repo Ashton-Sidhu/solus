@@ -29,12 +29,15 @@ function pathWith(commands: string[]): string {
   return dir
 }
 
+// The stubs are extensionless `#!/bin/sh` files, which the win32 lookup (PATHEXT) does not find.
+const findsStubs = process.platform !== 'win32'
+
 function host(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, path: string, hasDirectoryHandler = true): FileManagerHost {
   return { platform, env, path, hasDirectoryHandler: async () => hasDirectoryHandler }
 }
 
 describe('resolveFileManagerCommand', () => {
-  test('macOS opens Finder with open', async () => {
+  test.if(findsStubs)('macOS opens Finder with open', async () => {
     const command = await resolveFileManagerCommand(host('darwin', {}, pathWith(['open'])))
     expect(command).toBe('open')
     expect(fileManagerKindOf(command!)).toBe('finder')
@@ -46,7 +49,7 @@ describe('resolveFileManagerCommand', () => {
     expect(fileManagerKindOf(command!)).toBe('file-explorer')
   })
 
-  test('a Linux desktop with a folder handler opens it with xdg-open', async () => {
+  test.if(findsStubs)('a Linux desktop with a folder handler opens it with xdg-open', async () => {
     const command = await resolveFileManagerCommand(host('linux', { DISPLAY: ':0' }, pathWith(['xdg-open'])))
     expect(command).toBe('xdg-open')
     expect(fileManagerKindOf(command!)).toBe('files')
@@ -65,7 +68,7 @@ describe('resolveFileManagerCommand', () => {
     expect(await resolveFileManagerCommand(host('linux', env, pathWith(['explorer.exe', 'xdg-open'])))).toBe('explorer.exe')
   })
 
-  test('WSL without Explorer on PATH keeps the Linux file manager', async () => {
+  test.if(findsStubs)('WSL without Explorer on PATH keeps the Linux file manager', async () => {
     const env = { WSL_DISTRO_NAME: 'Ubuntu', DISPLAY: ':0' }
     expect(await resolveFileManagerCommand(host('linux', env, pathWith(['xdg-open'])))).toBe('xdg-open')
   })

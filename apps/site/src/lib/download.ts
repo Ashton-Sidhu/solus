@@ -13,15 +13,28 @@ export const DOWNLOADS: Record<DownloadPlatform, { name: string; filename: strin
 
 export const BREW_COMMAND = "brew install --cask Ashton-Sidhu/tap/solus";
 
-/** Installs the standalone server and starts its service; `install.sh` supports macOS and Linux. */
-export const SERVER_COMMAND =
-	"curl -fsSL https://github.com/Ashton-Sidhu/solus/releases/latest/download/install.sh | sh -s -- --setup";
+const SERVER_RELEASE = "https://github.com/Ashton-Sidhu/solus/releases/latest/download";
 
-/** Where the server command runs for each visitor. Windows has no server build, so it runs in WSL or on a Linux machine. */
+/**
+ * Installs the standalone server and starts its service: `install.sh` on macOS
+ * and Linux, `install.ps1` (Windows PowerShell 5.1, x64) on Windows. `prompt`
+ * and `label` are the short form the pill shows; `command` is what it copies.
+ */
+export const SERVER_COMMANDS = {
+	mac: { command: `curl -fsSL ${SERVER_RELEASE}/install.sh | sh -s -- --setup`, prompt: "$", label: "curl -fsSL …/install.sh | sh" },
+	linux: { command: `curl -fsSL ${SERVER_RELEASE}/install.sh | sh -s -- --setup`, prompt: "$", label: "curl -fsSL …/install.sh | sh" },
+	windows: {
+		command: `& ([scriptblock]::Create((irm ${SERVER_RELEASE}/install.ps1))) -Setup`,
+		prompt: "PS>",
+		label: "irm …/install.ps1 | iex",
+	},
+} satisfies Record<DownloadPlatform, { command: string; prompt: string; label: string }>;
+
+/** Where the server command runs for each visitor. */
 export const SERVER_TARGETS: Record<DownloadPlatform, string> = {
 	mac: "Server on this Mac",
 	linux: "Server on this machine",
-	windows: "Server in WSL or on Linux",
+	windows: "Server on this PC",
 };
 
 export function isDownloadPlatform(value: string): value is DownloadPlatform {

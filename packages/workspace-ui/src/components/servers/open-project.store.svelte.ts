@@ -22,8 +22,8 @@ import {
   type CloneIntent,
 } from './lib/clone-url'
 import { classifyCloneFailure, pushCapabilityNote, type CloneFailure } from './lib/clone-outcome'
+import { joinHostPath } from '@solus/contracts/host-path'
 import {
-  joinHostPath,
   newProjectPath,
   type HostOption,
   type OpenProjectStep,

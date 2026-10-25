@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'bun:test'
+import { basename } from 'node:path'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 // The login probe is a whole CLI process starting up. Count synchronous spawns
@@ -33,7 +34,8 @@ test('the host login probe never spawns synchronously', async () => {
 test('an injected probe decides the answer', async () => {
   const probed: string[] = []
   const connected = await providerLoginConnected('claude-code', '/seats/claude/bob', async (run) => {
-    probed.push(`${run.file} ${run.args.join(' ')} ${run.env.CLAUDE_CONFIG_DIR}`)
+    // WHY: the program matters, not its spelling: Windows resolves the full `claude.exe` path.
+    probed.push(`${basename(run.file, '.exe')} ${run.args.join(' ')} ${run.env.CLAUDE_CONFIG_DIR}`)
     return true
   })
   expect(connected).toBe(true)

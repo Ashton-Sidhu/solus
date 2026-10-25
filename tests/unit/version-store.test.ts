@@ -101,4 +101,19 @@ describe('version-store', () => {
     activateVersion(runtimeDir, '2.0.0')
     expect(readlinkSync(join(runtimeDir, 'current'))).toBe(versionDir(runtimeDir, '2.0.0'))
   })
+
+  test('on Windows a new activation replaces the junction instead of renaming over it', () => {
+    // WHY: a rename over a junction fails with EPERM on Windows, so the old
+    // link is removed and a new one made. The version it named must survive.
+    setup()
+    const first = makeVersion('1.0.0')
+    makeVersion('1.1.0')
+    activateVersion(runtimeDir, '1.0.0', 'win32')
+    activateVersion(runtimeDir, '1.1.0', 'win32')
+    expect(currentVersionName(runtimeDir)).toBe('1.1.0')
+    expect(currentVersionDir(runtimeDir)).toBe(realpathSync(versionDir(runtimeDir, '1.1.0')))
+    expect(existsSync(join(first, 'marker'))).toBe(true)
+    expect(existsSync(join(runtimeDir, `current.next-${process.pid}`))).toBe(false)
+  })
 })
+

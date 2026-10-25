@@ -1,10 +1,10 @@
 import { afterAll, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { io } from 'socket.io-client'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')

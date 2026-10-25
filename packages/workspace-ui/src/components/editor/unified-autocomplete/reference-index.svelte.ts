@@ -27,6 +27,7 @@ import { stampSessionMetas } from '@solus/client-core/session-meta'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { stripInjectedContext } from '@solus/contracts/injected-context'
 import { runHost } from '../../../contexts/workspace/run-location'
+import { hostPathBaseName } from '@solus/contracts/host-path'
 
 export function timestamp(value: string | number | undefined | null): number {
   if (value === undefined || value === null) return 0
@@ -175,7 +176,7 @@ export class ReferenceIndex {
       .map((session) => ({
         id: `session:${session.sessionId}`,
         title: sessionRefTitle(session),
-        meta: session.cwd.slice(session.cwd.lastIndexOf('/') + 1),
+        meta: hostPathBaseName(session.cwd),
         when: freshness(session.lastTimestamp),
         icon: GLYPH.session,
         mono: false,

@@ -17,7 +17,8 @@ function binDir(name: string, opts: { executable: boolean } = { executable: true
   return dir
 }
 
-describe('findOnPath', () => {
+// A ':'-joined PATH and the executable bit are POSIX; the win32 lookup (PATHEXT, ';') has its own tests.
+describe.skipIf(process.platform === 'win32')('findOnPath', () => {
   test('finds an installed binary `which` failed to report', () => {
     // WHY: this is the whole point of the fallback. A `which` that answers
     // nothing marked both agents unavailable, and every agent picker in the app

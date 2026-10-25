@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { gitOutputPath } from '../git/exec'
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { cp, mkdir, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
@@ -381,7 +382,7 @@ export class DeviceRuns {
       throw new DeviceDomainError('invalid_request', 'The project is not on this host.')
     }
     const toplevel = await this.run('git', ['rev-parse', '--show-toplevel'], { cwd: checkoutPath, timeoutMs: 10_000 })
-    return { checkoutPath, projectRoot: toplevel.code === 0 ? toplevel.stdout.trim() : checkoutPath }
+    return { checkoutPath, projectRoot: toplevel.code === 0 ? gitOutputPath(checkoutPath, toplevel.stdout) : checkoutPath }
   }
 
   private remember(record: RunRecord): void {

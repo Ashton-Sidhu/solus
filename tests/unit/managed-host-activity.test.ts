@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,7 +8,7 @@ import type { HostRegistration } from '@solus/contracts/uplink'
 import { adoptProvisionedRegistration, resetHostCategoryForTests } from '@solus/server/host/host-category'
 import { DUE_HOLD_LEAD_MS, FOREGROUND_HOLD_GRACE_MS, ManagedHostActivity } from '@solus/server/host/managed-host-activity'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // Plan 004 item 3: a Sprite pauses when no request arrives, and a turn makes only
 // outbound calls. The managed host holds itself awake while it has work, and tells

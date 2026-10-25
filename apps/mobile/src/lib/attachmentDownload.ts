@@ -2,6 +2,7 @@
 // Only the paths Solus uses: a document opened in another app's viewer (Android)
 // and the original bytes for the save or share sheet. No foreground handoff
 // tracking (Solus has no deferred restart) and no source-anchored iOS share sheet.
+import { hostPathBaseName } from "@solus/contracts/host-path";
 import type { Directory } from "expo-file-system";
 
 const ATTACHMENT_DOWNLOAD_DIRECTORY = "solus-attachment-downloads";
@@ -15,7 +16,7 @@ export interface AttachmentFileMetadata {
 }
 
 function downloadFileName(name: string): string {
-  const basename = name.split(/[\\/]/).at(-1) ?? "";
+  const basename = hostPathBaseName(name);
   const sanitized = Array.from(basename, (character) => {
     const codePoint = character.codePointAt(0)!;
     return codePoint < 32 ||

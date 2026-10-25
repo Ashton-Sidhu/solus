@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +10,7 @@ import type { PersonalSettingsDocument } from '@solus/contracts/settings'
 // A disposable data dir: these tests persist host config, and the live ~/.solus
 // holds the developer's real settings.
 // The agent tool reads a session's organization from its record, so loading it opens the database module.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 type SettingsModule = typeof import('@solus/server/host/settings')
 type RunInputModule = typeof import('@solus/server/execution/agents/run-input')

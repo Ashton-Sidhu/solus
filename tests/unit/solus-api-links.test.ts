@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { resetTestDatabase } from './helpers/test-db'
@@ -10,7 +10,7 @@ import { installTestIdentities } from './helpers/acting-identities'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
 import type { WorkspaceLink } from '@solus/contracts/solus-api'
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // One link route and one comment route carry an agent's remaining organization
 // writes to the Solus API (docs/plans/simplify-auth-and-sync.md §4.5). A link needs

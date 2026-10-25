@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { createServer, type Server as HttpServer } from 'http'
 import { createServer as createNetServer } from 'node:net'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { io } from 'socket.io-client'
 import type { Doors } from '@solus/server/admission/doors'
 import { handshake } from './helpers/socket-handshake'
@@ -16,7 +16,7 @@ import { readWav } from '@solus/server/transcription/wav'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 const { issueSessionToken, resetAuthStateForTests, revokeDevice, verifySessionToken } = await import('@solus/server/admission/auth')
 const { pairedPrincipalFor } = await import('@solus/server/admission/doors')
 const { SolusServer } = await import('@solus/server/transport/server')

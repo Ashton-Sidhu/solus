@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,7 +9,7 @@ import type { AutomationAction } from '@solus/contracts/types'
 import { resetTestDatabase } from './helpers/test-db'
 import { notificationReader } from './helpers/actors'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // plans/015-notifications-hub.md v2 §3–4, stage 2: an automation result is written
 // to the hub's one table in the run's own SQLite transaction: a failed run write

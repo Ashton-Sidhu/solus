@@ -6,6 +6,8 @@ mock.module('@solus/server/cli-env', () => ({
   ...realCliEnv,
   warmCliPath: async () => '/fixture/bin',
   findOnPath: () => '/fixture/bin/claude',
+  // On win32 resolveClaudeExecutable asks startableCommand too; the fixture is an .exe there.
+  startableCommand: () => ({ file: '/fixture/bin/claude.exe', args: [] }),
 }))
 
 const SLASH_REPORT = 'Current session: 43% used · resets Jul 31 at 1am (America/Toronto)'

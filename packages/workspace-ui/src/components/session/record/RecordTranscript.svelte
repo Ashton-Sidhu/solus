@@ -45,6 +45,7 @@
     FOOTNOTE_SECTION_TOKEN,
   } from "../../conversation/lib/markdown-extensions";
   import { artifactIsReadable, recordDocuments, recordRows } from "./lib/record-transcript";
+  import { hostPathBaseName } from "@solus/contracts/host-path";
 
   /**
    * One page of a transcript with no tab behind it: the cloud's copy of a
@@ -206,7 +207,7 @@
           {/if}
         {:else}
           <TranscriptCard
-            title={item.message.workRef?.title ?? artifact.path?.split("/").pop() ?? "Artifact"}
+            title={item.message.workRef?.title ?? (artifact.path && hostPathBaseName(artifact.path)) ?? "Artifact"}
             type={artifact.kind === "image" ? "image" : "artifact"}
             glyphClass="is-artifact"
             body={notShared}

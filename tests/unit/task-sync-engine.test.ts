@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import type {
   CandidateTicket,
@@ -24,7 +24,7 @@ const SYSTEM_ATTRIBUTION = { kind: 'system' as const }
 /** The person every change in this file is made by. */
 const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 mock.module('@solus/server/data/tasks/adapters/registry', () => ({
   taskSyncAdapter: () => adapter,
   resolveTaskPublishTarget: async () => null,

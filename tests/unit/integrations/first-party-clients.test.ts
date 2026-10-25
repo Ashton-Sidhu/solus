@@ -1,10 +1,10 @@
 import { describe, expect, mock, test } from 'bun:test'
-import { Database } from 'bun:sqlite'
+import { DatabaseSync } from '../helpers/bun-sqlite'
 import { firstPartyClientById, firstPartyClientFor } from '@solus/contracts/first-party-clients'
 import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 // A build with Solus's GitHub and Google apps; a development build has neither.
 mock.module('@solus/server/providers/github/client-id', () => ({ GITHUB_CLIENT_ID: 'solus-github' }))
 mock.module('@solus/server/google/client-id', () => ({ GOOGLE_CLIENT_ID: 'solus-google' }))

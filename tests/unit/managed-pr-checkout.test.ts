@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ensureManagedPrCheckout, managedPrCheckoutPath } from '@solus/server/review/managed-pr-checkout'
 import { readGuideFileContentsAt, readGuidePatchAt } from '@solus/server/review/pr-guide-diff'
 import type { PrDiffFileContentsRequest } from '@solus/contracts/providers'
+import { isInsideHostPath } from '@solus/contracts/host-path'
 import { reviewGuidePath, writeJsonAtomic } from '@solus/server/review/review-store'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
@@ -75,7 +76,7 @@ describe('managed pull-request checkout', () => {
     expect(git(checkout.worktreePath, ['merge-base', baseSha, headSha])).toBe(baseSha)
     const missing = git(checkout.worktreePath, ['rev-list', '--objects', '--all', '--missing=print'])
     expect(missing.split('\n')).toContain(`?${oldBlob}`)
-    expect(managedPrCheckoutPath(repo, target, checkouts).startsWith(`${checkouts}/`)).toBe(true)
+    expect(isInsideHostPath(checkouts, managedPrCheckoutPath(repo, target, checkouts))).toBe(true)
 
     const guideStorageRoot = join(fixture, 'review-guides')
     const patchBeforeGuide = git(checkout.worktreePath, ['diff', baseSha])
@@ -104,12 +105,12 @@ describe('managed pull-request checkout', () => {
 
     // What a guide reads was fetched with the checkout: it needs no remote or credential later.
     const remoteMoved = `${remote}-moved`
-    execFileSync('mv', [remote, remoteMoved])
+    renameSync(remote, remoteMoved)
     const guideRevision = { number: 25, baseSha, headSha }
     expect((await readGuidePatchAt(checkout.worktreePath, guideRevision)).patch).toContain('+head')
     const fileRequest: PrDiffFileContentsRequest = { ...guideRevision, changeType: 'change', oldPath: 'change.txt', newPath: 'change.txt' }
     expect(await readGuideFileContentsAt(checkout.worktreePath, fileRequest)).toEqual({ oldContents: 'base\n', newContents: 'head\n' })
-    execFileSync('mv', [remoteMoved, remote])
+    renameSync(remoteMoved, remote)
 
     const reused = await ensureManagedPrCheckout(repo, target, {
       root: checkouts,

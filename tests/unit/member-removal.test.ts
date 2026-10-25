@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { DatabaseSync } from './helpers/bun-sqlite'
 import { Database } from 'bun:sqlite'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -14,7 +15,7 @@ import type { ShareManager as ShareManagerType } from '@solus/server/sharing/sha
 import { resetTestDatabase } from './helpers/test-db'
 import { seedResource } from './helpers/resource-rows'
 
-mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+mock.module('node:sqlite', () => ({ DatabaseSync }))
 
 // Plan 004 item 10: the host learns of a removal from its organization standing,
 // which lists every current member of each organization the machine is shared with.

@@ -1,4 +1,5 @@
 import { workspaceSessionQuerySchema, workspaceSessionSearchQuerySchema, workspacePageQuerySchema } from '@solus/contracts/solus-api'
+import { trimTrailingSeparators } from '@solus/contracts/host-path'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { markedPassage, queryWords } from '@solus/contracts/word-match'
 import { runnerPrincipalFor, type RecordScope } from '../../admission/principal'
@@ -214,7 +215,7 @@ export class SessionApiOperations {
     if (query.projectId) filters.push(sql`project_remote = ${await projectKeyForId(context, query.projectId)}`)
     if (query.repositoryKey) filters.push(sql`project_remote = ${query.repositoryKey}`)
     if (query.projectPath !== undefined) {
-      const normalized = query.projectPath.replace(/\/$/, '')
+      const normalized = trimTrailingSeparators(query.projectPath)
       const encoded = encodePathAsFolder(normalized)
       filters.push(query.includeWorktrees === 'true' && !isSolusWorktreePath(normalized)
         ? sql`(project_path = ${encoded} OR project_path LIKE ${encoded + SOLUS_WORKTREE_ENCODED_MARKER + '%'})`

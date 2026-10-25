@@ -14,6 +14,7 @@ import { thoughtPreview } from '../../../lib/thought-preview'
 import { formatDuration } from './format'
 import { asStringOrNull } from './result-columns'
 import { PROVIDER_WAIT_KIND, USER_WAIT_KIND, colorForKind, labelForKind } from './span-palette'
+import { hostPathSegments, hostPathSeparator, isAbsoluteHostPath } from '@solus/contracts/host-path'
 
 // One turn's span tree, laid out as a waterfall.
 //
@@ -239,9 +240,9 @@ export function compactDetail(detail: string): string {
   let text = withoutLeadingCd(detail)
   const firstLine = text.split('\n')[0]?.trim() ?? ''
   if (firstLine) text = firstLine
-  if (/^[~/][^\s]*$/.test(text)) {
-    const segments = text.split('/').filter(Boolean)
-    if (segments.length > 2) text = segments.slice(-2).join('/')
+  if (!/\s/.test(text) && (text.startsWith('~') || isAbsoluteHostPath(text))) {
+    const segments = hostPathSegments(text)
+    if (segments.length > 2) text = segments.slice(-2).join(hostPathSeparator(text))
   }
   return text.length > COMPACT_DETAIL_CHARS ? `${text.slice(0, COMPACT_DETAIL_CHARS - 1)}…` : text
 }
