@@ -67,6 +67,13 @@ export function prMenuQualifiers(listView: Pick<PrListView, 'author' | 'label' |
   }
 }
 
+/** The choices only loaded rows can answer, as one key: a change starts the
+ *  page fill (`BoundedPageFill`) again. */
+export function prClientFilterKey(listView: PrListView): string {
+  const { statusKeys, involvement, review, checks, guide, lens } = listView
+  return JSON.stringify([statusKeys, involvement, review, checks, guide, lens])
+}
+
 /** Authors on the rows in view, most frequent first, behind an "Anyone" row. */
 export function prAuthorOptions(prs: readonly PullRequest[]): PrFilterOption[] {
   const authors = new Map<string, { avatarUrl: string; count: number }>()

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Keyboard, Platform, Pressable, RefreshControl, ScrollView, View, type ScrollViewProps } from 'react-native'
 import { ScrollViewMarker } from 'react-native-screens'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { BoundedPageFill } from '@solus/client-core/bounded-page-fill'
 import { useApp, useListened } from '../../app/app-context'
 import { AppText as Text } from '../../components/AppText'
 import { EmptyState } from '../../components/EmptyState'
@@ -138,6 +139,16 @@ export function PullRequestsScreen(props: {
   }, [list.hosts])
   const rows = useMemo(() => filterPullRequestRows(list.rows, scope.controls, viewerOf, list.connectedHostIds), [list.rows, scope.controls, viewerOf, list.connectedHostIds])
   const facets = useMemo(() => pullRequestListFacets(list.rows), [list.rows])
+
+  // Review, checks, involvement, host and project narrow only the rows the
+  // device holds, so a filtered page can come back short. Read a few more
+  // pages while it is.
+  const [pageFill] = useState(() => new BoundedPageFill())
+  const fillKey = JSON.stringify([query, preferences.state, scope.hostIds, scope.project, scope.controls.involvement, scope.controls.filters.review, scope.controls.filters.checks])
+  const { reading, hasMore, loadingMore, loadMore } = list
+  useEffect(() => {
+    if (pageFill.next(fillKey, { rows: rows.length, hasMore, reading: reading || loadingMore })) void loadMore()
+  }, [pageFill, fillKey, rows.length, hasMore, reading, loadingMore, loadMore])
   const showsHost = scope.hostIds.length > 1
   const projects = useMemo((): PullRequestFilterProject[] => {
     const result: PullRequestFilterProject[] = []

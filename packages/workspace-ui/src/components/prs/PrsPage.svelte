@@ -73,7 +73,8 @@
     readSavedDetailPanelWidth,
     saveDetailPanelWidth,
   } from "../ui/list-page/detail-panel-width";
-  import { clearPrFilters, prAuthorOptions, prFilterGroups, prLabelOptions, prMenuQualifiers } from "./lib/pr-filter-menu";
+  import { clearPrFilters, prAuthorOptions, prClientFilterKey, prFilterGroups, prLabelOptions, prMenuQualifiers } from "./lib/pr-filter-menu";
+  import { BoundedPageFill } from "@solus/client-core/bounded-page-fill";
   import { PrReviewSelection } from "./lib/pr-review-selection.svelte";
   import { queueReviewGuides } from "./lib/pr-guide-batch";
   import { reviewLensStore } from "../review/review-lens.store.svelte";
@@ -616,6 +617,20 @@
       readList();
       loadViewers();
     });
+  });
+
+  // Review, checks, involvement, guide and lens narrow only loaded rows, so a
+  // filtered page can come back short. Read a few more pages while it is,
+  // once the host has answered the search in the field.
+  const pageFill = new BoundedPageFill();
+  $effect(() => {
+    if (!listReadKey) return;
+    const fill = pageFill.next(`${listReadKey}\n${prClientFilterKey(listView)}`, {
+      rows: filtered.length,
+      hasMore: hasMorePullRequests && !loadCapped,
+      reading: activeScopeReading || loadingMorePullRequests || !hostAnswered,
+    });
+    if (fill) untrack(() => void loadMoreAll());
   });
 
   /** The projects this read covers, each created in the store on the way. */
