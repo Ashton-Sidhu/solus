@@ -50,6 +50,7 @@ import { FLOATING_WORKING_CONTROL_COVERAGE, FloatingWorkingControl } from "./flo
 import { backgroundFloatingStatus, connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
+import { useTurnAnnouncements } from "./use-turn-announcements";
 import {
   COMPOSER_COLLAPSED_CHROME,
   COMPOSER_EXPANDED_CHROME,
@@ -190,6 +191,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const activeWorkStartedAt = workStartedAt(store, working);
   const activePendingApproval = meta.permissions[0] ?? null;
   const activePendingUserInput = meta.questions[0] ?? null;
+  useTurnAnnouncements(`${store.controller.hostId}:${conversationIdOf(store)}`, meta.status, activePendingApproval !== null);
   const queuedCount = meta.queue.entries.length;
   // The Agents pill: the newest turn's agents and earlier ones still running.
   // Rows are added rarely; an agent's status changes its own item only.
