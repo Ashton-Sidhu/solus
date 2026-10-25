@@ -8,6 +8,7 @@
     FileCode as FileCodeIcon,
     File as FileIcon,
     RotateCw as RotateCwIcon,
+    LoaderCircle as LoaderCircleIcon,
   } from "@lucide/svelte";
   import { portal } from '../portal'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
@@ -132,7 +133,9 @@
             type="button"
             aria-label={upload?.status === 'failed'
               ? `Retry uploading ${label}: ${upload.message}`
+              : upload?.status === 'uploading' && a.dataUrl ? `Uploading ${label}`
               : a.dataUrl ? `Preview ${label}` : `Open ${label}`}
+            aria-busy={upload?.status === 'uploading'}
             title={upload?.status === 'failed' ? upload.message : undefined}
             class={a.dataUrl
               ? "size-full overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
@@ -150,8 +153,13 @@
               <img
                 src={a.dataUrl}
                 alt={label}
-                class="size-full rounded-lg object-cover outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20"
+                class="size-full rounded-lg object-cover outline-[0.5px] -outline-offset-1 outline-black/20 dark:outline-white/20 {upload?.status === 'uploading' ? 'opacity-50' : ''}"
               />
+              {#if upload?.status === 'uploading'}
+                <span class="absolute inset-0 flex items-center justify-center text-white drop-shadow">
+                  <LoaderCircleIcon size={16} class="motion-safe:animate-spin" />
+                </span>
+              {/if}
             {:else}
               {@const IconComponent =
                 upload?.status === 'failed' ? RotateCwIcon : FILE_ICON_COMPONENTS[a.mimeType || ''] || FileIcon}
