@@ -7,7 +7,7 @@
 // of the projects in view drops the answers of the projects it left.
 
 import type { PrFilterChoice, PrFilterField } from '@solus/contracts/providers'
-import { mergeFilterChoices } from '../../components/prs/lib/pr-filter-menu'
+import { mergeFilterChoices } from '@solus/client-core/pr-filter-choices'
 import { detached, type ProjectPrs } from './project-prs.svelte'
 
 const SEARCH_DEBOUNCE_MS = 250

@@ -32,6 +32,11 @@ function choices(field: PullRequestListMenuField, options: Readonly<{ [value: st
   }))
 }
 
+/** Menu items that open the host search; not `[field, value]` ids, so the
+ *  menu choice reducer never reads them. */
+const SEARCH_LABELS = 'search-labels'
+const SEARCH_AUTHORS = 'search-authors'
+
 const projectId = (project: PullRequestListProject | null) => (project ? JSON.stringify([project.hostId, project.projectPath]) : '')
 
 /** The Filters menu: drafts, reviews, checks, project, sort, and reset. */
@@ -71,12 +76,18 @@ export function PullRequestListFilters(props: {
   readonly authors: readonly string[]
   readonly labels: readonly string[]
   readonly projects: readonly PullRequestFilterProject[]
+  /** Opens the host search for labels or authors beyond the loaded rows. */
+  readonly onSearch: (field: 'label' | 'author') => void
 }) {
   const { value } = props
   const selectedLabels = value.filters.labels?.flat() ?? []
   const selectedLabelSet = new Set(selectedLabels)
   const author = value.filters.author
   const select = (event: string) => {
+    if (event === SEARCH_LABELS || event === SEARCH_AUTHORS) {
+      props.onSearch(event === SEARCH_LABELS ? 'label' : 'author')
+      return
+    }
     const next = pullRequestListMenuChoice(event, {
       value,
       hostIds: props.hosts.map((host) => host.id),
@@ -126,6 +137,7 @@ export function PullRequestListFilters(props: {
         active={selectedLabels.length > 0}
         accessibilityLabel="Filter by label"
         actions={[
+          { id: SEARCH_LABELS, title: 'Search labels…' },
           { id: id('labels', ''), title: 'All labels', state: selectedLabels.length ? 'off' : 'on' },
           ...labels.map((label) => ({ id: id('label', label), title: label, state: selectedLabelSet.has(label) ? ('on' as const) : ('off' as const) })),
         ]}
@@ -135,7 +147,10 @@ export function PullRequestListFilters(props: {
         label={author === 'me' ? 'By you' : (author ?? 'Author')}
         active={Boolean(author)}
         accessibilityLabel="Filter by author"
-        actions={choices('author', Object.fromEntries([['', 'All authors'], ['me', 'Me'], ...authors.map((login) => [login, login])]), author ?? '')}
+        actions={[
+          { id: SEARCH_AUTHORS, title: 'Search authors…' },
+          ...choices('author', Object.fromEntries([['', 'All authors'], ['me', 'Me'], ...authors.map((login) => [login, login])]), author ?? ''),
+        ]}
         onSelect={select}
       />
     </ScrollView>

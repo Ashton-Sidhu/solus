@@ -64,6 +64,8 @@ export type RootStackParamList = {
   PullRequestDiscussion: { hostId: string; projectPath: string; number: number; threadId: string }
   PullRequestReviewers: { hostId: string; projectPath: string; number: number }
   PullRequestLabels: { hostId: string; projectPath: string; number: number }
+  /** Searches the hosts for a label or author to filter the Pull Requests tab by. */
+  PullRequestFilterSearch: { field: 'label' | 'author' }
   /** A project folder; `folderPath` is root-relative, `''` for the root. */
   Files: { hostId: string; projectPath: string; folderPath: string }
   /** One file; `path` is root-relative. */

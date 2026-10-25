@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { mergeFilterChoices, withHostChoices, type PrFilterOption } from '@solus/workspace-ui/components/prs/lib/pr-filter-menu'
+import { mergeFilterChoices } from '@solus/client-core/pr-filter-choices'
+import { withHostChoices, type PrFilterOption } from '@solus/workspace-ui/components/prs/lib/pr-filter-menu'
 
 describe('filter pickers merge the host choices with the loaded rows', () => {
   test('several repositories answer as one list, first seen first, one choice per value', () => {

@@ -234,3 +234,21 @@ test('a written review comment is never shown as sent before the host accepts it
   expect(drafts.draftOf(PR_REF).comments).toHaveLength(1)
   expect(actions.runningOf(PR_REF)).toBe('review')
 })
+
+test('the filter search asks each project in scope and merges what they answer', async () => {
+  // WHY: the phone's label and author search must offer what the repositories
+  // have beyond the loaded rows, as web does; a project that cannot answer
+  // must not hide the choices of the others.
+  const api = new FakeApi().on('prFilterOptions', (ctx: { session: { projectPath: string } }, field: string, query: string) => {
+    if (ctx.session.projectPath === '/work/broken') throw new Error('Not Found')
+    return ctx.session.projectPath === '/work/app'
+      ? [{ value: `${field}:${query}` }, { value: 'shared' }]
+      : [{ value: 'Shared' }, { value: 'other' }]
+  })
+  const { actions } = await setup(api)
+  const projects = ['/work/app', '/work/broken', '/work/api'].map((projectPath) => ({ hostId: PR_REF.hostId, projectPath }))
+  expect(await actions.filterOptions(projects, 'label', 'p1')).toEqual([{ value: 'label:p1' }, { value: 'shared' }, { value: 'other' }])
+  // A host that is not connected is not asked.
+  expect(await actions.filterOptions([{ hostId: 'not-paired', projectPath: '/work/app' }], 'author', '')).toEqual([])
+  expect(api.callsOf('prFilterOptions')).toHaveLength(3)
+})

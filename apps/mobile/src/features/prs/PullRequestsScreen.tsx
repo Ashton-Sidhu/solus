@@ -235,6 +235,7 @@ export function PullRequestsScreen(props: {
             onChange={onPreferencesChange}
             authors={facets.authors}
             labels={facets.labels}
+            onSearch={(field) => navigation.navigate('PullRequestFilterSearch', { field })}
             projects={projects}
           />
           <HostNotices

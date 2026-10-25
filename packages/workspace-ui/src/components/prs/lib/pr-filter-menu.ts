@@ -116,19 +116,6 @@ export function prLabelOptions(prs: readonly PullRequest[]): PrFilterOption[] {
   ]
 }
 
-/** The answers of several repositories as one list: first seen first, one
- *  choice per value whatever its case. */
-export function mergeFilterChoices(lists: readonly (readonly PrFilterChoice[])[]): PrFilterChoice[] {
-  const merged = new Map<string, PrFilterChoice>()
-  for (const list of lists) {
-    for (const choice of list) {
-      const key = choice.value.toLowerCase()
-      if (choice.value && !merged.has(key)) merged.set(key, choice)
-    }
-  }
-  return [...merged.values()]
-}
-
 /**
  * A picker's options: the loaded rows' choices with their counts first, then
  * what the host offers beyond them. A choice the rows already have is not
