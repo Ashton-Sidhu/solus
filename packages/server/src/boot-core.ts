@@ -6,7 +6,8 @@ import { syncBundledPlugins } from './execution/agents/plugins'
 import { MemberUsers, memberUsersFilePath, useMemberUsers } from './host/member-users'
 import { useMemberSwitch } from './cli-env'
 import { bootServer, type BootOptions, type BootedServer } from './boot-server'
-import { configureOtel } from './otel'
+import { configureOtel, recordOtelCount, recordOtelDuration } from './otel'
+import { useGitCommandMeter } from './git/git-metrics'
 import { getHostConfig, getServerSettings } from './host/settings'
 import { createLogger } from './logger'
 import { watchEventLoopStalls } from './host/event-loop-stalls'
@@ -75,6 +76,10 @@ async function bootCoreAsHost(opts: BootCoreOptions): Promise<BootCore> {
   // onward. Both the desktop app and the standalone server boot through here,
   // so neither can end up exporting on a different rule from the other.
   await configureOtel(getHostConfig().config.otel)
+  useGitCommandMeter(({ operation, outcome, durationMs }) => {
+    recordOtelDuration('git_command_duration', durationMs, { operation })
+    recordOtelCount('git_commands_total', { operation, outcome })
+  })
   phaseDone('otel_configured')
   const sessionRuntime = new SessionRuntime(createBackends(), { queueDirectory: join(dataDir(), 'session-queues') })
   phaseDone('control_plane_ready')

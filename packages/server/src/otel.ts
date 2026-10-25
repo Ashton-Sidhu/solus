@@ -1,4 +1,4 @@
-import { type Attributes, type Histogram } from '@opentelemetry/api'
+import { type Attributes, type Counter, type Histogram } from '@opentelemetry/api'
 import { replaceOtlpSpanProcessor } from './execution/observability/tracer'
 // Safe against the cycle noted below: the module holds one constant and imports
 // nothing itself.
@@ -171,11 +171,25 @@ const bigintAttributeSchema = z.bigint()
 
 let meterProvider: InstanceType<OtelSdk['MeterProvider']> | null = null
 const histograms = new Map<string, Histogram>()
+const counters = new Map<string, Counter>()
 
 /** An empty url means the environment is in charge, so the exporter is built
  *  with no config and reads every `OTEL_*` convention itself. */
 function exporterConfig(signal: SignalTarget) {
   return signal.url ? { url: signal.url, headers: signal.headers } : undefined
+}
+
+function solusMeter(signal: SignalTarget, otel: OtelSdk) {
+  if (!meterProvider) {
+    meterProvider = new otel.MeterProvider({
+      resource: otel.otelResource(),
+      readers: [new otel.PeriodicExportingMetricReader({
+        exporter: new otel.OTLPMetricExporter(exporterConfig(signal)),
+        exportIntervalMillis: METRIC_EXPORT_INTERVAL_MS,
+      })],
+    })
+  }
+  return meterProvider.getMeter('solus')
 }
 
 function getHistogram(
@@ -185,19 +199,19 @@ function getHistogram(
 ): Histogram {
   let histogram = histograms.get(label)
   if (!histogram) {
-    if (!meterProvider) {
-      meterProvider = new otel.MeterProvider({
-        resource: otel.otelResource(),
-        readers: [new otel.PeriodicExportingMetricReader({
-          exporter: new otel.OTLPMetricExporter(exporterConfig(signal)),
-          exportIntervalMillis: METRIC_EXPORT_INTERVAL_MS,
-        })],
-      })
-    }
-    histogram = meterProvider.getMeter('solus').createHistogram(label, { unit: 'ms' })
+    histogram = solusMeter(signal, otel).createHistogram(label, { unit: 'ms' })
     histograms.set(label, histogram)
   }
   return histogram
+}
+
+function getCounter(label: string, signal: SignalTarget, otel: OtelSdk): Counter {
+  let counter = counters.get(label)
+  if (!counter) {
+    counter = solusMeter(signal, otel).createCounter(label)
+    counters.set(label, counter)
+  }
+  return counter
 }
 
 function toAttributes<Data extends object>(data: Data): Attributes {
@@ -235,6 +249,15 @@ export function recordOtelDuration<Data extends object>(label: string, durationM
   } catch {}
 }
 
+/** Adds one to the counter `label`, under the same export rule as durations. */
+export function recordOtelCount<Data extends object>(label: string, data: Data): void {
+  const signal = endpoints.metrics
+  if (!signal || !sdk) return
+  try {
+    getCounter(label, signal, sdk).add(1, toAttributes(data))
+  } catch {}
+}
+
 export async function shutdownOtel(): Promise<void> {
   const closing = [
     meterProvider?.shutdown(),
@@ -246,6 +269,7 @@ export async function shutdownOtel(): Promise<void> {
   // rather than reusing ones that are on their way out.
   meterProvider = null
   histograms.clear()
+  counters.clear()
   let timeout: ReturnType<typeof setTimeout> | null = null
   try {
     await Promise.race([
