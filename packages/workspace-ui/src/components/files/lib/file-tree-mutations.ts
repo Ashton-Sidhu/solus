@@ -9,10 +9,14 @@
 
 export type FileTreeEntryKind = 'file' | 'folder'
 
+let collator: Intl.Collator | null = null
+
 /** Same ordering the host uses for the indexed listing, so a locally inserted
- *  path lands where a refresh would have put it. */
+ *  path lands where a refresh would have put it. One collator is built on first
+ *  use: `localeCompare` with options builds one on every comparison. */
 function compareTreePaths(left: string, right: string): number {
-  return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+  collator ??= new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+  return collator.compare(left, right)
 }
 
 export function canonicalTreePath(path: string, isFolder: boolean): string {

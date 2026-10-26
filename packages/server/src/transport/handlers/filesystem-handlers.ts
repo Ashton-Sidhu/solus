@@ -10,6 +10,7 @@ import { isInsideRoot } from '../../paths'
 import { getFinder, refreshFinder } from '../../files/file-finder'
 import type { SolusServer } from '../server'
 import { browseFileMatches } from '../../files/file-browse'
+import { compareFileNames } from '../../files/name-order'
 import { searchProjectContents } from '../../files/content-search'
 import { expandHome } from '../../files/host-path'
 import { projectRootForRequest, readFilePreview, resolvePreviewPath } from '../../files/file-preview'
@@ -59,7 +60,7 @@ async function annotateEntries(entries: DirectoryEntry[]): Promise<void> {
 export function sortDirEntries(entries: { name: string; isDir: boolean }[]) {
   return entries.slice().sort((a, b) => {
     if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    return compareFileNames(a.name, b.name)
   })
 }
 
@@ -67,10 +68,6 @@ const PROJECT_FILES_MAX_ENTRIES = 25_000
 
 function normalizeFinderRelativePath(input: string): string {
   return input.replaceAll('\\', '/').replace(/\/+$/, '')
-}
-
-function compareProjectPaths(left: string, right: string): number {
-  return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
 }
 
 async function listIndexedProjectFiles(
@@ -103,7 +100,7 @@ async function listIndexedProjectFiles(
     }
   }
 
-  files.sort(compareProjectPaths)
+  files.sort(compareFileNames)
 
   const listing: ProjectFilesResult = {
     ok: true,
@@ -117,7 +114,7 @@ async function listIndexedProjectFiles(
     listing.emptyDirectories = directories
       .filter(directory => !holders.has(directory))
       .map(directory => `${directory}/`)
-      .sort(compareProjectPaths)
+      .sort(compareFileNames)
   }
   return listing
 }

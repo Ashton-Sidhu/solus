@@ -5,6 +5,7 @@ import { launchedProcess, launchProcess } from '../cli-env'
 import { currentIdentity } from '../vault/acting-scope'
 import { withBareRepositoryGuard } from './bare-repository-guard'
 import { GitUnavailableError, isGitUsable } from './git-availability'
+import { meterGitCommand, meterGitCommandSync } from './git-metrics'
 
 const execFileAsync = promisify(execFileCb)
 
@@ -37,13 +38,13 @@ export interface GitExecOptions {
 export function git(args: string[], cwd: string, opts: GitExecOptions = {}): string {
   if (!isGitUsable()) throw new GitUnavailableError()
   const run = launchProcess('git', withBareRepositoryGuard('git', args), { ...GIT_DEFAULT_ENV, ...opts.env })
-  return execFileSync(run.file, run.args, {
+  return meterGitCommandSync(args, () => execFileSync(run.file, run.args, {
     cwd,
     encoding: 'utf-8',
     timeout: opts.timeout ?? DEFAULT_TIMEOUT,
     maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
     env: run.env,
-  }).trim()
+  })).trim()
 }
 
 async function launched(bin: string, args: string[], opts: GitExecOptions) {
@@ -56,7 +57,7 @@ async function launched(bin: string, args: string[], opts: GitExecOptions) {
 
 export async function runAsync(bin: string, args: string[], cwd: string, opts: GitExecOptions = {}): Promise<string> {
   const run = await launched(bin, args, opts)
-  const { stdout } = await execFileAsync(run.file, run.args, {
+  const spawnProcess = () => execFileAsync(run.file, run.args, {
     cwd,
     encoding: 'utf-8',
     timeout: opts.timeout ?? DEFAULT_TIMEOUT,
@@ -64,6 +65,7 @@ export async function runAsync(bin: string, args: string[], cwd: string, opts: G
     env: run.env,
     signal: opts.signal,
   })
+  const { stdout } = bin === 'git' ? await meterGitCommand(args, opts.signal, spawnProcess) : await spawnProcess()
   return opts.raw ? stdout : stdout.trim()
 }
 
