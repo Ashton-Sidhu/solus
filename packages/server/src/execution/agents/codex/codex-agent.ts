@@ -15,6 +15,10 @@ import type {
 
 const log = createLogger('CodexAppServerClient', 'codex-agent.ts')
 const REQUEST_TIMEOUT_MS = 120_000
+// Node ends stdout before it reports the exit of a crashed process, so an
+// output end waits this long for the exit status before it fails the client.
+const EXIT_STATUS_GRACE_MS = 250
+const KILL_GRACE_MS = 5000
 
 interface PendingRequest {
   resolve: (value: any) => void
@@ -124,7 +128,7 @@ export class CodexAppServerClient extends EventEmitter {
   shutdown(): void {
     this.stopped = true
     this.rejectAll(new Error('Codex app-server stopped'))
-    this.proc?.kill('SIGTERM')
+    if (this.proc) stopProcess(this.proc)
     this.proc = null
   }
 
@@ -165,6 +169,22 @@ export class CodexAppServerClient extends EventEmitter {
     })
     proc.stdout.setEncoding('utf8')
     proc.stdout.on('data', (chunk) => this.onStdout(chunk))
+    // stdout can close while the process keeps running. No response can arrive
+    // after that, so the client fails as if the process exited.
+    let outputEnded = false
+    proc.stdout.once('end', () => {
+      if (this.proc !== proc) return
+      const timer = setTimeout(() => {
+        if (this.proc !== proc) return
+        log.warn('app_server_output_ended', { pid: proc.pid })
+        outputEnded = true
+        this.proc = null
+        this.rejectAll(new Error('Codex app-server output ended'))
+        stopProcess(proc)
+        this.emit('exit', null, null)
+      }, EXIT_STATUS_GRACE_MS)
+      proc.once('exit', () => clearTimeout(timer))
+    })
     proc.stderr.setEncoding('utf8')
     proc.stderr.on('data', (chunk) => {
       const text = String(chunk).trim()
@@ -179,6 +199,8 @@ export class CodexAppServerClient extends EventEmitter {
       if (this.listenerCount('error') > 0) this.emit('error', err)
     })
     proc.on('exit', (code, signal) => {
+      // An output end already failed this process; a newer one may be running.
+      if (outputEnded) return
       log.warn('app_server_exited', { code, signal })
       this.proc = null
       const err = new Error(`Codex app-server exited code=${code} signal=${signal}`)
@@ -291,6 +313,16 @@ export class CodexAppServerClient extends EventEmitter {
       this.pending.delete(id)
     }
   }
+}
+
+/** SIGTERM, then SIGKILL if the process has not exited after a grace period. */
+function stopProcess(proc: ChildProcessWithoutNullStreams): void {
+  proc.kill('SIGTERM')
+  const timer = setTimeout(() => {
+    if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL')
+  }, KILL_GRACE_MS)
+  timer.unref()
+  proc.once('exit', () => clearTimeout(timer))
 }
 
 let sharedClient: CodexAppServerClient | null = null
