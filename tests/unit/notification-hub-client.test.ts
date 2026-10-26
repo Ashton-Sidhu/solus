@@ -68,6 +68,24 @@ describe('reading sources', () => {
     expect(status(client, 'host:old')).toBe('unsupported')
   })
 
+  test('sources that never answer go offline and free their read slots for a source that answers', async () => {
+    const local = new FakeNotificationSource()
+    local.add({ id: 'mine', createdAt: 1 })
+    // A host that never connects: its transport holds every call.
+    const never = <T>() => new Promise<T>(() => {})
+    const silentLink = () => ({ ...new FakeNotificationSource().link(), api: { notificationsCapability: never, notificationsList: never, notificationsCount: never, notificationsSetRead: never, notificationsSetArchived: never } })
+    const client = new NotificationHubClient({
+      identity: 'person-a', concurrency: 3, readTimeoutMs: 10,
+      connect: (source) => (source.sourceId === 'host:local' ? local.link() : silentLink()),
+    })
+    client.setHistoryVisible(true)
+    client.setSources([host('a'), host('b'), host('c'), host('local')])
+    await client.idle()
+    expect(titles(client)).toEqual(['mine'])
+    expect(status(client, 'host:local')).toBe('ready')
+    expect(status(client, 'host:a')).toBe('offline')
+  })
+
   test('a change during a read costs exactly one more read, and shows the change', async () => {
     const source = new FakeNotificationSource()
     source.add({ id: 'first', createdAt: 100 })

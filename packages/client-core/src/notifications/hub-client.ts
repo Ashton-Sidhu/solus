@@ -93,7 +93,11 @@ export interface NotificationHubClientOptions {
   /** Sources read at once. */
   concurrency?: number
   pageSize?: number
+  /** How long one source's read may hold its slot before the source is offline. */
+  readTimeoutMs?: number
 }
+
+const READ_TIMEOUT_MS = 15_000
 
 interface SourceRuntime {
   source: NotificationSource
@@ -365,28 +369,45 @@ export class NotificationHubClient {
     const generation = ++runtime.generation
     const { sourceId } = runtime.source
     try {
-      const capability = runtime.capability ?? await runtime.link.api.notificationsCapability()
-      if (!this.isCurrent(runtime, generation)) return
-      runtime.capability = capability
-      if (capability.version < NOTIFICATION_HUB_VERSION) return this.unsupported(sourceId)
-      const [page, count] = await Promise.all([
-        this.historyVisible ? runtime.link.api.notificationsList({ filter: this.filter, limit: this.pageSize() }) : null,
-        runtime.link.api.notificationsCount(),
-      ])
-      if (!this.isCurrent(runtime, generation)) return
-      this.patchSource(sourceId, { count })
-      if (page && this.historyVisible) {
-        this.dropSourceRows(sourceId)
-        this.patchSource(sourceId, { oldestLoadedAt: null })
-        this.takePage(runtime, page)
-      }
-      this.setStatus(sourceId, 'ready')
+      // A call to a host that never connects waits in its transport. The time
+      // limit frees this read's slot, so a silent source never holds the others.
+      await this.withinReadTimeout(this.readSource(runtime, generation))
     } catch (error) {
       if (!this.isCurrent(runtime, generation)) return
       if (error instanceof Error && isUnsupported(error)) return this.unsupported(sourceId)
       // A plain failure is stale state, not a revocation: the loaded rows stay.
       this.setStatus(sourceId, 'offline', error instanceof Error ? error.message : String(error))
     }
+  }
+
+  /** The capability, first page, and count of one source. An answer that comes after the time limit still applies while it is current. */
+  private async readSource(runtime: SourceRuntime, generation: number): Promise<void> {
+    const { sourceId } = runtime.source
+    const capability = runtime.capability ?? await runtime.link.api.notificationsCapability()
+    if (!this.isCurrent(runtime, generation)) return
+    runtime.capability = capability
+    if (capability.version < NOTIFICATION_HUB_VERSION) return this.unsupported(sourceId)
+    const [page, count] = await Promise.all([
+      this.historyVisible ? runtime.link.api.notificationsList({ filter: this.filter, limit: this.pageSize() }) : null,
+      runtime.link.api.notificationsCount(),
+    ])
+    if (!this.isCurrent(runtime, generation)) return
+    this.patchSource(sourceId, { count })
+    if (page && this.historyVisible) {
+      this.dropSourceRows(sourceId)
+      this.patchSource(sourceId, { oldestLoadedAt: null })
+      this.takePage(runtime, page)
+    }
+    this.setStatus(sourceId, 'ready')
+  }
+
+  private withinReadTimeout(read: Promise<void>): Promise<void> {
+    const timeoutMs = this.options.readTimeoutMs ?? READ_TIMEOUT_MS
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('The source did not answer in time')), timeoutMs)
+    })
+    return Promise.race([read, timeout]).finally(() => clearTimeout(timer))
   }
 
   private takePage(runtime: SourceRuntime, page: NotificationPage): void {
