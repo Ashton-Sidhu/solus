@@ -275,7 +275,7 @@
               <div class="flex flex-col gap-2">
                 {#each blocks as block, index (index)}
                   <div
-                    class="rounded-md border-l-2 px-3 py-0.5 {block.change === 'added' ? 'border-(--solus-diff-added-text) bg-(--solus-diff-added-bg)' : block.change === 'removed' ? 'border-(--solus-diff-removed-text) bg-(--solus-diff-removed-bg) opacity-80' : 'border-transparent'}"
+                    class="prose rounded-md border-l-2 px-3 py-0.5 {block.change === 'added' ? 'border-(--solus-diff-added-text) bg-(--solus-diff-added-bg)' : block.change === 'removed' ? 'border-(--solus-diff-removed-text) bg-(--solus-diff-removed-bg) opacity-80' : 'border-transparent'}"
                     data-change={block.change}
                   >
                     {#if block.change !== "same"}

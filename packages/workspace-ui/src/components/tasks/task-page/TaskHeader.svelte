@@ -198,9 +198,9 @@
 {/if}
 
 <!-- The description is edited where it is read, like the title above it: no
-     edit mode, no Save or Cancel. It saves when focus leaves it. The editor
-     takes the pull request description's type (workspace.css), so reading and
-     editing are one surface. -->
+     edit mode, no Save or Cancel. It saves when focus leaves it. The editor and
+     the rendered body both use the prose style, so reading and editing are one
+     surface. -->
 <div class="task-description-prose pt-[18px]">
   {#if canEditBody}
     <DocumentPromptEditor
@@ -218,7 +218,7 @@
       maxHeight={4000}
     />
   {:else if task.body.trim()}
-    <div class="github-markdown prose-cloud prose-pr prose-pr-description">
+    <div class="prose max-w-[104ch]">
       <GithubMarkdown source={task.body} policy="local" />
     </div>
   {/if}

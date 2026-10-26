@@ -259,7 +259,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   codeFontFamily: 'jetbrains-mono',
   codeFontSize: 12,
   documentFontFamily: 'solus',
-  documentFontSize: 16,
+  documentFontSize: 15,
   promptFontFamily: 'interface',
   promptFontSize: 13,
   assistantTextOpacity: 100,

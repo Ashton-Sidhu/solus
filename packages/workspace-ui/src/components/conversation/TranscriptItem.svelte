@@ -104,7 +104,7 @@
 
 {#snippet assistantBody(displayContent: string, streaming: boolean)}
   <div
-    class="prose-cloud prose-reading prose-transcript prose-transcript-main min-w-0 response-markdown"
+    class="prose prose-transcript-main min-w-0 response-markdown"
     data-streaming={streaming ? "" : undefined}
   >
     {#if !rendersSettled}

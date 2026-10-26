@@ -69,7 +69,7 @@
         {#if detail}
           {@render detail()}
         {:else}
-          <div class="prose-cloud prose-transcript-user">
+          <div class="prose prose-user">
             <SvelteMarkdown source={message.content} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
           </div>
         {/if}

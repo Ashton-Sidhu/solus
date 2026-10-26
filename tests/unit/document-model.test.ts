@@ -87,12 +87,14 @@ const CANONICAL: { [name: string]: string } = {
   'person mention': 'Ask [@Ann \\[Ops\\] Lee](person://ref?userId=u_ann) today.',
   'escaped text': 'Not \\*em\\*, not \\[a link\\], snake\\_case, and a literal \\`tick.',
   'structure': '> A quote\n\n---\n\nLine one  \nline two',
+  callouts: '> [!NOTE]\n> Read **this** first.\n>\n> - one\n> - two\n\n> [!WARNING]\n> Do not copy a live file.\n\n> A quote stays a quote.',
 }
 
 /** Markdown a person or agent wrote in another form. The first save may
  *  normalize it, but it must keep the same content. */
 const NON_CANONICAL: { [name: string]: string } = {
   'star bullets': '* one\n* two',
+  'lower-case callout marker': '> [!tip]\n> Saved with the marker in capitals.',
   'unlabelled Mermaid': '```\nflowchart LR\n  A[Desktop] --> B[Cloud]\n```',
   'unpadded aligned table': '| L | C | R |\n|:-|:-:|-:|\n| long cell | x | y |',
   'soft-wrapped prose': 'A paragraph that an agent\nwrapped at eighty columns.',
@@ -132,10 +134,10 @@ describe('the document schema', () => {
     // attribute changed without a new version would pass that check and then
     // delete content. Update both together.
     const { nodes, marks } = describeSchema(getSchema(documentExtensions()))
-    expect(DOCUMENT_SCHEMA_VERSION).toBe(1)
+    expect(DOCUMENT_SCHEMA_VERSION).toBe(2)
     expect(Object.fromEntries(nodes.map((node) => [node.name, Object.keys(node.attrs)]))).toEqual({
       paragraph: [], blockquote: [], bulletList: [], doc: [], hardBreak: [], heading: ['level'], horizontalRule: [],
-      listItem: [], orderedList: ['start', 'type'], text: [], frontMatter: ['yaml'], codeBlock: ['language'],
+      listItem: [], orderedList: ['start', 'type'], text: [], frontMatter: ['yaml'], codeBlock: ['language'], callout: ['kind'],
       taskList: [], taskItem: ['checked'], image: ['src', 'alt', 'title', 'width', 'height'], table: [], tableRow: [],
       tableHeader: ['colspan', 'rowspan', 'colwidth', 'align'], tableCell: ['colspan', 'rowspan', 'colwidth', 'align'],
       personReference: ['userId', 'name'], diagramEmbed: ['workId', 'title'], artifactEmbed: ['workId', 'title'],
@@ -236,6 +238,15 @@ describe('the markdown codec', () => {
       ['artifactEmbed', { workId: 'w2', title: 'Latency' }],
     ])
     expect(blocks(NON_CANONICAL['bare embed URL'])).toEqual([['artifactEmbed', { workId: 'w9', title: '' }]])
+    // A callout keeps its kind; a quote, or a marker with text on its own
+    // line, stays a quote, as it does on GitHub.
+    expect(blocks(CANONICAL.callouts).map(([type, attrs]) => [type, attrs])).toEqual([
+      ['callout', { kind: 'note' }],
+      ['callout', { kind: 'warning' }],
+      ['blockquote', {}],
+    ])
+    expect(blocks('> [!NOTE] aside')[0][0]).toBe('blockquote')
+    expect(serializeDocumentMarkdown(parseDocumentMarkdown(NON_CANONICAL['lower-case callout marker']))).toBe('> [!TIP]\n> Saved with the marker in capitals.')
     const [image] = parseDocumentMarkdown(CANONICAL.images).content ?? []
     // The stored reference, never a display URL.
     expect(image.attrs?.src).toBe('asset://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.png')

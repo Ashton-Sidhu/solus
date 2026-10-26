@@ -1,12 +1,5 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import {
-    Info as InfoIcon,
-    Lightbulb as LightbulbIcon,
-    Sparkle as StarFourIcon,
-    TriangleAlert as WarningIcon,
-    CircleX as XCircleIcon,
-  } from "@lucide/svelte";
 
   type AlertType = "note" | "tip" | "important" | "warning" | "caution";
 
@@ -24,25 +17,14 @@
     warning: "Warning",
     caution: "Caution",
   } satisfies Record<AlertType, string>;
-
 </script>
 
-<div class="markdown-alert markdown-alert-{alertType}" role="note">
-  <div class="markdown-alert-title">
-    {#if alertType === "note"}
-      <InfoIcon size={16} weight="bold" aria-hidden="true" />
-    {:else if alertType === "tip"}
-      <LightbulbIcon size={16} weight="bold" aria-hidden="true" />
-    {:else if alertType === "important"}
-      <StarFourIcon size={16} weight="bold" aria-hidden="true" />
-    {:else if alertType === "warning"}
-      <WarningIcon size={16} weight="bold" aria-hidden="true" />
-    {:else}
-      <XCircleIcon size={16} weight="bold" aria-hidden="true" />
-    {/if}
-    <span>{titles[alertType]}</span>
-  </div>
-  <div class="markdown-alert-body">
+<!-- A GitHub alert (`> [!NOTE]`): the prose callout band, labelled by its
+     kind. `dir="auto"` takes the direction of the body: the browser skips the
+     text in `bdi`, so the English label does not set it. -->
+<div class="prose-callout" data-kind={alertType} role="note" dir="auto">
+  <bdi class="prose-callout-label">{titles[alertType]}</bdi>
+  <div class="prose-callout-body">
     {@render content()}
   </div>
 </div>

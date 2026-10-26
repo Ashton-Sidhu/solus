@@ -8,6 +8,7 @@
 
 import type { AppCodeFontFamily, AppFontFamily } from '@solus/contracts/types'
 import type { ConversationWidth, DocumentFontFamily, FontFamilyPreference, FontPreferenceKey, PersonalSettings, PromptFontFamily } from '@solus/contracts/settings'
+import { DEFAULT_PERSONAL_SETTINGS } from '@solus/contracts/settings'
 import { localApi } from '@solus/client-core/local-api'
 import { customFamilyStack } from '../../lib/font-family'
 
@@ -139,19 +140,17 @@ export const DOCUMENT_FONT_FAMILIES: { id: DocumentFontFamily; label: string }[]
   ...APP_FONT_FAMILIES.map(({ id, label }) => ({ id, label })),
 ]
 
-const DEFAULT_DOCUMENT_FONT_SIZE = 16
+/** The document size the doc shell's own sizes are written for (15px, the
+ *  `--solus-doc-size` base), so the scale is 1 at the default. */
+const DEFAULT_DOCUMENT_FONT_SIZE = DEFAULT_PERSONAL_SETTINGS.documentFontSize
 
 export function applyDocumentFontFamily(documentFontFamily: FontFamilyPreference): void {
-  // 'solus' is the preset: the interface face for the body, Lora for headings.
-  // Any other value, preset or installed name, is one face for both.
+  // 'solus' is the preset: the interface face. Any other value, preset or
+  // installed name, is the document's face. Headings use the same face.
   const stack = documentFontFamily === 'solus' ? null : interfaceFontStack(documentFontFamily)
   document.documentElement.style.setProperty(
     '--solus-document-font-family',
     stack ?? 'var(--solus-font-family)',
-  )
-  document.documentElement.style.setProperty(
-    '--solus-document-heading-font-family',
-    stack ?? "'Lora', Georgia, 'Times New Roman', serif",
   )
 }
 

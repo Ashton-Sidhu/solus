@@ -138,7 +138,7 @@
         {/if}
       {:else if item.kind === "assistant"}
         {#if item.message.content}
-          <div class="prose-cloud prose-reading prose-transcript prose-transcript-main response-markdown min-w-0 py-2" data-testid="assistant-message">
+          <div class="prose prose-transcript-main response-markdown min-w-0 py-2" data-testid="assistant-message">
             {@render markdown(item.message.content)}
           </div>
         {/if}
@@ -174,7 +174,7 @@
           {/snippet}
           {#snippet body()}
             {#if plan?.content}
-              <div class="prose-cloud prose-reading prose-transcript response-markdown min-w-0">{@render markdown(plan.content)}</div>
+              <div class="prose response-markdown min-w-0">{@render markdown(plan.content)}</div>
             {/if}
           {/snippet}
         </TranscriptCard>

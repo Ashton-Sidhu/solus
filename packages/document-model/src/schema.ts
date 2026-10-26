@@ -9,6 +9,7 @@ import { DocumentImage } from './image'
 import { DocumentTable } from './table'
 import { ArtifactEmbed, DiagramEmbed, HtmlBlock, MermaidBlock } from './blocks'
 import { PersonReference } from './person-reference'
+import { Callout } from './callout'
 
 /**
  * The version of the document schema below. A client and a host that share a
@@ -16,7 +17,7 @@ import { PersonReference } from './person-reference'
  * deletes that content. Change it whenever a node, a mark, or an attribute is
  * added, removed, or renamed.
  */
-export const DOCUMENT_SCHEMA_VERSION = 1
+export const DOCUMENT_SCHEMA_VERSION = 2
 
 /**
  * Node views the editor puts on the markdown schema's own nodes. Each one must
@@ -28,6 +29,7 @@ export interface MarkdownNodeViews {
   codeBlock?: Node
   image?: Node
   table?: Node
+  callout?: Node
 }
 
 /** Node views for the blocks only a work or a plan has. */
@@ -48,7 +50,8 @@ function viewOr(base: Node, view: Node | undefined): Node {
 }
 
 /**
- * The rich markdown schema: prose, lists, tables, code, images, front matter.
+ * The rich markdown schema: prose, lists, tables, code, images, callouts,
+ * front matter.
  * Every rich editor reads and writes markdown through it. Editor behaviour —
  * undo, drop cursor, shortcuts, placeholders — is added by the editor.
  */
@@ -63,6 +66,7 @@ export function markdownExtensions(views: MarkdownNodeViews = {}): AnyExtension[
     }),
     viewOr(FrontMatter, views.frontMatter),
     viewOr(CodeBlock, views.codeBlock),
+    viewOr(Callout, views.callout),
     TaskList,
     TaskItem.configure({ nested: true }),
     viewOr(DocumentImage, views.image).configure({ allowBase64: true }),

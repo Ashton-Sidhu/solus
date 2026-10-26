@@ -444,7 +444,7 @@
         {:else}
           <div class="relative">
             <div
-              class="prose-cloud prose-transcript-user {isPending ? 'queued-message-prose opacity-[0.6]' : ''} {canCollapse && !isExpanded ? 'user-message-collapsed' : ''}"
+              class="prose prose-user {isPending ? 'queued-message-prose opacity-[0.6]' : ''} {canCollapse && !isExpanded ? 'user-message-collapsed' : ''}"
               data-conversation-message-content
               data-conversation-message-id={message?.id}
             >
@@ -578,8 +578,8 @@
     box-shadow: inset 0 0 0 0.03125rem
       color-mix(in oklch, var(--foreground) 18%, transparent);
   }
-  .queued-bubble:hover :global(.prose-transcript-user),
-  .queued-bubble:focus-within :global(.prose-transcript-user) {
+  .queued-bubble:hover :global(.prose-user),
+  .queued-bubble:focus-within :global(.prose-user) {
     opacity: 0.75;
   }
 

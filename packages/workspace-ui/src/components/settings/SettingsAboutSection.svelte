@@ -84,7 +84,7 @@
             >
               Release notes for {updatesStore.release?.version}
             </summary>
-            <div class="github-markdown prose-cloud mt-2 text-[0.875em]">
+            <div class="prose mt-2 text-[0.875em]">
               <GithubMarkdown source={releaseNotes} />
             </div>
           </details>

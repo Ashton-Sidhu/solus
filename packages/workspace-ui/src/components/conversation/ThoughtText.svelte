@@ -27,7 +27,7 @@
   data-testid="thought-text"
 >
   {#each thoughts as thought, i (i)}
-    <div class="prose-cloud prose-transcript prose-thought response-markdown min-w-0" class:is-step={step}>
+    <div class="prose prose-thought response-markdown min-w-0" class:is-step={step}>
       <SvelteMarkdown
         source={thought}
         options={thoughtMarkdownOptions}

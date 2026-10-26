@@ -10,7 +10,7 @@
 </script>
 
 <div class="flex flex-col gap-3.5">
-  <div class="prose-cloud prose-reading prose-review-guide font-secondary text-(--solus-text-secondary)">
+  <div class="prose text-[length:inherit] text-(--solus-text-secondary)">
     <GithubMarkdown source={section.explanation} policy="local" />
   </div>
 

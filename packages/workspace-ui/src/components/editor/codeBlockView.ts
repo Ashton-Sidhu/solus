@@ -53,9 +53,9 @@ function control(label: string, title: string): HTMLButtonElement {
 }
 
 /**
- * Code blocks carry their controls in the caption row where a filename would
- * already sit — language, wrap and copy — so focusing one adds no furniture.
- * Focus is signalled by the left rule turning terracotta instead.
+ * The editor's code block is the shared code block (`.solus-code-block`): the
+ * language and the controls sit in its head, where a filename would sit, so
+ * focusing one adds no furniture. Focus shows as an accent ring.
  */
 export const DocCodeBlock = CodeBlockLowlight.extend({
   addNodeView() {
@@ -63,10 +63,10 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
       const currentNode = { value: node };
 
       const dom = document.createElement("div");
-      dom.className = "doc-code-block";
+      dom.className = "doc-code-block solus-code-block";
 
       const caption = document.createElement("div");
-      caption.className = "doc-code-block__caption";
+      caption.className = "solus-code-head";
       caption.contentEditable = "false";
 
       const controls = document.createElement("div");
@@ -76,6 +76,7 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
       // resting caption and its picker. Mount the shared dropdown primitive here
       // so it uses the same menu surface and rows as dropdowns elsewhere.
       const languageTarget = document.createElement("div");
+      languageTarget.className = "solus-code-lang";
       const languagePicker = mount(CodeBlockLanguageSelect, {
         target: languageTarget,
         props: {

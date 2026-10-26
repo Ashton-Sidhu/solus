@@ -35,7 +35,7 @@
   placeholder="Describe this pull request…"
   dictation
   dragHandle={false}
-  class="pr-description-editor prose-pr prose-pr-description"
+  class="pr-description-editor"
   style="max-height:26.25rem;overflow-y:auto"
 />
 

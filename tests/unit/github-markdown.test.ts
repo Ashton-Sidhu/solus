@@ -14,7 +14,7 @@ function stubs(): Plugin {
       if (name) return `virtual:${name}.svelte`
     },
     load(id) {
-      if (id === 'virtual:markdown-icons') return ['Info', 'Lightbulb', 'Sparkle', 'TriangleAlert', 'CircleX', 'Check', 'RotateCw', 'ExternalLink'].map((name) => `export { default as ${name} } from 'virtual:markdown-icon.svelte'`).join('\n')
+      if (id === 'virtual:markdown-icons') return ['Info', 'Lightbulb', 'Sparkle', 'TriangleAlert', 'CircleX', 'Check', 'Copy', 'RotateCw', 'ExternalLink'].map((name) => `export { default as ${name} } from 'virtual:markdown-icon.svelte'`).join('\n')
       if (id === 'virtual:markdown-icon.svelte') return '<span></span>'
       if (id === 'virtual:CodeSpan.svelte') return '<script>let { text } = $props()</script><code>{text}</code>'
       if (id === 'virtual:MarkdownLink.svelte') return '<script>let { href, children } = $props()</script><a {href}>{@render children?.()}</a>'
@@ -56,7 +56,7 @@ describe('complete GitHub Markdown documents', () => {
       '', 'After the alert.',
     ].join('\n')
     const body = renderDocument(source)
-    const alert = body.querySelector('.markdown-alert-caution')!
+    const alert = body.querySelector('.prose-callout[data-kind="caution"]')!
     const outer = alert.querySelector('details')!
     const inner = outer.querySelector('details')!
     const fix = inner.querySelector('details')!
@@ -77,18 +77,18 @@ describe('complete GitHub Markdown documents', () => {
 
   it('renders alerts inside details, with one code block and literal entities in code', () => {
     const body = renderDocument('<details>\n<summary>More</summary>\n\n> [!NOTE]\n> **Read this.**\n\n```text\n&amp;\n<script>\n```\n\n</details>')
-    expect(body.querySelector('details .markdown-alert-note strong')?.textContent).toBe('Read this.')
+    expect(body.querySelector('details .prose-callout[data-kind="note"] strong')?.textContent).toBe('Read this.')
     expect(body.querySelectorAll('pre > code')).toHaveLength(1)
-    expect(body.querySelector('pre code')?.textContent).toBe('&amp;\n<script>\n')
+    expect(body.querySelector('pre code')?.textContent).toBe('&amp;\n<script>')
     expect(body.querySelectorAll('script')).toHaveLength(0)
   })
 
   it('supports all alert kinds but leaves same-line and unknown markers alone', () => {
     for (const kind of ['NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION']) {
-      expect(renderDocument(`> [!${kind}]\n> body`).querySelector(`.markdown-alert-${kind.toLowerCase()}`)).not.toBeNull()
+      expect(renderDocument(`> [!${kind}]\n> body`).querySelector(`.prose-callout[data-kind="${kind.toLowerCase()}"]`)).not.toBeNull()
     }
-    expect(renderDocument('> [!NOTE] aside').querySelector('.markdown-alert')).toBeNull()
-    expect(renderDocument('> [!NOTE]*aside*').querySelector('.markdown-alert')).toBeNull()
+    expect(renderDocument('> [!NOTE] aside').querySelector('.prose-callout')).toBeNull()
+    expect(renderDocument('> [!NOTE]*aside*').querySelector('.prose-callout')).toBeNull()
     expect(renderDocument('> [!DANGER]\n> body').textContent).toContain('[!DANGER]')
   })
 
@@ -105,7 +105,7 @@ describe('complete GitHub Markdown documents', () => {
     // CodeRabbit's retry control: a task item inside an alert, with an HTML
     // comment between the box and its label.
     const body = renderDocument('> [!IMPORTANT]\n> Retry:\n> - [ ] <!-- {"checkboxId":"x"} --> 🔍 Trigger review\n\n| Check | Status |\n| :---: | ---: |\n| Title | ✅ |')
-    const task = body.querySelector('.markdown-alert li.markdown-task-item')
+    const task = body.querySelector('.prose-callout li.markdown-task-item')
     expect(task?.textContent).toContain('Trigger review')
     expect(body.querySelector('input[type="checkbox"]')).toBeNull()
     // The stylesheet reads `align` to centre or right-align a GitHub column.
@@ -131,7 +131,9 @@ describe('complete GitHub Markdown documents', () => {
       const body = renderDocument('```mermaid\ngraph TD\n  A --> B\n```\n\n```ts\nconst a = 1\n```', policy)
       expect(body.querySelector('[data-mermaid]')?.textContent).toBe('graph TD\n  A --> B\n')
       expect(body.querySelectorAll('pre')).toHaveLength(1)
-      expect(body.querySelector('pre code')?.textContent).toBe('const a = 1\n')
+      expect(body.querySelector('pre code')?.textContent).toBe('const a = 1')
+      // Every fence is the one code block: its language in the head, and Copy.
+      expect(body.querySelector('.solus-code-block .solus-code-lang')?.textContent).toBe('ts')
     }
   })
 
@@ -174,9 +176,9 @@ describe('complete GitHub Markdown documents', () => {
     const body = renderDocument(`> [!NOTE]\n> ${url}\n\nSee [recording](${url}).`)
     // WHY: a GitHub upload is published as a bare URL; the reader plays it inline,
     // so a reader never leaves the review to watch a recording.
-    expect(body.querySelector('.markdown-alert video')?.getAttribute('src')).toBe(url)
+    expect(body.querySelector('.prose-callout video')?.getAttribute('src')).toBe(url)
     // The link to the host stays beside the player for a reader who wants it.
-    expect(body.querySelector('.markdown-alert .markdown-media-link')?.getAttribute('href')).toBe(url)
+    expect(body.querySelector('.prose-callout .markdown-media-link')?.getAttribute('href')).toBe(url)
     expect(body.textContent).toContain('See recording.')
   })
 })

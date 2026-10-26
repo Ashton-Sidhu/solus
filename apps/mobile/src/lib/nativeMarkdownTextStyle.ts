@@ -44,7 +44,6 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
         strongColor: body,
         mutedColor: body,
         linkColor: body,
-        inlineCodeColor: theme["--color-user-bubble-foreground-muted"],
         codeColor: theme["--color-md-user-code-text"],
         codeBackgroundColor: theme["--color-md-user-code-bg"],
         codeBlockBackgroundColor: theme["--color-md-user-fence-bg"],
@@ -61,12 +60,11 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
       strongColor: theme["--color-md-strong"],
       mutedColor: theme["--color-md-body"],
       linkColor: theme["--color-md-link"],
-      inlineCodeColor: theme["--color-md-inline-code"],
       codeColor: theme["--color-md-code-text"],
       codeBackgroundColor: theme["--color-md-code-bg"],
       codeBlockBackgroundColor: theme["--color-md-code-bg"],
       blockBorderColor: theme["--color-md-block-border"],
-      // Desktop's `.prose-cloud th` fill (`--solus-surface-primary`): a 5% wash of ink
+      // The table header fill (`--solus-surface-primary`): a 5% wash of ink
       // in light, 7% of white in dark.
       tableHeaderBackgroundColor: theme["--color-subtle-strong"],
       fileTextColor: theme["--color-md-code-text"],

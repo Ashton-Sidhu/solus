@@ -1017,13 +1017,8 @@
           <!-- No rule under the masthead: the spacing steps (4 → 8) already
                close the title block, and a hairline here would be the only one
                above the timeline's spine. -->
-          <!-- Typography lives in `.prose-pr` (index.css), not in utilities
-               here: the `.prose-cloud` rules are unlayered, so a utility
-               override of any property they set — size, leading, colour,
-               heading margins — loses the cascade regardless of order.
-               `.prose-pr-description` adds only the measure. -->
           <section
-            class="github-markdown prose-cloud prose-pr prose-pr-description mt-8"
+            class="prose mt-8 max-w-[104ch]"
             aria-label="Pull request description"
           >
             <GithubMarkdown

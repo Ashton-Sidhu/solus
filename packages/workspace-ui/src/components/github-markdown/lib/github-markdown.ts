@@ -161,14 +161,21 @@ export function paragraphLocalVideoSource(node: Element): string {
   return child.type === 'text' ? standaloneLocalVideoHref(child.value) ?? '' : ''
 }
 
-/** The text of a ```mermaid fence, which GitHub draws as a diagram. The
- *  sanitizer keeps the `language-*` class, so the fence still names itself. */
-export function mermaidFenceSource(node: Element): string | null {
+/** A fence: a `pre` with one `code` child. The sanitizer keeps the
+ *  `language-*` class, so the fence still names its language. */
+export function fencedCode(node: Element): { text: string; lang: string } | null {
   if (node.tagName !== 'pre' || node.children.length !== 1) return null
   const code = node.children[0]
   if (code.type !== 'element' || code.tagName !== 'code') return null
   const classes = code.properties.className
-  return Array.isArray(classes) && classes.includes('language-mermaid') ? nodeText(code) : null
+  const language = Array.isArray(classes) ? classes.find((name) => String(name).startsWith('language-')) : undefined
+  return { text: nodeText(code), lang: language ? String(language).slice('language-'.length) : '' }
+}
+
+/** The text of a ```mermaid fence, which GitHub draws as a diagram. */
+export function mermaidFenceSource(node: Element): string | null {
+  const fence = fencedCode(node)
+  return fence?.lang === 'mermaid' ? fence.text : null
 }
 
 export function taskCheckbox(node: Element): Element | undefined {

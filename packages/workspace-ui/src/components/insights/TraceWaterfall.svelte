@@ -522,7 +522,7 @@
               <CopyButton text={payload.text} title="Copy {payload.label.toLowerCase()}" iconOnly />
             </span>
             {#if payload.isMarkdown}
-              <div class="prose-cloud prose-reading prose-transcript min-w-0 max-w-none text-insights-summary select-text">
+              <div class="prose min-w-0 text-insights-summary">
                 <SvelteMarkdown
                   source={payload.text}
                   options={thoughtMarkdownOptions}

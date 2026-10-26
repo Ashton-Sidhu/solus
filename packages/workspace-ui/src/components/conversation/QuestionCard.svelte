@@ -47,7 +47,7 @@
 
   // §11 — the body is the assistant's own renderer, so a fenced block keeps its
   // chrome strip and its Copy. `breaks` keeps a hand-drawn question's line
-  // endings; `.prose-interrupt` keeps its indentation.
+  // endings; `.prose-question` keeps its indentation.
   const bodyRenderers = { code: CodeBlock, codespan: CodeSpan, link: MarkdownLink, list: MarkdownList, blockquote: MarkdownBlockquote };
 
   const session = getWorkspaceContext();
@@ -347,7 +347,7 @@
         <!-- The question is a sentence, not a heading: the header's title stays
              the card's only bold line. -->
         <div
-          class="prose-cloud prose-reading prose-transcript prose-interrupt min-w-0 pb-2.5 text-transcript-card font-normal"
+          class="prose prose-question min-w-0 pb-2.5 text-transcript-card font-normal"
         >
           <SvelteMarkdown
             source={currentQuestion.question}

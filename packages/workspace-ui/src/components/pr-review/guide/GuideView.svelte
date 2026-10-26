@@ -120,7 +120,7 @@
           {/if}
 
           {#if guide.summary}
-            <div class="prose-cloud prose-reading prose-review-guide mt-4 max-w-[54rem] font-secondary text-(--solus-text-secondary)">
+            <div class="prose mt-4 max-w-[54rem] text-[length:inherit] text-(--solus-text-secondary)">
               <GithubMarkdown source={guide.summary} policy="local" />
             </div>
           {/if}

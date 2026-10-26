@@ -7,7 +7,6 @@ export interface NativeMarkdownTextStyle {
   readonly strongColor: string;
   readonly mutedColor: string;
   readonly linkColor: string;
-  readonly inlineCodeColor: string;
   readonly codeColor: string;
   readonly codeBackgroundColor: string;
   readonly codeBlockBackgroundColor: string;

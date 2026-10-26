@@ -1,0 +1,359 @@
+/* ─── Prose ───────────────────────────────────────────────────────────────
+   The one style for markdown a person reads: replies, messages, task and pull
+   request descriptions, comments, and documents (docs/plans/unified-prose.md).
+   Do not add a second prose ruleset. A surface sets `--prose-size` and its own
+   container; every size below is an `em` of the body, so that one variable
+   scales the column.
+
+   Layered, so a Tailwind utility on a prose element still wins. Shared parts
+   that render inside prose (the code block, reference tokens) keep their own
+   unlayered rules and are not restyled here. */
+@layer components {
+  .prose {
+    --prose-size: var(--text-body);
+    /* Structure (headings, strong, code) at full ink; running text a step
+       back. A surface changes the ink, never the element rules. */
+    --prose-ink-strong: var(--solus-text-primary);
+    --prose-ink: color-mix(in oklch, var(--prose-ink-strong) 80%, transparent);
+    font-size: var(--prose-size);
+    line-height: 1.625;
+    font-weight: 400;
+    color: var(--prose-ink);
+    font-feature-settings: var(--solus-font-features);
+    /* Resolves to the body face's x-height ratio and is inherited as that
+       number, so inline code in another face sets at the body's x-height. */
+    font-size-adjust: from-font;
+    overflow-wrap: break-word;
+    text-wrap: pretty;
+    /* The app shell disables selection; prose is always selectable. */
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  /* One gap between blocks. Margins collapse, so a pair reads as one gap. */
+  .prose :is(p, ul, ol, blockquote, table, hr, details, .prose-callout) {
+    margin: 0.65em 0;
+  }
+  .prose > :first-child { margin-top: 0; }
+  .prose > :last-child { margin-bottom: 0; }
+
+  /* Headings: full ink, one weight, a compact ladder off the body. */
+  .prose :is(h1, h2, h3, h4, h5, h6) {
+    margin: 1.4em 0 0.45em;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--prose-ink-strong);
+    text-wrap: balance;
+  }
+  .prose h1 { font-size: 1.4286em; }
+  .prose h2 { font-size: 1.2857em; }
+  .prose h3 { font-size: 1.1429em; }
+  .prose :is(h4, h5, h6) { font-size: 1em; }
+  .prose h6 { color: var(--solus-text-tertiary); }
+
+  .prose strong { font-weight: 600; color: var(--prose-ink-strong); }
+  .prose em { font-style: italic; }
+  .prose :is(del, s) {
+    opacity: 0.6;
+    text-decoration-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+  }
+
+  /* Links read by colour alone; a dotted rule shows on hover and focus. A
+     reference token keeps its own treatment. */
+  .prose a:not(.solus-token, :has(> .solus-token)) {
+    color: LinkText;
+    text-decoration: none;
+  }
+  .prose a:not(.solus-token, :has(> .solus-token)):is(:hover, :focus-visible) {
+    background-image: radial-gradient(circle, currentcolor 0.75px, transparent 1px);
+    background-position: left bottom;
+    background-repeat: repeat-x;
+    background-size: 4px 2px;
+  }
+
+  /* Inline code is mono and nothing else: no fill, no border. `1em` with the
+     inherited `font-size-adjust` puts its x-height on the body's; weight 450
+     keeps it from reading bold beside 400 text; the negative side margin takes
+     back the mono face's wide side bearings so the spaces around it look even. */
+  .prose :not(pre) > code {
+    font-family: var(--solus-code-font-family);
+    font-size: 1em;
+    font-weight: 450;
+    letter-spacing: -0.025em;
+    margin-inline: -0.04em;
+    color: var(--prose-ink-strong);
+    font-feature-settings: 'calt' 1, 'liga' 0;
+  }
+
+  /* Lists: native markers, muted. */
+  .prose :is(ul, ol) { padding-inline-start: 1.25em; }
+  .prose ul { list-style: disc; }
+  .prose ul ul { list-style: circle; }
+  .prose ol { list-style: decimal; }
+  .prose li::marker { color: var(--solus-text-tertiary); }
+  .prose ol > li::marker { font-variant-numeric: tabular-nums; }
+  .prose li + li { margin-top: 0.25em; }
+  .prose li > p { margin: 0; }
+  .prose li > p + p { margin-top: 0.375em; }
+  .prose li > :is(ul, ol) { margin: 0.25em 0 0; }
+
+  /* A task item: the box replaces the marker. */
+  .prose li:has(> input[type="checkbox"]) { list-style: none; }
+  /* The editor puts its box in a label beside the item's text. */
+  .prose li > :is(input, label > input)[type="checkbox"] {
+    appearance: none;
+    width: 0.8125rem;
+    height: 0.8125rem;
+    vertical-align: -0.125rem;
+    border-radius: 0.1875rem;
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in oklch, var(--foreground) 22%, transparent);
+  }
+  .prose li > input[type="checkbox"] {
+    margin-block: 0;
+    margin-inline: -1.25em 0.5em;
+  }
+  .prose li > :is(input, label > input)[type="checkbox"]:checked {
+    background: color-mix(in oklch, var(--chart-3) 16%, transparent)
+      center / 0.5rem no-repeat
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6.3l2.7 2.7L10 3.4'/%3E%3C/svg%3E");
+    box-shadow: none;
+  }
+  .prose li:has(> input[type="checkbox"]:checked) { color: var(--solus-text-tertiary); }
+  /* The editor's task list: each item lays out its own box (workspace.css). */
+  .prose ul[data-type="taskList"] {
+    padding-inline-start: 0;
+    list-style: none;
+  }
+  /* The same box for a GitHub task item, which draws its own read-only box
+     (`MarkdownListItem`). */
+  .prose li.markdown-task-item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5em;
+    margin-inline-start: -1.25em;
+    list-style: none;
+  }
+  .prose .markdown-task-checkbox {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 0.8125rem;
+    height: 0.8125rem;
+    transform: translateY(0.125rem);
+    border-radius: 0.1875rem;
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in oklch, var(--foreground) 22%, transparent);
+    color: var(--chart-3);
+  }
+  .prose .markdown-task-checked .markdown-task-checkbox {
+    background: color-mix(in oklch, var(--chart-3) 16%, transparent);
+    box-shadow: none;
+  }
+  .prose .markdown-task-checked { color: var(--solus-text-tertiary); }
+  .prose .markdown-task-content { min-width: 0; flex: 1; }
+  .prose .markdown-task-content > p { margin: 0; }
+
+  /* A quote is a quoted reply, not a note: a quiet bar. Its text keeps the
+     prose colour, so it reads in every theme; only the bar is a tint of it. */
+  .prose blockquote {
+    padding-inline-start: 0.8em;
+    border-inline-start: 0.125rem solid color-mix(in oklch, currentcolor 35%, transparent);
+  }
+
+  /* A callout (`> [!NOTE]` and its kin) is a labelled band: a rule in the
+     kind's colour above, a hairline below, no fill. The label sits above the
+     text in a narrow column and hangs in a gutter in a wide one. */
+  .prose-callout {
+    --prose-callout-color: var(--solus-art-5);
+    padding: 0.75em 0;
+    border-top: 0.0625rem solid color-mix(in oklch, var(--prose-callout-color) 40%, transparent);
+    border-bottom: 0.0625rem solid var(--hairline);
+    color: color-mix(in oklch, var(--prose-ink-strong) 88%, var(--solus-text-tertiary));
+  }
+  .prose-callout[data-kind="tip"] { --prose-callout-color: var(--solus-art-3); }
+  .prose-callout[data-kind="important"] { --prose-callout-color: var(--solus-art-6); }
+  .prose-callout[data-kind="warning"] { --prose-callout-color: var(--solus-art-2); }
+  .prose-callout[data-kind="caution"] { --prose-callout-color: var(--solus-art-negative); }
+  .prose-callout-label {
+    display: block;
+    margin-bottom: 0.35em;
+    font-family: var(--solus-code-font-family);
+    font-size: 0.8em;
+    font-weight: 500;
+    line-height: 1.6;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    /* Pulled toward the text so amber and green hold contrast in light mode. */
+    color: color-mix(in oklch, var(--prose-callout-color) 78%, var(--solus-text-primary));
+    user-select: none;
+  }
+  /* In the editor the label is the button that changes the kind. */
+  button.prose-callout-label {
+    padding: 0;
+    border: none;
+    background: none;
+    text-align: start;
+    cursor: pointer;
+  }
+  button.prose-callout-label:disabled { cursor: default; }
+  button.prose-callout-label:focus-visible {
+    outline: 0.125rem solid color-mix(in oklch, var(--solus-accent) 55%, transparent);
+    outline-offset: 0.125rem;
+    border-radius: 0.25rem;
+  }
+  .prose-callout-body > :first-child { margin-top: 0; }
+  .prose-callout-body > :last-child { margin-bottom: 0; }
+  @container (min-width: 36rem) {
+    .prose-callout {
+      display: grid;
+      grid-template-columns: 6.5em minmax(0, 1fr);
+    }
+    .prose-callout-label {
+      margin: 0;
+      padding-top: 0.15em;
+    }
+  }
+
+  /* Tables: a header rule and hairlines between rows. */
+  .prose table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9286em;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+  .prose :is(th, td) {
+    padding: 0.45em 0.75em 0.45em 0;
+    border: none;
+    background: none;
+    text-align: start;
+    vertical-align: top;
+  }
+  .prose thead th {
+    font-weight: 600;
+    color: var(--prose-ink-strong);
+    border-bottom: 0.0625rem solid var(--hairline-strong);
+  }
+  .prose tbody td { border-bottom: 0.0625rem solid var(--hairline); }
+  /* A long cell wraps at 24rem, so one wide column cannot push the others
+     out. `break-word`, not `anywhere`: `anywhere` lets a column shrink to one
+     character, so a short cell such as "10" breaks into "1" and "0". */
+  .prose :is(thead th, tbody td) {
+    max-width: 24rem;
+    overflow-wrap: break-word;
+  }
+  .prose tbody tr:last-child td { border-bottom: none; }
+  /* GitHub keeps a cell's column alignment (`:---:` in the source). */
+  .prose :is(th, td)[align="center"] { text-align: center; }
+  .prose :is(th, td)[align="right"] { text-align: right; }
+
+  .prose hr {
+    margin: 1.4em 0;
+    border: none;
+    border-top: 0.0625rem solid var(--hairline-strong);
+  }
+
+  .prose img { max-width: 100%; height: auto; }
+
+  /* A disclosure: a chevron row; the body indents under the summary. */
+  .prose details { border-block: 0.0625rem solid var(--hairline); }
+  .prose details[open] { padding-bottom: 0.75em; }
+  .prose details > :not(summary) { padding-inline-start: 1.5em; }
+  .prose summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.5em 0;
+    list-style: none;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--prose-ink-strong);
+  }
+  .prose summary::-webkit-details-marker { display: none; }
+  .prose summary::before {
+    content: "";
+    flex: none;
+    width: 0.375rem;
+    height: 0.375rem;
+    margin: 0 0.3125rem 0 0.25rem;
+    border-right: 0.09375rem solid var(--muted-foreground);
+    border-bottom: 0.09375rem solid var(--muted-foreground);
+    transform: rotate(-45deg);
+    transition: transform 150ms ease;
+  }
+  .prose details[open] > summary::before { transform: rotate(45deg); }
+  .prose summary:focus-visible {
+    outline: 0.125rem solid color-mix(in oklch, var(--solus-accent) 55%, transparent);
+    outline-offset: 0.125rem;
+    border-radius: 0.25rem;
+  }
+
+  /* An `@login` reads as a person, not a word in the sentence. */
+  .prose .markdown-mention {
+    color: var(--prose-ink-strong);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .prose summary::before { transition: none; }
+  }
+
+  /* Right-to-left text: each paragraph, heading, and item takes its direction
+     from its own first letter. Lists and quotes get `dir="auto"` from their
+     renderers, because only a direction on the element moves a marker, an
+     indent, or a rule. Code and tables stay left to right. */
+  .prose :is(p, h1, h2, h3, h4, h5, h6, li) { unicode-bidi: plaintext; }
+  .prose :is(pre, code, table) {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  /* ─── Surfaces ───
+     A surface changes the size, the ink, or a part it does not show. It never
+     restates an element's style. These come after the element rules: they tie
+     on specificity, so source order decides. */
+
+  /* An assistant reply takes the Appearance opacity on its running text.
+     Headings keep full ink, so a reply's structure stays visible. */
+  .prose-transcript-main {
+    --prose-ink: color-mix(
+      in oklch,
+      var(--prose-ink-strong) calc(var(--solus-assistant-text-opacity, 100%) * 0.8),
+      transparent
+    );
+  }
+
+  /* The person's own message: the bubble sets the colour, and the prose
+     follows it at every level. */
+  .prose-user {
+    --prose-ink-strong: currentColor;
+    --prose-ink: currentColor;
+  }
+
+  /* The agent's reasoning, opened from its row: context for the answer, so
+     one step down in size and tone. */
+  .prose-thought {
+    --prose-size: var(--text-caption);
+    --prose-ink: var(--solus-text-secondary);
+  }
+  /* Both providers lead a summary with a `**title**`. In a thought that bold
+     is structure, not emphasis. */
+  .prose-thought strong { font-weight: inherit; }
+  /* Inside a tool group a thought takes the steps' size and tone. */
+  .prose-thought.is-step {
+    --prose-size: var(--text-tool-step);
+    --prose-ink: currentColor;
+    opacity: 0.8;
+  }
+
+  /* A question the model writes into a card: the card title is the heading,
+     so headings drop to the body size, and an image would out-weigh the
+     options. Hand-drawn ASCII in an unfenced body keeps its indentation. */
+  .prose-question :is(h1, h2, h3, h4, h5, h6) {
+    margin: 0 0 0.375em;
+    font-size: 1em;
+    font-weight: 500;
+  }
+  .prose-question img { display: none; }
+  .prose-question p { white-space: pre-wrap; }
+}

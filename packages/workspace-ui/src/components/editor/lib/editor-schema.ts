@@ -2,6 +2,7 @@ import type { AnyExtension } from '@tiptap/core'
 import { documentExtensions, markdownExtensions, type DocumentBlockViews } from '@solus/document-model/schema'
 import { DocumentTable } from '@solus/document-model/table'
 import { lowlight } from '../../../lib/lowlight'
+import { DocCallout } from '../calloutView'
 import { DocCodeBlock } from '../codeBlockView'
 import { FrontMatterExtension } from '../frontMatterExtension'
 import { createDocumentImageView, type ImageSourceResolver } from './document-image-view'
@@ -21,6 +22,7 @@ export function editorSchemaExtensions(
   const views = {
     frontMatter: FrontMatterExtension,
     codeBlock: DocCodeBlock.configure({ lowlight }),
+    callout: DocCallout,
     image: createDocumentImageView(resolveImage),
     // 5.5px either side of the rule is the design's 11px hit zone, hung on
     // the 1px border itself rather than on a strip beside it. cellMinWidth

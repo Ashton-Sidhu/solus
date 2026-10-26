@@ -149,10 +149,7 @@
                 {formatTimeAgoFromTimestamp(new Date(comment.createdAt).getTime())}
               </span>
             </div>
-            <!-- GitHub markdown: the `.prose-pr` typography of the PR description,
-                 stepped down by the compact modifier. The `.prose-cloud` rules are
-                 unlayered, so utilities cannot size this body. -->
-            <div class="mt-0.5 github-markdown prose-cloud prose-pr prose-pr-compact">
+            <div class="prose mt-0.5">
               <GithubMarkdown source={comment.body} />
             </div>
           </div>

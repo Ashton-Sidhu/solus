@@ -275,6 +275,8 @@
         // Read-only text still needs focus for selection-based comments and copy.
         coreExtensionOptions: { tabindex: { value: "0" } },
         editorProps: {
+          // The editor draws its text in the one prose style.
+          attributes: { class: "prose" },
           handleDOMEvents: {
             // `handleClickOn` runs on mouseup. The click after it would still
             // follow the link in a read-only document and leave the workspace.

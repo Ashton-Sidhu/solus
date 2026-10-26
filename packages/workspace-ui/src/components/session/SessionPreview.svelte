@@ -97,7 +97,7 @@
 {#snippet openingPrompt(message: BoundedPreviewMessage)}
   <div class="flex justify-end pb-1.5 pt-3">
     <div
-      class="prose-transcript-user max-w-[88%] overflow-hidden break-words rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 py-2.5 text-(--solus-text-primary)"
+      class="prose prose-user max-w-[88%] overflow-hidden break-words rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 py-2.5 text-(--solus-text-primary)"
     >
       <SvelteMarkdown
         source={message.snippet}
@@ -126,7 +126,7 @@
 
 {#snippet lastReply(message: BoundedPreviewMessage)}
   <div class="w-full overflow-hidden whitespace-pre-wrap break-words py-2">
-    <div class="prose-cloud prose-reading prose-transcript min-w-0">
+    <div class="prose min-w-0">
       <SvelteMarkdown
         source={message.snippet}
         options={assistantMarkdownOptions}

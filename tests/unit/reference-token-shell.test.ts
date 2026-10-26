@@ -18,6 +18,10 @@ const css = readFileSync(
   join(import.meta.dir, "../../packages/workspace-ui/src/workspace.css"),
   "utf8",
 );
+const prose = readFileSync(
+  join(import.meta.dir, "../../packages/workspace-ui/src/prose.css"),
+  "utf8",
+);
 
 const TOKEN_VARIANTS = [
   "plan-pending",
@@ -93,58 +97,26 @@ describe("reference token shell", () => {
     }
   });
 
-  test("a code span never takes a token accent", () => {
-    const codeRules = css.match(/\.prose-transcript(?:-user)? code[^{]*\{[^}]*\}/g) ?? [];
-    expect(codeRules.length).toBeGreaterThan(0);
-    for (const rule of codeRules) {
-      expect(rule).not.toContain("--solus-token-accent");
+  test("a code span is never a chip", () => {
+    // WHY: a chip is a reference you can click. A literal drawn in the same
+    // box reads as one, so inline code is mono text and nothing else: no
+    // fill, no border, and never a token accent.
+    const code = prose.match(/\n\s*\.prose :not\(pre\) > code \{([^}]*)\}/)?.[1];
+    expect(code).toBeDefined();
+    for (const property of ["background", "border", "padding", "--solus-token-accent"]) {
+      expect(code!, property).not.toMatch(new RegExp(`\\n\\s*${property}[\\w-]*:`));
     }
   });
 
-  test("a code span is the same size as the chip beside it", () => {
-    // WHY: a literal and a reference share a line constantly. A fixed rung on
-    // one and `em` on the other put them at different sizes in the same
-    // sentence, and a third size in a table cell.
-    const base = css.match(/\n\.solus-token \{([^}]*)\}/)?.[1] ?? "";
-    const sizeOf = (body: string) => body.match(/\n\s*font-size:\s*([^;]+);/)?.[1];
-    const blockPaddingOf = (body: string) =>
-      body.match(/\n\s*padding:\s*([\d.]+em)/)?.[1];
-
-    // The transcript and the task/pull-request column each declare the literal's
-    // shell; both follow the chip's ratio.
-    const codeRules = [
-      css.match(/\n\.prose-transcript code,\n\.prose-transcript-user code \{([^}]*)\}/)?.[1],
-      css.match(/\n:is\(\.prose-pr[^{]*\) :not\(pre\) > code \{([^}]*)\}/)?.[1],
-    ];
-    for (const code of codeRules) {
-      expect(code).toBeDefined();
-      expect(sizeOf(code!)).toBe(sizeOf(base));
-      expect(blockPaddingOf(code!)).toBe(blockPaddingOf(base));
-    }
-  });
-
-  test("no transcript surface restates a code span's size", () => {
-    // A table cell used to tighten its own code spans, which is how the third
-    // size appeared. A cell that needs smaller code sets it on the cell.
-    const uncommented = css.replace(/\/\*[\s\S]*?\*\//g, "");
-    // `\scode\s*` so a class that merely contains "code" (`.solus-code-lang`)
-    // is not mistaken for the element.
-    const rules = uncommented.matchAll(
-      /([^{}]*\.prose-transcript[^{}]*\scode\s*)\{([^}]*)\}/g,
-    );
-    let sawSharedShell = false;
-    for (const [, selector, body] of rules) {
-      const trimmed = selector.trim().split(/\n\s*\n/).pop()!.trim();
-      // The shared shell declares the one size; a fenced block's inner `code`
-      // resets to its parent's.
-      if (trimmed === ".prose-transcript code,\n.prose-transcript-user code") {
-        sawSharedShell = true;
-        continue;
-      }
-      if (trimmed.includes("pre code") || trimmed.includes("solus-code-block")) continue;
-      expect(body, trimmed).not.toMatch(/\n\s*font-size:/);
-    }
-    // Proves the scan reached the rules it is guarding rather than matching none.
-    expect(sawSharedShell).toBe(true);
+  test("a code span sets at the body's x-height", () => {
+    // WHY: a mono face at a fixed ratio such as 0.9em reads smaller than the
+    // text around it, and by a different amount for each face. The prose
+    // root resolves `font-size-adjust` from its own face; the code span keeps
+    // 1em and inherits that ratio, so its lowercase letters match the body's.
+    const root = prose.match(/\n\s*\.prose \{([^}]*)\}/)?.[1] ?? "";
+    expect(root).toMatch(/\n\s*font-size-adjust:\s*from-font;/);
+    const code = prose.match(/\n\s*\.prose :not\(pre\) > code \{([^}]*)\}/)?.[1] ?? "";
+    expect(code).toMatch(/\n\s*font-size:\s*1em;/);
+    expect(code).not.toMatch(/font-size-adjust/);
   });
 });

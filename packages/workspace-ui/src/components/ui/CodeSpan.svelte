@@ -25,7 +25,7 @@
   const boldText = $derived(boldTextInCodeSpan(copyText));
 
   // A bare abbreviated-or-full hex hash — an address rather than a literal you
-  // would retype. Only surfaces that opt in style it (see .prose-pr-description).
+  // would retype. A surface may style it through `.markdown-sha`.
   const SHA_RE = /^[0-9a-f]{7,40}$/i;
 
   const isSha = $derived(SHA_RE.test(copyText));

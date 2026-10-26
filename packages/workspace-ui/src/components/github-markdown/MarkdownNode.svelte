@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { RootContent } from 'hast'
   import MarkdownNode from './MarkdownNode.svelte'
+  import CodeBlock from '../ui/CodeBlock.svelte'
   import CodeSpan from '../ui/CodeSpan.svelte'
   import MarkdownAlert from '../ui/MarkdownAlert.svelte'
   import MarkdownParagraph from '../ui/MarkdownParagraph.svelte'
@@ -12,7 +13,7 @@
   import SignedGithubMedia from './SignedGithubMedia.svelte'
   import { githubMediaFetchUrl } from '@solus/contracts/github-media'
   import { getGithubMediaHost, githubMediaSources } from './lib/github-media.svelte'
-  import { alertKind, elementAttributes, mermaidFenceSource, nodeText, paragraphLocalVideoSource, paragraphMediaSource, personMentionOf, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
+  import { alertKind, elementAttributes, fencedCode, mermaidFenceSource, nodeText, paragraphLocalVideoSource, paragraphMediaSource, personMentionOf, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
 
   let { node, policy, parentTag = '', hideTaskCheckbox = false }: {
     node: RootContent
@@ -28,6 +29,7 @@
   const localVideo = $derived(element && policy === 'local' ? paragraphLocalVideoSource(element) : '')
   const checkbox = $derived(element ? taskCheckbox(element) : undefined)
   const mermaid = $derived(element ? mermaidFenceSource(element) : null)
+  const fence = $derived(element ? fencedCode(element) : null)
   // Only a local document stores mentions of organization members.
   const mention = $derived(element && policy === 'local' ? personMentionOf(element) : null)
   // A pull request surface signs GitHub media on its host, so a private
@@ -58,6 +60,8 @@
     <MarkdownAlert alertType={alert} content={children} />
   {:else if mermaid !== null}
     <MermaidBlock text={mermaid} />
+  {:else if fence}
+    <CodeBlock text={fence.text} lang={fence.lang} />
   {:else if media && signsMedia && mediaServerId}
     <SignedGithubMedia serverId={mediaServerId} source={media}>
       {#snippet withSource(src)}
@@ -91,6 +95,10 @@
     <PersonMention {mention} />
   {:else if element.tagName === 'a' && policy === 'local'}
     <MarkdownLink href={String(element.properties.href ?? '')} text={nodeText(element)}>{@render children()}</MarkdownLink>
+  {:else if element.tagName === 'table'}
+    <!-- A table wider than its column scrolls instead of pushing past the
+         comment's edge. -->
+    <div class="max-w-full overflow-x-auto"><table {...attributes}>{@render children()}</table></div>
   {:else if voidElements.has(element.tagName)}
     <svelte:element this={element.tagName} {...attributes} />
   {:else}

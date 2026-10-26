@@ -12,6 +12,7 @@ import {
     ListOrdered as ListNumbersIcon,
     ListChecks as ListChecksIcon,
     Quote as QuotesIcon,
+    Info as CalloutIcon,
     Code as CodeIcon,
     Table as TableIcon,
     Minus as MinusIcon,
@@ -103,6 +104,16 @@ export const EDITOR_BLOCK_COMMANDS: EditorBlockCommand[] = [
     icon: QuotesIcon,
     group: 'advanced',
     action: (e) => { e.chain().focus().toggleBlockquote().run() },
+  },
+  {
+    id: 'callout',
+    label: 'Callout',
+    description: 'A note, tip, or warning',
+    keywords: ['callout', 'note', 'tip', 'important', 'warning', 'caution', 'alert'],
+    icon: CalloutIcon,
+    group: 'advanced',
+    // The label then changes its kind.
+    action: (e) => { e.chain().focus().wrapIn('callout').run() },
   },
   {
     id: 'codeBlock',

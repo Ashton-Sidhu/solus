@@ -122,7 +122,7 @@
       </p>
     {:else}
       <div
-        class="transcript-text prose-cloud prose-reading prose-transcript min-w-0 {pane.role ===
+        class="transcript-text prose min-w-0 {pane.role ===
         'system'
           ? 'text-muted-foreground'
           : ''}"
@@ -293,8 +293,8 @@
      transcript, but large enough to read as a summary rather than chart
      annotation. It is 14px and carries the user's text-size preference.
 
-     Written here, not as a utility: `.prose-transcript` and `.prose-reading`
-     are unlayered, so a `text-*` utility in `@layer utilities` never wins. */
+     Written here because the plain ask (a `<p>`) and the markdown answer share
+     one class, and the headings follow the text down with it. */
   .transcript-text {
     font-size: var(--text-insights-summary);
     line-height: 1.7;

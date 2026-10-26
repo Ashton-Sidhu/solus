@@ -34,7 +34,7 @@
     aria-label="Code block language"
     title="Language"
     onmousedown={(event) => event.stopPropagation()}
-    class="relative inline-flex h-[1.375rem] items-center gap-1 rounded-[0.3125rem] border-0 bg-transparent px-1.5 py-0 font-(family-name:--solus-doc-mono) text-workspace-chrome uppercase text-(--solus-text-tertiary) transition-[background-color,color,transform] after:absolute after:inset-x-0 after:-inset-y-[0.5625rem] hover:bg-(--solus-surface-hover) hover:text-(--solus-doc-ink-strong) active:scale-[0.96] data-[state=open]:bg-(--solus-surface-hover) data-[state=open]:text-(--solus-doc-ink-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) pointer-coarse:min-h-11"
+    class="relative inline-flex h-[1.375rem] items-center gap-1 rounded-[0.3125rem] border-0 bg-transparent px-1.5 py-0 font-(family-name:--solus-code-font-family) text-[length:inherit] tracking-[inherit] uppercase text-(--solus-text-tertiary) transition-[background-color,color,transform] after:absolute after:inset-x-0 after:-inset-y-[0.5625rem] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] data-[state=open]:bg-(--solus-surface-hover) data-[state=open]:text-(--solus-text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) pointer-coarse:min-h-11"
   >
     {label}
     <ChevronDown size={12} />

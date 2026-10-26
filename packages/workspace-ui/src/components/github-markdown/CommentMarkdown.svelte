@@ -36,7 +36,7 @@
   class="relative {overflowing && !expanded ? 'max-h-[240px] overflow-hidden' : ''}"
   onfocusin={() => (expanded = true)}
 >
-  <div bind:clientHeight={contentHeight} class="github-markdown prose-cloud prose-pr prose-pr-activity">
+  <div bind:clientHeight={contentHeight} class="prose">
     <GithubMarkdown {source} {policy} />
   </div>
   {#if overflowing && !expanded}

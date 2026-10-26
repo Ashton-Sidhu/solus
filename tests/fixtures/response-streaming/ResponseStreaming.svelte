@@ -7,6 +7,6 @@
   const renderers = { code: CodeBlock };
   export function update(text: string, streaming = true) { source = text; live = streaming; }
 </script>
-<div class="response-markdown prose-cloud prose-reading prose-transcript prose-transcript-main" data-streaming={live ? '' : undefined}>
+<div class="response-markdown prose prose-transcript-main" data-streaming={live ? '' : undefined}>
   <SvelteMarkdown {source} streaming {renderers} extensions={assistantMarkdownExtensions(source)} />
 </div>

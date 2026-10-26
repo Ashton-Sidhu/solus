@@ -19,7 +19,7 @@ import {
   recognizedLinkUrls,
 } from "../lib/enrichedLinkPresentation";
 import { FILE_MENTION_REGEX } from "../lib/fileMentions";
-import { markdownWithBlockImages, markdownWithHtml } from "../lib/markdownDocument";
+import { markdownWithBlockImages, markdownWithCallouts, markdownWithHtml } from "../lib/markdownDocument";
 import type { SelectableMarkdownTextProps } from "./SelectableMarkdownText.types";
 import { useEnrichedLinkVariants } from "./useEnrichedLinkVariants";
 import { useRetryingImageSource } from "./useRetryingImageSource";
@@ -33,8 +33,9 @@ function enrichedStyle(
 ): MarkdownStyle {
   const monospace = Platform.OS === "ios" ? "Menlo" : "monospace";
   const block = { marginTop: 4, marginBottom: 12 };
-  // Desktop's `.prose-cloud pre` is 0.75rem against a 0.875rem body, at 1.55 leading.
-  const codeBlockFontSize = style.fontSize * (0.75 / 0.875);
+  // Desktop's code block (`.solus-code-block pre`) is 0.8125rem against a
+  // 0.875rem body, at 1.55 leading.
+  const codeBlockFontSize = style.fontSize * (0.8125 / 0.875);
   const body = {
     color: style.color,
     fontFamily: style.fontFamily,
@@ -64,12 +65,15 @@ function enrichedStyle(
     h6: heading(6),
     strong: { color: style.strongColor, fontFamily: style.boldFontFamily, fontWeight: "normal" },
     link: { color: style.linkColor, underline: false },
+    // Desktop's prose inline code: mono at full ink, no fill, no border, and
+    // its x-height on the body's. Native text has no `font-size-adjust`, so
+    // the ratio is DM Sans's x-height (0.526) over Menlo's (0.547).
     code: {
       fontFamily: monospace,
-      color: style.inlineCodeColor,
+      color: style.strongColor,
       backgroundColor: "transparent",
       borderColor: "transparent",
-      fontSize: style.fontSize * 0.9,
+      fontSize: style.fontSize * (0.526 / 0.547),
     },
     // Desktop's chat code block (`.solus-code-block`): the code tint panel, a soft
     // border, and a 10px radius.
@@ -121,7 +125,7 @@ function enrichedStyle(
     },
     list: { ...body, bulletColor: style.mutedColor, markerColor: style.mutedColor, gapWidth: 6 },
     thematicBreak: { color: style.dividerColor, height: 1, marginTop: 8, marginBottom: 8 },
-    // Desktop's `.prose-cloud table`: square, soft 1px rules, and a plain header fill.
+    // A table: square, soft 1px rules, and a plain header fill.
     // Enriched draws a full grid (it has no style for row rules only), so the
     // column lines take the same soft color as the rows.
     table: {
@@ -150,7 +154,7 @@ function enrichedStyle(
 export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
   const { onLinkPress, onImagePress, onQuote, renderImage, resolveImageSource } = props;
   const markdown = useMemo(
-    () => markdownWithBlockImages(markdownWithHtml(props.markdown)),
+    () => markdownWithCallouts(markdownWithBlockImages(markdownWithHtml(props.markdown))),
     [props.markdown],
   );
   const { themeAppearance } = useAppearancePreferences();
