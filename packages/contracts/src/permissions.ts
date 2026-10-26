@@ -216,7 +216,7 @@ const PERMISSION_OF_METHOD = {
   prGetDiff: HOST_USE, prGetDiffFileContents: HOST_USE, prPrepareCheckout: HOST_USE, prGetDetail: HOST_USE,
   prGetOverview: HOST_USE, prChangedFiles: HOST_USE, prListThreads: HOST_USE, prListComments: HOST_USE,
   prListCommits: HOST_USE, prGetStack: HOST_USE, prListReviewers: HOST_USE, prListReviewerCandidates: HOST_USE,
-  prListLabelCandidates: HOST_USE, prInterdiff: HOST_USE, prGenerateGuides: HOST_USE, prMediaUrl: HOST_USE,
+  prListLabelCandidates: HOST_USE, prFilterOptions: HOST_USE, prInterdiff: HOST_USE, prGenerateGuides: HOST_USE, prMediaUrl: HOST_USE,
   prPendingWorkflowRuns: HOST_USE, prViewedFiles: HOST_USE, prSetFilesViewed: HOST_USE,
   prPrepareConflictResolution: HOST_USE, prRefresh: HOST_USE, getReviewContext: HOST_USE, generateGuide: HOST_USE,
   requestReviewGuide: HOST_USE, reviewGuideStatus: HOST_USE, sessionGuideStatuses: HOST_USE,

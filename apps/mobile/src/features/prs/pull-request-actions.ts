@@ -185,7 +185,7 @@ export class PullRequestActions {
   async filterOptions(projects: readonly { hostId: string; projectPath: string }[], field: PrFilterField, query: string): Promise<PrFilterChoice[]> {
     const lists = await Promise.all(projects.map(async (project) => {
       const connection = this.deps.connectionFor(project.hostId)
-      if (connection?.state.phase !== 'connected') return []
+      if (connection?.state.readiness !== 'ready') return []
       return connection.api.prFilterOptions(this.deps.directory.context(project.projectPath), field, query).catch((): PrFilterChoice[] => [])
     }))
     return mergeFilterChoices(lists)
