@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { AttentionNotificationTracker } from '@solus/workspace-ui/contexts/notifications/notifications-core'
+import { AttentionNotificationTracker, backgroundSessionAnnouncement } from '@solus/workspace-ui/contexts/notifications/notifications-core'
 import type { AttentionEntry } from '@solus/contracts/attention-types'
 
 function entry(sessionId: string, kind: AttentionEntry['kind'] = 'question'): AttentionEntry {
@@ -94,5 +94,29 @@ describe('background activity acknowledgement', () => {
     const tracker = new AttentionNotificationTracker()
     tracker.applySnapshot('a', [], () => false)
     expect(tracker.applySnapshot('a', [entry('done', 'finished')], () => false)).toEqual([])
+  })
+})
+
+describe('backgroundSessionAnnouncement', () => {
+  test('names the status first and the session after it, for every kind', () => {
+    expect(backgroundSessionAnnouncement([
+      { kind: 'finished', title: 'Fix the login redirect', snoozed: false },
+      { kind: 'failed', title: 'Update README', snoozed: false },
+      { kind: 'needs_approval', title: 'Run migrations', snoozed: false },
+      { kind: 'question', title: 'Pick a color', snoozed: false },
+    ])).toBe('Done: Fix the login redirect. Failed: Update README. Needs approval: Run migrations. Needs your input: Pick a color')
+  })
+
+  test('keeps a snoozed finish quiet, but a snoozed session that needs the user still speaks', () => {
+    expect(backgroundSessionAnnouncement([{ kind: 'finished', title: 'Later', snoozed: true }])).toBeNull()
+    expect(backgroundSessionAnnouncement([
+      { kind: 'finished', title: 'Later', snoozed: true },
+      { kind: 'failed', title: 'Later', snoozed: true },
+      { kind: 'question', title: 'Later', snoozed: true },
+    ])).toBe('Failed: Later. Needs your input: Later')
+  })
+
+  test('says nothing when nothing changed', () => {
+    expect(backgroundSessionAnnouncement([])).toBeNull()
   })
 })

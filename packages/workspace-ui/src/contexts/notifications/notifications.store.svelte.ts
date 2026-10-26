@@ -24,7 +24,8 @@ import { attentionStateForKind } from '../../lib/sessionUtils'
 import { toasts } from '../../lib/toasts'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { createActivityBadge } from './activity-badge'
-import { BackgroundActivityTracker, AttentionNotificationTracker } from './notifications-core'
+import { sessionListStore } from '../workspace/session-list.store.svelte'
+import { BackgroundActivityTracker, AttentionNotificationTracker, backgroundSessionAnnouncement } from './notifications-core'
 
 export interface NotificationHostDisplay {
   label: string
@@ -62,6 +63,10 @@ class NotificationsStore {
   /** Reactive so an effect that asks `wants` before `start` re-runs once the
    *  shell has supplied the preferences. */
   private deps = $state.raw<NotificationManagerDependencies | null>(null)
+  /** The last words about sessions the user is not looking at, for the one
+   *  live region that speaks them. `count` changes on each announcement, so the
+   *  same words said twice in a row are spoken twice. */
+  spoken = $state.raw({ text: '', count: 0 })
 
   /** Whether an app notice (a toast raised outside a session) may be shown.
    *  Singleton stores read this; they have no settings context of their own.
@@ -170,6 +175,12 @@ class NotificationsStore {
     const preferences = deps.preferences()
     const inFront = isSolusInFront()
     const activity = this.activity.applySnapshot(serverId, entries, deps.isSessionFocused)
+    const announcement = backgroundSessionAnnouncement(activity.map(({ entry }) => ({
+      kind: entry.kind,
+      title: sessionListStore.listed(entry.sessionId)?.title ?? 'Session',
+      snoozed: (sessionListStore.stateFor(entry.sessionId)?.snoozedUntil ?? 0) > Date.now(),
+    })))
+    if (announcement) this.spoken = { text: announcement, count: this.spoken.count + 1 }
     if (inFront) this.activity.acknowledge()
     this.updateBadge(this.activity.sessionKeys)
     if (preferences.channels.toast && inFront) {

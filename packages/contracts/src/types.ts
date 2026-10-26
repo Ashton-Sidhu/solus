@@ -1961,10 +1961,14 @@ export type NormalizedEvent =
 type ToolCallEvent = Extract<NormalizedEvent, { type: 'tool_call' }>
 type ToolCallUpdateEvent = Extract<NormalizedEvent, { type: 'tool_call_update' }>
 type ToolResultEvent = Extract<NormalizedEvent, { type: 'tool_result' }>
+type AssistantMessageEvent = Extract<NormalizedEvent, { type: 'assistant_message' }>
 
 /** Session event shape allowed across the host-to-client boundary. */
 export type WireNormalizedEvent =
-  | Exclude<NormalizedEvent, ToolCallEvent | ToolCallUpdateEvent | ToolResultEvent>
+  | Exclude<NormalizedEvent, ToolCallEvent | ToolCallUpdateEvent | ToolResultEvent | AssistantMessageEvent>
+  /** `textStreamed`: the client received this prose as `text_chunk` events, so
+   *  the host sent `text` blank. The clients read the event only as a boundary. */
+  | (AssistantMessageEvent & { textStreamed?: true })
   | Omit<ToolCallEvent, 'content'>
   | Omit<ToolCallUpdateEvent, 'content'>
   | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number; toolImages?: ToolResultImage[] }

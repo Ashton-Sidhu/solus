@@ -1,5 +1,5 @@
 import { attentionEntryKey, isNotifiableAttentionEntry } from '@solus/contracts/notification-types'
-import type { AttentionEntry } from '@solus/contracts/attention-types'
+import type { AttentionEntry, AttentionKind } from '@solus/contracts/attention-types'
 
 interface HostSnapshotState {
   keys: Set<string>
@@ -82,4 +82,30 @@ export class BackgroundActivityTracker {
     this.transitions.dropHost(serverId)
     this.sessions.delete(serverId)
   }
+}
+
+/** One session the user is not looking at, as a screen reader hears of it. */
+export interface AnnouncedSession {
+  kind: AttentionKind
+  title: string
+  /** A snoozed session stays out of sight until its timer, so its finish stays quiet. */
+  snoozed: boolean
+}
+
+const SPOKEN_KIND = {
+  needs_approval: 'Needs approval',
+  question: 'Needs your input',
+  finished: 'Done',
+  failed: 'Failed',
+} satisfies Record<AttentionKind, string>
+
+/** What a screen reader hears when sessions the user is not looking at finish,
+ *  fail, or ask for something: "Done: Fix the login redirect". The status comes
+ *  first and the title names the session, so a collapsed sidebar loses nothing.
+ *  A request or a failure still speaks for a snoozed session: it needs the user. */
+export function backgroundSessionAnnouncement(sessions: AnnouncedSession[]): string | null {
+  const spoken = sessions
+    .filter((session) => !(session.snoozed && session.kind === 'finished'))
+    .map((session) => `${SPOKEN_KIND[session.kind]}: ${session.title}`)
+  return spoken.length === 0 ? null : spoken.join('. ')
 }

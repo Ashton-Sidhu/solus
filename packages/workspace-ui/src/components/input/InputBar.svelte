@@ -51,6 +51,7 @@
   import { dictation } from "../../lib/dictation.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { sessionTitle } from "../../lib/sessionUtils";
   import { useComposerVoice } from "./lib/composer-voice.svelte";
   import { formatReleaseTime } from "../conversation/lib/queued-prompts";
   import { otherPerson, steerPlaceholder } from "../presence/lib/actor-name";
@@ -175,6 +176,8 @@
   const router = session.router;
 
   const sess = $derived(sessionId ? sessions.byId[sessionId] : undefined);
+  // A session switch lands focus in the composer, so its label names the session.
+  const composerLabel = $derived(sess ? `Message ${sessionTitle(sess)}` : undefined);
   // Where the target session is showing, if it is showing anywhere: a draft has
   // no tab at all, so this is `undefined` and every tab-addressed action below
   // stays put rather than firing at the tab that happens to be active.
@@ -843,6 +846,7 @@
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         {placeholder}
+        ariaLabel={composerLabel}
         readOnly={isReadOnly}
         disabled={isReadOnly || voiceState === "transcribing"}
         maxHeight={maxHeight}

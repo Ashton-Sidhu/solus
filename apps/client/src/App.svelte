@@ -6,6 +6,7 @@
   import { addOverSshStore } from "@solus/workspace-ui/components/servers/add-over-ssh.store.svelte";
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
+  import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
   import { Building2 as OrganizationIcon, Download as DownloadSimpleIcon } from "@lucide/svelte";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
   import {
@@ -896,6 +897,7 @@
 </LazyDialog>
 
 <SessionLinkPrompts />
+<BackgroundSessionAnnouncer />
 
 {#if isDraggingFile}
   <div data-solus-ui class="drop-overlay">

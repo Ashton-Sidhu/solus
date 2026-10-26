@@ -154,6 +154,7 @@ import { registerNotificationHubHandlers } from './transport/handlers/notificati
 import { publishNotificationChanges } from './notifications/hub-events'
 import { publishTaskSnoozeChanges } from './transport/events/task-snooze-events'
 import { publishSessionViewChanges } from './transport/events/session-view-events'
+import { StreamedProse } from './transport/events/streamed-prose'
 import { hostPrObserver } from './notifications/pr-observer'
 import { registerWorkLiveHandlers } from './transport/handlers/work-live-handlers'
 import { WorkLiveManager } from './work-live/work-live-manager'
@@ -1142,11 +1143,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   // One publish per watching client. Two panes on one renderer are one client
   // and receive one payload; desktop and web are two, with the same payload.
+  const streamedProse = new StreamedProse()
   opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
     // A broadcast event is a change to the session's history; one aimed at a single client is not.
     if (!to) touchTranscript(sessionId)
-    const projectedEvent = projectSessionEvent(event)
-    if (!projectedEvent) return
+    const wireEvent = projectSessionEvent(event)
+    if (!wireEvent) return
+    let clients = opts.sessionRuntime.watchers.clientsWatching(sessionId)
+    if (to?.only) clients = clients.filter((clientId) => clientId === to.only)
+    if (to?.except) clients = clients.filter((clientId) => clientId !== to.except)
+    const projectedEvent = streamedProse.project(sessionId, wireEvent, clients, !to)
     // Measure the projected event — the payload that actually ships to clients.
     // Serializing the raw event would re-inflate the tool bodies projection
     // exists to strip, on every single event.
@@ -1159,9 +1165,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if ('toolName' in event && event.toolName) Object.assign(details, { toolName: event.toolName })
       log.debug('session_event_bytes', details)
     }
-    let clients = opts.sessionRuntime.watchers.clientsWatching(sessionId)
-    if (to?.only) clients = clients.filter((clientId) => clientId === to.only)
-    if (to?.except) clients = clients.filter((clientId) => clientId !== to.except)
     // The watchers are the session's room: each is checked on its first event, not on every token.
     if (clients.length) events.publishToRoom({ kind: 'session', id: sessionId }, clients, 'session.eventReceived', { sessionId, event: projectedEvent })
   })
