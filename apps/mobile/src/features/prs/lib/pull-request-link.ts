@@ -1,5 +1,5 @@
 import { isInsideHostPath } from '@solus/contracts/host-path'
-import type { RepoRef } from '@solus/contracts/providers'
+import { parsePullRequestHref, type RepoRef } from '@solus/contracts/providers'
 import type { ProjectEntry } from '@solus/contracts/types'
 import type { PullRequestRef } from '../pull-request-directory'
 import { pullRequestRepositoryKey } from './pull-request-list'
@@ -30,4 +30,35 @@ export function pullRequestLinkRef(
   const key = pullRequestRepositoryKey({ baseRepo: link.baseRepo })
   const project = own?.repositoryKey === key ? own : projects.find((candidate) => candidate.repositoryKey === key)
   return project ? { hostId, projectPath: project.path, number: link.number } : null
+}
+
+/** Where the Markdown that holds a link was written: a transcript's working
+ *  directory, or a pull request's own project for its description, comments,
+ *  and guide. */
+export interface PullRequestLinkPlace {
+  hostId: string
+  workingDirectory: string
+}
+
+export interface PullRequestLinkActions {
+  listProjects(hostId: string): Promise<readonly Pick<ProjectEntry, 'path' | 'repositoryKey'>[]>
+  openPullRequest(ref: PullRequestRef): void
+  openBrowser(href: string): void
+}
+
+/**
+ * Opens a pull request link as on desktop and web: the PullRequest screen
+ * when a project of the host reads it (`pullRequestLinkRef`), else a GitHub
+ * link in the browser. A `pr://` link no project reads does nothing. Null
+ * when `href` is not a pull request link, so the caller opens it.
+ */
+export function openPullRequestLink(href: string, place: PullRequestLinkPlace | null, actions: PullRequestLinkActions): Promise<void> | null {
+  const link = parsePullRequestHref(href)
+  if (!link) return null
+  return (async () => {
+    const projects = place ? await actions.listProjects(place.hostId).catch(() => []) : []
+    const ref = place ? pullRequestLinkRef(link, place.hostId, place.workingDirectory, projects) : null
+    if (ref) actions.openPullRequest(ref)
+    else if (link.baseRepo) actions.openBrowser(href)
+  })()
 }

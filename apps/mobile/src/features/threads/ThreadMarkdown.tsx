@@ -42,9 +42,9 @@ import {
 } from "./ThreadMarkdownImage";
 import { ThreadMarkdownVideo } from "./ThreadMarkdownVideo";
 import { isAbsoluteHostPath } from "@solus/contracts/host-path";
-import { parsePullRequestHref } from "@solus/contracts/providers";
 import { parseReviewCommentMessageSegments } from "@solus/contracts/review-comment";
-import { pullRequestLinkRef } from "../prs/lib/pull-request-link";
+import { openPullRequestLink } from "../prs/lib/pull-request-link";
+import { usePullRequestLinkActions } from "../prs/use-pull-request-link-actions";
 import { ReviewCommentCard } from "../review/ReviewCommentCard";
 
 /** A path the host resolves without the working directory: `~` is its home. */
@@ -126,21 +126,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
     [app, hostId, hostRequest, workingDirectory],
   );
 
-  /** A pull request link opens in the app as on web; one no project of this host reads opens in the browser. */
-  const openPullRequestLink = useCallback(
-    async (href: string, pullRequest: NonNullable<ReturnType<typeof parsePullRequestHref>>) => {
-      const connection = app.connections.connection(hostId);
-      const projects = connection?.state.readiness === "ready" ? await connection.api.listProjects().catch(() => []) : [];
-      const ref = pullRequestLinkRef(pullRequest, hostId, workingDirectory, projects);
-      if (ref) {
-        void Haptics.selectionAsync();
-        navigation.navigate("PullRequest", ref);
-        return;
-      }
-      if (pullRequest.baseRepo) void app.platform.openBrowser(href);
-    },
-    [app, hostId, navigation, workingDirectory],
-  );
+  const pullRequestLinkActions = usePullRequestLinkActions();
 
   const openMarkdownLink = useCallback(
     (href: string, imageEmbed: boolean) => {
@@ -151,11 +137,8 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
         else setFilePreview((current) => current ?? preview.source);
         return;
       }
-      const pullRequest = parsePullRequestHref(href);
-      if (pullRequest) {
-        void openPullRequestLink(href, pullRequest);
-        return;
-      }
+      // A pull request link opens in the app as on web; one no project of this host reads opens in the browser.
+      if (openPullRequestLink(href, { hostId, workingDirectory }, pullRequestLinkActions) !== null) return;
       const presentation = resolveMarkdownLinkPresentation(href);
       if (presentation.kind === "file") {
         if (!isHostRootedPath(presentation.path) && !workingDirectory) return;
@@ -185,7 +168,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
       }
       if (presentation.href) void Linking.openURL(presentation.href);
     },
-    [app, hostId, media, navigation, openPullRequestLink, workingDirectory],
+    [app, hostId, media, navigation, pullRequestLinkActions, workingDirectory],
   );
   const onLinkPress = useCallback((href: string) => openMarkdownLink(href, fileChipHrefs.includes(href)), [openMarkdownLink, fileChipHrefs]);
   const onImagePress = useCallback((href: string) => openMarkdownLink(href, true), [openMarkdownLink]);
