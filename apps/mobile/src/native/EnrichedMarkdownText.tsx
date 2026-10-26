@@ -2,12 +2,12 @@
 // No context chips, context clipboard, skills, or file chip menu: Solus has none on the
 // phone, so a link's long press shows the iOS link menu (Open, Copy, Share). The text
 // recognition slot T3 uses for skills finds `@path` mentions.
-import { useCallback, useMemo, useState } from "react";
+import { isValidElement, useCallback, useMemo, useState } from "react";
 import { Platform, Share, View } from "react-native";
 import {
   EnrichedMarkdownText,
-  type DocumentAssetsEvent,
-  type MarkdownMediaAsset,
+  type MarkdownImageBlock,
+  type MarkdownLinkOccurrence,
   type MarkdownStyle,
 } from "react-native-enriched-markdown";
 
@@ -16,11 +16,13 @@ import { copyTextWithHaptic } from "../lib/copyTextWithHaptic";
 import {
   ENRICHED_INLINE_FILE_LINK_REGEX,
   enrichedLinkVariantPattern,
+  recognizedLinkUrls,
 } from "../lib/enrichedLinkPresentation";
 import { FILE_MENTION_REGEX } from "../lib/fileMentions";
 import { markdownWithBlockImages, markdownWithHtml } from "../lib/markdownDocument";
 import type { SelectableMarkdownTextProps } from "./SelectableMarkdownText.types";
 import { useEnrichedLinkVariants } from "./useEnrichedLinkVariants";
+import { useRetryingImageSource } from "./useRetryingImageSource";
 
 const LINK_RECOGNITION = { inlineCode: ENRICHED_INLINE_FILE_LINK_REGEX };
 const LINK_AND_MENTION_RECOGNITION = { ...LINK_RECOGNITION, text: FILE_MENTION_REGEX };
@@ -152,28 +154,30 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
     [props.markdown],
   );
   const { themeAppearance } = useAppearancePreferences();
-  const [documentAssets, setDocumentAssets] = useState<DocumentAssetsEvent["assets"]>([]);
-  const onDocumentAssets = useCallback(({ assets }: DocumentAssetsEvent) => {
-    setDocumentAssets((previous) =>
-      previous.length === assets.length &&
-      previous.every((asset, index) => {
-        const next = assets[index]!;
-        return (
-          asset.id === next.id &&
-          asset.kind === next.kind &&
-          asset.url === next.url &&
-          asset.altText === next.altText &&
-          asset.title === next.title &&
-          asset.placement === next.placement &&
-          asset.eligible === next.eligible
-        );
-      })
+  const [parsedLinkUrls, setParsedLinkUrls] = useState<ReadonlyArray<string>>([]);
+  const onLinksChange = useCallback((links: MarkdownLinkOccurrence[]) => {
+    const urls = [...new Set(links.map((link) => link.url))];
+    setParsedLinkUrls((previous) =>
+      previous.length === urls.length && previous.every((url, index) => url === urls[index])
         ? previous
-        : assets,
+        : urls,
     );
   }, []);
+  // linkRecognition adds file links and mentions as the text is drawn, so
+  // onLinksChange never reports them. Joined so a streaming tick keeps the value.
+  const recognizedLinkKey = useMemo(
+    () => recognizedLinkUrls(markdown, props.recognizeFileMentions ? FILE_MENTION_REGEX : undefined).join("\n"),
+    [markdown, props.recognizeFileMentions],
+  );
+  const linkUrls = useMemo(
+    () =>
+      recognizedLinkKey
+        ? [...new Set([...parsedLinkUrls, ...recognizedLinkKey.split("\n")])]
+        : parsedLinkUrls,
+    [parsedLinkUrls, recognizedLinkKey],
+  );
   const { linkVariants, linkPillContent } = useEnrichedLinkVariants(
-    documentAssets,
+    linkUrls,
     props.textStyle,
     props.fileChipHrefs,
   );
@@ -181,11 +185,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
     () =>
       Platform.OS === "ios" && onLinkPress
         ? Object.fromEntries(
-            [
-              ...new Set(
-                documentAssets.filter((asset) => asset.kind === "link").map((asset) => asset.url),
-              ),
-            ].map((url) => [
+            linkUrls.map((url) => [
               enrichedLinkVariantPattern(url),
               [
                 { text: "Open link", onPress: () => onLinkPress(url) },
@@ -195,7 +195,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
             ]),
           )
         : undefined,
-    [documentAssets, onLinkPress],
+    [linkUrls, onLinkPress],
   );
   const contextMenuItems = useMemo(
     () =>
@@ -208,24 +208,23 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
     () => ({ ...enrichedStyle(props.textStyle, themeAppearance === "dark"), linkVariants }),
     [props.textStyle, themeAppearance, linkVariants],
   );
-  const renderMedia = useCallback(
-    (asset: MarkdownMediaAsset) =>
-      renderImage?.({
-        href: asset.url,
-        alt: asset.altText || null,
-        title: asset.title || null,
-      }) ?? null,
+  const renderers = useMemo(
+    () =>
+      renderImage
+        ? {
+            image: (block: MarkdownImageBlock) => {
+              const element = renderImage({
+                href: block.url,
+                alt: block.altText || null,
+                title: block.title || null,
+              });
+              return isValidElement(element) ? element : undefined;
+            },
+          }
+        : undefined,
     [renderImage],
   );
-  const resolveNativeImageSource = useCallback(
-    (asset: MarkdownMediaAsset) =>
-      resolveImageSource?.({
-        href: asset.url,
-        alt: asset.altText || null,
-        title: asset.title || null,
-      }) ?? null,
-    [resolveImageSource],
-  );
+  const resolveNativeImageSource = useRetryingImageSource(resolveImageSource);
   const pressImage = onImagePress ?? onLinkPress;
 
   return (
@@ -233,9 +232,9 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
       <EnrichedMarkdownText
         markdown={markdown}
         markdownStyle={markdownStyle}
-        onDocumentAssets={onDocumentAssets}
-        renderMedia={renderImage ? renderMedia : undefined}
-        resolveImageSource={resolveImageSource ? resolveNativeImageSource : undefined}
+        onLinksChange={onLinksChange}
+        renderers={renderers}
+        resolveImageSource={resolveNativeImageSource}
         onImagePress={pressImage ? ({ url }) => pressImage(url) : undefined}
         linkRecognition={props.recognizeFileMentions ? LINK_AND_MENTION_RECOGNITION : LINK_RECOGNITION}
         containerStyle={{ flexShrink: 1, minWidth: 0 }}

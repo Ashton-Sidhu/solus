@@ -4,7 +4,9 @@ import { describe, expect, it } from "bun:test";
 import {
   ENRICHED_INLINE_FILE_LINK_REGEX,
   enrichedLinkVariantPattern,
+  recognizedLinkUrls,
 } from "../../apps/mobile/src/lib/enrichedLinkPresentation";
+import { FILE_MENTION_REGEX, fileMentionPath } from "../../apps/mobile/src/lib/fileMentions";
 import {
   markdownHtmlContent,
   markdownWithBlockImages,
@@ -195,6 +197,22 @@ describe("Enriched link presentation", () => {
     expect(pattern.test(url)).toBe(true);
     expect(pattern.test(`${url}/child`)).toBe(false);
     expect(pattern.test("file:///workspace/app1Xtsx?line=34")).toBe(false);
+  });
+
+  it("lists the links recognition adds, which Enriched's link list leaves out", () => {
+    // WHY: a file path in code and an `@path` mention become links only as
+    // Enriched draws the text, and `onLinksChange` does not report them.
+    // Without this list they lose their file pill and iOS link menu.
+    const markdown = "Edit `src/app.tsx` and `` ./README.md ``, not `npm run dev`, with @src/App.tsx today.";
+    expect(recognizedLinkUrls(markdown)).toEqual(["src/app.tsx", "./README.md"]);
+    expect(recognizedLinkUrls(markdown, FILE_MENTION_REGEX)).toEqual([
+      "src/app.tsx",
+      "./README.md",
+      "@src/App.tsx",
+    ]);
+    // The URL is the text recognition matched, so it gets the same pill as before.
+    expect(fileMentionPath("@src/App.tsx")).toBe("src/App.tsx");
+    expect(resolveMarkdownLinkPresentation("./README.md").kind).toBe("file");
   });
 });
 
