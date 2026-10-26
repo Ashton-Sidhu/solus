@@ -12,7 +12,7 @@ type DbModule = typeof import('@solus/server/db')
 type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')
 type TaskSnoozesModule = typeof import('@solus/server/data/tasks/task-snoozes')
 type TaskModule = typeof import('@solus/server/data/tasks/task')
-type SnoozeEventsModule = typeof import('@solus/server/transport/events/task-snooze-events')
+type PersonConnectionsModule = typeof import('@solus/server/transport/events/person-connections')
 
 const ORGANIZATION = 'org1'
 const ALICE = 'alice'
@@ -28,7 +28,7 @@ let db: DbModule
 let taskStore: TaskStoreModule
 let snoozes: TaskSnoozesModule
 let tasks: TaskModule
-let snoozeEvents: SnoozeEventsModule
+let personConnections: PersonConnectionsModule
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
@@ -38,7 +38,7 @@ beforeAll(async () => {
   taskStore = await import('@solus/server/data/tasks/task-store')
   snoozes = await import('@solus/server/data/tasks/task-snoozes')
   tasks = await import('@solus/server/data/tasks/task')
-  snoozeEvents = await import('@solus/server/transport/events/task-snooze-events')
+  personConnections = await import('@solus/server/transport/events/person-connections')
 })
 
 afterEach(async () => {
@@ -137,11 +137,7 @@ describe('task snooze events', () => {
       'alice-elsewhere': member(ALICE, 'other-org'),
       'bob-desk': member(BOB),
     }
-    const recipients = snoozeEvents.taskSnoozeRecipientClients(
-      Object.keys(principals),
-      (clientId) => principals[clientId],
-      { personKey: ALICE, organizationId: ORGANIZATION },
-    )
-    expect(recipients.sort()).toEqual(['alice-desk', 'alice-phone'])
+    const connections = new personConnections.PersonConnections(() => Object.keys(principals), (clientId) => principals[clientId])
+    expect(connections.of(ALICE, ORGANIZATION).sort()).toEqual(['alice-desk', 'alice-phone'])
   })
 })

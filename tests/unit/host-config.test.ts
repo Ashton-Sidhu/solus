@@ -225,6 +225,22 @@ describe('the agent write policy', () => {
     settings.setHostConfig({ solusTools: { read_work: true } })
   })
 
+  test('a host key the agent did not name keeps its value', async () => {
+    // The listed schema is parsed first; a healing default in it would reset
+    // every key it fills, and wipe the review warming the person chose.
+    const tools = await import('@solus/server/execution/agents/tools/config-tools')
+    settings.setHostConfig({ analyticsEnabled: false, reviewWarmingByProject: { '/repo': true } })
+    const result = await runTool(tools.updateConfigAgentTool, { host: { archivedAutomationRetentionDays: 9 } }, context)
+
+    expect(result.ok).toBe(true)
+    const config = settings.getHostConfig().config
+    expect(config.archivedAutomationRetentionDays).toBe(9)
+    expect(config.analyticsEnabled).toBe(false)
+    expect(config.reviewWarmingByProject).toEqual({ '/repo': true })
+    expect((await runTool(tools.updateConfigAgentTool, { host: {} }, context)).ok).toBe(false)
+    settings.setHostConfig({ analyticsEnabled: true, reviewWarmingByProject: {} })
+  })
+
   test('the collector credentials stay out of reach: otel cannot be written', async () => {
     const tools = await import('@solus/server/execution/agents/tools/config-tools')
     settings.setHostConfig({ otel: { endpoint: 'https://collector.example.com' } })

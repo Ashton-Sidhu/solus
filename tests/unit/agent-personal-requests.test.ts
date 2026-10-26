@@ -4,9 +4,10 @@ import { answerAgentPersonalRequests, summarizeAgentProfile } from '@solus/clien
 import { AGENT_PERSONAL_REQUEST, type AgentPersonalReply, type AgentProfileWrite } from '@solus/contracts/agent-personal-request'
 import type { AgentProfile } from '@solus/contracts/agent-profile'
 import { DEFAULT_PERSONAL_SETTINGS, type PersonalSettings, type PersonalSettingsDocument } from '@solus/contracts/settings'
-import { actorFor, HOST_ACTOR, type Actor } from '@solus/server/admission/actor'
-import type { Principal } from '@solus/server/admission/principal'
-import { PersonalRequests, type PersonalRoute } from '@solus/server/transport/events/agent-personal-requests'
+import { actorFor, HOST_ACTOR, ownerKeyOf, type Actor } from '@solus/server/admission/actor'
+import { runnerPrincipalFor, type Principal } from '@solus/server/admission/principal'
+import { PersonalRequests } from '@solus/server/transport/events/agent-personal-requests'
+import { PersonConnections } from '@solus/server/transport/events/person-connections'
 
 function member(userId: string): Principal {
   return {
@@ -26,58 +27,56 @@ interface Fixture {
   gone?: string[]
 }
 
-function routeOf(fixture: Fixture, asked: string[] = []): PersonalRoute {
-  return {
+function requestsOf(fixture: Fixture, asked: string[] = []): PersonalRequests {
+  const connections = new PersonConnections(() => Object.keys(fixture.principals), (clientId) => fixture.principals[clientId])
+  return new PersonalRequests(connections, {
     sourceClientIdOf: () => fixture.sourceClientId,
     actorOf: () => fixture.actor,
-    clientIds: () => Object.keys(fixture.principals),
-    principalOf: (clientId) => fixture.principals[clientId]!,
-    request: async (clientId) => {
-      asked.push(clientId)
-      if (fixture.gone?.includes(clientId)) throw new Error(`No socket for ${clientId}`)
-      return { ok: true, settings: { reviewModel: `answered-by-${clientId}` }, profile: [], device: null }
-    },
-  }
+  }, async (clientId) => {
+    asked.push(clientId)
+    if (fixture.gone?.includes(clientId)) throw new Error(`No socket for ${clientId}`)
+    return { ok: true, settings: { reviewModel: `answered-by-${clientId}` }, profile: [], device: null }
+  })
 }
 
 describe("which client answers for a session's person", () => {
   test('the client that started the turn is asked first, then the same person\'s other clients', () => {
-    const route = routeOf({
+    const requests = requestsOf({
       principals: { 'alice-phone': ALICE, 'bob-laptop': BOB, 'alice-laptop': ALICE },
       actor: actorFor(ALICE),
       sourceClientId: 'alice-laptop',
     })
 
-    expect(new PersonalRequests(route).clientsFor('session')).toEqual(['alice-laptop', 'alice-phone'])
+    expect(requests.clientsFor('session')).toEqual(['alice-laptop', 'alice-phone'])
   })
 
   test("an agent working for one person never reaches another person's settings", async () => {
     // Alice's agent must not read or change what Bob's clients show, even when
     // Bob is the only person connected.
     const asked: string[] = []
-    const route = routeOf({ principals: { 'bob-laptop': BOB }, actor: actorFor(ALICE) }, asked)
+    const requests = requestsOf({ principals: { 'bob-laptop': BOB }, actor: actorFor(ALICE) }, asked)
 
-    const reply = await new PersonalRequests(route).send('session', { settings: { reviewModel: 'x' } })
+    const reply = await requests.send('session', { settings: { reviewModel: 'x' } })
 
     expect(reply.reply.ok).toBe(false)
     expect(asked).toEqual([])
   })
 
   test("the host's own work has no person, so no client is asked", () => {
-    const route = routeOf({ principals: { 'alice-laptop': ALICE }, actor: HOST_ACTOR })
-    expect(new PersonalRequests(route).clientsFor('session')).toEqual([])
+    const requests = requestsOf({ principals: { 'alice-laptop': ALICE }, actor: HOST_ACTOR })
+    expect(requests.clientsFor('session')).toEqual([])
   })
 
   test('a client whose socket is gone gives way to the next client of the same person', async () => {
     const asked: string[] = []
-    const route = routeOf({
+    const requests = requestsOf({
       principals: { 'alice-laptop': ALICE, 'alice-phone': ALICE },
       actor: actorFor(ALICE),
       sourceClientId: 'alice-laptop',
       gone: ['alice-laptop'],
     }, asked)
 
-    const reply = await new PersonalRequests(route).send('session', {})
+    const reply = await requests.send('session', {})
 
     expect(asked).toEqual(['alice-laptop', 'alice-phone'])
     expect(reply).toEqual({ reply: { ok: true, settings: { reviewModel: 'answered-by-alice-phone' }, profile: [], device: null }, fromTurnClient: false })
@@ -85,17 +84,31 @@ describe("which client answers for a session's person", () => {
 
   test("a device change goes only to the turn's client, never to another machine of the person", async () => {
     const asked: string[] = []
-    const route = routeOf({
+    const requests = requestsOf({
       principals: { 'alice-laptop': ALICE, 'alice-phone': ALICE },
       actor: actorFor(ALICE),
       sourceClientId: 'alice-laptop',
       gone: ['alice-laptop'],
     }, asked)
 
-    const answer = await new PersonalRequests(route).send('session', { device: { zoomFactor: 1.5 } })
+    const answer = await requests.send('session', { device: { zoomFactor: 1.5 } })
 
     expect(asked).toEqual(['alice-laptop'])
     expect(answer.reply.ok).toBe(false)
+  })
+})
+
+describe("a person's connections", () => {
+  test('a runner, the host itself, and a client with no principal are no one', () => {
+    // A runner delivers for a person and the host acts for itself; neither is a
+    // client the person holds, so no person-only event or request goes to them.
+    const principals: Record<string, Principal | null> = {
+      'alice-laptop': ALICE,
+      'runner-for-alice': runnerPrincipalFor({ hostId: 'h1', organizationId: 'org-a', ownerUserId: 'alice', expiresAt: Date.now() + 60_000 }),
+      'unknown': null,
+    }
+    const connections = new PersonConnections(() => Object.keys(principals), (clientId) => principals[clientId])
+    expect(connections.of(ownerKeyOf(actorFor(ALICE))!)).toEqual(['alice-laptop'])
   })
 })
 

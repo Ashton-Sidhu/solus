@@ -23,7 +23,7 @@ import {
   type AgentProfileFileEntry,
   type AgentProfileKey,
 } from '@solus/contracts/agent-profile'
-import { agentDeviceSettingsPatchSchema, type AgentPersonalReply, type AgentPersonalRequest, type AgentProfileSummary } from '@solus/contracts/agent-personal-request'
+import { agentDeviceSettingsPatchSchema, type AgentPersonalReply, type AgentPersonalRequest } from '@solus/contracts/agent-personal-request'
 import { seatProviderSchema } from '@solus/contracts/seats'
 import type { AgentTool, AgentToolResult } from './agent-tool'
 import { getHostConfig, setHostConfig } from '../../../host/settings'
@@ -73,7 +73,7 @@ const profileChangeSchema = z.object({
   ])).max(AGENT_PROFILE_MAX_ENTRIES).default([]),
   /** Keys as read_config lists them: `file:claude-code/agents/reviewer.md`, `skill:deploy`, `integration:deepwiki`. */
   remove: z.array(agentProfileKeySchema).max(AGENT_PROFILE_MAX_ENTRIES).default([]),
-}).strict().transform((change, context): ProfileChange => {
+}).strict().transform((change, context): ProfileChange | null => {
   const entries: AgentProfileEntry[] = []
   for (const [index, candidate] of change.set.entries()) {
     if (candidate.kind !== 'file') {
@@ -99,6 +99,7 @@ const profileChangeSchema = z.object({
     if (candidate.executable !== undefined) file.executable = candidate.executable
     entries.push(file)
   }
+  if (entries.length === 0 && change.remove.length === 0) return null
   // SAFETY: each key passed `agentProfileKeySchema`, the pattern of an `AgentProfileKey`.
   return { set: agentProfileFrom(entries), reset: change.remove as AgentProfileKey[] }
 })
@@ -109,59 +110,32 @@ interface ProfileChange {
   reset: AgentProfileKey[]
 }
 
-type Checked<T> = { ok: true; value: T } | { ok: false; error: string }
+/**
+ * Every section an agent may change, each its owner's own schema. The parse is
+ * the boundary: every section is checked before any is written, and the first
+ * refused value is named by its path, `section.key`.
+ */
+const updateConfigInputSchema = z.object({
+  host: agentHostConfigPatchSchema.optional().describe("This machine's settings."),
+  deviceManager: deviceManagerPatchSchema.optional().describe('The device manager. `sshHosts` replaces the whole SSH device host list.'),
+  personal: personalSettingsDocumentSchema.optional().describe('The settings of the person this session works for.'),
+  profile: profileChangeSchema.optional().describe("The person's agent profile: entries to set, keys to remove."),
+  device: agentDeviceSettingsPatchSchema.optional().describe('The client device that started this turn. `keybindings` replaces the whole override map.'),
+}).strict()
 
-/** A section an agent named, checked: its value, or null when it names no key, and the keys it names. */
-interface CheckedSection {
-  value: object | null
-  keys: string[]
-}
-
-/** One section of the settings an agent reaches: its owner's schema, what the agent reads about it, and its check. */
-interface SectionRow<Schema extends z.ZodType<object, unknown>> {
-  schema: Schema
-  description: string
-  /** The first refused value is named, as `section.key: message`. */
-  check(name: string, raw: unknown): Checked<CheckedSection>
-}
-
-/** `changedKeys` lists the keys a change names; no key is no change. */
-function section<Schema extends z.ZodType<object, unknown>>(schema: Schema, description: string, changedKeys: (value: z.output<Schema>) => string[] = Object.keys): SectionRow<Schema> {
-  return {
-    schema,
-    description,
-    check: (name, raw) => {
-      const result = schema.safeParse(raw ?? {})
-      if (!result.success) {
-        const issue = result.error.issues[0]
-        return { ok: false, error: `${[name, ...(issue?.path ?? [])].join('.')}: ${issue?.message ?? 'invalid value'}` }
-      }
-      const keys = changedKeys(result.data)
-      return { ok: true, value: { value: keys.length > 0 ? result.data : null, keys } }
-    },
-  }
-}
-
-/** One row per section, as `HOST_CONFIG_FIELDS` has one row per key. */
-const SECTIONS = {
-  host: section(agentHostConfigPatchSchema, "This machine's settings."),
-  deviceManager: section(deviceManagerPatchSchema, 'The device manager. `sshHosts` replaces the whole SSH device host list.'),
-  personal: section(personalSettingsDocumentSchema, 'The settings of the person this session works for.'),
-  profile: section(profileChangeSchema, "The person's agent profile: entries to set, keys to remove.", (change) => [...Object.keys(change.set), ...change.reset]),
-  device: section(agentDeviceSettingsPatchSchema, 'The client device that started this turn. `keybindings` replaces the whole override map.'),
-}
-
-type SectionName = keyof typeof SECTIONS
-const SECTION_NAMES: readonly SectionName[] = Object.keys(SECTIONS).filter((name): name is SectionName => Object.hasOwn(SECTIONS, name))
-type Sections = { [K in SectionName]: z.output<(typeof SECTIONS)[K]['schema']> | null }
+/** The sections of one update_config call, each checked by its owner's schema. */
+type Sections = z.output<typeof updateConfigInputSchema>
+type SectionName = keyof Sections
 
 /**
  * A section's schema as a provider can list it. The owners' schemas heal and
  * transform values, which the Claude SDK cannot turn into JSON Schema; their
- * input side as plain JSON Schema describes the same keys and values.
+ * input side as plain JSON Schema describes the same keys and values. Defaults
+ * are left out: the call is parsed against this schema first, and a default
+ * there would write a key the agent did not name (a healing `.catch` lists as one).
  */
 function listedSchema(schema: z.ZodType): z.ZodType {
-  return z.fromJSONSchema(z.toJSONSchema(schema, { io: 'input' }))
+  return z.fromJSONSchema(z.toJSONSchema(schema, { io: 'input', override: ({ jsonSchema }) => { delete jsonSchema.default } }))
 }
 
 /** A client's answer, and whether that client started the turn: only its device settings are the turn's device. */
@@ -183,105 +157,151 @@ export interface ConfigToolHost {
   personal(sessionId: string | undefined, request: AgentPersonalRequest): Promise<PersonalAnswer>
 }
 
-
-/** The keys a change named, by section, as update_config reports them. */
+/** The keys a write named, by section, as update_config reports them. */
 type ChangedKeys = { [K in SectionName]?: string[] }
 
-/** One change an agent asked for, every section checked with its owner's schema before any is written. */
-class ConfigChange {
-  private constructor(readonly sections: Sections, readonly changedKeys: ChangedKeys) {}
-
-  static parse(input: { [K in SectionName]?: unknown }): Checked<ConfigChange> {
-    const parsed = SECTION_NAMES.map((name) => [name, SECTIONS[name].check(name, input[name])] as const)
-    for (const [, result] of parsed) if (!result.ok) return result
-    const sections = Object.fromEntries(parsed.map(([name, result]) => [name, result.ok ? result.value.value : null]))
-    const changedKeys = Object.fromEntries(parsed.flatMap(([name, result]) => (result.ok && result.value.keys.length > 0 ? [[name, result.value.keys]] : [])))
-    // SAFETY: every section name contributes the value its own schema parsed, so each key holds its own section's type.
-    return { ok: true, value: new ConfigChange(sections as Sections, changedKeys) }
-  }
-
-  get isEmpty(): boolean {
-    return Object.values(this.sections).every((section) => section === null)
-  }
-
-  /** The parts only a client of the person holds, as one request; null when the change names none. */
-  get clientRequest(): AgentPersonalRequest | null {
-    const { personal, profile, device } = this.sections
-    if (!personal && !profile && !device) return null
-    const request: AgentPersonalRequest = {}
-    if (personal) request.settings = personal
-    if (profile) request.profile = profile
-    if (device) request.device = device
-    return request
-  }
+/** The keys a keyed section names; the profile names entries instead. */
+function keysOf(section: Sections[Exclude<SectionName, 'profile'>]): string[] {
+  return section ? Object.keys(section) : []
 }
 
-/** The person's three sections from a client's answer, or why each is unavailable. */
-function personalView(answer: PersonalAnswer) {
-  const { reply } = answer
-  if (!reply.ok) return { personal: { unavailable: reply.error }, profile: { unavailable: reply.error }, device: { unavailable: reply.error } }
-  return {
-    personal: reply.settings,
-    profile: profileByKey(reply.profile),
-    device: !answer.fromTurnClient
-      ? { unavailable: 'The client that started this turn is not connected; another client answered.' }
-      : reply.device ?? { unavailable: 'The client that started this turn keeps no device settings an agent can change.' },
-  }
-}
+/** This host's own config, as an agent sees it: every key but the collector's credentials. */
+class HostConfigOwner {
+  constructor(private readonly announce: (snapshot: HostConfigSnapshot) => void) {}
 
-const NO_HOST: PersonalAnswer = { reply: { ok: false, error: 'Personal settings are not available on this host.' }, fromTurnClient: false }
-
-/** The owners of the settings an agent reaches: this host's config, its device manager, and the person's clients. */
-class SettingsOwners {
-  constructor(private readonly host: ConfigToolHost | null) {}
-
-  async read(sessionId: string | undefined) {
-    const answer = this.host ? await this.host.personal(sessionId, {}) : NO_HOST
-    return { host: this.hostView(), deviceManager: this.deviceManagerView(), ...personalView(answer), withheldKeys: { host: HOST_CONFIG_AGENT_HIDDEN_KEYS } }
-  }
-
-  /**
-   * The person's part is the one that can fail out of the host's hands, so it
-   * goes first: a refused change changes nothing anywhere.
-   */
-  async apply(change: ConfigChange, sessionId: string | undefined): Promise<AgentToolResult> {
-    if (change.isEmpty) return { ok: false, text: 'Name at least one setting to change.' }
-    const { host, deviceManager } = change.sections
-    if (!this.host && (deviceManager || change.clientRequest)) return { ok: false, text: 'Device and personal settings are not available on this host.' }
-    const request = change.clientRequest
-    const answer = request && this.host ? await this.host.personal(sessionId, request) : null
-    if (answer && !answer.reply.ok) return { ok: false, text: answer.reply.error }
-    if (host) {
-      const snapshot = setHostConfig(host)
-      this.host?.hostConfigChanged(snapshot)
-    }
-    if (deviceManager && this.host) {
-      const { sshHosts, ...switches } = deviceManager
-      if (Object.keys(switches).length > 0) await this.host.deviceManager.configure(switches)
-      if (sshHosts) await this.host.deviceManager.saveSshHosts(sshHosts)
-    }
-    const result = { changed: change.changedKeys, host: this.hostView(), deviceManager: this.deviceManagerView() }
-    if (answer) Object.assign(result, personalView(answer))
-    return { ok: true, text: JSON.stringify(result) }
-  }
-
-  private hostView() {
+  read() {
     const { config } = getHostConfig()
     return Object.fromEntries(AGENT_VISIBLE_HOST_KEYS.map((key) => [key, config[key]]))
   }
 
-  private deviceManagerView(): Omit<DeviceSettingsState, 'onboardingCompleted'> | null {
-    const settings = this.host?.deviceManager.settings()
-    if (!settings) return null
-    const { enabled, agentAccessEnabled, autoShowAgentDevices, sshHosts } = settings
-    return { enabled, agentAccessEnabled, autoShowAgentDevices, sshHosts }
+  /** Answers the keys it wrote. An empty patch writes nothing. */
+  write(patch: Sections['host']): string[] {
+    const keys = keysOf(patch)
+    if (patch && keys.length > 0) this.announce(setHostConfig(patch))
+    return keys
   }
 }
 
-let owners = new SettingsOwners(null)
+/** The host's device manager: its switches and its SSH device hosts. */
+class DeviceManagerOwner {
+  constructor(private readonly manager: ConfigToolHost['deviceManager']) {}
+
+  read(): Omit<DeviceSettingsState, 'onboardingCompleted'> {
+    const { enabled, agentAccessEnabled, autoShowAgentDevices, sshHosts } = this.manager.settings()
+    return { enabled, agentAccessEnabled, autoShowAgentDevices, sshHosts }
+  }
+
+  /** Answers the keys it wrote. `sshHosts` replaces the whole list. */
+  async write(patch: Sections['deviceManager']): Promise<string[]> {
+    if (!patch) return []
+    const { sshHosts, ...switches } = patch
+    if (Object.keys(switches).length > 0) await this.manager.configure(switches)
+    if (sshHosts) await this.manager.saveSshHosts(sshHosts)
+    return keysOf(patch)
+  }
+}
+
+type PersonView = ReturnType<PersonOwner['view']>
+type PersonWrite = { ok: true; changed: ChangedKeys; view: PersonView } | { ok: false; error: string }
+
+/**
+ * The person a session works for, as their clients hold them: their settings,
+ * their agent profile, and the device that started the turn. One request to one
+ * of their clients reads or writes all three.
+ */
+class PersonOwner {
+  constructor(
+    private readonly ask: ConfigToolHost['personal'],
+    private readonly sessionId: string | undefined,
+  ) {}
+
+  async read(): Promise<PersonView> {
+    return this.view(await this.ask(this.sessionId, {}))
+  }
+
+  /** Writes what the sections name, as one request; null when they name nothing of the person's. */
+  async write({ personal, profile, device }: Pick<Sections, 'personal' | 'profile' | 'device'>): Promise<PersonWrite | null> {
+    const request: AgentPersonalRequest = {}
+    const changed: ChangedKeys = {}
+    if (personal && keysOf(personal).length > 0) {
+      request.settings = personal
+      changed.personal = keysOf(personal)
+    }
+    if (profile) {
+      request.profile = profile
+      changed.profile = [...Object.keys(profile.set), ...profile.reset]
+    }
+    if (device && keysOf(device).length > 0) {
+      request.device = device
+      changed.device = keysOf(device)
+    }
+    if (Object.keys(changed).length === 0) return null
+    const answer = await this.ask(this.sessionId, request)
+    if (!answer.reply.ok) return { ok: false, error: answer.reply.error }
+    return { ok: true, changed, view: this.view(answer) }
+  }
+
+  /** The person's three sections from a client's answer, or why each is unavailable. */
+  view(answer: PersonalAnswer) {
+    const { reply } = answer
+    if (!reply.ok) return { personal: { unavailable: reply.error }, profile: { unavailable: reply.error }, device: { unavailable: reply.error } }
+    return {
+      personal: reply.settings,
+      // Keyed as `remove` takes keys, so an agent can name what it read.
+      profile: Object.fromEntries(reply.profile.map((entry) => [entry.kind === 'file' ? `file:${entry.provider}/${entry.path}` : entry.kind === 'skill' ? `skill:${entry.name}` : `integration:${entry.slug}`, entry])),
+      device: !answer.fromTurnClient
+        ? { unavailable: 'The client that started this turn is not connected; another client answered.' }
+        : reply.device ?? { unavailable: 'The client that started this turn keeps no device settings an agent can change.' },
+    }
+  }
+}
+
+const NO_PERSON = 'Personal settings are not available on this host.'
+
+/** The settings one session's agent reaches, by their owners: this host, its device manager, and the person the session works for. */
+class AgentSettings {
+  private readonly hostConfig: HostConfigOwner
+  private readonly deviceManager: DeviceManagerOwner | null
+  private readonly person: PersonOwner | null
+
+  constructor(host: ConfigToolHost | null, sessionId: string | undefined) {
+    this.hostConfig = new HostConfigOwner((snapshot) => host?.hostConfigChanged(snapshot))
+    this.deviceManager = host ? new DeviceManagerOwner(host.deviceManager) : null
+    this.person = host ? new PersonOwner((session, request) => host.personal(session, request), sessionId) : null
+  }
+
+  async read() {
+    const person = this.person ? await this.person.read() : { personal: { unavailable: NO_PERSON }, profile: { unavailable: NO_PERSON }, device: { unavailable: NO_PERSON } }
+    return { host: this.hostConfig.read(), deviceManager: this.deviceManager?.read() ?? null, ...person, withheldKeys: { host: HOST_CONFIG_AGENT_HIDDEN_KEYS } }
+  }
+
+  /**
+   * The person goes first: their client can refuse, and a refused write changes
+   * nothing on this host either.
+   */
+  async write(sections: Sections): Promise<AgentToolResult> {
+    const namesPerson = keysOf(sections.personal).length > 0 || Boolean(sections.profile) || keysOf(sections.device).length > 0
+    if ((!this.person && namesPerson) || (!this.deviceManager && keysOf(sections.deviceManager).length > 0)) {
+      return { ok: false, text: 'Device and personal settings are not available on this host.' }
+    }
+    const person = await this.person?.write(sections) ?? null
+    if (person && !person.ok) return { ok: false, text: person.error }
+    const changed: ChangedKeys = { ...person?.changed }
+    const hostKeys = this.hostConfig.write(sections.host)
+    if (hostKeys.length > 0) changed.host = hostKeys
+    const deviceManagerKeys = await this.deviceManager?.write(sections.deviceManager) ?? []
+    if (deviceManagerKeys.length > 0) changed.deviceManager = deviceManagerKeys
+    if (Object.keys(changed).length === 0) return { ok: false, text: 'Name at least one setting to change.' }
+    const result = { changed, host: this.hostConfig.read(), deviceManager: this.deviceManager?.read() ?? null }
+    if (person) Object.assign(result, person.view)
+    return { ok: true, text: JSON.stringify(result) }
+  }
+}
+
+let toolHost: ConfigToolHost | null = null
 
 export function setConfigToolHost(next: ConfigToolHost): void {
-  owners = new SettingsOwners(next)
+  toolHost = next
 }
 
 export const readConfigAgentTool: AgentTool = {
@@ -290,22 +310,21 @@ export const readConfigAgentTool: AgentTool = {
     "Read Solus settings in five sections: `host` (this machine: tool availability, restart continuation, review warming, retention, analytics consent), `deviceManager` (simulators, emulators, and phones, and the SSH device hosts), `personal` (the settings of the person this session works for: models, permission mode, review, instructions, source control writing, appearance, and the rest), `profile` (their agent profile: provider files such as subagents and commands, skills, and MCP servers; a file shows its path, size, and hash, not its content), and `device` (the client device that started this turn: voice, editor and terminal, font smoothing and overrides, zoom, keybindings, analytics consent). update_config changes any of them.",
   inputFields: {} as const,
   requiresApproval: false,
-  execute: async (_input, context) => ({ ok: true, text: JSON.stringify(await owners.read(context.sessionId())) }),
+  execute: async (_input, context) => ({ ok: true, text: JSON.stringify(await new AgentSettings(toolHost, context.sessionId()).read()) }),
 }
 
 export const updateConfigAgentTool: AgentTool = {
   name: 'update_config',
   description:
     "Change Solus settings. Pass any of `host`, `deviceManager`, `personal`, `profile`, and `device`. All but `profile` take only the keys to change; keys not named keep their value. `profile` takes entries to `set` (a file by its text) and keys to `remove`. A personal or profile change is applied on the person's connected Solus client and syncs from there; a `device` change applies only on the client that started this turn and never syncs. Every key is checked before any is written.",
-  inputFields: Object.fromEntries(SECTION_NAMES.map((name) => [name, listedSchema(SECTIONS[name].schema).optional().describe(SECTIONS[name].description)])),
+  // oxlint-disable-next-line anti-slop/no-shape-in-symbol-names -- Zod names an object schema's fields `shape`.
+  inputFields: Object.fromEntries(Object.entries(updateConfigInputSchema.shape).map(([name, schema]) => [name, listedSchema(schema).optional()])),
   requiresApproval: false,
   execute: async (input, context) => {
-    const change = ConfigChange.parse(input)
-    return change.ok ? owners.apply(change.value, context.sessionId()) : { ok: false, text: change.error }
+    const parsed = updateConfigInputSchema.safeParse(input)
+    if (parsed.success) return new AgentSettings(toolHost, context.sessionId()).write(parsed.data)
+    // The first refused value, named by its path: `section.key`.
+    const issue = parsed.error.issues[0]
+    return { ok: false, text: `${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'invalid value'}` }
   },
-}
-
-/** The summary keyed as `remove` takes keys, so an agent can name what it read. */
-function profileByKey(summary: AgentProfileSummary) {
-  return Object.fromEntries(summary.map((entry) => [entry.kind === 'file' ? `file:${entry.provider}/${entry.path}` : entry.kind === 'skill' ? `skill:${entry.name}` : `integration:${entry.slug}`, entry]))
 }
