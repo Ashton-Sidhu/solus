@@ -352,6 +352,7 @@
         "@solus/document-model": "workspace:*",
         "@tiptap/core": "^3.31.3",
         "@tiptap/y-tiptap": "^3.0.9",
+        "extract-zip": "^2.0.1",
         "yjs": "^13.6.32",
       },
       "devDependencies": {

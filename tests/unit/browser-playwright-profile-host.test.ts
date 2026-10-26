@@ -104,10 +104,12 @@ class FakeContext {
 }
 
 const contexts: FakeContext[] = []
+const launchExecutables: (string | undefined)[] = []
 let chromiumMissing = false
 mock.module('playwright-core', () => ({
   chromium: {
-    launchPersistentContext: async (userDataDir: string) => {
+    launchPersistentContext: async (userDataDir: string, options: { executablePath?: string }) => {
+      launchExecutables.push(options.executablePath)
       if (chromiumMissing) {
         throw new Error("browserType.launchPersistentContext: Executable doesn't exist at /home/dev/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell\n╔══╗\n║ Looks like Playwright was just installed or updated. ║\n╚══╝")
       }
@@ -147,6 +149,7 @@ afterEach(async () => {
   await disposeHost?.()
   disposeHost = null
   contexts.length = 0
+  launchExecutables.length = 0
   surface.setBrowserHeadlessHost(null)
   surface.setBrowserProfileHost(null)
 })
@@ -157,8 +160,8 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-async function harness() {
-  disposeHost = await host.registerPlaywrightBrowserHost()
+async function harness(executable: () => Promise<string | undefined> = async () => undefined) {
+  disposeHost = await host.registerPlaywrightBrowserHost(executable)
   if (!disposeHost) throw new Error('the fake playwright-core was not picked up')
   const published: BrowserPage[] = []
   const registry = registryModule.initBrowserRegistry({
@@ -188,6 +191,18 @@ test('resizing a streamed Playwright page replaces the active screencast', async
   }
 })
 
+test('pages launch on the pinned Chromium, not the revision Playwright bundles', async () => {
+  // WHY: Playwright's Chromium trusts the compromised eMudhra CAs (pinned-chromium.ts).
+  const { registry } = await harness(async () => '/data/chrome-for-testing/chrome-headless-shell')
+  const page = registry.open({ target: TARGET }, 'local:owner')
+  try {
+    await registry.navigate(page.browserPageId, { kind: 'reload' })
+    expect(launchExecutables).toEqual(['/data/chrome-for-testing/chrome-headless-shell'])
+  } finally {
+    await registry.shutdown()
+  }
+})
+
 test('a host without Chromium says so in one line, not as a terminal banner', async () => {
   // WHY: the page card shows the problem message as prose. Playwright's boxed
   // install banner wraps into broken box-drawing characters there.
@@ -198,7 +213,7 @@ test('a host without Chromium says so in one line, not as a terminal banner', as
     await registry.navigate(page.browserPageId, { kind: 'reload' }).catch(() => {})
     const problem = published.findLast((entry) => entry.browserPageId === page.browserPageId)?.problem
     expect(problem?.kind).toBe('load-failed')
-    expect(problem?.message).toBe('Chromium is not installed on this host. Run `npx playwright install chromium` on the host, then retry.')
+    expect(problem?.message).toBe('Chromium is not installed on this host. Select Install browser in Settings → Hosts → this host → Environment, then retry.')
   } finally {
     await registry.shutdown()
   }

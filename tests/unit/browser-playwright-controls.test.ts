@@ -61,7 +61,7 @@ describe.skipIf(!chromium)('browser controls (Playwright Chromium)', () => {
   let browserPageId = ''
 
   beforeAll(async () => {
-    stopHost = await registerPlaywrightBrowserHost()
+    stopHost = await registerPlaywrightBrowserHost(async () => undefined)
     registry = initBrowserRegistry({ pageChanged() {}, pageClosed() {}, surfaceRequested() {} })
     const url = `data:text/html,${encodeURIComponent(PAGE)}`
     browserPageId = registry.open({ target: { kind: 'url', url } }, 'local:owner').browserPageId

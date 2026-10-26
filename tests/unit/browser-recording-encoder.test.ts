@@ -57,7 +57,7 @@ async function jpegFrames(count: number): Promise<Uint8Array[]> {
 describe.skipIf(!chromium)('recording encoder (Playwright Chromium)', () => {
   test('turns JPEG frames into an MP4', async () => {
     const frames = await jpegFrames(30)
-    const pool = playwrightEncoderPool(chromium!)
+    const pool = playwrightEncoderPool(chromium!, async () => undefined)
     const encoder = await pool.open({ width: 320, height: 240 })
     try {
       for (const frame of frames) {

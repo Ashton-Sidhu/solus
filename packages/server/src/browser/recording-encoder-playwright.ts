@@ -1,4 +1,5 @@
 import { createLogger } from '../logger'
+import { chromiumExecutable } from './pinned-chromium'
 import { openScriptEncoder, type EncoderPageValue } from './recording-encoder-script'
 import { setBrowserRecordingEncoderHost, type BrowserRecordingEncoderHost } from './surface-driver'
 
@@ -26,7 +27,7 @@ interface EncoderBrowser {
 }
 
 export interface EncoderChromium {
-  launch(options: { headless: boolean; args: string[] }): Promise<EncoderBrowser>
+  launch(options: { executablePath?: string; headless: boolean; args: string[] }): Promise<EncoderBrowser>
 }
 
 /** Register the encoder when this host has Playwright. Returns the disposer, or
@@ -50,16 +51,20 @@ export interface PlaywrightEncoderPool extends BrowserRecordingEncoderHost {
 }
 
 /** One browser, one blank page per recording, reference-counted. */
-export function playwrightEncoderPool(chromium: EncoderChromium): PlaywrightEncoderPool {
+export function playwrightEncoderPool(
+  chromium: EncoderChromium,
+  executable: () => Promise<string | undefined> = chromiumExecutable,
+): PlaywrightEncoderPool {
   let current: { browser: Promise<EncoderBrowser>; users: number } | null = null
 
   return {
     async open(size) {
       current ??= {
-        browser: chromium.launch({
+        browser: executable().then((executablePath) => chromium.launch({
+          executablePath,
           headless: true,
           args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding'],
-        }),
+        })),
         users: 0,
       }
       const pool = current

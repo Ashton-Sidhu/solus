@@ -4,16 +4,27 @@ import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import type { BrowserRuntimeStatus } from '@solus/contracts/browser-runtime'
 import { resolveHomePath } from '../platform/paths'
+import { pinnedChromium } from './pinned-chromium'
 import { browserWebviewHost } from './surface-driver'
 
 interface BrowserRuntime {
   cli: string
-  verify(): Promise<void>
+  /** Launch once. No `executablePath` means Playwright's own Chromium. */
+  verify(executablePath?: string): Promise<void>
+}
+
+/** The part of `PinnedChromium` the installer uses. */
+interface PinnedBrowser {
+  version: string
+  installed(): string | null
+  ensure(): Promise<string>
 }
 
 interface BrowserRuntimeDeps {
   native(): boolean
   load(): Promise<BrowserRuntime | null>
+  /** Null where Chrome for Testing has no build for this host. */
+  pinned: PinnedBrowser | null
   run(command: string, args: string[]): Promise<void>
   platform: string
   node: string
@@ -24,13 +35,15 @@ interface BrowserRuntimeDeps {
 async function loadRuntime(): Promise<BrowserRuntime | null> {
   try {
     const name = ['playwright', 'core'].join('-')
-    const runtime: { chromium: { launch(options: { headless: boolean; timeout: number }): Promise<{ close(): Promise<void> }> } } = await import(name)
+    const runtime: {
+      chromium: { launch(options: { executablePath?: string; headless: boolean; timeout: number }): Promise<{ close(): Promise<void> }> }
+    } = await import(name)
     const require = createRequire(import.meta.url)
     const cli = join(dirname(require.resolve(`${name}/package.json`)), 'cli.js')
     return {
       cli,
-      async verify() {
-        const browser = await runtime.chromium.launch({ headless: true, timeout: 10_000 })
+      async verify(executablePath) {
+        const browser = await runtime.chromium.launch({ executablePath, headless: true, timeout: 10_000 })
         await browser.close()
       },
     }
@@ -74,6 +87,7 @@ export class BrowserRuntimeInstaller {
     this.deps = {
       native: () => browserWebviewHost() !== null,
       load: loadRuntime,
+      pinned: pinnedChromium(),
       run: runInstaller,
       platform: process.platform,
       node: process.execPath,
@@ -96,9 +110,17 @@ export class BrowserRuntimeInstaller {
     if (!runtime || !['linux', 'darwin'].includes(this.deps.platform)) {
       return { phase: 'unsupported', message: 'This host cannot install Chromium. Update the standalone server package.' }
     }
+    const { pinned } = this.deps
     try {
-      await runtime.verify()
-      return { phase: 'ready', message: 'Chromium is ready on this host.' }
+      if (!pinned) {
+        await runtime.verify()
+        return { phase: 'ready', message: 'Chromium is ready on this host.' }
+      }
+      // Playwright's own Chromium does not count: it trusts revoked CAs (pinned-chromium.ts).
+      const executable = pinned.installed()
+      if (!executable) throw new Error('The pinned Chromium is not installed.')
+      await runtime.verify(executable)
+      return { phase: 'ready', message: `Chromium ${pinned.version} is ready on this host.` }
     } catch {
       // Keep the last install failure so a reconnect explains what went wrong.
       return this.state?.phase === 'failed' ? { ...this.state } : {
@@ -127,16 +149,28 @@ export class BrowserRuntimeInstaller {
         this.state = { phase: 'unsupported', message: 'Update the standalone server package to install Chromium.' }
         return
       }
-      manualCommand = `${quote(this.deps.node)} ${quote(runtime.cli)} install --with-deps chromium`
-      if (this.deps.browserPath) manualCommand = `PLAYWRIGHT_BROWSERS_PATH=${quote(this.deps.browserPath)} ${manualCommand}`
+      const { pinned } = this.deps
+      const withPath = (command: string) =>
+        this.deps.browserPath ? `PLAYWRIGHT_BROWSERS_PATH=${quote(this.deps.browserPath)} ${command}` : command
+      let executable: string | undefined
+      if (pinned) {
+        this.state = { phase: 'installing', message: `Downloading Chromium ${pinned.version}…` }
+        executable = await pinned.ensure()
+      }
+      // The pinned build needs Playwright's Linux libraries, not its browser.
+      manualCommand = pinned
+        ? `${quote(this.deps.node)} ${quote(runtime.cli)} install-deps chromium`
+        : withPath(`${quote(this.deps.node)} ${quote(runtime.cli)} install --with-deps chromium`)
       try {
-        await runtime.verify()
+        await runtime.verify(executable)
       } catch {
-        this.state = { phase: 'installing', message: 'Downloading Chromium…' }
-        await this.deps.run(this.deps.node, [runtime.cli, 'install', 'chromium'])
+        if (!pinned) {
+          this.state = { phase: 'installing', message: 'Downloading Chromium…' }
+          await this.deps.run(this.deps.node, [runtime.cli, 'install', 'chromium'])
+        }
         this.state = { phase: 'installing', message: 'Checking Chromium…' }
         try {
-          await runtime.verify()
+          await runtime.verify(executable)
         } catch (error) {
           if (this.deps.platform !== 'linux') throw error
           this.state = { phase: 'installing', message: 'Installing Linux browser libraries…' }
@@ -144,10 +178,10 @@ export class BrowserRuntimeInstaller {
           // Never open a password prompt on the host's invisible stdin.
           if (this.deps.isRoot) await this.deps.run(this.deps.node, args)
           else await this.deps.run('sudo', ['-n', '--', this.deps.node, ...args])
-          await runtime.verify()
+          await runtime.verify(executable)
         }
       }
-      this.state = { phase: 'ready', message: 'Chromium is ready on this host.' }
+      this.state = { phase: 'ready', message: pinned ? `Chromium ${pinned.version} is ready on this host.` : 'Chromium is ready on this host.' }
     } catch (error) {
       this.state = {
         phase: 'failed',

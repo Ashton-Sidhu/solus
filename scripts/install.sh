@@ -194,9 +194,8 @@ NODE
   case "$target" in
     linux-*)
       log ""
-      log "Browser setup (run as the user that will run the Solus service; system libraries need root or sudo):"
-      log "  \"$version_dir/bin/node\" \"$version_dir/libexec/server/node_modules/playwright-core/cli.js\" install --with-deps chromium"
-      log "Repeat browser setup after updates to install the matching Chromium revision."
+      log "Browser setup: Solus downloads its pinned Chromium when a page first opens. Install its system libraries as root or with sudo:"
+      log "  sudo \"$version_dir/bin/node\" \"$version_dir/libexec/server/node_modules/playwright-core/cli.js\" install-deps chromium"
       ;;
   esac
   case ":$PATH:" in

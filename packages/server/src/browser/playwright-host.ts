@@ -15,6 +15,7 @@ import {
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { browserGuestStyleScript } from './guest-style'
+import { chromiumExecutable } from './pinned-chromium'
 import {
   BrowserDialogTracker,
   browserDialogType,
@@ -119,7 +120,7 @@ interface PlaywrightCookie {
 interface PlaywrightChromium {
   launchPersistentContext(
     userDataDir: string,
-    options: { headless: boolean; viewport: null; args: string[]; ignoreDefaultArgs: string[] },
+    options: { executablePath?: string; headless: boolean; viewport: null; args: string[]; ignoreDefaultArgs: string[] },
   ): Promise<PlaywrightContext>
 }
 
@@ -193,13 +194,20 @@ type CdpEventParams =
  * a Chromium that outlives the process that launched it is the worst kind of
  * leak, because nothing left is holding its pid.
  */
-export async function registerPlaywrightBrowserHost(): Promise<(() => Promise<void>) | null> {
-  const chromium = await loadChromium()
-  if (!chromium) {
+export async function registerPlaywrightBrowserHost(
+  executable: () => Promise<string | undefined> = chromiumExecutable,
+): Promise<(() => Promise<void>) | null> {
+  const loaded = await loadChromium()
+  if (!loaded) {
     log.info('browser_playwright_absent', {
       reason: 'playwright-core is not installed on this host; browser pages cannot be hosted here.',
     })
     return null
+  }
+  // Every launch uses the pinned Chromium, not Playwright's bundled one (pinned-chromium.ts).
+  const chromium: PlaywrightChromium = {
+    launchPersistentContext: async (directory, options) =>
+      loaded.launchPersistentContext(directory, { ...options, executablePath: await executable() }),
   }
   const contexts = new Map<string, Promise<PlaywrightContext>>()
   setBrowserHeadlessHost({
@@ -371,7 +379,7 @@ function contextFor(
  *  terminal. The page card shows the message as prose, so say it in one line. */
 function launchFailure(error: unknown): unknown {
   if (!(error instanceof Error) || !error.message.includes("Executable doesn't exist")) return error
-  return new Error('Chromium is not installed on this host. Run `npx playwright install chromium` on the host, then retry.')
+  return new Error('Chromium is not installed on this host. Select Install browser in Settings → Hosts → this host → Environment, then retry.')
 }
 
 async function openPlaywrightGuest(
