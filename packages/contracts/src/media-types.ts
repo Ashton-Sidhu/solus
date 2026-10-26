@@ -92,3 +92,36 @@ export function videoMimeType(file: { name: string; mimeType?: string | null }):
   const type = mediaTypeFor(file.name)
   return type?.kind === 'video' ? type.mime : null
 }
+
+/** The type Solus records for a DNG. It is not registered with IANA, but it is
+ *  the usual name, and no client reads it as a picture it can show. */
+export const DNG_MIME_TYPE = 'image/x-adobe-dng'
+
+const DNG_MIME_TYPES = new Set(['image/dng', 'image/x-dng', DNG_MIME_TYPE])
+
+/**
+ * Whether a file is a DNG camera original. Browsers label one as PNG, JPEG,
+ * TIFF, or nothing, so the extension decides before the reported type.
+ */
+export function isDngFile(file: { name: string; mimeType?: string | null }): boolean {
+  if (file.name.toLowerCase().endsWith('.dng')) return true
+  return DNG_MIME_TYPES.has((file.mimeType ?? '').split(';', 1)[0].trim().toLowerCase())
+}
+
+/** What a picked file is, read the same way on every client. A video is a
+ *  `file` attachment with its video MIME type, never an image. A DNG is a
+ *  `file` too: an agent cannot read it as an image, so its original bytes go
+ *  to the host as they are. */
+export interface AttachmentKind {
+  type: 'image' | 'file'
+  mimeType: string
+  isVideo: boolean
+}
+
+export function attachmentKind(file: { name: string; mimeType?: string | null }): AttachmentKind {
+  const video = videoMimeType(file)
+  if (video) return { type: 'file', mimeType: video, isVideo: true }
+  if (isDngFile(file)) return { type: 'file', mimeType: DNG_MIME_TYPE, isVideo: false }
+  const mimeType = file.mimeType || 'application/octet-stream'
+  return { type: mimeType.startsWith('image/') ? 'image' : 'file', mimeType, isVideo: false }
+}

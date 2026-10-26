@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/lib/enrichedLinkPresentation.ts (MIT, see UPSTREAM.md).
 // No context chips or skills: Solus Markdown draws pills for file links only.
+// `recognizedLinkUrls` is T3's skill-link match in `EnrichedMarkdownText.tsx` (#24534), for file links and mentions.
 import { themeAccentWithContrast, type MobileThemeVariables } from "./mobileTheme";
 
 /** T3's `mention` chip accent (`composerChipPresentation.ts`). */
@@ -35,3 +36,23 @@ export function enrichedLinkVariantPattern(url: string) {
 /** Conservative recognition for Enriched's whole-span inline-code link hook. */
 export const ENRICHED_INLINE_FILE_LINK_REGEX =
   /^(?!\S*:\/\/)(?:(?:\.{1,2}[\\/]|~[\\/]|\/(?:Users|home|tmp|var|etc|opt|mnt|Volumes|private|root|usr|bin|sbin|lib|lib64|srv|dev|proc|sys|run|boot|media|workspace|workspaces)\/|[A-Za-z]:[\\/])[^\s`]+|(?:[A-Za-z0-9._-]+[\\/])+[A-Za-z0-9._-]+\.[A-Za-z0-9_-]+(?::\d+){0,2}|[A-Za-z0-9._-]+\.[A-Za-z0-9_-]+:\d+(?::\d+)?)$/;
+
+// Start only at the beginning of a backtick run (T3 #24263), so a long run is not retried at every suffix.
+const INLINE_CODE_SPAN = /(?<!`)`+([^`\r\n]+)`+/g;
+
+/**
+ * The URLs `linkRecognition` adds as Enriched draws the text: an inline-code
+ * file path, and a `@path` mention when `mentionPattern` is given. Enriched's
+ * `onLinksChange` does not report them, so their pills and link menus need
+ * this list. A recognized link's URL is the text it matched.
+ */
+export function recognizedLinkUrls(markdown: string, mentionPattern?: RegExp): string[] {
+  const urls = new Set<string>();
+  for (const [, code] of markdown.matchAll(INLINE_CODE_SPAN)) {
+    const content = code!.trim();
+    if (ENRICHED_INLINE_FILE_LINK_REGEX.test(content)) urls.add(content);
+  }
+  if (mentionPattern)
+    for (const [mention] of markdown.matchAll(new RegExp(mentionPattern.source, "g"))) urls.add(mention);
+  return [...urls];
+}

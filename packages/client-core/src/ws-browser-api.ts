@@ -1,5 +1,5 @@
 import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
-import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
+import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind } from '@solus/contracts/media-types'
 import { uuid } from '@solus/contracts/uuid'
 import type { Attachment, IpcContext } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
@@ -69,13 +69,13 @@ async function uploadFiles(transport: WsTransport, files: File[], ctx: IpcContex
   try {
     const attachments: Attachment[] = []
     for (const file of files) {
-      const videoMime = videoMimeType({ name: file.name, mimeType: file.type })
-      if (file.size > (videoMime ? MAX_VIDEO_UPLOAD_BYTES : MAX_ATTACHMENT_UPLOAD_BYTES)) return null
-      const mime = videoMime ?? (file.type || 'application/octet-stream')
+      const kind = attachmentKind({ name: file.name, mimeType: file.type })
+      if (file.size > (kind.isVideo ? MAX_VIDEO_UPLOAD_BYTES : MAX_ATTACHMENT_UPLOAD_BYTES)) return null
+      const mime = kind.mimeType
       // The declared type and the bytes' type must agree for the host.
       const body = file.type === mime ? file : new Blob([file], { type: mime })
-      const isImage = !videoMime && mime.startsWith('image/')
-      const dataUrl = videoMime ? null : await readFileDataUrl(body)
+      const isImage = kind.type === 'image'
+      const dataUrl = kind.isVideo ? null : await readFileDataUrl(body)
       const hostPath = dataUrl === null
         ? await streamUpload(transport, file.name, body, ctx)
         : await transport.invoke('attachUpload', [ctx, { name: file.name, mime, dataUrl }])

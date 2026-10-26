@@ -43,6 +43,20 @@ describe('native attachments', () => {
     expect(uploaded).toEqual({ id: 'a1', kind: 'image', name: 'photo.jpg', hostPath: '/data/attachments/s/1-photo.jpg', mimeType: 'image/jpeg', size: 1000, dataUrl: 'data:image/jpeg;base64,QUJDREVG' })
   })
 
+  test('a DNG goes up as a file with the DNG type, even when the picker calls it a JPEG', async () => {
+    // WHY: an image attachment is sent to the agent as image content, and Claude refuses a DNG.
+    const calls: AttachmentUploadRequest[] = []
+    const { io } = fakeIo()
+    const api = {
+      attachUpload: async (_ctx: IpcContext, request: AttachmentUploadRequest) => { calls.push(request); return '/data/attachments/s/1-photo.dng' },
+      attachUploadToken: async () => { throw new Error('unused') },
+    }
+    const raw: PickedFile = { uri: 'file:///p/photo.DNG', name: 'photo.DNG', mimeType: 'image/jpeg', size: 1000 }
+    const uploaded = await uploadAttachment(raw, { api, ctx: {} as IpcContext, serverUrl: 'http://h:1', io, uuid: () => 'd1' })
+    expect(calls).toEqual([{ name: 'photo.DNG', mime: 'image/x-adobe-dng', dataUrl: 'data:image/x-adobe-dng;base64,QUJDREVG' }])
+    expect(uploaded).toMatchObject({ kind: 'file', mimeType: 'image/x-adobe-dng', dataUrl: null })
+  })
+
   test('a video streams its bytes to the signed route; a refused upload is an error', async () => {
     const tokens: AttachmentUploadTokenRequest[] = []
     const api = {

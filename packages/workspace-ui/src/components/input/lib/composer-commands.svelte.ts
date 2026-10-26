@@ -22,7 +22,7 @@ import {
   readFileDataUrl,
   uploadPastedImage,
 } from './attachment-upload';
-import { videoMimeType } from '@solus/contracts/media-types';
+import { attachmentKind } from '@solus/contracts/media-types';
 import { attachmentUploads, uploadFileObjects } from './attachment-uploads.svelte';
 import { checkoutPlace, runHost } from '../../../contexts/workspace/run-location';
 import { suggestionsStore } from '../../../contexts/sharing/suggestions.store.svelte';
@@ -563,11 +563,12 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     const imageUploads: Promise<void>[] = [];
     for (const blob of blobs) {
       try {
-        // A video is a file, never pasted image content: it streams to the
-        // host and its chip shows the upload.
-        if (videoMimeType({ name: blob.name, mimeType: blob.type })) {
+        // A video or a DNG is a file, never pasted image content: it goes to
+        // the host as it is and its chip shows the upload.
+        const kind = attachmentKind({ name: blob.name, mimeType: blob.type });
+        if (kind.type === "file") {
           if ((await serverConnections.capabilitiesFor(serverId)).attachUpload !== true) {
-            throw new Error("Update the host to attach videos.");
+            throw new Error(kind.isVideo ? "Update the host to attach videos." : "Update the host to attach files.");
           }
           prompt.attachments.push(...await uploadFileObjects(api, ctx, serverId, [blob]));
           continue;

@@ -1,5 +1,5 @@
 import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
-import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
+import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind, videoMimeType } from '@solus/contracts/media-types'
 import type { IpcContext, PromptImageRef } from '@solus/contracts/types'
 import type { HostApi } from '@solus/client-core/host-api'
 
@@ -61,9 +61,10 @@ export function attachmentLimitProblem(files: readonly PickedFile[], alreadyAtta
 }
 
 export async function uploadAttachment(file: PickedFile, deps: AttachmentUploadDeps): Promise<UploadedAttachment> {
-  const video = videoMimeType({ name: file.name, mimeType: file.mimeType ?? '' })
-  const mime = video ?? (file.mimeType || 'application/octet-stream')
-  const isImage = !video && mime.startsWith('image/')
+  const kind = attachmentKind({ name: file.name, mimeType: file.mimeType })
+  const video = kind.isVideo
+  const mime = kind.mimeType
+  const isImage = kind.type === 'image'
   let hostPath: string
   let dataUrl: string | null = null
   if (video) {

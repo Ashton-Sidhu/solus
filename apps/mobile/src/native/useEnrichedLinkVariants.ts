@@ -4,11 +4,7 @@
 import { replyImage } from "@solus/client-core/reply-images";
 import { useMemo } from "react";
 import { Image, type ImageSourcePropType } from "react-native";
-import type {
-  LinkPillContent,
-  MarkdownDocumentAsset,
-  MarkdownStyle,
-} from "react-native-enriched-markdown";
+import type { LinkPillContent, MarkdownStyle } from "react-native-enriched-markdown";
 
 import { enrichedLinkVariantPattern, mentionChipColor } from "../lib/enrichedLinkPresentation";
 import { fileMentionPath } from "../lib/fileMentions";
@@ -63,25 +59,20 @@ export function enrichedLinkPresentation(
 }
 
 export function useEnrichedLinkVariants(
-  assets: ReadonlyArray<MarkdownDocumentAsset>,
+  urls: ReadonlyArray<string>,
   textStyle: NativeMarkdownTextStyle,
   fileChipHrefs?: readonly string[],
 ) {
   const mentionColor = mentionChipColor(useUniwindTheme());
   const links = useMemo(() => {
     const byUrl = new Map<string, EnrichedLinkPresentation>();
-    for (const asset of assets) {
-      if (asset.kind !== "link" || byUrl.has(asset.url)) continue;
-      const value = enrichedLinkPresentation(
-        asset.url,
-        textStyle,
-        mentionColor,
-        fileChipHrefs?.includes(asset.url),
-      );
-      if (value) byUrl.set(asset.url, value);
+    for (const url of urls) {
+      if (byUrl.has(url)) continue;
+      const value = enrichedLinkPresentation(url, textStyle, mentionColor, fileChipHrefs?.includes(url));
+      if (value) byUrl.set(url, value);
     }
     return byUrl;
-  }, [assets, textStyle, mentionColor, fileChipHrefs]);
+  }, [urls, textStyle, mentionColor, fileChipHrefs]);
   const linkVariants = useMemo<MarkdownStyle["linkVariants"]>(
     () =>
       Object.fromEntries(

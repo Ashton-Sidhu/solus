@@ -257,14 +257,17 @@ export interface PickerRowsInput {
  * (task-conversation.md §8) could only be found by a query. The Tasks result
  * type keeps the tasks in their lifecycle sections.
  *
- * A query replaces that with two sections in a fixed order, each stating its
- * own rule: tasks the query hit; then sessions it hit by name or by
- * what was said in them, flat, one row per session with its best evidence. A
- * matching session remains visible even if its task matches. Tasks do not
- * expand under a query. Both sections take the reader's order: best match first, or newest.
+ * A query replaces that with sections in a fixed order, each stating its
+ * own rule: tasks the query hit; then sessions it hit by name, flat, one row
+ * per session; then In messages, the sessions only a host found. The names are
+ * matched here on each keystroke, and the hosts answer later, so a host's
+ * answer adds a passage to a row already listed but never moves it: what it
+ * alone found is listed below. A matching session remains visible even if its
+ * task matches. Tasks do not expand under a query. Every section takes the
+ * reader's order: best match first, or newest.
  *
- * Best match first also lifts the best few rows of both kinds into Top hits,
- * above the two sections. Without it the best session sat under every task
+ * Best match first also lifts the best few rows found by name into Top hits,
+ * above the sections. Without it the best session sat under every task
  * that matched at all, however weakly: the reader who typed a session's name
  * had to scroll past the task section to reach it. A row is listed once.
  */
@@ -521,8 +524,10 @@ function queryList(
   const rankedTasks = sort === 'relevance'
     ? scoredTasks.toSorted((a, b) => compareRelevance(a.relevance, b.relevance))
     : scoredTasks
-  const listings = input.resultType === 'tasks' ? [] : matchedSessions(
+  const unclaimed = unclaimedSessions(input.recentSessions ?? [], ownerBySessionId, filters, now)
+  const { named: listings, inMessages } = input.resultType === 'tasks' ? { named: [], inMessages: [] } : matchedSessions(
     nameHits,
+    words.length ? unclaimed : [],
     // A host's record can open on another machine, so the Host filter is
     // checked against the machine each hit opens on.
     words.length ? (input.conversations ?? []).filter((result) => keepsHost(result.session.serverId, filters) && keepsArchive(result.session.archived, filters)) : [],
@@ -532,11 +537,13 @@ function queryList(
     now,
   )
   if (!words.length) {
-    listings.push(...unclaimedSessions(input.recentSessions ?? [], ownerBySessionId, input.filters ?? NO_PICKER_FILTERS, input.now ?? Date.now()))
+    listings.push(...unclaimed)
     listings.sort(compareListings(sort))
   }
   const remaining = remainingSessions(input, words)
 
+  // Only rows this client found by name are ranked into Top hits and the two
+  // sections under it: a host's answer comes later and must not move them.
   // Matching sessions have their own rows; expanding a task here would repeat them.
   const top = topHits(sort === 'relevance' ? rankedTasks : [], listings, (listing) => listing.kind === 'session' ? listing.task.id : null)
   if (top.order.length) {
@@ -565,13 +572,14 @@ function queryList(
     for (const item of restTasks) writer.task(item, false, words)
   }
 
-  writeSessionsSection(writer, listings.filter((listing) => !top.sessions.has(listing)), remaining, sort)
+  writeSessionsSection(writer, 'sessions', 'Sessions', listings.filter((listing) => !top.sessions.has(listing)), 0, sort)
+  writeSessionsSection(writer, 'messages', 'In messages', inMessages, remaining, sort)
 
   return {
     rows: writer.rows,
     entries: writer.entries,
     taskCount: rankedTasks.length,
-    sessionCount: listings.length + remaining,
+    sessionCount: listings.length + inMessages.length + remaining,
     hiddenTaskCount,
   }
 }
@@ -582,20 +590,27 @@ function remainingSessions(input: PickerRowsInput, words: readonly string[]): nu
   return input.conversationsRemaining ?? 0
 }
 
-/** The Sessions section: the listings not lifted into Top hits, and the end
- *  row that reads the matches the hosts hold beyond the pages read. */
-function writeSessionsSection(writer: ReturnType<typeof rowWriter>, listings: readonly SessionListing[], remaining: number, sort: PickerSort): void {
+/** A section of sessions, and the end row that reads the matches the hosts
+ *  hold beyond the pages read. */
+function writeSessionsSection(
+  writer: ReturnType<typeof rowWriter>,
+  key: string,
+  label: string,
+  listings: readonly SessionListing[],
+  remaining: number,
+  sort: PickerSort,
+): void {
   if (!listings.length && !remaining) return
   writer.header({
     kind: 'header',
-    key: 'header:sessions',
-    label: 'Sessions',
+    key: `header:${key}`,
+    label,
     // Every match the hosts hold, read or not: the count is not a cap.
     count: listings.length + remaining,
     hint: PICKER_SORT_HINTS[sort],
   })
   listings.forEach(writer.listing)
-  if (remaining) writer.end({ kind: 'more', key: 'more:sessions', remaining })
+  if (remaining) writer.end({ kind: 'more', key: `more:${key}`, remaining })
 }
 
 interface LifecycleSection {
