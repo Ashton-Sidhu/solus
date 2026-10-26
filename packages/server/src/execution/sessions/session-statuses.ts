@@ -235,12 +235,20 @@ export class SessionStatuses {
     const projectKey = session?.gitContext?.repoRoot
       ?? session?.runInput?.projectPath
       ?? session?.runInput?.workingDirectory
+    // A finish waits out its confirm window: a continuation that starts in it
+    // (running) cancels the entry, so a gap between two runs never notifies.
+    if (action.kind === 'finished') {
+      this.rt.attention.confirmFinished({
+        sessionId: agentSessionId,
+        summary: finishedSummary(getIndexedSession(agentSessionId), projectKey),
+        projectKey,
+      })
+      return
+    }
     this.rt.attention.set({
       sessionId: agentSessionId,
       kind: action.kind,
-      summary: action.kind === 'finished'
-        ? finishedSummary(getIndexedSession(agentSessionId), projectKey)
-        : this.attentionSummary(action.kind, pendingEvent),
+      summary: this.attentionSummary(action.kind, pendingEvent),
       projectKey,
     })
   }
@@ -268,7 +276,7 @@ export class SessionStatuses {
   /** Publish one Solus-owned terminal boundary for the active top-level turn.
    *  Queueing the event preserves result-before-settlement ordering when a
    *  provider's `task_complete` caused the status transition in this same stack. */
-  private queueTurnSettlement(
+  queueTurnSettlement(
     sessionId: string,
     session: BackendSession,
     outcome: 'completed' | 'failed' | 'interrupted' | 'dead',

@@ -55,6 +55,7 @@ export class ProviderEvents {
     const hasFailed = this.failedBeforeBackground.delete(sessionId)
     this.rt.statuses.setStatus(sessionId, hasFailed ? 'failed' : 'completed')
     this.rt.activeSessions.delete(sessionId)
+    this.rt.orchestration?.backgroundEnded(sessionId)
   }
 
   wire(backend: AgentBackend): void {
@@ -379,6 +380,12 @@ export class ProviderEvents {
             log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size })
             this.rt.statuses.setStatus(session.sessionId, 'background')
             this.rt.scheduler.processQueueForSession(session.sessionId)
+          } else if (this.rt.scheduler.hasReadyQueuedRequest(session.sessionId)) {
+            // A queued prompt takes over at the exit: the session is not done,
+            // so it stays running and no "completed" reaches any client. The
+            // turn itself is over, and settles for those who wait on it.
+            log.info('turn_complete_queue_takes_over', { sessionId: session.sessionId })
+            this.rt.statuses.queueTurnSettlement(session.sessionId, session, 'completed')
           } else {
             this.rt.statuses.setStatus(session.sessionId, 'completed')
           }
@@ -529,7 +536,7 @@ export class ProviderEvents {
           catch (error) { log.error('handoff_carry_save_failed', { sessionId, error: String(error) }) }
         }
         this.rt.turnLog.delete(sessionId)
-        const queueWillTakeOver = newStatus === 'interrupted' && this.rt.scheduler.hasReadyQueuedRequest(sessionId)
+        const queueWillTakeOver = (newStatus === 'interrupted' || newStatus === 'completed') && this.rt.scheduler.hasReadyQueuedRequest(sessionId)
         const wasStarting = status === 'connecting' || (newStatus === 'interrupted' && status === 'running')
         if (!queueWillTakeOver && !wasStarting) this.rt.statuses.setStatus(sessionId, newStatus)
 
@@ -550,7 +557,9 @@ export class ProviderEvents {
     backend.on('background-task-completed', (agentSessionId: string, prompt: string, via: PromptVia | undefined) => {
       const sessionId = this.rt.sessionOfThread(agentSessionId)
       if (!sessionId) return
-      void this.rt.dispatch.promptSession(sessionId, prompt, 'queue', { via }).catch((error) => {
+      // The wake turn answers the exchanges the backgrounded run left open.
+      const exchangeIds = this.rt.orchestration?.backgroundExchangeIds(sessionId)
+      void this.rt.dispatch.promptSession(sessionId, prompt, 'queue', { via, exchangeIds }).catch((error) => {
         log.warn('background_task_wake_failed', { agentSessionId, error: error instanceof Error ? error.message : String(error) })
         // No turn takes over, so the wait the task held ends here.
         const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
