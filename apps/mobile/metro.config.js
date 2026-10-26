@@ -22,9 +22,11 @@ config.resolver.blockList = [
   /\/apps\/(desktop|client|site|cli)\/.*/,
 ]
 
-// T3 Code's Shiki resolution: the app pins shiki 4.2.0 while the desktop
-// packages hoist a newer one to the root, so every `@shikijs/*` import resolves
-// from this app's shiki and the bundle holds one consistent copy.
+// T3 Code's Shiki resolution, for the highlighting fallback of a binary without
+// modules/solus-highlights (src/lib/shikiHighlights.ts): the app pins shiki
+// 4.2.0 while the desktop packages can hoist a newer one to the root, so every
+// `@shikijs/*` import resolves from this app's shiki and the bundle holds one
+// consistent copy.
 const mobileShikiRoot = path.dirname(require.resolve('shiki/package.json', { paths: [projectRoot] }))
 const resolveShikiDependencyRoot = (packageName) => {
   let currentDir = path.dirname(require.resolve(packageName, { paths: [mobileShikiRoot] }))

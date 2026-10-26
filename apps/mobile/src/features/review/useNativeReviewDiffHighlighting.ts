@@ -1,10 +1,10 @@
 // Adapted from T3 Code apps/mobile/src/features/review/useNativeReviewDiffHighlighting.ts (MIT, see UPSTREAM.md).
 import { useEffect, useRef, useState } from "react";
 
+import type { HighlightScheme } from "../../lib/highlights";
 import {
   highlightNativeReviewDiffVisibleRows,
-  type NativeReviewDiffHighlightEngine,
-  type NativeReviewDiffHighlightScheme,
+  type NativeReviewDiffHighlightedRows,
 } from "../diffs/nativeReviewDiffHighlighter";
 import type { NativeReviewDiffRow } from "../diffs/nativeReviewDiffSurface";
 import type { NativeReviewDiffFile } from "../diffs/nativeReviewDiffTypes";
@@ -26,7 +26,7 @@ function isReviewDiffDebugLoggingEnabled(): boolean {
 interface ReviewDiffDiagnosticDetails {
   readonly error: unknown;
   readonly resetKey: string;
-  readonly scheme: NativeReviewDiffHighlightScheme;
+  readonly scheme: HighlightScheme;
   readonly firstRowIndex: number;
   readonly lastRowIndex: number;
 }
@@ -47,7 +47,7 @@ function logReviewDiffDiagnostic(message: string, details?: ReviewDiffDiagnostic
 export function useNativeReviewDiffHighlighting(input: {
   readonly files: ReadonlyArray<NativeReviewDiffFile>;
   readonly rows: ReadonlyArray<NativeReviewDiffRow>;
-  readonly scheme: NativeReviewDiffHighlightScheme;
+  readonly scheme: HighlightScheme;
   readonly resetKey: string;
   readonly enabled: boolean;
 }) {
@@ -77,55 +77,49 @@ export function useNativeReviewDiffHighlighting(input: {
 
     const abortController = new AbortController();
     const requestRange = visibleRange;
-    const engine: NativeReviewDiffHighlightEngine = "native";
+    const publish = (result: NativeReviewDiffHighlightedRows) => {
+      if (abortController.signal.aborted || result.rowCount === 0) {
+        return;
+      }
 
-    void (async () => {
-      try {
-        const result = await highlightNativeReviewDiffVisibleRows({
-          files,
-          rows,
+      for (const rowId of Object.keys(result.tokensByRowId)) {
+        highlightedRowIdsRef.current.add(rowId);
+      }
+
+      const chunkIndex = visibleChunkIndexRef.current;
+      visibleChunkIndexRef.current += 1;
+      setTokensPatchJson(
+        JSON.stringify({ resetKey, chunkIndex, tokensByRowId: result.tokensByRowId }),
+      );
+    };
+    const reportFailure = (error: Error) => {
+      if (!abortController.signal.aborted) {
+        logReviewDiffDiagnostic("native visible highlight failed", {
+          error,
+          resetKey,
           scheme,
-          engine,
           firstRowIndex: requestRange.firstRowIndex,
           lastRowIndex: requestRange.lastRowIndex,
-          alreadyHighlightedRowIds: highlightedRowIdsRef.current,
-          signal: abortController.signal,
         });
-
-        if (abortController.signal.aborted || result.rowCount === 0) {
-          return;
-        }
-
-        for (const rowId of Object.keys(result.tokensByRowId)) {
-          highlightedRowIdsRef.current.add(rowId);
-        }
-
-        const chunkIndex = visibleChunkIndexRef.current;
-        visibleChunkIndexRef.current += 1;
-        setTokensPatchJson(
-          JSON.stringify({
-            resetKey,
-            chunkIndex,
-            fileId: "visible",
-            filePath: "visible rows",
-            language: "diff",
-            lineCount: result.rowCount,
-            durationMs: result.durationMs,
-            tokensByRowId: result.tokensByRowId,
-          }),
-        );
-      } catch (error) {
-        if (!abortController.signal.aborted) {
-          logReviewDiffDiagnostic("native visible highlight failed", {
-            error,
-            resetKey,
-            scheme,
-            firstRowIndex: requestRange.firstRowIndex,
-            lastRowIndex: requestRange.lastRowIndex,
-          });
-        }
       }
-    })();
+    };
+
+    // The native lexers answer in the call; only the Shiki fallback is awaited.
+    try {
+      const result = highlightNativeReviewDiffVisibleRows({
+        files,
+        rows,
+        scheme,
+        firstRowIndex: requestRange.firstRowIndex,
+        lastRowIndex: requestRange.lastRowIndex,
+        alreadyHighlightedRowIds: highlightedRowIdsRef.current,
+        signal: abortController.signal,
+      });
+      if (result instanceof Promise) void result.then(publish, reportFailure);
+      else publish(result);
+    } catch (error) {
+      reportFailure(error instanceof Error ? error : new Error(String(error)));
+    }
 
     return () => abortController.abort();
   }, [enabled, files, resetKey, rows, scheme, visibleRange]);

@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["SolusHighlightsModule"],
+    "podspecPath": "SolusHighlights.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.solushighlights.SolusHighlightsModule"]
+  }
+}

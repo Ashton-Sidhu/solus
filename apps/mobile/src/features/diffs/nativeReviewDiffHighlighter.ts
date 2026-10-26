@@ -1,65 +1,13 @@
 // Adapted from T3 Code apps/mobile/src/features/diffs/nativeReviewDiffHighlighter.ts (MIT, see UPSTREAM.md).
-// The Effect Schema errors are plain `Error` subclasses.
-import { createHighlighterCore, type GrammarState, type HighlighterCore } from "@shikijs/core";
-import { createJavaScriptRegexEngine } from "@shikijs/engine-javascript";
-import bashLanguage from "@shikijs/langs/bash";
-import diffLanguage from "@shikijs/langs/diff";
-import javascriptLanguage from "@shikijs/langs/javascript";
-import jsonLanguage from "@shikijs/langs/json";
-import jsxLanguage from "@shikijs/langs/jsx";
-import tsxLanguage from "@shikijs/langs/tsx";
-import typescriptLanguage from "@shikijs/langs/typescript";
-import yamlLanguage from "@shikijs/langs/yaml";
-
-import type { NativeReviewDiffFile, NativeReviewDiffLanguage } from "./nativeReviewDiffTypes";
+// Highlights through `lib/highlights.ts`, which answers in the call with the
+// native lexers and with a promise from the Shiki fallback without them.
+import {
+  highlightCode,
+  type HighlightedLines,
+  type HighlightScheme,
+} from "../../lib/highlights";
+import type { NativeReviewDiffFile } from "./nativeReviewDiffTypes";
 import type { NativeReviewDiffRow, NativeReviewDiffToken } from "./nativeReviewDiffSurface";
-
-export type NativeReviewDiffHighlightScheme = "light" | "dark";
-export type NativeReviewDiffHighlightEngine = "native" | "javascript";
-
-export class NativeReviewDiffHighlighterUnavailableError extends Error {
-  constructor() {
-    super("The native review diff highlighter is unavailable in this build.");
-    this.name = "NativeReviewDiffHighlighterUnavailableError";
-  }
-}
-
-export function isNativeReviewDiffHighlighterUnavailableError(
-  cause: unknown,
-): cause is NativeReviewDiffHighlighterUnavailableError {
-  return cause instanceof NativeReviewDiffHighlighterUnavailableError;
-}
-
-export class NativeReviewDiffHighlighterInitializationError extends Error {
-  readonly requestedEngine: NativeReviewDiffHighlightEngine;
-  readonly attemptedEngine: NativeReviewDiffHighlightEngine;
-
-  constructor(input: {
-    readonly requestedEngine: NativeReviewDiffHighlightEngine;
-    readonly attemptedEngine: NativeReviewDiffHighlightEngine;
-    readonly cause: unknown;
-  }) {
-    super(
-      `Failed to initialize the ${input.attemptedEngine} review diff highlighter requested as ${input.requestedEngine}.`,
-      { cause: input.cause },
-    );
-    this.name = "NativeReviewDiffHighlighterInitializationError";
-    this.requestedEngine = input.requestedEngine;
-    this.attemptedEngine = input.attemptedEngine;
-  }
-}
-
-export interface NativeReviewDiffHighlighterHandle {
-  readonly engine: NativeReviewDiffHighlightEngine;
-  readonly tokenize: (
-    code: string,
-    options: {
-      readonly lang: NativeReviewDiffLanguage;
-      readonly theme: string;
-      readonly signal?: AbortSignal;
-    },
-  ) => Promise<ReadonlyArray<ReadonlyArray<NativeReviewDiffToken>>>;
-}
 
 interface NativeReviewDiffLineRow extends NativeReviewDiffRow {
   readonly kind: "line";
@@ -75,283 +23,24 @@ interface IndexedNativeReviewDiffLineRow {
 export interface HighlightNativeReviewDiffVisibleRowsInput {
   readonly rows: ReadonlyArray<NativeReviewDiffRow>;
   readonly files: ReadonlyArray<NativeReviewDiffFile>;
-  readonly scheme: NativeReviewDiffHighlightScheme;
-  readonly engine?: NativeReviewDiffHighlightEngine;
+  readonly scheme: HighlightScheme;
   readonly firstRowIndex: number;
   readonly lastRowIndex: number;
   readonly overscanRows?: number;
   readonly maxRows?: number;
   readonly alreadyHighlightedRowIds?: ReadonlySet<string>;
+  /** Stops the Shiki fallback; the native lexers finish in the call. */
   readonly signal?: AbortSignal;
 }
 
+export interface NativeReviewDiffHighlightedRows {
+  readonly tokensByRowId: Record<string, ReadonlyArray<NativeReviewDiffToken>>;
+  readonly rowCount: number;
+}
+
+// Bounds each token patch the native view parses, not the highlighting itself.
 const NATIVE_REVIEW_DIFF_VISIBLE_OVERSCAN_ROWS = 160;
 const NATIVE_REVIEW_DIFF_VISIBLE_MAX_ROWS = 360;
-const NATIVE_REVIEW_DIFF_TOKENIZE_MAX_LINE_LENGTH = 1_000;
-const NATIVE_REVIEW_DIFF_TOKENIZE_MAX_CHARACTERS = 8_000;
-
-const NATIVE_REVIEW_DIFF_THEME_NAME_BY_SCHEME = {
-  dark: "t3-pierre-dark",
-  light: "t3-pierre-light",
-} as const;
-
-const PIERRE_LIGHT_SHIKI_THEME = {
-  name: NATIVE_REVIEW_DIFF_THEME_NAME_BY_SCHEME.light,
-  type: "light" as const,
-  fg: "#070707",
-  bg: "#ffffff",
-  settings: [
-    { settings: { foreground: "#070707", background: "#ffffff" } },
-    { scope: "comment, punctuation.definition.comment", settings: { foreground: "#84848A" } },
-    {
-      scope: "keyword, storage, storage.type, keyword.operator.expression",
-      settings: { foreground: "#FC2B73" },
-    },
-    {
-      scope: "entity.name.function, support.function, meta.function-call",
-      settings: { foreground: "#7B43F8" },
-    },
-    {
-      scope: "entity.name.type, support.type, support.class",
-      settings: { foreground: "#C635E4" },
-    },
-    {
-      scope: "string, constant.character, punctuation.definition.string",
-      settings: { foreground: "#199F43" },
-    },
-    {
-      scope: "constant.numeric, constant.language, constant.other",
-      settings: { foreground: "#1CA1C7" },
-    },
-    {
-      scope: "variable.parameter, variable.other.readwrite, meta.object-literal.key",
-      settings: { foreground: "#D47628" },
-    },
-    {
-      scope: "entity.name.tag, support.class.component",
-      settings: { foreground: "#199F43" },
-    },
-    {
-      scope: "punctuation, meta.brace, meta.delimiter",
-      settings: { foreground: "#79797F" },
-    },
-    { scope: "invalid", settings: { foreground: "#D52C36" } },
-  ],
-};
-
-const PIERRE_DARK_SHIKI_THEME = {
-  name: NATIVE_REVIEW_DIFF_THEME_NAME_BY_SCHEME.dark,
-  type: "dark" as const,
-  fg: "#adadb1",
-  bg: "#0a0a0a",
-  settings: [
-    { settings: { foreground: "#adadb1", background: "#0a0a0a" } },
-    { scope: "comment, punctuation.definition.comment", settings: { foreground: "#84848A" } },
-    {
-      scope: "keyword, storage, storage.type, keyword.operator.expression",
-      settings: { foreground: "#FF678D" },
-    },
-    {
-      scope: "entity.name.function, support.function, meta.function-call",
-      settings: { foreground: "#9D6AFB" },
-    },
-    {
-      scope: "entity.name.type, support.type, support.class",
-      settings: { foreground: "#D568EA" },
-    },
-    {
-      scope: "string, constant.character, punctuation.definition.string",
-      settings: { foreground: "#5ECC71" },
-    },
-    {
-      scope: "constant.numeric, constant.language, constant.other",
-      settings: { foreground: "#68CDF2" },
-    },
-    {
-      scope: "variable.parameter, variable.other.readwrite, meta.object-literal.key",
-      settings: { foreground: "#FFA359" },
-    },
-    {
-      scope: "entity.name.tag, support.class.component",
-      settings: { foreground: "#5ECC71" },
-    },
-    {
-      scope: "punctuation, meta.brace, meta.delimiter",
-      settings: { foreground: "#79797F" },
-    },
-    { scope: "invalid", settings: { foreground: "#FF6762" } },
-  ],
-};
-
-const NATIVE_REVIEW_DIFF_SHIKI_THEMES = [
-  PIERRE_LIGHT_SHIKI_THEME,
-  PIERRE_DARK_SHIKI_THEME,
-] satisfies Parameters<typeof createHighlighterCore>[0]["themes"];
-
-const NATIVE_REVIEW_DIFF_LANGUAGES = [
-  bashLanguage,
-  diffLanguage,
-  javascriptLanguage,
-  jsonLanguage,
-  jsxLanguage,
-  tsxLanguage,
-  typescriptLanguage,
-  yamlLanguage,
-] satisfies Parameters<typeof createHighlighterCore>[0]["langs"];
-
-let nativeHighlighterPromise: Promise<NativeReviewDiffHighlighterHandle> | null = null;
-let javascriptHighlighterPromise: Promise<NativeReviewDiffHighlighterHandle> | null = null;
-
-function waitForNextFrame(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-function normalizeTokens(
-  tokenLines: ReadonlyArray<ReadonlyArray<{ content: string; color?: string; fontStyle?: number }>>,
-): ReadonlyArray<ReadonlyArray<NativeReviewDiffToken>> {
-  return tokenLines.map((line) =>
-    line.map((token) => ({
-      content: token.content,
-      color: token.color ?? null,
-      fontStyle: token.fontStyle ?? null,
-    })),
-  );
-}
-
-function createHighlighterHandle(
-  highlighter: HighlighterCore,
-  engine: NativeReviewDiffHighlightEngine,
-): NativeReviewDiffHighlighterHandle {
-  return {
-    engine,
-    async tokenize(code, { lang, theme, signal }) {
-      const lines = code.split("\n");
-      const highlighted: Array<ReadonlyArray<NativeReviewDiffToken>> = [];
-      let grammarState: GrammarState | undefined;
-      let start = 0;
-
-      while (start < lines.length) {
-        if (signal?.aborted) return [];
-
-        // Skipping this line leaves its ending grammar state unknown. Resume
-        // from a fresh state rather than leaving the rest of the segment plain:
-        // highlighted rows are cached for the sheet's lifetime, so a plain tail
-        // would stick, and which rows it covered would depend on where the
-        // first visible window happened to start.
-        if (lines[start]!.length > NATIVE_REVIEW_DIFF_TOKENIZE_MAX_LINE_LENGTH) {
-          highlighted.push([{ content: lines[start] || " ", color: null, fontStyle: null }]);
-          grammarState = undefined;
-          start += 1;
-          continue;
-        }
-
-        let end = start;
-        let characters = 0;
-        while (end < lines.length) {
-          const length = lines[end]!.length;
-          const nextCharacters = characters + length + (end > start ? 1 : 0);
-          if (
-            length > NATIVE_REVIEW_DIFF_TOKENIZE_MAX_LINE_LENGTH ||
-            nextCharacters > NATIVE_REVIEW_DIFF_TOKENIZE_MAX_CHARACTERS
-          ) {
-            break;
-          }
-          characters = nextCharacters;
-          end += 1;
-        }
-
-        const tokens = highlighter.codeToTokensBase(lines.slice(start, end).join("\n"), {
-          lang,
-          theme,
-          grammarState,
-        });
-        grammarState = highlighter.getLastGrammarState(tokens);
-        highlighted.push(...normalizeTokens(tokens));
-        start = end;
-        if (start < lines.length) await waitForNextFrame();
-      }
-
-      return signal?.aborted ? [] : highlighted;
-    },
-  };
-}
-
-async function createNativeReviewDiffHighlighter(): Promise<NativeReviewDiffHighlighterHandle> {
-  const nativeEngineModule = await import("react-native-shiki-engine");
-  if (!nativeEngineModule.isNativeEngineAvailable()) {
-    throw new NativeReviewDiffHighlighterUnavailableError();
-  }
-
-  const highlighter = await createHighlighterCore({
-    langs: NATIVE_REVIEW_DIFF_LANGUAGES,
-    themes: NATIVE_REVIEW_DIFF_SHIKI_THEMES,
-    engine: nativeEngineModule.createNativeEngine(),
-  });
-
-  return createHighlighterHandle(highlighter, "native");
-}
-
-async function createJavascriptReviewDiffHighlighter(): Promise<NativeReviewDiffHighlighterHandle> {
-  const highlighter: HighlighterCore = await createHighlighterCore({
-    langs: NATIVE_REVIEW_DIFF_LANGUAGES,
-    themes: NATIVE_REVIEW_DIFF_SHIKI_THEMES,
-    engine: createJavaScriptRegexEngine(),
-  });
-
-  return createHighlighterHandle(highlighter, "javascript");
-}
-
-export async function getNativeReviewDiffHighlighter(
-  engine: NativeReviewDiffHighlightEngine = "native",
-): Promise<NativeReviewDiffHighlighterHandle> {
-  if (engine === "javascript") {
-    try {
-      javascriptHighlighterPromise ??= createJavascriptReviewDiffHighlighter();
-      return await javascriptHighlighterPromise;
-    } catch (cause) {
-      javascriptHighlighterPromise = null;
-      throw new NativeReviewDiffHighlighterInitializationError({
-        requestedEngine: engine,
-        attemptedEngine: "javascript",
-        cause,
-      });
-    }
-  }
-
-  nativeHighlighterPromise ??= createNativeReviewDiffHighlighter()
-    .catch(async (cause: unknown) => {
-      const nativeError = isNativeReviewDiffHighlighterUnavailableError(cause)
-        ? cause
-        : new NativeReviewDiffHighlighterInitializationError({
-            requestedEngine: engine,
-            attemptedEngine: "native",
-            cause,
-          });
-      console.warn("[debug-native-diff] native highlighter unavailable", {
-        error: nativeError,
-      });
-      try {
-        javascriptHighlighterPromise ??= createJavascriptReviewDiffHighlighter();
-        return await javascriptHighlighterPromise;
-      } catch (fallbackCause) {
-        javascriptHighlighterPromise = null;
-        throw new NativeReviewDiffHighlighterInitializationError({
-          requestedEngine: engine,
-          attemptedEngine: "javascript",
-          cause: new AggregateError(
-            [nativeError, fallbackCause],
-            "Native and JavaScript review diff highlighter initialization failed.",
-            { cause: nativeError },
-          ),
-        });
-      }
-    })
-    .catch((error) => {
-      nativeHighlighterPromise = null;
-      throw error;
-    });
-  return await nativeHighlighterPromise;
-}
 
 function isHighlightableLineRow(row: NativeReviewDiffRow): row is NativeReviewDiffLineRow {
   return row.kind === "line" && row.fileId !== undefined && row.content !== undefined;
@@ -409,10 +98,6 @@ function canShareGrammarContext(
   );
 }
 
-function createFileMap(files: ReadonlyArray<NativeReviewDiffFile>) {
-  return new Map(files.map((file) => [file.id, file]));
-}
-
 function clampRowIndex(index: number, rows: ReadonlyArray<NativeReviewDiffRow>) {
   if (rows.length === 0) {
     return 0;
@@ -456,89 +141,54 @@ function selectVisibleHighlightableRows(
   return selectedRows;
 }
 
-export async function highlightNativeReviewDiffVisibleRows(
+/**
+ * Tokens for the line rows near the visible range that are not highlighted
+ * yet. Rows that continue each other's source are highlighted together, so
+ * multi-line constructs keep their colors. A promise only without the native
+ * lexers; after `signal` aborts, it holds no rows.
+ */
+export function highlightNativeReviewDiffVisibleRows(
   input: HighlightNativeReviewDiffVisibleRowsInput,
-): Promise<{
-  readonly engine: NativeReviewDiffHighlightEngine;
-  readonly tokensByRowId: Record<string, ReadonlyArray<NativeReviewDiffToken>>;
-  readonly rowCount: number;
-  readonly durationMs: number;
-}> {
-  const highlighter = await getNativeReviewDiffHighlighter(input.engine ?? "native");
-  if (input.signal?.aborted) {
-    return { engine: highlighter.engine, tokensByRowId: {}, rowCount: 0, durationMs: 0 };
-  }
-
-  const startedAt = performance.now();
-  const theme = NATIVE_REVIEW_DIFF_THEME_NAME_BY_SCHEME[input.scheme];
-  const fileMap = createFileMap(input.files);
+): NativeReviewDiffHighlightedRows | Promise<NativeReviewDiffHighlightedRows> {
+  const fileMap = new Map(input.files.map((file) => [file.id, file]));
   const selectedRows = selectVisibleHighlightableRows(input, fileMap);
 
-  const tokensByRowId: Record<string, ReadonlyArray<NativeReviewDiffToken>> = {};
-  let segmentRows: IndexedNativeReviewDiffLineRow[] = [];
-  let segmentFile: NativeReviewDiffFile | undefined;
-  let charactersSinceYield = 0;
-
-  const flushSegment = async () => {
-    if (!segmentFile || segmentRows.length === 0 || input.signal?.aborted) {
-      segmentRows = [];
-      segmentFile = undefined;
-      return;
-    }
-
-    const code = segmentRows.map(({ row }) => row.content).join("\n");
-    if (
-      charactersSinceYield > 0 &&
-      charactersSinceYield + code.length > NATIVE_REVIEW_DIFF_TOKENIZE_MAX_CHARACTERS
-    ) {
-      await waitForNextFrame();
-      charactersSinceYield = 0;
-      if (input.signal?.aborted) return;
-    }
-    const tokenLines = await highlighter.tokenize(code, {
-      lang: segmentFile.language,
-      theme,
-      signal: input.signal,
-    });
-    charactersSinceYield += code.length;
-    segmentRows.forEach(({ row }, rowIndex) => {
-      tokensByRowId[row.id] = tokenLines[rowIndex] ?? makePlainTokenFallback(row);
-    });
-    segmentRows = [];
-    segmentFile = undefined;
-  };
-
+  const segments: IndexedNativeReviewDiffLineRow[][] = [];
   for (const selectedRow of selectedRows) {
-    if (input.signal?.aborted) break;
-    const { row } = selectedRow;
-    const file = fileMap.get(row.fileId);
-    if (!file) {
-      continue;
+    const segment = segments.at(-1);
+    const previousRow = segment?.at(-1);
+    if (segment && previousRow && canShareGrammarContext(previousRow, selectedRow, input.rows)) {
+      segment.push(selectedRow);
+    } else {
+      segments.push([selectedRow]);
     }
-
-    const previousRow = segmentRows.at(-1);
-    if (
-      segmentFile &&
-      (segmentFile.id !== file.id ||
-        (previousRow !== undefined &&
-          !canShareGrammarContext(previousRow, selectedRow, input.rows)))
-    ) {
-      await flushSegment();
-    }
-
-    segmentFile = file;
-    segmentRows.push(selectedRow);
-  }
-  await flushSegment();
-
-  if (input.signal?.aborted) {
-    return { engine: highlighter.engine, tokensByRowId: {}, rowCount: 0, durationMs: 0 };
   }
 
-  return {
-    engine: highlighter.engine,
-    tokensByRowId,
-    rowCount: selectedRows.length,
-    durationMs: Math.round(performance.now() - startedAt),
+  const highlighted = segments.map((segment) =>
+    highlightCode(
+      segment.map(({ row }) => row.content).join("\n"),
+      fileMap.get(segment[0].row.fileId)?.language ?? "text",
+      input.scheme,
+      input.signal,
+    ),
+  );
+  const collect = (
+    tokenLines: ReadonlyArray<HighlightedLines>,
+  ): NativeReviewDiffHighlightedRows => {
+    if (input.signal?.aborted) return { tokensByRowId: {}, rowCount: 0 };
+    const tokensByRowId: Record<string, ReadonlyArray<NativeReviewDiffToken>> = {};
+    segments.forEach((segment, segmentIndex) => {
+      segment.forEach(({ row }, rowIndex) => {
+        tokensByRowId[row.id] = tokenLines[segmentIndex][rowIndex] ?? makePlainTokenFallback(row);
+      });
+    });
+    return { tokensByRowId, rowCount: selectedRows.length };
   };
+
+  const settled: HighlightedLines[] = [];
+  for (const lines of highlighted) {
+    if (lines instanceof Promise) return Promise.all(highlighted).then(collect);
+    settled.push(lines);
+  }
+  return collect(settled);
 }
