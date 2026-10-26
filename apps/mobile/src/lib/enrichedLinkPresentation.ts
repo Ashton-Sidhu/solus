@@ -1,5 +1,32 @@
 // Adapted from T3 Code apps/mobile/src/lib/enrichedLinkPresentation.ts (MIT, see UPSTREAM.md).
 // No context chips or skills: Solus Markdown draws pills for file links only.
+import { themeAccentWithContrast, type MobileThemeVariables } from "./mobileTheme";
+
+/** T3's `mention` chip accent (`composerChipPresentation.ts`). */
+const MENTION_CHIP_ACCENT = "#0096af";
+const CHIP_CONTRAST = 5;
+const readableMentionColors = new Map<string, string>();
+
+/**
+ * The mention chip keeps one color per theme so it looks the same in a message,
+ * a reply, and the composer, so it must read on all of them. The accent as it
+ * is reads about 3.5:1 on a light surface; this keeps its hue at 5:1
+ * (pingdotgg/t3code#22585).
+ */
+export function mentionChipColor(theme: MobileThemeVariables): string {
+  const surfaces = [
+    theme["--color-user-bubble"],
+    theme["--color-thread-canvas"],
+    theme["--color-composer-surface"],
+  ];
+  const key = surfaces.join();
+  let readable = readableMentionColors.get(key);
+  if (readable === undefined) {
+    readable = themeAccentWithContrast(MENTION_CHIP_ACCENT, surfaces, CHIP_CONTRAST);
+    readableMentionColors.set(key, readable);
+  }
+  return readable;
+}
 
 export function enrichedLinkVariantPattern(url: string) {
   return `^${url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;

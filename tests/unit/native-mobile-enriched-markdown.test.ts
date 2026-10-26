@@ -1,10 +1,18 @@
 // Adapted from T3 Code apps/mobile/src/lib/markdownLinks.test.ts, enrichedLinkPresentation.test.ts, and markdownHtml.test.ts (MIT, see apps/mobile/UPSTREAM.md).
 import { describe, expect, it } from "bun:test";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 import {
   ENRICHED_INLINE_FILE_LINK_REGEX,
   enrichedLinkVariantPattern,
+  mentionChipColor,
 } from "../../apps/mobile/src/lib/enrichedLinkPresentation";
+import {
+  getMobileThemeVariables,
+  themeAccentWithContrast,
+} from "../../apps/mobile/src/lib/mobileTheme";
 import {
   markdownHtmlContent,
   markdownWithBlockImages,
@@ -198,6 +206,46 @@ describe("Enriched link presentation", () => {
   });
 });
 
+function contrastRatio(first: string, second: string): number {
+  const luminance = (hex: string) => {
+    const [red = 0, green = 0, blue = 0] = [1, 3, 5].map((offset) => {
+      const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  };
+  const [darker = 0, lighter = 0] = [luminance(first), luminance(second)].sort((a, b) => a - b);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+describe("mention chip color", () => {
+  // T3's #0096af reads about 3.5:1 on white, below the 4.5:1 text minimum.
+  it("reads at 5:1 in messages, replies, and the composer in light and dark", () => {
+    for (const appearance of ["light", "dark"] as const) {
+      const theme = getMobileThemeVariables(appearance);
+      const shown = mentionChipColor(theme);
+      for (const surface of [
+        theme["--color-user-bubble"],
+        theme["--color-thread-canvas"],
+        theme["--color-composer-surface"],
+      ]) {
+        expect(contrastRatio(shown, surface), `${appearance}: ${shown} on ${surface}`).toBeGreaterThanOrEqual(5);
+      }
+    }
+  });
+
+  it("keeps the accent's hue rather than greying it toward black", () => {
+    const shown = mentionChipColor(getMobileThemeVariables("light"));
+    const [red, green, blue] = [1, 3, 5].map((offset) => Number.parseInt(shown.slice(offset, offset + 2), 16));
+    expect(blue!).toBeGreaterThan(red! + 40);
+    expect(green!).toBeGreaterThan(red! + 40);
+  });
+
+  it("keeps an accent that already reads everywhere", () => {
+    expect(themeAccentWithContrast("#00596a", ["#ffffff", "#fbfbf8"], 5)).toBe("#00596a");
+  });
+});
+
 describe("HTML in native Markdown", () => {
   it("leaves code inside an HTML details block literal", () => {
     const content =
@@ -218,7 +266,7 @@ describe("HTML in native Markdown", () => {
       markdownHtmlContent(
         "<a href='https://example.com'><img src='https://example.com/banner.svg' alt='Review' /></a>",
       ),
-    ).toBe("![Review](<https://example.com/banner.svg>)");
+    ).toBe("[![Review](<https://example.com/banner.svg>)](<https://example.com>)");
   });
 
   it("decodes HTML attributes once and preserves entity-shaped query values through Markdown", () => {
@@ -258,7 +306,52 @@ describe("HTML in native Markdown", () => {
     const plain = "# Title\n\nNo tags, `a < b`.";
     expect(markdownWithHtml(plain)).toBe(plain);
   });
+
+  // PR comments from bots link with HTML anchors; a tap must open them.
+  it("turns an http(s) or mailto anchor into a Markdown link with an escaped label", () => {
+    expect(markdownWithHtml('See <a href="https://example.com/a?b=1&amp;c=2">the [docs]</a> now')).toBe(
+      "See [the \\[docs\\]](<https://example.com/a?b=1\\&c=2>) now",
+    );
+    expect(markdownWithHtml('Mail <a href="mailto:me@example.com">me</a>')).toBe(
+      "Mail [me](<mailto:me@example.com>)",
+    );
+  });
+
+  it("links HTML anchors in a table cell without breaking the row at <br>", () => {
+    const table = parseMarkdown(
+      "| Status | Preview URL |\n| - | - |\n| Done | <a href='https://commit.example.com'>Commit</a><br><a href='https://branch.example.com'>Branch</a> |",
+    ).children[0];
+    expect(table?.type).toBe("table");
+    if (table?.type !== "table") return;
+    expect(table.children).toHaveLength(2);
+    expect(table.children[1]?.children[1]?.children).toMatchObject([
+      { type: "link", url: "https://commit.example.com", children: [{ value: "Commit" }] },
+      { type: "text", value: " " },
+      { type: "link", url: "https://branch.example.com", children: [{ value: "Branch" }] },
+    ]);
+  });
+
+  it("keeps a table row intact when an anchor href contains a pipe", () => {
+    const table = parseMarkdown(
+      "| Preview | Logs |\n| - | - |\n| <a href='https://example.com/?a=1&#124;2'>Open</a> | done |",
+    ).children[0];
+    expect(table?.type).toBe("table");
+    if (table?.type !== "table") return;
+    expect(table.children[1]?.children).toMatchObject([
+      { children: [{ type: "link", url: "https://example.com/?a=1%7C2" }] },
+      { children: [{ value: "done" }] },
+    ]);
+  });
+
+  it("keeps anchor text unlinked for unsafe hrefs", () => {
+    expect(markdownWithHtml('Run <a href="javascript:alert(1)">this</a> now')).toBe("Run this now");
+  });
 });
+
+// The native renderer parses the converted Markdown with the same GFM parser.
+function parseMarkdown(markdown: string) {
+  return unified().use(remarkParse).use(remarkGfm).parse(markdownWithHtml(markdown));
+}
 
 describe("Images on a line of their own", () => {
   // Enriched draws an image that shares a paragraph with text as a 20pt icon.
