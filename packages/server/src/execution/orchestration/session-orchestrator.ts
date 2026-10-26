@@ -525,6 +525,37 @@ export class SessionOrchestrator {
     return stopped
   }
 
+  /** The sessions `parentSessionId` started that still do work for it: a
+   *  session it created, with a message from it still open. A child that
+   *  finished its parent's work is not one, even if it runs again for a person. */
+  childrenAtWork(parentSessionId: string): string[] {
+    const created = new Set<string>()
+    for (const exchange of this.exchanges.values()) {
+      if (exchange.kind === 'create' && exchange.senderSessionId === parentSessionId) created.add(exchange.targetSessionId)
+    }
+    const children = new Set<string>()
+    for (const exchange of this.exchanges.values()) {
+      if (exchange.senderSessionId === parentSessionId && created.has(exchange.targetSessionId) && isOpenExchange(exchange)) {
+        children.add(exchange.targetSessionId)
+      }
+    }
+    return [...children]
+  }
+
+  /** A person stopped the parent: each child stops for it, and the children
+   *  each one started stop in turn. A child's own children are read before
+   *  its stop settles the messages that name them. */
+  stopChildren(parentSessionId: string, childSessionIds: readonly string[], seen = new Set([parentSessionId])): void {
+    for (const childSessionId of childSessionIds) {
+      if (seen.has(childSessionId)) continue
+      seen.add(childSessionId)
+      const grandchildren = this.childrenAtWork(childSessionId)
+      log.info('session_child_stopped_with_parent', { sessionId: childSessionId, parentSessionId })
+      this.stop(parentSessionId, childSessionId)
+      this.stopChildren(childSessionId, grandchildren, seen)
+    }
+  }
+
   /** The host the sender's session `targetSessionId` runs on, when it is not this host. */
   remoteHostOf(senderSessionId: string, targetSessionId: string): string | undefined {
     for (const exchange of this.exchanges.values()) {

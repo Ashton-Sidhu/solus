@@ -157,6 +157,13 @@ limit resumes on its own. Stopping the lead drops the reports held for it.
 The lead is a parent in the orchestration layer's sense. A parent is not always
 a lead: any session that starts another is its parent.
 
+When the user stops a parent, Solus also stops each session the parent started
+that still does work for it: a message from the parent to that child is still
+open. The stop goes down the tree, so the children of a stopped child stop too.
+A child that finished its parent's work is not stopped, also when it runs again
+for the user or another session. A host stop (an accepted plan) and an agent's
+`stop_session` stop only the session they name.
+
 ## Agent tools
 
 | Tool | Does |

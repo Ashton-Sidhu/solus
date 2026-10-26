@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
-import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
-import type { AgentConversationUpdate, AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
+import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/execution/agents/agent-runner'
+import type { AgentConversationUpdate, AgentId, AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
 import { ORCHESTRATION_LIMITS, parseOrchestrationItems, type SessionReport } from '@solus/contracts/session-exchange'
 import type { Activity } from '@solus/contracts/activity'
 
@@ -88,8 +88,12 @@ class Permissions implements PermissionResponder {
 }
 
 class Backend extends EventEmitter implements AgentBackend {
-  readonly id = 'codex' as const
-  readonly metadata: AgentMetadata = { id: 'codex', label: 'Codex', models: [], defaultModel: 'gpt-test' }
+  readonly metadata: AgentMetadata
+  /** `threadPrefix` keeps two providers' thread ids apart. */
+  constructor(readonly id: 'codex' | 'claude-code' = 'codex', private readonly threadPrefix = 'thread') {
+    super()
+    this.metadata = { id, label: id, models: [], defaultModel: 'gpt-test' }
+  }
   readonly permissions = new Permissions()
   readonly handles = new Map<string, RunHandle>()
   readonly requests: AgentRunRequest[] = []
@@ -114,16 +118,18 @@ class Backend extends EventEmitter implements AgentBackend {
     return new Promise((resolve) => this.runWaiters.push({ matches, resolve }))
   }
 
-  startRun(request: AgentRunRequest): RunHandle {
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     this.requests.push(request)
     for (const waiter of this.runWaiters.filter((candidate) => candidate.matches(request))) waiter.resolve(request)
     this.runWaiters = this.runWaiters.filter((candidate) => !candidate.matches(request))
     const resumedThreadId = request.conversation?.kind === 'resume' ? request.conversation.threadId : null
-    const threadId = resumedThreadId ?? `thread-${this.starts + 1}`
+    const threadId = resumedThreadId ?? `${this.threadPrefix}-${this.starts + 1}`
     let resolve!: () => void
     let reject!: (error: Error) => void
     const handle: RunHandle = {
       agentSessionId: resumedThreadId ?? null,
+      // A real backend carries Solus's id, so an early session_init finds its session.
+      sessionId: sessionState?.sessionId,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -233,9 +239,11 @@ function reportRuns(backend: Backend, senderThreadId: string): string[] {
 /** Sessions with their turns open: targets solus-target (and solus-second), sender
  *  solus-sender. The orchestrator names them by session id; the fake provider
  *  runs them on threads thread-1 (and thread-3) and thread-2. */
-async function sessions(options: { secondTarget?: boolean } = {}) {
+async function sessions(options: { secondTarget?: boolean; claude?: Backend } = {}) {
   const backend = new Backend()
-  const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+  const backends = new Map<AgentId, Backend>([['codex', backend]])
+  if (options.claude) backends.set('claude-code', options.claude)
+  const plane = new sessionRuntimeModule.SessionRuntime(backends)
   plane.on('error', () => {})
   const orchestrator = runtime.orchestrateSessions(plane)
   const updates: AgentConversationUpdate[] = []
@@ -829,6 +837,74 @@ function orchestratorRuns(backend: Backend, senderThreadId: string): string[] {
     .map((request) => request.prompt)
     .filter((prompt) => parseOrchestrationItems(prompt) !== null)
 }
+
+// WHY: a person who stops a session means to stop the work it set going. The
+// sessions it started and that still work for it stop with it, down the tree,
+// whatever their provider. A host stop (a plan accepted, an agent's
+// stop_session) stops only its own session, and a child that finished its
+// parent's work is not the parent's to stop.
+describe('a person stopping a parent', () => {
+  const child = (provider: AgentId) => ({
+    prompt: `Work on ${provider}`, provider, modelId: 'gpt-test', reasoningEffort: 'medium' as const, contextWindow: null, cwd: projectDir,
+  })
+
+  test('stops the Claude child it started and the Codex grandchild that child started', async () => {
+    const claude = new Backend('claude-code', 'claude-thread')
+    const { backend, plane, orchestrator } = await sessions({ claude })
+    try {
+      const started = await orchestrator.spawn('solus-sender', child('claude-code'), true)
+      await claude.started(1)
+      const grandchild = await orchestrator.spawn(started.sessionId, child('codex'), false)
+      await backend.started(3)
+      expect(plane.statuses.isSessionBusy(started.sessionId)).toBe(true)
+      expect(plane.statuses.isSessionBusy(grandchild.sessionId)).toBe(true)
+
+      expect(plane.stopSession('solus-sender', decider())).toBe(true)
+      await until(() => !plane.statuses.isSessionBusy(started.sessionId) && !plane.statuses.isSessionBusy(grandchild.sessionId))
+      expect(claude.handles.size).toBe(0)
+      expect(backend.handles.has('thread-3')).toBe(false)
+      await until(() => orchestrator.readExchange('solus-sender', started.exchangeId)?.state === 'settled'
+        && orchestrator.readExchange(started.sessionId, grandchild.exchangeId)?.state === 'settled')
+      expect(orchestrator.readExchange('solus-sender', started.exchangeId)).toMatchObject({ state: 'settled', outcome: 'interrupted' })
+      expect(orchestrator.readExchange(started.sessionId, grandchild.exchangeId)).toMatchObject({ state: 'settled', outcome: 'interrupted' })
+      // A session the parent did not start keeps running.
+      expect(plane.statuses.isSessionBusy('solus-target')).toBe(true)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a host stop leaves the children running', async () => {
+    const { backend, plane, orchestrator } = await sessions()
+    try {
+      const started = await orchestrator.spawn('solus-sender', child('codex'), true)
+      await backend.started(3)
+      expect(plane.stopSession('solus-sender', HOST_ACTOR)).toBe(true)
+      await until(() => !plane.statuses.isSessionBusy('solus-sender'))
+      expect(plane.statuses.isSessionBusy(started.sessionId)).toBe(true)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a child that finished its work and now runs for another session keeps running', async () => {
+    const { backend, plane, orchestrator } = await sessions()
+    try {
+      const started = await orchestrator.spawn('solus-sender', child('codex'), true)
+      await backend.started(3)
+      backend.complete('thread-3', 'done')
+      await until(() => orchestrator.readExchange('solus-sender', started.exchangeId)?.state === 'settled')
+      await orchestrator.send('solus-target', started.sessionId, { prompt: 'another job', delivery: 'queue', notify: false })
+      await until(() => plane.statuses.isSessionBusy(started.sessionId))
+
+      expect(plane.stopSession('solus-sender', decider())).toBe(true)
+      await until(() => !plane.statuses.isSessionBusy('solus-sender'))
+      expect(plane.statuses.isSessionBusy(started.sessionId)).toBe(true)
+    } finally {
+      plane.shutdown()
+    }
+  })
+})
 
 // WHY: the user spends most of the time in the parent, so the parent must hear
 // at once when a child is blocked on a person — but never act on a question

@@ -55,7 +55,7 @@ const TURN_LOG_MAX_EVENTS = 2000
 /** The hooks the session orchestrator takes run facts through. */
 type OrchestrationHooks = Pick<SessionOrchestrator,
   | 'runQueued' | 'runStarted' | 'runRateLimited' | 'runSettled' | 'runCancelled' | 'sessionStarted'
-  | 'reportsAccepted' | 'reportsDisposed' | 'inputRequested' | 'inputResolved' | 'runEvent' | 'sessionTurnStarted' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy'>
+  | 'reportsAccepted' | 'reportsDisposed' | 'inputRequested' | 'inputResolved' | 'runEvent' | 'sessionTurnStarted' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy' | 'childrenAtWork' | 'stopChildren'>
 
 export interface SessionRunLifecycle {
   agentSessionId: Promise<{ agentSessionId: string; taskId?: string }>
@@ -647,8 +647,19 @@ export class SessionRuntime extends EventEmitter {
    * prepared, a live provider turn, and a run that has not reached session_init.
    * A person's stop, or an agent's (`agent` names the session that asked), is
    * recorded as a `stopped` activity, inside the turn it ended.
+   * A person's stop also stops the sessions this one started that still work
+   * for it, and theirs. An agent's stop and a host stop (a plan accepted)
+   * stop only this session.
    */
   stopSession(sessionId: string, actor: Actor, agent?: AgentVia): boolean {
+    // Read first: stopping the parent settles the messages that name its children.
+    const children = actor.user && !agent ? this.orchestration?.childrenAtWork(sessionId) ?? [] : []
+    const stopped = this.interruptSession(sessionId, actor, agent)
+    if (children.length) this.orchestration?.stopChildren(sessionId, children)
+    return stopped
+  }
+
+  private interruptSession(sessionId: string, actor: Actor, agent?: AgentVia): boolean {
     if (!this.hasSession(sessionId)) return false
     this.restarts.restartRuns?.remove(sessionId)
     for (const entry of [...(this.scheduler.requestQueue.get(sessionId) ?? [])]) {
