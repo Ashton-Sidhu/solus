@@ -272,7 +272,7 @@
     "dompurify": "^3.4.15",
     "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.10",
-    "electron": "^42.11.2",
+    "electron": "^42.11.16",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "embla-carousel-svelte": "^8.6.0",
