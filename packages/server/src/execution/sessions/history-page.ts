@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AgentId } from '@solus/contracts/types'
-import { HISTORY_PAGE_ROWS, startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
+import { historyPageIsFull, startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
 
 export interface HistorySegment {
   provider: AgentId
@@ -18,7 +18,9 @@ const cursorSchema = z.object({
 
 /** Walk lineage from newest to oldest, `turnLimit` user turns at a time. A
  * provider ends its page early when the page budget runs out, and the walk
- * does not start an older segment once the page holds a full budget of rows.
+ * does not start an older segment once the page holds a full budget of rows or
+ * bytes. Bytes are counted on the rows as returned. The page keeps the newest
+ * rows, so one page holds less than two budgets.
  * A cursor is tied to the resolved lineage, so it cannot silently page another
  * session or a rewritten chain. */
 export async function loadHistoryPage(
@@ -37,6 +39,7 @@ export async function loadHistoryPage(
   let providerCursor = cursor?.before
   let messages: SessionLoadMessage[] = []
   let turns = 0
+  let bytes = 0
   while (index >= 0) {
     const segment = segments[index]
     const page = segment.sessionId
@@ -44,13 +47,14 @@ export async function loadHistoryPage(
       : { messages: [], before: null }
     messages = page.messages.concat(messages)
     turns += page.messages.filter(startsHistoryTurn).length
+    for (const message of page.messages) bytes += Buffer.byteLength(JSON.stringify(message))
     if (page.before !== null) {
       return { messages, before: JSON.stringify({ scope, segment: index, prefix: prefix(index), before: page.before }) }
     }
     if (segment.divider) messages.unshift(segment.divider)
     index--
     providerCursor = undefined
-    if ((turns >= turnLimit || messages.length >= HISTORY_PAGE_ROWS) && index >= 0) {
+    if ((turns >= turnLimit || historyPageIsFull(messages.length, bytes)) && index >= 0) {
       return { messages, before: JSON.stringify({ scope, segment: index, prefix: prefix(index) }) }
     }
   }

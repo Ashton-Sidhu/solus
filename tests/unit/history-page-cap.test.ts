@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { HISTORY_PAGE_BYTES, HISTORY_PAGE_ROWS, type SessionLoadMessage } from '@solus/contracts/session-history'
 import { loadClaudeHistoryPage } from '@solus/server/execution/agents/claude/claude-history-page'
+import { loadHistoryPage, type HistorySegment } from '@solus/server/execution/sessions/history-page'
 import { parseJsonlLine } from '@solus/server/execution/agents/claude/claude-session-helpers'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
 import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
@@ -76,4 +77,22 @@ test('mobile keeps a result whose call is on an older page, and settles the call
   const items = model.order.map((id) => model.items.get(id))
   expect(items.map((item) => item?.kind)).toEqual(['user', 'tool', 'assistant'])
   expect(items[1]).toMatchObject({ toolId: 'edit', status: 'error', errorHead: 'no such file' })
+})
+
+test('a handoff page with a few huge rows does not also read the older provider', async () => {
+  // WHY: the walk over a provider handoff counted rows only, so three rows of
+  // 400 KB from the new provider let it read a whole page more from the old one.
+  const huge = 'x'.repeat(400 * 1024)
+  const rows = {
+    old: [{ role: 'user', content: 'before the switch', timestamp: 1 }, { role: 'assistant', content: huge, timestamp: 2 }],
+    new: [{ role: 'user', content: 'after the switch', timestamp: 4 }, ...[5, 6, 7].map((timestamp) => ({ role: 'assistant', content: huge, timestamp }))],
+  } satisfies Record<'old' | 'new', SessionLoadMessage[]>
+  const divider = { role: 'system', content: 'switched to Codex', timestamp: 3 }
+  const segments: HistorySegment[] = [{ provider: 'claude-code', sessionId: 'old' }, { provider: 'codex', sessionId: 'new', divider }]
+  const read = async (segment: HistorySegment) => ({ messages: rows[segment.sessionId as 'old' | 'new'], before: null })
+  const recent = await loadHistoryPage('scope', segments, INITIAL_HISTORY_TURNS, undefined, read)
+  // The newest rows stay; the older provider waits for the next page.
+  expect(recent.messages).toEqual([divider, ...rows.new])
+  const older = await loadHistoryPage('scope', segments, OLDER_HISTORY_TURNS, recent.before!, read)
+  expect(older).toEqual({ messages: rows.old, before: null })
 })

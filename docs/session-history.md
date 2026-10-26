@@ -23,9 +23,17 @@ client. Such a turn opens at its newest rows, and older pages bring its earlier
 rows. A tool result or a child agent's row can then arrive one page before its
 call: desktop, web, and mobile keep it until the older page brings the call.
 Claude cursors use file byte boundaries and a boundary fingerprint; cloud
-(API-mode) cursors use row positions; Codex cursors use turn ids, and a Codex
-page still holds whole turns. Appending live output does not move these boundaries.
+(API-mode) cursors use row positions. Codex cursors use turn ids; a Codex page
+cut inside a turn also names the item page and the items already given, and it
+fails as changed if those items moved. Codex counts the bytes of each item as
+the app server returns it. Appending live output does not move these boundaries.
 Provider handoffs are paged from newest to oldest with their dividers preserved.
+The walk across a handoff stops before an older provider when the page already
+holds 500 rows or 1 MiB (counted on the rows as returned), so it keeps the
+newest rows and the next page reads the older provider. Tool results are not
+cut: a page carries their size and outcome, not their full output. The
+transcript given to the new agent at a handoff has its own budget
+(`handoffHistoryTokens`, in bytes / 3; `session-handoff.ts`).
 Invalidated cursors fail explicitly and leave the current transcript intact.
 Late child-agent activity is retained until an older page supplies its owning
 tool call, then attached to that call instead of shown as a top-level message.
