@@ -81,7 +81,6 @@ export type CodexTurnConfigExtras = {
     settings: {
       model: string
       reasoning_effort: string
-      developer_instructions: string | null
     }
   }
 }
