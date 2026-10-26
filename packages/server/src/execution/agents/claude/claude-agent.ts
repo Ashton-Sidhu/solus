@@ -7,6 +7,7 @@ import { TurnInputChannel } from './claude-turn-input'
 import { resolveClaudeToolSearchOverride } from './claude-tool-search'
 import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
+import { endTreeAfterExit } from '../../../platform/process-tree'
 import { findOnPath, launchedProcess, startableCommand, warmCliPath, type ProcessUser } from '../../../cli-env'
 import { solusPluginsDir } from '../plugins'
 import { claudeUsageFromApi, parseClaudeUsageReport } from './claude-usage'
@@ -177,22 +178,47 @@ export function claudeConfigDir(seat?: ClaudeSeat): string {
 }
 
 /**
- * How the SDK starts the CLI for a seat: its environment and, for a member who is
- * their own Linux user, a start through the member switch. Elsewhere the SDK's own
- * spawn stays, which waits for stderr before it reports an exit.
+ * How the SDK starts the CLI: its environment and, where Solus must own the
+ * process, a spawn of its own. A member who is their own Linux user starts
+ * through the member switch. A turn that can be stopped (`stopSignal`) starts its
+ * CLI as the leader of a new process group on POSIX, and when the turn ends, by a
+ * Stop or by itself, Solus ends what the turn left running (`endTreeAfterExit`). Elsewhere the SDK's own spawn stays,
+ * which waits for stderr before it reports an exit and puts stderr in its error.
  */
-export function claudeLaunch(seat?: ClaudeSeat): Pick<Options, 'env' | 'spawnClaudeCodeProcess'> {
+export function claudeLaunch(seat?: ClaudeSeat, stopSignal?: AbortSignal): Pick<Options, 'env' | 'spawnClaudeCodeProcess'> {
   const launch: Pick<Options, 'env' | 'spawnClaudeCodeProcess'> = { env: claudeEnv(seat) }
   const user = seat?.user
-  if (user) {
+  const ownsGroup = !!stopSignal && process.platform !== 'win32'
+  if (user || ownsGroup) {
     launch.spawnClaudeCodeProcess = (options) => {
       const run = launchedProcess({ env: options.env, user }, options.command, options.args)
-      const child = spawn(run.file, run.args, { cwd: resolveHomePath(options.cwd ?? homedir()), env: run.env, signal: options.signal, stdio: ['pipe', 'pipe', 'pipe'] })
+      const child = spawn(run.file, run.args, { cwd: resolveHomePath(options.cwd ?? homedir()), env: run.env, signal: options.signal, stdio: ['pipe', 'pipe', 'pipe'], detached: ownsGroup })
       child.stderr.setEncoding('utf8')
       child.stderr.on('data', (chunk: string) => {
         const text = chunk.trim()
-        if (text) log.warn('claude_cli_stderr', { uid: user.uid, text })
+        if (text) log.warn('claude_cli_stderr', { uid: user?.uid, text })
       })
+      if (ownsGroup && stopSignal) {
+        // Read the tree once, while the CLI is still alive: at a Stop, or when the
+        // SDK closes stdin because the turn is over. The CLI persists only for one
+        // turn, so either way it is about to exit. The abort listener is added
+        // before the SDK's own, so it runs before the CLI is told to exit.
+        let ending = false
+        const endTree = () => {
+          if (ending) return
+          ending = true
+          endTreeAfterExit(child)
+        }
+        if (stopSignal.aborted) endTree()
+        else stopSignal.addEventListener('abort', endTree, { once: true })
+        // Before the end, not at 'finish': by then the CLI can have exited and its children are reparented.
+        child.stdin.end = new Proxy(child.stdin.end, {
+          apply(end, stdin, args: Parameters<typeof child.stdin.end>) {
+            endTree()
+            return end.apply(stdin, args)
+          },
+        })
+      }
       return child
     }
   }
@@ -306,7 +332,7 @@ export class ClaudeAgent {
       fastMode: opts.fastMode ?? false,
       persistSession: opts.persistSession ?? true,
       extraArgs: { 'replay-user-messages': null },
-      ...claudeLaunch(opts.seat),
+      ...claudeLaunch(opts.seat, abortController.signal),
     }
     if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
     if (opts.bare) claudeOptions.tools = bareTools

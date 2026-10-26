@@ -25,6 +25,7 @@ import { answerToolQuestionWith } from '../execution/sessions/input-requests'
 import type { IntegrationCredentials } from './connections'
 import type { IntegrationStore } from './integration-store'
 import { mapCallResult, toolSummary } from './integration-tools'
+import { cancellableFetch } from './cancellable-fetch'
 
 const log = createLogger('integrations', 'gateway.ts')
 
@@ -295,8 +296,8 @@ export class IntegrationGateway {
     }
     if (integration.kind === 'solus') throw new Error(`This version of Solus does not have ${integration.name}. Update Solus on this host.`)
     return authorization
-      ? new StreamableHTTPClientTransport(new URL(integration.url), { requestInit: { headers: { Authorization: authorization }, redirect: 'error' } })
-      : new StreamableHTTPClientTransport(new URL(integration.url))
+      ? new StreamableHTTPClientTransport(new URL(integration.url), { requestInit: { headers: { Authorization: authorization }, redirect: 'error' }, fetch: cancellableFetch() })
+      : new StreamableHTTPClientTransport(new URL(integration.url), { fetch: cancellableFetch() })
   }
 
   /** Forget an integration's sessions and tool lists, as after an edit or a removal. */

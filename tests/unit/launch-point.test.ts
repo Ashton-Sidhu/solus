@@ -64,10 +64,13 @@ test('where members share the server’s user, the launch point gives no user', 
   expect(launch.env.HOME).toContain('alice')
 })
 
-test.if(switchesUsers)('the Claude CLI is spawned as the member only when the seat names a user', () => {
-  // WHY: the SDK's own spawn waits for stderr before it reports an exit; replace it only where the user must change.
+test.if(switchesUsers)('Solus spawns the Claude CLI itself only where the user must change or the end of a turn must end its process tree', () => {
+  // WHY: the SDK's own spawn waits for stderr before it reports an exit; replace it only where Solus must own the process.
   expect(claudeLaunch({ home: '/seats/claude/alice' }).spawnClaudeCodeProcess).toBeUndefined()
   expect(claudeLaunch({ home: '/seats/claude/alice', user: { uid: 20001 } }).spawnClaudeCodeProcess).toBeFunction()
+  const stoppable = claudeLaunch({ home: '/seats/claude/alice' }, new AbortController().signal).spawnClaudeCodeProcess
+  if (process.platform === 'win32') expect(stoppable).toBeUndefined()
+  else expect(stoppable).toBeFunction()
 })
 
 test.if(switchesUsers)('a member\'s process starts through the member switch; every other process starts as it is', () => {
