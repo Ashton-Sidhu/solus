@@ -143,7 +143,8 @@ class Backend extends EventEmitter implements AgentBackend {
     this.starts++
     this.threads.push(threadId)
     this.handles.set(threadId, handle)
-    queueMicrotask(() => {
+    // After the launcher's setup awaits, as a real provider's init arrives.
+    setTimeout(() => {
       handle.agentSessionId = threadId
       this.emit('normalized', threadId, { type: 'session_init', sessionId: threadId, model: 'gpt-test', skills: [] } satisfies NormalizedEvent)
       this.initialized++
@@ -193,6 +194,15 @@ class Backend extends EventEmitter implements AgentBackend {
     return true
   }
   isSessionRunning(sessionId: string): boolean { return this.handles.has(sessionId) }
+  /** Threads with work the agent left running after its turn ended. */
+  readonly background = new Set<string>()
+  hasBackgroundTasks(threadId: string): boolean { return this.background.has(threadId) }
+  /** The turn ends while a command it started still runs, as a Codex turn does. */
+  completeInBackground(threadId: string, result: string): void {
+    this.background.add(threadId)
+    this.send(threadId, { type: 'background_task_started', taskId: 'cmd-1', toolUseId: 'cmd-1' })
+    this.complete(threadId, result)
+  }
   /** A steer joins the open turn, which then answers it. */
   async steerSession(threadId: string): Promise<RunHandle | null> { return this.handles.get(threadId) ?? null }
   loadSession(): Promise<never[]> { return Promise.resolve([]) }
@@ -454,6 +464,50 @@ describe('session orchestration', () => {
     } finally {
       plane.shutdown()
     }
+  })
+
+  test("a target's turn that leaves work running answers with the turn the finished work wakes", async () => {
+    // WHY: a Codex turn ends while a command it started still runs. Its first
+    // reply is interim; the sender must hear the turn that command's result wakes.
+    const { backend, plane, orchestrator, updates } = await sessions()
+    try {
+      const sent = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'run the suite', delivery: 'queue', notify: true })
+      backend.complete('thread-1', 'first')
+      await backend.started(3)
+      backend.completeInBackground('thread-1', 'suite started in the background')
+      await until(() => orchestrator.readExchange('solus-sender', sent.exchangeId)?.state === 'waiting_for_children')
+      expect(updates.some((update) => update.phase === 'settled')).toBe(false)
+
+      backend.background.delete('thread-1')
+      backend.send('thread-1', { type: 'background_task_settled', taskId: 'cmd-1', toolUseId: 'cmd-1', status: 'completed' })
+      backend.emit('background-task-completed', 'thread-1', 'The suite finished: 12 passed.', 'background-command')
+      await backend.run((request) => request.prompt.includes('The suite finished: 12 passed.'))
+      await until(() => orchestrator.readExchange('solus-sender', sent.exchangeId)?.state === 'running')
+      backend.complete('thread-1', 'all 12 tests passed')
+      await until(() => updates.some((update) => update.phase === 'settled'))
+      expect(updates.find((update) => update.phase === 'settled')).toMatchObject({
+        messageId: sent.exchangeId, status: 'completed', replyText: 'all 12 tests passed',
+      })
+    } finally { plane.shutdown() }
+  })
+
+  test('background work that ends without a wake settles the request with the turn that left it running', async () => {
+    // WHY: a stopped or killed task wakes nobody; the request must not stay open forever.
+    const { backend, plane, orchestrator, updates } = await sessions()
+    try {
+      const sent = await orchestrator.send('solus-sender', 'solus-target', { prompt: 'run the suite', delivery: 'queue', notify: true })
+      backend.complete('thread-1', 'first')
+      await backend.started(3)
+      backend.completeInBackground('thread-1', 'suite started in the background')
+      await until(() => orchestrator.readExchange('solus-sender', sent.exchangeId)?.state === 'waiting_for_children')
+
+      backend.background.delete('thread-1')
+      backend.send('thread-1', { type: 'background_task_settled', taskId: 'cmd-1', toolUseId: 'cmd-1', status: 'stopped' })
+      await until(() => updates.some((update) => update.phase === 'settled'))
+      expect(updates.find((update) => update.phase === 'settled')).toMatchObject({
+        messageId: sent.exchangeId, status: 'completed', replyText: 'suite started in the background',
+      })
+    } finally { plane.shutdown() }
   })
 
   test('stopping a parent between child results ends its incoming request', async () => {

@@ -55,7 +55,8 @@ const TURN_LOG_MAX_EVENTS = 2000
 /** The hooks the session orchestrator takes run facts through. */
 type OrchestrationHooks = Pick<SessionOrchestrator,
   | 'runQueued' | 'runStarted' | 'runRateLimited' | 'runSettled' | 'runCancelled' | 'sessionStarted'
-  | 'reportsAccepted' | 'reportsDisposed' | 'inputRequested' | 'inputResolved' | 'runEvent' | 'sessionTurnStarted' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy' | 'childrenAtWork' | 'stopChildren'>
+  | 'reportsAccepted' | 'reportsDisposed' | 'inputRequested' | 'inputResolved' | 'runEvent' | 'sessionTurnStarted' | 'targetStopped' | 'isAwaitingReplies' | 'cancelSentBy'
+  | 'backgroundExchangeIds' | 'backgroundEnded' | 'childrenAtWork' | 'stopChildren'>
 
 export interface SessionRunLifecycle {
   agentSessionId: Promise<{ agentSessionId: string; taskId?: string }>
@@ -414,8 +415,14 @@ export class SessionRuntime extends EventEmitter {
     handle: RunHandle,
     runMeta: { durationMs?: number; toolCallCount?: number; error?: string },
   ): void {
+    if (!this.orchestration) return
+    const agentSessionId = handle.agentSessionId
+    const hasBackgroundWork = !!agentSessionId && !!this.backends.get(run.input.provider)?.hasBackgroundTasks?.(agentSessionId)
+    // Any turn that ends with nothing left running ends the wait of an earlier
+    // run's exchanges, even when the work finished inside this turn.
+    if (!hasBackgroundWork) this.orchestration.backgroundEnded(run.sessionId)
     const exchanges = this.runExchanges(run)
-    if (!exchanges || !this.orchestration) return
+    if (!exchanges) return
     const session = this.activeSessions.get(run.sessionId)
     this.orchestration.runSettled({
       ...exchanges,
@@ -428,6 +435,7 @@ export class SessionRuntime extends EventEmitter {
       provider: run.input.provider,
       projectScope: projectScopeOf(run.input),
       gitContext: session?.gitContext ?? run.input.gitContext,
+      hasBackgroundWork,
     })
   }
 
@@ -770,6 +778,7 @@ export class SessionRuntime extends EventEmitter {
       clearInterval(this.statuses.runWatchdogTimer)
       this.statuses.runWatchdogTimer = null
     }
+    this.attention.dispose()
     for (const timer of this.rateLimitPark.rateLimitTimers.values()) clearTimeout(timer)
     this.rateLimitPark.rateLimitTimers.clear()
     this.rateLimitPark.rateLimits.clearAll()

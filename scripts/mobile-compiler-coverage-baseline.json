@@ -552,8 +552,7 @@
     },
     "apps/mobile/src/features/connection/ConnectionStatusDot.tsx": {
       "compiled": [
-        "ConnectionStatusDot",
-        "usePulseAnimation"
+        "ConnectionStatusDot"
       ],
       "skipped": []
     },
@@ -2181,6 +2180,12 @@
     "apps/mobile/src/native/useEnrichedLinkVariants.ts": {
       "compiled": [
         "useEnrichedLinkVariants"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/native/useRetryingImageSource.ts": {
+      "compiled": [
+        "useRetryingImageSource"
       ],
       "skipped": []
     },
