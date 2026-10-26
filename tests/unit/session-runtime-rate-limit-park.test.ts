@@ -422,6 +422,35 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
     }
   })
 
+  test('a reset past the longest timer waits in steps instead of firing at once', () => {
+    // WHY: setTimeout fires at once for a delay over 2^31-1 ms (about 24.8
+    // days), so a far reset released the held queue immediately.
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', new Backend()]]))
+    const park = plane.rateLimitPark
+    const release = spyOn(park as unknown as { releaseRateLimitQueue: () => void }, 'releaseRateLimitQueue').mockImplementation(() => {})
+    const timerSpy = spyOn(globalThis, 'setTimeout')
+    try {
+      setSystemTime(new Date('2026-09-16T03:00:00Z'))
+      const resetsAt = Date.now() / 1000 + 30 * 86_400
+      park.scheduleRateLimitRelease(SESSION_ID, resetsAt)
+      const [wake, firstDelay] = timerSpy.mock.calls.at(-1)!
+      expect(firstDelay).toBe(2 ** 31 - 1)
+
+      // The early wake releases nothing and waits again for the rest.
+      setSystemTime(new Date(Date.now() + (firstDelay as number)))
+      ;(wake as () => void)()
+      expect(release).not.toHaveBeenCalled()
+      const [due, rest] = timerSpy.mock.calls.at(-1)!
+      expect(rest).toBe(resetsAt * 1000 - Date.now())
+
+      ;(due as () => void)()
+      expect(release).toHaveBeenCalledTimes(1)
+    } finally {
+      timerSpy.mockRestore()
+      plane.shutdown()
+    }
+  })
+
   test('direct resets survive unsupported windows and cache refreshes keep retry policy stable', () => {
     const backend = new Backend()
     const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))

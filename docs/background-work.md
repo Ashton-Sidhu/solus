@@ -86,6 +86,17 @@ path.
   (`subAgentActivity` `interacted`) is not routed to that turn; this is a
   separate, existing limit.
 
+## Delegated sessions
+
+A Codex session that answers another session's message can end its turn with
+work still in the background. Its first reply is not the answer: the exchange
+stays open (`waiting_for_children`). The turn that the finished work wakes
+answers the exchange, and its reply goes to the parent. If the work ends with no
+wake (it was stopped or killed, or a later turn saw it end), the exchange
+settles with the reply of the turn that left the work running. Stop on the child
+settles the exchange as `interrupted`. A Claude session needs none of this: its
+run ends only when its background tasks end.
+
 ## Clients
 
 - **Desktop and web.** The last turn shows the background row: what runs and a

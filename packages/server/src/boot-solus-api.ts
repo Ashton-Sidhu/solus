@@ -33,6 +33,7 @@ import { HostEventPublisher } from './transport/events/host-event-publisher'
 import { registerSolusApiHandlers } from './transport/solus-api/service-handlers'
 import { onSessionStateChanged } from './data/sessions/session-states'
 import { publishSessionViewChanges } from './transport/events/session-view-events'
+import { PersonConnections } from './transport/events/person-connections'
 import { organizationPrSync } from './prs/organization-pr-sync'
 import type { PrSync } from './prs/pr-sync'
 import { useAccountCredentialSource, type AccountCredentialSource } from './vault/vault'
@@ -133,7 +134,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   // An organization session's place in the list lives here, not on the machine
   // that ran it: machines rotate and go offline (docs/plans/session-archive.md).
   const unsubscribeSessionStates = onSessionStateChanged((sessionId, state) => { void events.broadcast('session.stateChanged', { sessionId, state }) })
-  const unsubscribeSessionViews = publishSessionViewChanges(events, () => clients.routableClientIds(), clientId => socket?.principalOf(clientId))
+  const unsubscribeSessionViews = publishSessionViewChanges(events, new PersonConnections(() => clients.routableClientIds(), clientId => socket?.principalOf(clientId)))
   // The home of organization sessions keeps their pull requests fresh: their machines rotate and go offline.
   let prSync: PrSync | null = null
   if (options.accountCredential) {

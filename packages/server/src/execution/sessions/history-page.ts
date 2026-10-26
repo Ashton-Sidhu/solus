@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AgentId } from '@solus/contracts/types'
-import { startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
+import { HISTORY_PAGE_ROWS, startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
 
 export interface HistorySegment {
   provider: AgentId
@@ -17,7 +17,9 @@ const cursorSchema = z.object({
 })
 
 /** Walk lineage from newest to oldest, `turnLimit` user turns at a time. A
- * cursor is tied to the resolved lineage, so it cannot silently page another
+ * provider ends its page early when the page budget runs out, and the walk
+ * does not start an older segment once the page holds a full budget of rows.
+ * A cursor is tied to the resolved lineage, so it cannot silently page another
  * session or a rewritten chain. */
 export async function loadHistoryPage(
   scope: string,
@@ -48,7 +50,7 @@ export async function loadHistoryPage(
     if (segment.divider) messages.unshift(segment.divider)
     index--
     providerCursor = undefined
-    if (turns >= turnLimit && index >= 0) {
+    if ((turns >= turnLimit || messages.length >= HISTORY_PAGE_ROWS) && index >= 0) {
       return { messages, before: JSON.stringify({ scope, segment: index, prefix: prefix(index) }) }
     }
   }

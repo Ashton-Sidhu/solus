@@ -7,6 +7,8 @@ import type { SessionRuntime } from '../session-runtime'
 const log = createLogger('SessionRuntime', 'rate-limit-park.ts')
 
 const CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS = 2 * 60
+/** The longest delay `setTimeout` keeps; a longer one fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1
 
 /**
  * Runs parked on a provider limit: the limit snapshot that gates a session's
@@ -110,12 +112,14 @@ export class RateLimitPark {
     if (resetsAt === null) return
     const delay = Math.max(resetsAt * 1000 - Date.now(), 0)
     const timer = setTimeout(() => {
+      // A reset past the longest timer wakes early and waits again for the rest.
+      if (delay > MAX_TIMER_MS) return this.scheduleRateLimitRelease(sessionId, resetsAt)
       // The timer releases a prompt somebody queued. A window reopening is not
       // itself a decision, so a held prompt the user has not answered for stays
       // held — releasing it here would either run it unasked or discard it.
       if (this.hasUndecidedHeldPrompt(sessionId)) return
       this.releaseRateLimitQueue(sessionId, 'wait')
-    }, delay)
+    }, Math.min(delay, MAX_TIMER_MS))
     timer.unref?.()
     this.rateLimitTimers.set(sessionId, timer)
   }

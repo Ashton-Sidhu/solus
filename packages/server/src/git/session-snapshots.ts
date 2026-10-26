@@ -29,6 +29,10 @@ interface Sidecar {
   sessionChangedFiles?: string[]
   /** Live worktree tree captured immediately before the current turn starts. */
   pendingTurnTreeSha?: string
+  /** Every path that changed inside one of this session's turn ranges. In a
+   *  shared checkout these are the session's own paths. Absent in a sidecar
+   *  written before it existed; `turnPathsOf` derives it from the turn ranges. */
+  turnPaths?: string[]
 }
 
 const snapshotQueueByRepo = new Map<string, Promise<void>>()
@@ -251,11 +255,14 @@ async function snapshotTurnQueued(
       runAsync('git', ['update-ref', refForTurnRange(sessionId, turnIndex, 'to'), turnTo], repoRoot),
     ])
     delete sidecar.pendingTurnTreeSha
+    sidecar.turnPaths = [...new Set([
+      ...await turnPathsOf(repoRoot, sidecar),
+      ...await changedPathsBetween(repoRoot, turnFrom, turnTo),
+    ])]
     if (treeSha === prev.tree) {
-      let sessionChangedFiles: string[] | null = sidecar.sessionChangedFiles ?? null
-      if (!sessionChangedFiles) {
-        sessionChangedFiles = await reconcileSessionPaths(repoRoot, sessionId, turnIndex, sidecar.baseSha, prev.commit)
-      }
+      const sessionChangedFiles = keepSessionPaths(workTree, repoRoot, sidecar,
+        sidecar.sessionChangedFiles
+          ?? await reconcileSessionPaths(repoRoot, sessionId, turnIndex, sidecar.baseSha, prev.commit))
       const snap: TurnSnapshot = {
         index: turnIndex,
         fromTreeSha: turnFrom,
@@ -304,7 +311,8 @@ async function snapshotTurnQueued(
     }
     if (opts.traceId) snap.traceId = opts.traceId
     sidecar.turns.push(snap)
-    const sessionChangedFiles = await reconcileSessionPaths(repoRoot, sessionId, turnIndex, sidecar.baseSha, commitSha)
+    const sessionChangedFiles = keepSessionPaths(workTree, repoRoot, sidecar,
+      await reconcileSessionPaths(repoRoot, sessionId, turnIndex, sidecar.baseSha, commitSha))
     sidecar.latestTreeSha = treeSha
     if (sessionChangedFiles) sidecar.sessionChangedFiles = sessionChangedFiles
     writeSidecar(repoRoot, sessionId, sidecar)
@@ -331,6 +339,32 @@ async function reconcileSessionPaths(
     log.warn('session_path_reconciliation_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
     return null
   }
+}
+
+/** Every path, old and new names alike, that differs between two trees. */
+async function changedPathsBetween(repoRoot: string, from: string, to: string): Promise<string[]> {
+  if (from === to) return []
+  const out = await runAsync('git', ['diff', '--name-only', '--no-renames', '-z', from, to], repoRoot, { raw: true })
+  return out.split('\0').filter(Boolean)
+}
+
+/** The paths changed inside this session's completed turns. */
+async function turnPathsOf(repoRoot: string, sidecar: Sidecar): Promise<string[]> {
+  if (sidecar.turnPaths) return sidecar.turnPaths
+  const paths = new Set<string>()
+  for (const turn of sidecar.turns) {
+    if (!turn.fromTreeSha || !turn.toTreeSha) continue
+    for (const path of await changedPathsBetween(repoRoot, turn.fromTreeSha, turn.toTreeSha)) paths.add(path)
+  }
+  return [...paths]
+}
+
+/** A shared checkout has other authors, so the session's net paths keep only
+ *  the ones its own turns changed. */
+function keepSessionPaths(workTree: string, repoRoot: string, sidecar: Sidecar, paths: string[] | null): string[] | null {
+  if (!paths || ownsWorkTree(workTree, repoRoot)) return paths
+  const turnPaths = new Set(sidecar.turnPaths)
+  return paths.filter((path) => turnPaths.has(path))
 }
 
 async function resolveScope(repoRoot: string, sessionId: string, scope: DiffScope): Promise<{ from: string; to: string } | null> {
@@ -434,6 +468,67 @@ async function writeTreeForPaths(
   } finally {
     try { unlinkSync(indexPath) } catch { /* best-effort */ }
   }
+}
+
+/**
+ * True when the session works in its own linked worktree rather than the shared
+ * checkout. There it owns every change in the tree. In the shared checkout the
+ * developer and other sessions edit the same tree.
+ */
+function ownsWorkTree(workTree: string, repoRoot: string): boolean {
+  return resolve(workTree) !== resolve(repoRoot)
+}
+
+/**
+ * The paths the session scope reads in a shared checkout: every path its turns
+ * changed, and every path changed since the current turn started. Each turn
+ * reads the whole checkout, so a shell edit counts. Another author's edit
+ * counts only when it lands on a path during one of this session's turns.
+ */
+async function sharedCheckoutSessionPaths(
+  workTree: string,
+  repoRoot: string,
+  sessionId: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string[]> {
+  const sidecar = readSidecar(repoRoot, sessionId)
+  if (!sidecar) return []
+  const paths = new Set(await turnPathsOf(repoRoot, sidecar))
+  if (sidecar.pendingTurnTreeSha) {
+    const live = await runAsync('git',
+      ['diff', '--name-only', '--no-renames', '-z', sidecar.pendingTurnTreeSha],
+      workTree,
+      { env, raw: true },
+    )
+    for (const path of live.split('\0')) if (path) paths.add(path)
+  }
+  return [...paths]
+}
+
+/**
+ * Run one `git diff <base>` against the live checkout for the session scope. In
+ * the session's own worktree it reads the whole tree. In a shared checkout it
+ * reads only the session's paths, so other sessions' work stays out.
+ */
+async function diffSessionCheckout(
+  workTree: string,
+  repoRoot: string,
+  sessionId: string,
+  base: string,
+  diffArgs: string[],
+): Promise<string> {
+  return withWorkingTreeIndex(workTree, repoRoot, async (env) => {
+    const run = (paths: string[]) => runAsync('git',
+      ['--literal-pathspecs', '-c', 'core.quotepath=false', 'diff', base, ...diffArgs, '--', ...paths],
+      workTree,
+      { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
+    )
+    if (ownsWorkTree(workTree, repoRoot)) return run([])
+    const paths = await sharedCheckoutSessionPaths(workTree, repoRoot, sessionId, env)
+    let out = ''
+    for (const chunk of chunkPathspecs(paths)) out += await run(chunk)
+    return out
+  })
 }
 
 /** The session base read through its ref, so a rewritten or collected base
@@ -576,7 +671,7 @@ function resolveNumstatPath(raw: string): string {
  * combined raw `git diff` patch:
  *  - working-tree: HEAD vs the live filesystem (untracked included via add -N)
  *  - session owned: base vs the whole worktree the session works alone in
- *  - session live: base vs this session's in-progress paths (temp tree)
+ *  - session shared: base vs the live checkout, limited to the session's paths
  *  - session/turn: base/prev snapshot vs the turn snapshot (committed trees)
  */
 export async function getDiff(
@@ -606,11 +701,11 @@ export async function getDiff(
 
   if (!sessionId) return null
 
-  // The session diff is the session base against the live checkout, whoever
-  // made the change. A surface with no checkout reads the latest snapshot.
+  // The session diff is the session base against the live checkout. A surface
+  // with no checkout reads the latest snapshot.
   if (scope.kind === 'session' && workTree) {
     const base = await resolveSessionBase(repoRoot, sessionId)
-    if (base) return getEpisodeDiff(workTree, repoRoot, base)
+    if (base) return { patch: await diffSessionCheckout(workTree, repoRoot, sessionId, base, diffFormatArgs()) }
   }
 
   const range = await resolveScope(repoRoot, sessionId, scope)
@@ -769,7 +864,7 @@ export async function getDiffStats(
 
   if (scope.kind === 'session' && workTree) {
     const base = await resolveSessionBase(repoRoot, sessionId)
-    if (base) return getEpisodeNumstat(workTree, repoRoot, base)
+    if (base) return parseChangedFileStats(await diffSessionCheckout(workTree, repoRoot, sessionId, base, ['--numstat', '--summary']))
   }
 
   const range = await resolveScope(repoRoot, sessionId, scope)

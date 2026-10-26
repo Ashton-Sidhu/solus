@@ -18,6 +18,8 @@ import {
   customActionRows,
   toggledActions,
   linkExpiryLabel,
+  linkExpiryValue,
+  linkSettingsSummary,
 } from '../../packages/workspace-ui/src/components/sharing/lib/share-rows'
 import { DEFAULT_LINK_ACTIONS } from '@solus/contracts/shareable-actions'
 import { appLinkUrl } from '../../packages/workspace-ui/src/contexts/sharing/app-link'
@@ -259,12 +261,15 @@ describe('a custom link (docs/plans/custom-roles.md §4)', () => {
     expect(workLink?.scope).toEqual({ kind: 'link', role: 'viewer' })
   })
 
-  test('the rows follow the same rules as the host: the transcript is locked on, and approve needs prompt', () => {
+  test('only Watch is locked; turning a choice on turns on what it needs, and turning that off takes the choice with it', () => {
+    // WHY: a switch that is stuck off with no reason reads as broken. Asking for
+    // Approve means asking for Prompt directly too, as the host requires.
     const rows = customActionRows(['read.transcript', 'drive.propose'])
-    expect(rows.find((row) => row.leaf === 'read.transcript')).toMatchObject({ isOn: true, isFixed: true })
-    expect(rows.find((row) => row.leaf === 'drive.approve')).toMatchObject({ isOn: false, isFixed: true })
-    expect(rows.find((row) => row.leaf === 'drive.attach')).toMatchObject({ isFixed: false })
-    // Turning prompt off takes approve with it, as the host would.
+    expect(rows.find((row) => row.leaf === 'read.transcript')).toMatchObject({ isOn: true, isLocked: true })
+    expect(rows.filter((row) => row.isLocked).map((row) => row.leaf)).toEqual(['read.transcript'])
+    expect(toggledActions(['read.transcript'], 'drive.approve', true)).toEqual(['read.transcript', 'drive.prompt', 'drive.approve'])
+    // Attach needs Suggest or Prompt: it brings the narrower one, Suggest.
+    expect(toggledActions(['read.transcript'], 'drive.attach', true)).toEqual(['read.transcript', 'drive.propose', 'drive.attach'])
     expect(toggledActions(['read.transcript', 'drive.prompt', 'drive.approve'], 'drive.prompt', false)).toEqual(['read.transcript'])
     expect(toggledActions(['read.transcript'], 'read.files', true)).toEqual(['read.transcript', 'read.files'])
   })
@@ -274,6 +279,21 @@ describe('a custom link (docs/plans/custom-roles.md §4)', () => {
     expect(scopeOf(custom)).toEqual({ kind: 'link', role: 'custom', actions: ['read.transcript'] })
     expect(scopeRequestFor({ kind: 'link', role: 'custom', actions: ['read.transcript', 'read.diffs'] }, custom).link).toEqual({ role: 'custom', actions: ['read.transcript', 'read.diffs'] })
     expect(scopeRequestFor({ kind: 'link', role: 'custom', actions: ['read.transcript'] }, custom).link).toBeUndefined()
+  })
+
+  test('the closed Advanced row says in one line how much a link allows and how long it lasts', () => {
+    // WHY: the settings are folded away, so the line is what tells the sharer a link can prompt or never expires.
+    const hour = 60 * 60 * 1000
+    expect(linkSettingsSummary({ role: 'custom', actions: ['read.transcript', 'read.diffs', 'drive.propose', 'drive.attach'], expiresAt: 5 * hour }, 0)).toBe('4 permissions · expires in 5 hours')
+    expect(linkSettingsSummary({ role: 'custom', actions: ['read.transcript'], expiresAt: null }, 0)).toBe('1 permission · never expires')
+    expect(linkSettingsSummary({ role: 'viewer', expiresAt: null }, 0)).toBe('Never expires')
+  })
+
+  test('the Expires menu shows when the link stops working, in the words of its choices', () => {
+    const hour = 60 * 60 * 1000
+    expect(linkExpiryValue(null, 0)).toBe('Never')
+    expect(linkExpiryValue(23 * hour, 0)).toBe('In 23 hours')
+    expect(linkExpiryValue(hour, 2 * hour)).toBe('Expired')
   })
 
   test('the expiry line says how long is left, and never a negative time', () => {

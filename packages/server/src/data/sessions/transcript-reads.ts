@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { startsHistoryTurn, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
+import { historyPageIsFull, startsHistoryTurn, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { activitySchema, type Activity } from '@solus/contracts/activity'
 import { LINEAGE_SWITCH_ID_PREFIX } from '../activity/activity'
 import { getDatabase } from '../../db/database'
@@ -127,13 +127,15 @@ function positionOf(cursor: string): number {
 const PAGE_SCAN_ROWS = 500
 
 /** The newest `turnLimit` user turns, or the `turnLimit` turns before the
- * cursor; `before` names the next older page, or null at the start. Rows are
- * read newest-first in bounded chunks until the page's first turn starts. */
+ * cursor, within the page's row and byte budget; `before` names the next older
+ * page, or null at the start. Rows are read newest-first in bounded chunks
+ * until the page's first turn starts or the budget runs out. */
 export async function readTranscriptPage(scope: RecordScope, sessionId: string, turnLimit: number, before?: string): Promise<SessionHistoryPage> {
   const db = getDatabase()
   const page: Array<z.infer<typeof rowSchema>> = []
   let bound = before === undefined ? undefined : positionOf(before)
   let turns = 0
+  let bytes = 0
   for (;;) {
     // The cursor clause is left out for the newest chunk: `position` is a
     // 32-bit integer on Postgres, so no sentinel value stands in for "no bound".
@@ -145,7 +147,9 @@ export async function readTranscriptPage(scope: RecordScope, sessionId: string, 
     `))
     for (const row of rows) {
       page.push(row)
-      if (startsHistoryTurn(messageSchema.parse(JSON.parse(row.message))) && ++turns >= turnLimit) {
+      bytes += Buffer.byteLength(row.message)
+      const turnsComplete = startsHistoryTurn(messageSchema.parse(JSON.parse(row.message))) && ++turns >= turnLimit
+      if (turnsComplete || historyPageIsFull(page.length, bytes)) {
         const first = page.at(-1)!
         const older = await db.all(sql`
           SELECT position FROM ${sessionTranscripts}

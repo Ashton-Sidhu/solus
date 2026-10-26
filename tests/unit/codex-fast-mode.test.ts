@@ -18,7 +18,7 @@ describe('Codex backend configuration', () => {
       const backend = new CodexBackend()
       type CapturedParams = {
         developerInstructions?: string | null
-        collaborationMode?: { settings: { developer_instructions: string | null } }
+        collaborationMode?: { settings: { developer_instructions?: string | null } }
       }
       const requests: Array<{ method: string; params: CapturedParams }> = []
       const { promise: turnStarted, resolve: markTurnStarted } = Promise.withResolvers<void>()
@@ -53,7 +53,7 @@ describe('Codex backend configuration', () => {
       expect(developer).toContain('call list_agent_targets')
       expect(developer).toContain('## Solus collaborative browser')
       expect(developer).toContain('## Pull request linking')
-      expect(requests.find((request) => request.method === 'turn/start')?.params.collaborationMode?.settings.developer_instructions).not.toContain('Solus')
+      expect(requests.find((request) => request.method === 'turn/start')?.params.collaborationMode?.settings).not.toHaveProperty('developer_instructions')
     })
   }
 
@@ -128,16 +128,16 @@ describe('Codex backend configuration', () => {
     expect(requests.find((request) => request.method === 'turn/start')?.params.serviceTier).toBe('fast')
   })
 
-  test('keeps the Codex base native and separates host guidance from collaboration instructions', async () => {
-    // WHY: baseInstructions replaces Codex's maintained harness prompt. Solus
-    // user/host instructions and provider-specific mode behavior belong in the two
-    // separate developer instruction slots.
+  test('keeps the Codex base and Plan mode prompt native', async () => {
+    // WHY: baseInstructions replaces Codex's maintained harness prompt, and
+    // collaboration-mode developer_instructions replace its bundled Plan prompt.
+    // Solus user and host instructions belong in the thread developer message.
     type CapturedParams = {
       baseInstructions?: string | null
       developerInstructions?: string | null
       collaborationMode?: {
         mode: 'default' | 'plan'
-        settings: { developer_instructions: string | null }
+        settings: { developer_instructions?: string | null }
       }
     }
     const backend = new CodexBackend()
@@ -178,25 +178,18 @@ describe('Codex backend configuration', () => {
     expect(threadParams).not.toHaveProperty('baseInstructions')
     expect(threadParams?.developerInstructions).toStartWith('User extra instructions:\nStay concise.\n\n<runtime_info>')
     expect(threadParams?.developerInstructions).toContain('through the Codex harness')
-    expect(turnParams?.collaborationMode?.settings.developer_instructions).not.toContain('<runtime_info>')
     expect(turnParams?.collaborationMode?.mode).toBe('plan')
-    expect(turnParams?.collaborationMode?.settings.developer_instructions).toContain(
-      '# Plan Mode (Conversational)',
-    )
-    expect(turnParams?.collaborationMode?.settings.developer_instructions).not.toContain(
-      'Stay concise.',
-    )
-    expect(turnParams?.collaborationMode?.settings.developer_instructions).not.toContain(
-      '## Solus collaborative browser',
-    )
+    expect(turnParams?.collaborationMode?.settings).not.toHaveProperty('developer_instructions')
   })
 
-  test('sends host instructions even without user instructions', async () => {
+  test('sends host instructions and an explicit native Default mode without user instructions', async () => {
+    // WHY: Codex keeps the last collaboration mode on the thread. A Default turn
+    // must name 'default' to leave an earlier Plan turn.
     type CapturedParams = {
       developerInstructions?: string | null
       collaborationMode?: {
         mode: 'default' | 'plan'
-        settings: { developer_instructions: string | null }
+        settings: { developer_instructions?: string | null }
       }
     }
     const backend = new CodexBackend()
@@ -236,8 +229,6 @@ describe('Codex backend configuration', () => {
     const turnParams = requests.find((request) => request.method === 'turn/start')?.params
     expect(threadParams?.developerInstructions).toStartWith('<runtime_info>')
     expect(turnParams?.collaborationMode?.mode).toBe('default')
-    expect(turnParams?.collaborationMode?.settings.developer_instructions).toContain(
-      '# Collaboration Mode: Default',
-    )
+    expect(turnParams?.collaborationMode?.settings).not.toHaveProperty('developer_instructions')
   })
 })

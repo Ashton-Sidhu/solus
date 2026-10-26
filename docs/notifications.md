@@ -40,7 +40,7 @@ control.
 |---|---|
 | Needs approval | `permission_request` event; `needs_approval` attention entry |
 | Question | `question_request` event; `question` attention entry |
-| Turn finished | `turn_settled` event; `finished` attention entry. A turn that ends with background work still running (`background` status) does not count; it notifies when the agent's real end arrives |
+| Turn finished | `turn_settled` event; `finished` attention entry. A turn that ends with background work still running (`background` status) does not count; it notifies when the agent's real end arrives. A turn that a queued prompt takes over does not count either: the session stays running, and the turn settles with no sound. The `finished` entry waits 5 seconds, and a session that runs again in that time never records it. Failures, approvals, and questions stay immediate |
 | Session failed | `failed` attention entry |
 | Plan ready | `plan` event |
 | Work created | `work_created` and `artifact_created` events |

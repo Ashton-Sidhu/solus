@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
+import { HISTORY_PAGE_ROWS } from '@solus/contracts/session-history'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -141,6 +142,18 @@ describe('cloud history reads', () => {
     const older = await reads.readTranscriptPage('org1', 'turns', 2, newest.before!)
     expect(older.messages.map((entry) => entry.content)).toEqual(['t0', 't1', 't2', 't3', 't4'])
     expect(older.before).toBeNull()
+  })
+
+  test('a turn longer than the row budget pages inside the turn, and the pages give back every row', async () => {
+    // WHY: a page counted only in user turns loads one long agent turn whole
+    // and can freeze the client when the session opens.
+    const items = Array.from({ length: 902 }, (_, position) => row(100 + position, 'long', position, `r${position}`, position === 0 || position === 2 ? 'user' : 'assistant'))
+    await deliver(runner(), { hostId: 'runner-1', items })
+    const pages = [await reads.readTranscriptPage('org1', 'long', 10)]
+    while (pages.at(-1)!.before) pages.push(await reads.readTranscriptPage('org1', 'long', 20, pages.at(-1)!.before!))
+    expect(pages[0].messages).toHaveLength(HISTORY_PAGE_ROWS)
+    expect(pages[0].messages[0].role).toBe('assistant')
+    expect(pages.reverse().flatMap((page) => page.messages.map((entry) => entry.content))).toEqual(items.map((_, position) => `r${position}`))
   })
 
   test('another organization sees nothing of it', async () => {

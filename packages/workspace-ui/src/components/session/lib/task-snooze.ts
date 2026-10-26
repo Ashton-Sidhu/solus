@@ -133,6 +133,16 @@ export function limitResetSnoozeUntil(
   return limitResetsAt && limitResetsAt > now ? limitResetsAt : null
 }
 
+/** The longest delay `setTimeout` keeps; a longer one fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1
+
+/** The timer delay that wakes the next snoozed row at `wakeAt`. A wake past
+ *  the longest timer fires early; the caller still compares each row with its
+ *  own wake time, so an early fire wakes nothing and arms the next timer. */
+export function snoozeWakeDelay(wakeAt: number, now = Date.now()): number {
+  return Math.min(Math.max(1, wakeAt - now), MAX_TIMER_MS)
+}
+
 /** A wake time as the custom picker's local `YYYY-MM-DDTHH:MM` value. */
 export function snoozePickerValue(at: number): string {
   const date = new Date(at)

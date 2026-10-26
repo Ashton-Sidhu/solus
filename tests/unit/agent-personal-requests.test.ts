@@ -6,7 +6,7 @@ import type { AgentProfile } from '@solus/contracts/agent-profile'
 import { DEFAULT_PERSONAL_SETTINGS, type PersonalSettings, type PersonalSettingsDocument } from '@solus/contracts/settings'
 import { actorFor, HOST_ACTOR, type Actor } from '@solus/server/admission/actor'
 import type { Principal } from '@solus/server/admission/principal'
-import { personalClients, requestPersonal, type PersonalRoute } from '@solus/server/transport/events/agent-personal-requests'
+import { PersonalRequests, type PersonalRoute } from '@solus/server/transport/events/agent-personal-requests'
 
 function member(userId: string): Principal {
   return {
@@ -48,7 +48,7 @@ describe("which client answers for a session's person", () => {
       sourceClientId: 'alice-laptop',
     })
 
-    expect(personalClients(route, 'session')).toEqual(['alice-laptop', 'alice-phone'])
+    expect(new PersonalRequests(route).clientsFor('session')).toEqual(['alice-laptop', 'alice-phone'])
   })
 
   test("an agent working for one person never reaches another person's settings", async () => {
@@ -57,7 +57,7 @@ describe("which client answers for a session's person", () => {
     const asked: string[] = []
     const route = routeOf({ principals: { 'bob-laptop': BOB }, actor: actorFor(ALICE) }, asked)
 
-    const reply = await requestPersonal(route, 'session', { settings: { reviewModel: 'x' } })
+    const reply = await new PersonalRequests(route).send('session', { settings: { reviewModel: 'x' } })
 
     expect(reply.reply.ok).toBe(false)
     expect(asked).toEqual([])
@@ -65,7 +65,7 @@ describe("which client answers for a session's person", () => {
 
   test("the host's own work has no person, so no client is asked", () => {
     const route = routeOf({ principals: { 'alice-laptop': ALICE }, actor: HOST_ACTOR })
-    expect(personalClients(route, 'session')).toEqual([])
+    expect(new PersonalRequests(route).clientsFor('session')).toEqual([])
   })
 
   test('a client whose socket is gone gives way to the next client of the same person', async () => {
@@ -77,7 +77,7 @@ describe("which client answers for a session's person", () => {
       gone: ['alice-laptop'],
     }, asked)
 
-    const reply = await requestPersonal(route, 'session', {})
+    const reply = await new PersonalRequests(route).send('session', {})
 
     expect(asked).toEqual(['alice-laptop', 'alice-phone'])
     expect(reply).toEqual({ reply: { ok: true, settings: { reviewModel: 'answered-by-alice-phone' }, profile: [], device: null }, fromTurnClient: false })
@@ -92,7 +92,7 @@ describe("which client answers for a session's person", () => {
       gone: ['alice-laptop'],
     }, asked)
 
-    const answer = await requestPersonal(route, 'session', { device: { zoomFactor: 1.5 } })
+    const answer = await new PersonalRequests(route).send('session', { device: { zoomFactor: 1.5 } })
 
     expect(asked).toEqual(['alice-laptop'])
     expect(answer.reply.ok).toBe(false)

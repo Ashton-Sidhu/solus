@@ -13,7 +13,7 @@
   import { isSolusApiId } from "@solus/contracts/uplink";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { LINK_LIFETIME_CHOICES, customActionRows, linkExpiryLabel, linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, linkToCopy, toggledActions, type PersonRow, type ScopeOption } from "./lib/share-rows";
+  import { LINK_LIFETIME_CHOICES, customActionRows, linkExpiryValue, linkSettingsSummary, linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, linkToCopy, toggledActions, type PersonRow, type ScopeOption } from "./lib/share-rows";
   import { publishProblemMessage } from "./lib/publish-copy";
   import { userKey } from "@solus/contracts/user";
   import UserAvatar from "../users/UserAvatar.svelte";
@@ -44,6 +44,8 @@
   const useSheet = $derived(runtime.isTouchDevice && !runtime.hasKeyboardPointer);
 
   let copied = $state(false);
+  /** The Advanced section starts closed for each resource: the link's settings are there when asked for. */
+  let advancedOpen = $state(false);
   let query = $state("");
   /** The modal card: the menus portal into it so they paint above its own scrim. */
   let dialogEl = $state<HTMLElement | null>(null);
@@ -59,6 +61,7 @@
     void target;
     copied = false;
     query = "";
+    advancedOpen = false;
   });
 
   const people = $derived(list ? personRows(list, directory, identity?.user ?? null) : []);
@@ -82,6 +85,8 @@
   const customRows = $derived(list?.link?.role === "custom" ? customActionRows(list.link.actions ?? []) : []);
   /** The clock the expiry line reads; it is set when the dialog opens and when the link changes. */
   const openedAt = $derived.by(() => { void list?.link; return Date.now(); });
+  /** What the Expires menu shows: "In 23 hours", "Never", or "Expired". */
+  const linkExpiry = $derived(list?.link ? linkExpiryValue(list.link.expiresAt, openedAt) : "");
 
   async function setLinkAction(leaf: SessionActionLeaf, on: boolean): Promise<void> {
     if (!target || !list?.link || !canShare) return;
@@ -310,50 +315,6 @@
             {/if}
           </li>
         {/if}
-        {#if list.link && canShare}
-          <!-- The link's own settings: what a custom link lets a guest do, and how long it lasts. -->
-          <li class="flex flex-col gap-3 rounded-xl bg-muted/40 px-3.5 py-3" aria-label="Link settings" data-testid="share-link-settings">
-            {#if customRows.length > 0}
-              <ul class="flex flex-col gap-2.5" aria-label="What anyone with the link can do">
-                {#each customRows as item (item.leaf)}
-                  <li class="flex items-start gap-3" data-testid="share-link-action" data-action={item.leaf} data-on={item.isOn ? "true" : "false"}>
-                    <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
-                      <span class="text-foreground">{item.row.label}</span>
-                      {#if item.row.detail}<span class="text-pretty text-[0.875em] text-muted-foreground">{item.row.detail}</span>{/if}
-                      {#if item.isOn && item.row.warning}
-                        <span class="flex items-center gap-1.5 text-[0.875em] text-(--solus-status-permission)" data-testid="share-link-warning"><WarningIcon size={14} class="shrink-0" />{item.row.warning}</span>
-                      {/if}
-                    </span>
-                    <Switch
-                      checked={item.isOn}
-                      disabled={item.isFixed || sharesStore.busy}
-                      onCheckedChange={(next) => void setLinkAction(item.leaf, next)}
-                      aria-label={item.row.label}
-                    />
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-            <div class="flex items-center gap-3">
-              <span class="min-w-0 flex-1 truncate text-muted-foreground" data-testid="share-link-expiry">{linkExpiryLabel(list.link.expiresAt, openedAt)}</span>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger>
-                  {#snippet child({ props })}
-                    <Button {...props} variant="ghost" size="sm" class="shrink-0 gap-1 px-2 text-workspace-chrome font-normal text-foreground aria-expanded:bg-transparent pointer-coarse:h-10" data-testid="share-link-lifetime" disabled={sharesStore.busy}>
-                      Lasts
-                      <CaretDownIcon />
-                    </Button>
-                  {/snippet}
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Content align="end" class="w-auto min-w-36" portalProps={menuPortal}>
-                  {#each LINK_LIFETIME_CHOICES as choice (choice.label)}
-                    <DropdownMenu.Item onSelect={() => void setLinkLifetime(choice.ms)} data-testid="share-link-lifetime-choice">{choice.label}</DropdownMenu.Item>
-                  {/each}
-                </DropdownMenu.Content>
-              </DropdownMenu.Root>
-            </div>
-          </li>
-        {/if}
         {#if !peopleLoaded}
           <li class="flex min-h-11 items-center text-muted-foreground pointer-coarse:min-h-12" role="status">Loading people…</li>
         {:else}
@@ -385,6 +346,69 @@
         <p class="text-pretty text-[0.875em] text-muted-foreground">This old link cannot be copied. Choose another access, then the link again, to get a new one.</p>
       {/if}
     </section>
+
+    {#if list.link && canShare}
+      <!-- The link's own settings stay out of the way until asked for: what a
+           custom link lets a guest do, and how long it lasts. Closed, the row
+           says both in one line. -->
+      <section class="border-t-[0.0625rem] border-border pt-2" aria-label="Advanced link settings" data-testid="share-link-settings">
+        <button
+          type="button"
+          class="-mx-2 flex min-h-10 w-[calc(100%+1rem)] cursor-pointer items-center gap-2 overflow-hidden rounded-md px-2 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-12"
+          aria-expanded={advancedOpen}
+          aria-controls="share-link-advanced"
+          data-testid="share-link-advanced-toggle"
+          onclick={() => (advancedOpen = !advancedOpen)}
+        >
+          <span class="shrink-0 font-medium text-foreground">Advanced</span>
+          <span class="min-w-0 flex-1 truncate text-right text-[0.875em] text-muted-foreground" data-testid="share-link-summary">{linkSettingsSummary(list.link, openedAt)}</span>
+          <CaretDownIcon size={16} class="shrink-0 text-muted-foreground motion-safe:transition-transform motion-safe:duration-150 {advancedOpen ? 'rotate-180' : ''}" />
+        </button>
+        {#if advancedOpen}
+          <div id="share-link-advanced" class="flex flex-col gap-3 pt-2">
+            {#if customRows.length > 0}
+              <ul class="flex flex-col gap-2.5" aria-label="What anyone with the link can do">
+                {#each customRows as item (item.leaf)}
+                  <li class="flex items-start gap-3" data-testid="share-link-action" data-action={item.leaf} data-on={item.isOn ? "true" : "false"}>
+                    <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
+                      <span class="text-foreground">{item.row.label}{#if item.isLocked}<span class="ml-1.5 text-[0.875em] text-muted-foreground">Always on</span>{/if}</span>
+                      {#if item.row.detail}<span class="text-pretty text-[0.875em] text-muted-foreground">{item.row.detail}</span>{/if}
+                      {#if item.isOn && item.row.warning}
+                        <span class="flex items-center gap-1.5 text-[0.875em] text-(--solus-status-permission)" data-testid="share-link-warning"><WarningIcon size={14} class="shrink-0" />{item.row.warning}</span>
+                      {/if}
+                    </span>
+                    <Switch
+                      checked={item.isOn}
+                      disabled={item.isLocked || sharesStore.busy}
+                      onCheckedChange={(next) => void setLinkAction(item.leaf, next)}
+                      aria-label={item.row.label}
+                    />
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            <div class="flex items-center gap-3">
+              <span class="min-w-0 flex-1 text-foreground" id="share-link-expires-label">Expires</span>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger>
+                  {#snippet child({ props })}
+                    <Button {...props} variant="ghost" size="sm" class="shrink-0 gap-1 px-2 text-workspace-chrome font-normal text-foreground aria-expanded:bg-transparent pointer-coarse:h-10" aria-describedby="share-link-expires-label" data-testid="share-link-lifetime" disabled={sharesStore.busy}>
+                      <span data-testid="share-link-expiry">{linkExpiry}</span>
+                      <CaretDownIcon />
+                    </Button>
+                  {/snippet}
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Content align="end" class="w-auto min-w-36" portalProps={menuPortal}>
+                  {#each LINK_LIFETIME_CHOICES as choice (choice.label)}
+                    <DropdownMenu.Item onSelect={() => void setLinkLifetime(choice.ms)} data-testid="share-link-lifetime-choice">{choice.label}</DropdownMenu.Item>
+                  {/each}
+                </DropdownMenu.Content>
+              </DropdownMenu.Root>
+            </div>
+          </div>
+        {/if}
+      </section>
+    {/if}
   {/if}
 {/snippet}
 

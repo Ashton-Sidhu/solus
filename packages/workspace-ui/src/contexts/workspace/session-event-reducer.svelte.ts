@@ -626,7 +626,9 @@ export class SessionEventReducer {
         if (event.outcome === 'completed' || event.outcome === 'failed') {
           this.markUnread(sessionId)
         }
-        if (event.outcome === 'completed') {
+        // A turn a queued prompt takes over settles while the session stays
+        // running: the session is not finished, so it makes no sound.
+        if (event.outcome === 'completed' && session.status === 'completed') {
           this.deps.playNotificationIfHidden(sessionId, 'turn_settled')
         }
         break

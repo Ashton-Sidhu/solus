@@ -3,8 +3,12 @@ import type { SessionReport } from './session-exchange'
 import type { Activity } from './activity'
 
 /** Opaque host cursor. A page is the `turnLimit` newest user turns before the
- * cursor, each complete, so tool results never arrive without their calls and
- * the page size does not depend on how many tools a turn ran. */
+ * cursor, but never more than `HISTORY_PAGE_ROWS` rows or `HISTORY_PAGE_BYTES`
+ * bytes. Ordinary turns arrive whole. A turn longer than the budget is cut at
+ * a row boundary: its page starts inside the turn, and the next older page
+ * holds its earlier rows. A tool result or a child agent's row can then arrive
+ * one page before the call that owns it, so a client keeps such rows until an
+ * older page brings the call. */
 export interface SessionHistoryPageRequest {
   sessionId: string
   projectPath?: string
@@ -15,6 +19,16 @@ export interface SessionHistoryPageRequest {
    *  frame mounts, so the page leaves it out and names its `toolInputKey`.
    *  A compiled render is 100–300 KB, and a page carries every revision. */
   deferArtifactHtml?: boolean
+}
+
+/** The most rows one history page holds. Enough that ordinary turns stay whole. */
+export const HISTORY_PAGE_ROWS = 500
+/** The most stored bytes one history page reads, counted on the rows as read. */
+export const HISTORY_PAGE_BYTES = 1024 * 1024
+
+/** Whether a page that holds `rows` rows read from `bytes` stored bytes is full. */
+export function historyPageIsFull(rows: number, bytes: number): boolean {
+  return rows >= HISTORY_PAGE_ROWS || bytes >= HISTORY_PAGE_BYTES
 }
 
 /** The row a user turn starts at: a prompt from the user, not a tool result

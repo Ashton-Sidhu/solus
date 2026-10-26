@@ -139,6 +139,9 @@ export class TranscriptModel {
   private readonly heldTools = new Set<string>()
   /** While a history page is read, the ids it places, in order. */
   private collecting: string[] | null = null
+  /** History rows whose call an older page holds: a tool result or a child
+   *  agent's row, when a long turn's page starts after its call. */
+  private unresolvedRows: WireSessionLoadMessage[] = []
   private readonly agentCards = new AgentCards({
     get: (id) => {
       const item = this.items.get(id)
@@ -162,7 +165,7 @@ export class TranscriptModel {
   /** The first page. Rows of the page replace nothing: this is a fresh model. */
   static fromHistory(sessionId: string, page: SessionHistoryPage): TranscriptModel {
     const model = new TranscriptModel(sessionId)
-    model.order = model.rowsToItems(page.messages)
+    model.order = model.rowsToItems(page)
     model.olderCursor = page.before
     model.orderChanged = true
     model.proseSinceUser = true
@@ -171,21 +174,30 @@ export class TranscriptModel {
 
   /** An older page goes before everything already shown. */
   prependHistory(page: SessionHistoryPage): void {
-    const older = this.rowsToItems(page.messages)
+    const older = this.rowsToItems(page)
     this.order = [...older, ...this.order]
     this.olderCursor = page.before
     this.orderChanged = true
     this.metaChanged = true
   }
 
-  private rowsToItems(rows: readonly WireSessionLoadMessage[]): string[] {
+  /** A page's rows, then the rows earlier pages kept for their calls. While
+   *  older pages remain, a row whose call is not read yet waits for them. */
+  private rowsToItems(page: SessionHistoryPage): string[] {
+    const rows = this.unresolvedRows.length ? page.messages.concat(this.unresolvedRows) : page.messages
+    this.unresolvedRows = []
     const ids: string[] = []
     this.collecting = ids
     for (const row of rows) {
+      const callId = row.parentToolUseId ?? (row.role === 'tool_result' ? row.toolResultForId : undefined)
+      if (callId && page.before !== null && !this.findTool(callId)) {
+        this.unresolvedRows.push(row)
+        continue
+      }
       if (row.parentToolUseId) {
         const { parentToolUseId, ...message } = row
         this.childTranscript(parentToolUseId, (child) => {
-          child.order = [...child.order, ...child.rowsToItems([message])]
+          child.order = [...child.order, ...child.rowsToItems({ messages: [message], before: null })]
         })
       } else if (row.role === 'tool_result') this.applyHistoryResult(row)
       else if (row.activity?.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(row.activity.offerId, row.activity.resolution)

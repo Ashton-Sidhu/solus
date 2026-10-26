@@ -524,7 +524,7 @@ On real machines, with a local test server on a Mac (`SOLUS_DATA_DIR` in
 | Session and identity key over SSH, forward opened | Yes | Yes, through PowerShell |
 | Dial through the forward with the right key | Connected | Connected |
 | Wrong key, or no key saved | No credential sent, `dial-failed` | No credential sent, `dial-failed` |
-| Learned LAN route from server info | Advertised; blocked by `ufw` and lost to the forward in the parallel check; with a temporary rule, proved and connected; a wrong key refused | Advertised; blocked by the Windows firewall (not opened) |
+| Learned LAN route from server info | Advertised; blocked by `ufw` and lost to the forward in the parallel check; with a temporary rule, proved and connected; a wrong key refused | Advertised; Windows had made Public-profile block rules for the new `node.exe`. With those removed and a LAN-only allow rule, proved and connected; a wrong key or no key sent nothing; a client on another machine used the LAN route, the forward's holder used the forward. Rules removed after the test |
 | Forward after the holding server restarts | Opened again on the same local port | — |
 | Host-to-host (`RemoteHosts`) through the forward | Owner only; proved; execution RPC answered (after the `tokenKind` fix) | Same |
 | Remove, "also stop Solus there" | Kept the service when Solus had not started it; removed it when it had | Removed the logon task |

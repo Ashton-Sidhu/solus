@@ -566,11 +566,14 @@ export class PrSync {
       clientsListening: !!clients,
     }
     /** A matched pull request is read by number; a branch with no open one is
-     *  looked up when it is new in the interest or its session's turn ended. */
+     *  looked up when it is new in the interest or its session's turn ended.
+     *  A turn end reads its matched pull request now, past the minute cadence
+     *  and the detail cache: the agent may have merged or closed it. */
     const wantBranch = (branch: string, turnEnded: boolean): void => {
       const number = sync.byBranch.get(branch)
       const record = number === undefined ? undefined : sync.records.get(number)
       if (number !== undefined) wanted.numbers.add(number)
+      if (number !== undefined && turnEnded && record?.result === 'found' && record.pullRequest.state !== 'merged') sync.reread.add(number)
       if (record?.result === 'found' && record.pullRequest.state === 'open') return
       if (!sync.branchesLookedUpAt.has(branch) || turnEnded) wanted.branches.add(branch)
     }

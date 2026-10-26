@@ -12,14 +12,19 @@ unsent prompt; Undo restores it if no new prompt has replaced it. Task rows
 keep their task identity. The prompt remains owned by the session and uses the
 existing saved client state.
 
-`loadSessionPage` returns the newest `turnLimit` user turns before a cursor, each
-complete, and an opaque cursor for the next older page. A conversation opens with
-10 turns; each scroll back reads 20 more. The page size is counted in turns, not
-rows, so a quiet session opens with less data and a busy one with more: in the
-benchmark, 30 messages for two steps a turn and 410 for forty. Keeping a turn
-together lets the client correlate tool calls and results without reloading the
-newer history. Claude cursors use file byte boundaries and a boundary fingerprint;
-Codex cursors use turn ids. Appending live output does not move these boundaries.
+`loadSessionPage` returns the newest `turnLimit` user turns before a cursor and an
+opaque cursor for the next older page. A conversation opens with 10 turns; each
+scroll back reads 20 more. The page size is counted in turns, not rows, so a quiet
+session opens with less data and a busy one with more: in the benchmark, 30
+messages for two steps a turn and 410 for forty. A page also stops at 500 rows or
+1 MiB of stored rows (`HISTORY_PAGE_ROWS`, `HISTORY_PAGE_BYTES`), so ordinary
+turns stay whole, but one very long agent turn cannot load whole and freeze the
+client. Such a turn opens at its newest rows, and older pages bring its earlier
+rows. A tool result or a child agent's row can then arrive one page before its
+call: desktop, web, and mobile keep it until the older page brings the call.
+Claude cursors use file byte boundaries and a boundary fingerprint; cloud
+(API-mode) cursors use row positions; Codex cursors use turn ids, and a Codex
+page still holds whole turns. Appending live output does not move these boundaries.
 Provider handoffs are paged from newest to oldest with their dividers preserved.
 Invalidated cursors fail explicitly and leave the current transcript intact.
 Late child-agent activity is retained until an older page supplies its owning
