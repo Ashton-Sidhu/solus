@@ -60,6 +60,8 @@
     onPrRefClick?: (number: number, title?: string) => void;
     onFileRefClick?: (path: string) => void;
     placeholder?: string;
+    /** What a screen reader calls the field. */
+    ariaLabel?: string;
     /** Blocks ref insertion / command execution (read-only session). */
     readOnly?: boolean;
     /** Disables the underlying editor (read-only, connecting, transcribing…). */
@@ -103,6 +105,7 @@
     onPrRefClick,
     onFileRefClick,
     placeholder = "",
+    ariaLabel = "Message input",
     readOnly = false,
     disabled = false,
     mic = false,
@@ -284,7 +287,7 @@
   onPrRefClick={onPrRefClick ?? referenceNavigation.openPr}
   onFileRefClick={onFileRefClick ?? referenceNavigation.openFile}
   {placeholder}
-  ariaLabel="Message input"
+  {ariaLabel}
   {disabled}
   {mic}
   {dictation}
