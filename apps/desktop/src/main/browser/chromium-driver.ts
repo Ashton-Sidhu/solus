@@ -22,6 +22,7 @@ import {
   type BrowserSurfaceDriver,
 } from '@solus/server/browser/surface-driver'
 import { browserGuestStyleScript } from '@solus/server/browser/guest-style'
+import { captureInTurn } from './screenshot-slot'
 
 /** Console and log text is rung-buffered and shipped to clients and agents, so
  *  one runaway message cannot become the whole payload. */
@@ -422,13 +423,16 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
   async captureScreenshot(): Promise<string> {
     try {
       if (this.kind === 'webview') return await this.captureScreencastFrame()
-      const shot = await this.ask(
+      this.refuseWhileInspected('Page.captureScreenshot')
+      const params: CdpCommandParams = { format: 'png', captureBeyondViewport: false, fromSurface: true, optimizeForSpeed: true }
+      const reply = await captureInTurn(
+        this.contents,
         'Page.captureScreenshot',
-        { format: 'png', captureBeyondViewport: false, fromSurface: true, optimizeForSpeed: true },
-        screenshotResultSchema,
         SCREENSHOT_TIMEOUT_MS,
+        () => this.cdp.sendCommand('Page.captureScreenshot', params),
       )
-      if (shot) return `data:image/png;base64,${shot.data}`
+      const shot = screenshotResultSchema.safeParse(reply)
+      if (shot.success) return `data:image/png;base64,${shot.data.data}`
     } catch {
       // A parked webview can have no compositor frame to read. Only that slow
       // path is allowed to wake the BrowserWindow and ask for a fresh one.
@@ -462,7 +466,8 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
       // Timed as well. `capturePage` is Electron's own call rather than a CDP
       // command, but it is answered by the same guest — so it can stall for the
       // same reasons, and an untimed fallback would only move the hang.
-      const image = await withTimeout(this.contents.capturePage(), 'capturePage', SCREENSHOT_TIMEOUT_MS)
+      // It copies the same surface, so it takes the same turn.
+      const image = await captureInTurn(this.contents, 'capturePage', SCREENSHOT_TIMEOUT_MS, () => this.contents.capturePage())
       if (image.isEmpty()) throw new Error('The browser surface returned no image.')
       return image.toDataURL()
     } finally {

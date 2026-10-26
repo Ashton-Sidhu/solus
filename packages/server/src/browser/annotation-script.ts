@@ -123,6 +123,25 @@ function installerBody(): string {
     revealHtmlGroup.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
     layer.appendChild(revealHtmlGroup);
 
+    // Chromium draws a PDF in its own viewer frame, which takes every pointer
+    // event over it, so none reaches the listeners on this window. While a tool
+    // that marks is armed, a transparent layer above the viewer and below the
+    // marks takes the pointer instead. It sits outside the body, so a box
+    // selection never counts it as page content.
+    const inputLayer = document.contentType === 'application/pdf' ? document.createElement('div') : null;
+    if (inputLayer) {
+      inputLayer.setAttribute('data-solus-browser-annotation-input', '');
+      inputLayer.style.cssText = 'position:fixed;inset:0;z-index:2147483646;cursor:crosshair;background:transparent;';
+    }
+
+    function syncInputLayer() {
+      if (!inputLayer) return;
+      // Select hands the page back, so the PDF scrolls and clicks as usual.
+      const wanted = Boolean(state.tool) && state.tool !== 'select';
+      if (wanted && !inputLayer.isConnected) document.documentElement.appendChild(inputLayer);
+      else if (!wanted && inputLayer.isConnected) inputLayer.remove();
+    }
+
     function mount() {
       if (document.body && !layer.isConnected) document.body.appendChild(layer);
     }
@@ -489,7 +508,11 @@ function installerBody(): string {
     }
 
     function target(event) {
-      const el = document.elementFromPoint(event.clientX, event.clientY);
+      let el = document.elementFromPoint(event.clientX, event.clientY);
+      // The PDF input layer is not page content; what lies under it is.
+      if (inputLayer && el === inputLayer) {
+        el = document.elementsFromPoint(event.clientX, event.clientY).find((candidate) => candidate !== inputLayer) || null;
+      }
       return el && el !== document.documentElement && el !== document.body ? el : null;
     }
 
@@ -664,6 +687,7 @@ function installerBody(): string {
       // The cursor is the only thing that says a tool is armed once the pointer
       // is over the page rather than over the pane's toolbar.
       layer.style.cursor = tool === 'pick' ? 'crosshair' : tool ? 'crosshair' : 'default';
+      syncInputLayer();
       render();
     };
 
