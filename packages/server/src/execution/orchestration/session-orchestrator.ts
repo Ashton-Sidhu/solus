@@ -144,7 +144,8 @@ export interface OrchestratedRuntime {
   sessionMeta(sessionId: string): SessionMeta | null
   createSession(order: CreateSessionOrder): Promise<{ sessionId: string; taskId?: string }>
   promptSession(sessionId: string, prompt: string, delivery: PromptDelivery, order: PromptOrder): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
-  stopSession(id: string): boolean
+  /** `senderSessionId` is the agent session that asked for the stop. */
+  stopSession(id: string, senderSessionId?: string): boolean
   /** Answers a permission the asking session is waiting on; false when it is not. */
   respondToPermission(askingSessionId: string, questionId: string, optionId: string, updatedPlan?: string): boolean
   pendingInputEvents(sessionId: string): NormalizedEvent[]
@@ -518,7 +519,7 @@ export class SessionOrchestrator {
       })
       return true
     }
-    const stopped = this.runtime.stopSession(targetSessionId)
+    const stopped = this.runtime.stopSession(targetSessionId, senderSessionId)
     // Nothing stopped: a later result is not the sender's own doing.
     if (!stopped) for (const exchangeId of marked) this.stoppedBySender.delete(exchangeId)
     return stopped

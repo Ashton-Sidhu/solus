@@ -922,6 +922,19 @@ describe('who stopped a turn', () => {
     ])
     expect(unnamed.end?.by).toBeUndefined()
   })
+
+  // WHY: an agent's stop is not a person's. The divider must say an agent did it
+  // and name its session, not read as a bare "Stopped" or name a person.
+  test("an agent's stop carries the stopping session, not a person", () => {
+    const notice = msg({ role: 'system', content: '[Request interrupted by user]' })
+    const [turn] = turnsFor([
+      msg({ role: 'user', content: 'rewrite the call sites' }),
+      notice,
+      msg({ role: 'system', activity: { kind: 'stopped', id: 'a1', subject: { kind: 'session', id: 's' }, at: notice.timestamp, by: { kind: 'agent', sessionId: 'lead', title: 'Lead review' } } }),
+    ])
+    expect(turn.end).toMatchObject({ kind: 'stopped', byAgent: { sessionId: 'lead', title: 'Lead review' } })
+    expect(turn.end?.by).toBeUndefined()
+  })
 })
 
 // WHY: an activity recorded after the answer (a teammate renamed the session)
