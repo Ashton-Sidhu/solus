@@ -1,5 +1,5 @@
 import { planKey } from '@solus/contracts/types'
-import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
+import { parsePullRequestHref } from '@solus/contracts/providers'
 import type { RouteRef } from '../contexts/workspace/routing/route-registry'
 
 /**
@@ -24,8 +24,8 @@ export function routeForHref(
   const params = url.searchParams
 
   if (url.protocol === 'https:') {
-    const pr = parseGitHubPullRequestUrl(href)
-    if (!pr) return null
+    const pr = parsePullRequestHref(href)
+    if (!pr?.baseRepo) return null
     return {
       name: 'prReview',
       params: {
@@ -55,7 +55,6 @@ export function routeForHref(
     return taskId ? { name: 'task', params: { taskId, serverId: opts.serverId } } : null
   }
 
-  const number = Number(params.get('number'))
-  if (!Number.isInteger(number) || number <= 0) return null
-  return { name: 'prReview', params: { number, title: opts.title } }
+  const pr = parsePullRequestHref(href)
+  return pr ? { name: 'prReview', params: { number: pr.number, title: opts.title } } : null
 }

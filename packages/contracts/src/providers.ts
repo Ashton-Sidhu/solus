@@ -48,6 +48,25 @@ export function parseGitHubPullRequestUrl(value: string): GitHubPullRequestUrl |
   }
 }
 
+/** A pull request link in a message: a GitHub pull request URL, or the
+ * `pr://ref?number=` reference the input bar writes. Web and mobile read
+ * message links here, so a link opens the same pull request on each.
+ * `baseRepo` is null for a `pr://` link: it names a pull request of the
+ * transcript's own project. */
+export function parsePullRequestHref(href: string): { number: number; baseRepo: RepoRef | null } | null {
+  const pr = parseGitHubPullRequestUrl(href)
+  if (pr) return { number: pr.number, baseRepo: pr.baseRepo }
+  if (!/^pr:\/\//i.test(href)) return null
+  let url: URL
+  try {
+    url = new URL(href)
+  } catch {
+    return null
+  }
+  const number = Number(url.searchParams.get('number'))
+  return Number.isInteger(number) && number > 0 ? { number, baseRepo: null } : null
+}
+
 export interface PrFilter {
   state?: 'open' | 'closed' | 'all'
   author?: string
