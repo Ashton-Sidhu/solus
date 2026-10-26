@@ -344,8 +344,8 @@ export interface CustomActionRow {
   leaf: SessionActionLeaf
   row: ShareableAction
   isOn: boolean
-  /** Locked on, or off because what it needs is off. */
-  isFixed: boolean
+  /** Always on: every link holds it, so its switch never changes. */
+  isLocked: boolean
 }
 
 /** Every shareable leaf in table order, as the dialog draws it. */
@@ -353,32 +353,62 @@ export function customActionRows(actions: readonly SessionActionLeaf[]): CustomA
   const held = new Set(actions)
   return SESSION_ACTION_LEAVES.map((leaf) => {
     const row: ShareableAction = SHAREABLE_SESSION_ACTIONS[leaf]
-    const needsOff = !!row.requiresAny && !row.requiresAny.some((other) => held.has(other))
-    return { leaf, row, isOn: held.has(leaf), isFixed: !!row.locked || needsOff }
+    return { leaf, row, isOn: held.has(leaf), isLocked: !!row.locked }
   })
 }
 
-/** The leaves after one row is turned on or off, held to the same rules the host applies. */
+/**
+ * The leaves after one row is turned on or off, held to the same rules the host
+ * applies. Turning a row on turns on what it needs (Approve brings Prompt
+ * directly), so no switch is ever stuck off; turning a row off turns off what
+ * needed it.
+ */
 export function toggledActions(actions: readonly SessionActionLeaf[], leaf: SessionActionLeaf, on: boolean): SessionActionLeaf[] {
-  const next = on ? [...actions, leaf] : actions.filter((held) => held !== leaf)
+  if (!on) return customRoleActions(actions.filter((held) => held !== leaf))
+  const next = [...actions, leaf]
+  const row: ShareableAction = SHAREABLE_SESSION_ACTIONS[leaf]
+  // The first of what it needs is the narrower one: Attach brings Suggest, not Prompt.
+  const needs = row.requiresAny ?? []
+  const needed = needs[0]
+  if (needed && !needs.some((other) => actions.includes(other))) next.push(needed)
   return customRoleActions(next)
 }
 
 /** The link's lifetimes the dialog offers, with their words; null never expires. */
 export const LINK_LIFETIME_CHOICES: ReadonlyArray<{ label: string; ms: number | null }> = [
-  { label: '1 hour', ms: 60 * 60 * 1000 },
-  { label: '1 day', ms: 24 * 60 * 60 * 1000 },
-  { label: '7 days', ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: 'In 1 hour', ms: 60 * 60 * 1000 },
+  { label: 'In 1 day', ms: 24 * 60 * 60 * 1000 },
+  { label: 'In 7 days', ms: 7 * 24 * 60 * 60 * 1000 },
   { label: 'Never', ms: null },
 ]
 
-/** How long a link has left, in the words the dialog shows; `now` is this client's clock. */
-export function linkExpiryLabel(expiresAt: number | null, now: number): string {
-  if (expiresAt === null) return 'Never expires'
+/** When a link expires, as the Expires menu shows it: "In 5 hours", "Never", "Expired"; `now` is this client's clock. */
+export function linkExpiryValue(expiresAt: number | null, now: number): string {
+  if (expiresAt === null) return 'Never'
   const left = expiresAt - now
   if (left <= 0) return 'Expired'
   const hours = Math.round(left / (60 * 60 * 1000))
-  if (hours < 1) return 'Expires in less than an hour'
-  if (hours < 48) return `Expires in ${hours} ${hours === 1 ? 'hour' : 'hours'}`
-  return `Expires in ${Math.round(hours / 24)} days`
+  if (hours < 1) return 'In less than an hour'
+  if (hours < 48) return `In ${hours} ${hours === 1 ? 'hour' : 'hours'}`
+  return `In ${Math.round(hours / 24)} days`
+}
+
+/** How long a link has left, as one phrase: "Expires in 5 hours", "Never expires", "Expired". */
+export function linkExpiryLabel(expiresAt: number | null, now: number): string {
+  const value = linkExpiryValue(expiresAt, now)
+  if (value === 'Never') return 'Never expires'
+  if (value === 'Expired') return value
+  return `Expires ${value.charAt(0).toLowerCase()}${value.slice(1)}`
+}
+
+/**
+ * The closed Advanced row's one line: how many things a custom link lets a guest
+ * do, then how long it lasts. A preset link says only how long it lasts; its role
+ * is already on the access row.
+ */
+export function linkSettingsSummary(link: NonNullable<ShareList['link']>, now: number): string {
+  const expiry = linkExpiryLabel(link.expiresAt, now)
+  if (link.role !== 'custom') return expiry
+  const count = link.actions?.length ?? 0
+  return `${count} ${count === 1 ? 'permission' : 'permissions'} · ${expiry.charAt(0).toLowerCase()}${expiry.slice(1)}`
 }

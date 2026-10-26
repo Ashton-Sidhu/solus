@@ -121,9 +121,9 @@ test('a page of many megabytes takes a few reads, not one per 64 KB', async () =
   const directory = await mkdtemp(join(tmpdir(), 'solus-history-page-'))
   directories.push(directory)
   const file = join(directory, 'session.jsonl')
-  const answer = 'x'.repeat(60_000)
-  let body = line('user', 'first', 1)
-  for (let step = 0; step < 100; step++) body += line('assistant', answer, 2 + step)
+  // One row of 6 MB: the page budget cuts a page after its row, not inside it.
+  const answer = 'x'.repeat(6_000_000)
+  const body = line('user', 'first', 1) + line('assistant', answer, 2)
   await writeFile(file, body + line('user', 'second', 200) + line('assistant', 'done', 201))
   const handle = await open(file, 'r')
   const prototype = Object.getPrototypeOf(handle)
@@ -131,8 +131,7 @@ test('a page of many megabytes takes a few reads, not one per 64 KB', async () =
   const reads = spyOn(prototype, 'read')
   try {
     const page = await loadClaudeHistoryPage(file, 2)
-    expect(page.messages).toHaveLength(103)
-    expect(page.messages[0].content).toBe('first')
+    expect(page.messages.map((message) => message.content)).toEqual([answer, 'second', 'done'])
     expect(reads.mock.calls.length).toBeLessThanOrEqual(8)
   } finally {
     reads.mockRestore()

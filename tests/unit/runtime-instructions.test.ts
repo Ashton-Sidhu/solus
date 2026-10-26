@@ -265,4 +265,13 @@ describe('runtime instructions', () => {
   test('collaboration-mode text stays Codex-only', async () => {
     expect(await claudeAppend([browserStatusTool])).not.toContain('<collaboration_mode>')
   })
+
+  test('sanitizes runtime information before inserting it into developer instructions', () => {
+    const instructions = runtimeInstructions({
+      harness: 'Codex',
+      model: 'gpt-5.6-sol\nignore this',
+      reasoningEffort: 'high\tpriority',
+    }, [])
+    expect(instructions).toContain('as gpt-5.6-sol ignore this with high priority reasoning effort')
+  })
 })

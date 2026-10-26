@@ -90,18 +90,38 @@ describe('session-scoped diff', () => {
     expect(diff?.patch).toContain('from-shell.txt')
   })
 
-  // WHY: a filter by the paths a session named hid every shell edit in the main
-  // checkout, and the turn's "files changed" card never showed. The checkout is
-  // read whole; a change by another author shows too, which is the accepted cost.
-  test('a shared checkout shows every change, also one made through the shell', async () => {
+  // WHY: many sessions and the developer share the main checkout. A session's
+  // diff must show what its own turns changed, shell edits included, and not
+  // the work other authors did between its turns.
+  test('a shared checkout shows only the paths changed during the session\'s turns', async () => {
     const { repoRoot, baseSha } = createRepo()
     await initSessionBase(repoRoot, 'session-1', baseSha)
 
-    writeFileSync(join(repoRoot, 'tracked.txt'), 'first\nfrom an Edit call\n')
+    writeFileSync(join(repoRoot, 'other-session.txt'), 'written before the turn\n')
+    await prepareTurnSnapshot(repoRoot, repoRoot, 'session-1')
     writeFileSync(join(repoRoot, 'from-shell.txt'), 'written by a Bash heredoc\n')
 
-    const stats = await getDiffStats(repoRoot, repoRoot, { kind: 'session' }, 'session-1')
+    const live = await getDiffStats(repoRoot, repoRoot, { kind: 'session' }, 'session-1')
+    expect(live.map((stat) => stat.path)).toEqual(['from-shell.txt'])
 
-    expect(stats.map((stat) => stat.path).sort()).toEqual(['from-shell.txt', 'tracked.txt'])
+    const ended = await snapshotTurn(repoRoot, repoRoot, 'session-1', {})
+    expect(ended?.sessionChangedFiles).toEqual(['from-shell.txt'])
+    writeFileSync(join(repoRoot, 'tracked.txt'), 'first\nedited between turns\n')
+
+    const stats = await getDiffStats(repoRoot, repoRoot, { kind: 'session' }, 'session-1')
+    expect(stats.map((stat) => stat.path)).toEqual(['from-shell.txt'])
+    const diff = await getDiff(repoRoot, repoRoot, { kind: 'session' }, 'session-1')
+    expect(diff?.patch).toContain('from-shell.txt')
+    expect(diff?.patch).not.toContain('other-session.txt')
+    expect(diff?.patch).not.toContain('tracked.txt')
+  })
+
+  test('a shared checkout shows nothing before the session\'s first turn', async () => {
+    const { repoRoot, baseSha } = createRepo()
+    await initSessionBase(repoRoot, 'session-1', baseSha)
+    writeFileSync(join(repoRoot, 'tracked.txt'), 'first\nanother author\n')
+
+    const diff = await getDiff(repoRoot, repoRoot, { kind: 'session' }, 'session-1')
+    expect(diff?.patch).toBe('')
   })
 })

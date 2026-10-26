@@ -1,14 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/features/connection/ConnectionStatusDot.tsx (MIT, see UPSTREAM.md).
-import { useEffect } from "react";
 import { View } from "react-native";
-import Animated, {
-  cancelAnimation,
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
 
 import { isWaitingForHost, type HostReadinessState } from "@solus/client-core/host-readiness";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -52,49 +43,17 @@ function statusDotTone(
   };
 }
 
-function usePulseAnimation(pulse: boolean) {
-  const pulseProgress = useSharedValue(0);
-
-  useEffect(() => {
-    if (pulse) {
-      pulseProgress.value = withRepeat(
-        withTiming(1, {
-          duration: 1100,
-          easing: Easing.out(Easing.cubic),
-        }),
-        -1,
-        false,
-      );
-      return;
-    }
-
-    cancelAnimation(pulseProgress);
-    pulseProgress.value = withTiming(0, {
-      duration: 180,
-      easing: Easing.out(Easing.quad),
-    });
-  }, [pulse, pulseProgress]);
-
-  return pulseProgress;
-}
-
-/** A host's readiness as a dot; it pulses while Solus dials. */
+/** A host's readiness as a dot; it wears a still halo while Solus dials. */
 export function ConnectionStatusDot(props: {
   readonly state: HostReadinessState;
   readonly size?: number;
 }) {
-  const pulse = isWaitingForHost(props.state.readiness);
-  const pulseProgress = usePulseAnimation(pulse);
+  const isWaiting = isWaitingForHost(props.state.readiness);
   const { themeVariables } = useAppearancePreferences();
   const tone = statusDotTone(props.state, themeVariables);
   const dotSize = props.size ?? 10;
   const haloSize = dotSize + 4;
   const containerSize = haloSize + 4;
-
-  const haloStyle = useAnimatedStyle(() => ({
-    opacity: pulse ? 0.14 + (1 - pulseProgress.value) * 0.3 : 0,
-    transform: [{ scale: 0.78 + pulseProgress.value * 1.16 }],
-  }));
 
   return (
     <View
@@ -105,18 +64,19 @@ export function ConnectionStatusDot(props: {
         justifyContent: "center",
       }}
     >
-      <Animated.View
-        style={[
-          haloStyle,
-          {
+      {/* A still halo, not a loop: a looping Reanimated update can starve React commits (T3 #24273). */}
+      {isWaiting ? (
+        <View
+          style={{
             position: "absolute",
             width: haloSize,
             height: haloSize,
             borderRadius: haloSize / 2,
             backgroundColor: tone.haloColor,
-          },
-        ]}
-      />
+            opacity: 0.3,
+          }}
+        />
+      ) : null}
       <View
         style={{
           width: dotSize,

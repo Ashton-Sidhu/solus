@@ -926,6 +926,32 @@ describe('turn ends', () => {
     expect(published).toEqual([expect.objectContaining({ repo: scope, listChanged: true })])
   })
 
+  test("a turn end reads its branch's open pull request at once, past the minute cadence and a held detail", async () => {
+    // WHY: an agent that ran `gh pr merge` left the pull request open in Solus
+    // for up to a minute: the turn end only looked up branches with no open
+    // pull request, and a held detail answered the number for that minute.
+    const { prIndex } = await import('@solus/server/prs/pr-index')
+    const { scope, host, pullRequest, repo, provider } = listedHost('merged-by-agent')
+    await worktreeSession('merged-by-agent-session', 'ship', scope)
+    await worktreeSession('other-turn-session', 'other', scope)
+    host.known.set(1, pullRequest(1, { headRef: 'ship' }))
+    host.known.set(2, pullRequest(2, { headRef: 'other' }))
+    const announced: string[] = []
+    const sync = new PrSync({ publish: (change) => { announced.push(...change.pullRequests.map(({ number, state }) => `${number}:${state}`)) }, sessionCheckout: () => scope, checkoutState: async () => 'same' })
+    await sync.tick()
+    // A pane read the detail while it was open.
+    await prIndex.pullRequest(repo, provider, 1).read()
+    host.numberReads.length = 0
+
+    host.known.set(1, pullRequest(1, { headRef: 'ship', state: 'merged', updatedAt: later(1) }))
+    await sync.turnEnded('merged-by-agent-session')
+    await sync.tick()
+
+    // Only the ended session's pull request is read again.
+    expect(host.numberReads).toEqual([[1]])
+    expect(announced).toContain('1:merged')
+  })
+
   test('a tick that a turn end or another read started is background work; one a person waits on is not', async () => {
     // WHY: background work stops before it spends the reserve GitHub leaves
     // for the requests a person waits on.

@@ -78,7 +78,7 @@ import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
 import { CodexBackend } from './execution/agents/codex/codex-backend'
 import { ActingIdentities, identityFor, useActingIdentities } from './execution/seats/acting-identity'
-import { actorFor, HOST_ACTOR, memberSeat, ownerKeyOf, seatFor } from './admission/actor'
+import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
 import { currentHostUser, hostUserKey } from './host/host-user'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
 import { memberUsers as installedMemberUsers, WorkspacePreparingError } from './host/member-users'
@@ -153,6 +153,7 @@ import { registerWorkReviewHandlers } from './transport/handlers/work-review-han
 import { registerNotificationHubHandlers } from './transport/handlers/notification-hub-handlers'
 import { publishNotificationChanges } from './notifications/hub-events'
 import { publishTaskSnoozeChanges } from './transport/events/task-snooze-events'
+import { PersonConnections } from './transport/events/person-connections'
 import { publishSessionViewChanges } from './transport/events/session-view-events'
 import { StreamedProse } from './transport/events/streamed-prose'
 import { hostPrObserver } from './notifications/pr-observer'
@@ -174,7 +175,7 @@ import { registerAtlassianHandlers } from './transport/handlers/atlassian-handle
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
 import { setConnectionConnectNeededListener } from './connections/connection-tools'
 import { setConfigToolHost } from './execution/agents/tools/config-tools'
-import { requestPersonal } from './transport/events/agent-personal-requests'
+import { PersonalRequests } from './transport/events/agent-personal-requests'
 import { registerBrowserHandlers } from './transport/handlers/browser-handlers'
 import { registerChecksHandlers } from './transport/handlers/checks-handlers'
 import { registerUsageHandlers } from './transport/handlers/usage-handlers'
@@ -607,6 +608,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   void devices.manager.start().catch((err) => log.warn('device_domain_start_failed', { error: err instanceof Error ? err.message : String(err) }))
   const codeIntel = new CodeIntelManager()
+  // A client with no socket principal is the desktop's own IPC connection: the local owner.
+  const personConnections = new PersonConnections(() => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL)
   const domainEventUnsubscribes = [
     codeIntel.onStatusChanged((status) => events.broadcast('codeIntel.statusChanged', status)),
     onAutomationsChanged((event) => events.broadcast('automation.changed', event)),
@@ -616,8 +619,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onWorkReviewsChanged((change) => events.broadcast('workReviews.changed', change)),
     // A client with no socket principal is the desktop's own IPC connection: the local owner.
     publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
-    publishTaskSnoozeChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
-    publishSessionViewChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL),
+    publishTaskSnoozeChanges(events, personConnections),
+    publishSessionViewChanges(events, personConnections),
     installWorkLiveBridge(workLive.bridge()),
     // A deleted work's room ends; its clients hear the delete as `works.changed`.
     onWorkDeleted(async (change) => async () => { workLive.forget(change.workId); return 0 }),
@@ -757,19 +760,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
-  // A connection is one person's (§4.1): its events go to the clients whose
-  // principal is that person. A client with no socket principal is the desktop's
-  // own IPC connection, the local owner.
-  const clientsForIntegrationUser = (personKey: string): string[] => clientEvents.routableClientIds().filter((clientId) =>
-    ownerKeyOf(actorFor(ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL)) === personKey)
+  // A connection is one person's (§4.1): its events go to that person's clients.
   const integrationConnectionEvents: IntegrationConnectionEvents = {
     connectionChanged: (personKey, event) => {
       // A sign-in or a disconnect changes the header a session must send, and the tools it sees.
       integrationGateway.invalidate(event.integrationId)
       if (event.connection?.status === 'connected') void integrationGateway.warmFor(event.integrationId, personKey)
-      void events.publish(clientsForIntegrationUser(personKey), 'integration.connectionChanged', event)
+      void events.publish(personConnections.of(personKey), 'integration.connectionChanged', event)
     },
-    authFinished: (personKey, event) => { void events.publish(clientsForIntegrationUser(personKey), 'host.integrationAuthFinished', event) },
+    authFinished: (personKey, event) => { void events.publish(personConnections.of(personKey), 'host.integrationAuthFinished', event) },
   }
   const integrationConnectionStore = new IntegrationConnectionStore()
   // Every read of a person's account (docs/adr/0001-standard-authentication.md §3.4):
@@ -1013,6 +1012,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // A config write from an agent tool converges every mounted client the same
   // way one made in Settings does. Personal settings and the agent profile live
   // on the person's clients, so the tools ask one of them (docs/settings.md).
+  const personalRequests = new PersonalRequests(personConnections, {
+    sourceClientIdOf: (id) => opts.sessionRuntime.activeRunRequests.get(id)?.sourceClientId,
+    actorOf: (id) => opts.sessionRuntime.actorOfSession(id),
+  }, (clientId, event, payload, answer, timeoutMs) => ws.request(clientId, event, payload, answer, timeoutMs))
   setConfigToolHost({
     hostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
     deviceManager: {
@@ -1020,13 +1023,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       configure: (request) => configureDevices(devices, request),
       saveSshHosts: (hosts) => devices.manager.saveSshHosts(hosts),
     },
-    personal: (sessionId, request) => requestPersonal({
-      sourceClientIdOf: (id) => opts.sessionRuntime.activeRunRequests.get(id)?.sourceClientId,
-      actorOf: (id) => opts.sessionRuntime.actorOfSession(id),
-      clientIds: () => clientEvents.routableClientIds(),
-      principalOf: (clientId) => ws?.principalOf(clientId) ?? CREDENTIAL_FREE_PRINCIPAL,
-      request: (clientId, event, payload, answer, timeoutMs) => ws.request(clientId, event, payload, answer, timeoutMs),
-    }, sessionId, request),
+    personal: (sessionId, request) => personalRequests.send(sessionId, request),
   })
   registerProviderHandlers(server, {
     checkouts: opts.sessionRuntime.checkouts,

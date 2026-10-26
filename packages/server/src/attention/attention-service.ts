@@ -14,6 +14,19 @@ const log = createLogger('attention', 'attention-service.ts')
  *  oldest (by `since`) past this size. */
 const MAX_ENTRIES = 200
 
+/** A finished entry is recorded only after this window passes with no other
+ *  change for its session: a run can end moments before its continuation
+ *  starts, and that gap is not a finish. Failures and requests stay immediate. */
+export const FINISHED_CONFIRM_MS = 5_000
+
+type Schedule = (run: () => void, delayMs: number) => () => void
+
+const scheduleTimeout: Schedule = (run, delayMs) => {
+  const timer = setTimeout(run, delayMs)
+  timer.unref?.()
+  return () => clearTimeout(timer)
+}
+
 /** Default persisted location: <dataDir>/state/attention.json (respects the
  *  SOLUS_DATA_DIR override that tests and the daemon use). Resolved lazily so
  *  the override can be set before the service is constructed. */
@@ -81,6 +94,13 @@ export function attentionActionForStatus(
   }
 }
 
+interface AttentionInput {
+  sessionId: string
+  kind: AttentionKind
+  summary: string
+  projectKey?: string
+}
+
 /**
  * The `attention-changed` payload is the FULL active list, not a delta. Attention
  * is small (at most one entry per active session), and every client already
@@ -98,9 +118,11 @@ export class AttentionService {
   private entries = new Map<string, AttentionEntry>()
   private listener: AttentionChangeListener | null = null
   private readonly statePath: string
+  /** Session id → the finished entry waiting out its confirm window, with its cancel. */
+  private readonly pendingFinished = new Map<string, { input: AttentionInput; cancel: () => void }>()
 
-  /** `statePath` is injectable so tests can point at a temp file. */
-  constructor(statePath: string = defaultStatePath()) {
+  /** `statePath` and `schedule` are injectable so tests use a temp file and a fake clock. */
+  constructor(statePath: string = defaultStatePath(), private readonly schedule: Schedule = scheduleTimeout) {
     this.statePath = statePath
     this._load()
   }
@@ -121,7 +143,8 @@ export class AttentionService {
   /** Record/replace the active entry for a session (latest wins). No-op when the
    *  same kind + summary + projectKey is re-asserted, so redundant status calls
    *  don't churn disk or re-broadcast. */
-  set(input: { sessionId: string; kind: AttentionKind; summary: string; projectKey?: string }): void {
+  set(input: AttentionInput): void {
+    this.cancelPendingFinished(input.sessionId)
     const existing = this.entries.get(input.sessionId)
     if (
       existing &&
@@ -147,9 +170,37 @@ export class AttentionService {
 
   /** Clear the active entry for a session. No-op when nothing is pending. */
   resolve(sessionId: string): void {
+    this.cancelPendingFinished(sessionId)
     if (!this.entries.delete(sessionId)) return
     this._persist()
     this._emit()
+  }
+
+  /** Record a finished entry once FINISHED_CONFIRM_MS passes with no `set` or
+   *  `resolve` for the session. Asked again while waiting, it keeps the first
+   *  window, so a repeated `completed` cannot push the entry out. */
+  confirmFinished(input: Omit<AttentionInput, 'kind'>): void {
+    if (this.pendingFinished.has(input.sessionId)) return
+    const finished: AttentionInput = { ...input, kind: 'finished' }
+    const cancel = this.schedule(() => {
+      this.pendingFinished.delete(input.sessionId)
+      this.set(finished)
+    }, FINISHED_CONFIRM_MS)
+    this.pendingFinished.set(input.sessionId, { input: finished, cancel })
+  }
+
+  /** Stop the timers. A shutdown cannot wait out a window, so each waiting
+   *  entry is recorded now and survives the restart. */
+  dispose(): void {
+    const pending = [...this.pendingFinished.values()]
+    for (const { input } of pending) this.set(input)
+  }
+
+  private cancelPendingFinished(sessionId: string): void {
+    const pending = this.pendingFinished.get(sessionId)
+    if (!pending) return
+    this.pendingFinished.delete(sessionId)
+    pending.cancel()
   }
 
   /** Drop the oldest entries (by `since`) once the list exceeds MAX_ENTRIES. */

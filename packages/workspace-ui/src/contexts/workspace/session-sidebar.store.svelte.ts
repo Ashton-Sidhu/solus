@@ -77,6 +77,7 @@ import { hostKey } from '@solus/client-core/host-key'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { mergeSessionHomes, type SessionHomeHosts } from '../../components/session/lib/session-home'
+import { snoozeWakeDelay } from '../../components/session/lib/task-snooze'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { sessionPrLink, sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { sessionListStore, type ListedSession, type SessionListTarget } from './session-list.store.svelte'
@@ -1162,7 +1163,7 @@ export class SessionSidebarStore {
       if (!nextWake) return
       const timeout = window.setTimeout(() => {
         this.lifecycleNow = Date.now()
-      }, Math.max(1, nextWake - Date.now()))
+      }, snoozeWakeDelay(nextWake))
       return () => window.clearTimeout(timeout)
     })
     $effect(() => {

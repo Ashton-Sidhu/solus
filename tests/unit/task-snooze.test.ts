@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
   customSnoozeUntil,
+  snoozeWakeDelay,
   snoozePickerValue,
   taskSnoozeAnchorTarget,
   taskSnoozeToastLabel,
@@ -103,5 +104,24 @@ describe("custom snooze time", () => {
     expect(customSnoozeUntil("2026-10-06T14:30", now)).toBeNull();
     expect(customSnoozeUntil("2026-10-06T09:00", now)).toBeNull();
     expect(customSnoozeUntil("2026-10-06T", now)).toBeNull();
+  });
+});
+
+/** setTimeout fires at once for a delay over 2^31-1 ms (about 24.8 days). A
+ *  custom snooze a month out armed such a timer, which fired, re-armed, and
+ *  fired again in a near-busy loop. */
+describe("snoozeWakeDelay", () => {
+  const now = 1_000_000;
+
+  test("wakes a near snooze at its own time", () => {
+    expect(snoozeWakeDelay(now + 60_000, now)).toBe(60_000);
+    expect(snoozeWakeDelay(now, now)).toBe(1);
+  });
+
+  test("caps a far snooze at the longest timer, and the next wake takes the rest", () => {
+    const wakeAt = now + 30 * 86_400_000;
+    const first = snoozeWakeDelay(wakeAt, now);
+    expect(first).toBe(2 ** 31 - 1);
+    expect(snoozeWakeDelay(wakeAt, now + first)).toBe(wakeAt - now - first);
   });
 });

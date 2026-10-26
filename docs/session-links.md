@@ -9,6 +9,10 @@ what they can do. The design is in `plans/custom-roles.md`.
 2. Under **Who has access**, choose **Anyone with the link**.
 3. Choose **Copy link** and send it.
 
+To change what the link allows, or how long it lasts, open **Advanced** at the
+bottom of the share card. Closed, its row says how many permissions the link
+gives and when it expires, for example "4 permissions · expires in 24 hours".
+
 A new session link is **Custom** with these choices on:
 
 | Choice | What a guest can do |
@@ -24,9 +28,14 @@ These are off until you turn them on:
 | --- | --- |
 | See files | Browse every file in the session's checkout |
 | Prompt directly | Send turns, stop them, and change the queue |
-| Approve tools and answer questions | Allow what the agent runs, answer its questions, and accept its plans. **This lets the guest run commands on your computer.** It needs Prompt directly. |
+| Approve tools and answer questions | Allow what the agent runs, answer its questions, and accept its plans. **This lets the guest run commands on your computer.** Turning it on also turns on Prompt directly. |
 | Use devices | Use simulators and phones connected to your computer |
 | Use app panels | Use interactive panels from the agent's tools |
+
+Turning on a choice also turns on what it needs: Approve, Use devices, and Use
+app panels bring Prompt directly, and Attach files brings Suggest messages.
+Turning Prompt directly off turns off the choices that need it. Watch the
+session is always on.
 
 A change takes effect at once. Guests who have the link open stay connected and
 get the new choices.
@@ -49,7 +58,7 @@ session, with **Send** and **Dismiss**, on desktop, web, and mobile.
 
 ## How long a link lasts
 
-A new link lasts one day. Choose **Lasts** in the link settings to make it 1
+A new link lasts one day. Under **Advanced**, choose the **Expires** menu to make it last 1
 hour, 1 day, 7 days, or never expire. When it expires, its guests are
 disconnected and the link opens nothing. Set a new expiry to make the same link
 work again.
