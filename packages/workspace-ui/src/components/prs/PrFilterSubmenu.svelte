@@ -3,6 +3,7 @@
   import type { PrFilterGroup } from "./lib/pr-filter-menu";
   import PrAvatar from "./PrAvatar.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { untrack } from "svelte";
 
   let { group }: { group: PrFilterGroup } = $props();
   let query = $state("");
@@ -14,6 +15,13 @@
       : group.options,
   );
   let listEl = $state<HTMLDivElement | null>(null);
+
+  // The host is asked for choices beyond the loaded rows: once when the
+  // submenu opens, then as the search changes. The store debounces.
+  $effect(() => {
+    const typed = query;
+    untrack(() => group.search?.(typed));
+  });
 
   // bits-ui moves DOM focus to a row on every mouse move and back to the menu
   // when the pointer leaves a row. With a search field, that pulls focus out of
@@ -54,8 +62,8 @@
       <span class="grid size-5 shrink-0 place-items-center text-muted-foreground">
         <SearchIcon size={15} />
       </span>
-      <!-- The author submenu opens for this search task, so focus belongs in
-           the field instead of on the first result. -->
+      <!-- The author and label submenus open for this search task, so focus
+           belongs in the field instead of on the first result. -->
       <!-- svelte-ignore a11y_autofocus -->
       <input
         bind:value={query}

@@ -61,6 +61,7 @@ import { PullRequestAskScreen } from '../features/prs/PullRequestAskScreen'
 import { PullRequestReviewersScreen } from '../features/prs/PullRequestReviewersScreen'
 import { PullRequestEditSheet } from '../features/prs/PullRequestEditSheet'
 import { PullRequestLabelsScreen } from '../features/prs/PullRequestLabelsScreen'
+import { PullRequestFilterSearchScreen } from '../features/prs/PullRequestFilterSearchScreen'
 import { FilesScreen } from '../features/files/FilesScreen'
 import { FileScreen } from '../features/files/FileScreen'
 import { useKeyboardCommand } from '../features/keyboard/use-keyboard-command'
@@ -161,6 +162,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'PullRequestReviewers',
   'PullRequestLabels',
   'PullRequestEdit',
+  'PullRequestFilterSearch',
 ])
 
 /** The topmost non-overlay route, with its key so thread selection can
@@ -374,6 +376,11 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             name="PullRequestEdit"
             component={PullRequestEditSheet}
             options={{ ...PULL_REQUEST_SHEET_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+          />
+          <Stack.Screen
+            name="PullRequestFilterSearch"
+            component={PullRequestFilterSearchScreen}
+            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Search', headerBackVisible: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
           />
           <Stack.Screen name="Files" component={FilesScreen} options={{ title: 'Files' }} />
           <Stack.Screen name="File" component={FileScreen} options={{ title: 'File' }} />

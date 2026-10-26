@@ -1,7 +1,8 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/usePullRequestAction.ts and usePullRequestAgentActions.ts (MIT, see UPSTREAM.md).
 import type { MergeMethod, PrMergeResult } from '@solus/contracts/types'
 import { worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
-import type { PrLabel, PrMergeMethod, PrReviewerCandidate, PrReviewerKind, PrReviewVerdict, PrStackHead, PrStackMergeResult, PrStateAction, PullRequest, PullRequestUpdate } from '@solus/contracts/providers'
+import type { PrFilterChoice, PrFilterField, PrLabel, PrMergeMethod, PrReviewerCandidate, PrReviewerKind, PrReviewVerdict, PrStackHead, PrStackMergeResult, PrStateAction, PullRequest, PullRequestUpdate } from '@solus/contracts/providers'
+import { mergeFilterChoices } from '@solus/client-core/pr-filter-choices'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 import { conflictResolutionPrompt, pullRequestAgentPrompt, type PullRequestAgentTask } from './lib/pull-request-agent-tasks'
@@ -175,6 +176,19 @@ export class PullRequestActions {
   /** The repository's labels, for the label picker. */
   async labelCandidates(ref: PullRequestRef): Promise<PrLabel[]> {
     return this.host(ref).api.prListLabelCandidates(this.context(ref), ref.number)
+  }
+
+  /** The labels, or the people who can be mentioned, that match `query` in
+   *  each of these projects, as one list: the list filters' choices beyond the
+   *  loaded rows. A project whose host is not connected or cannot answer adds
+   *  nothing. */
+  async filterOptions(projects: readonly { hostId: string; projectPath: string }[], field: PrFilterField, query: string): Promise<PrFilterChoice[]> {
+    const lists = await Promise.all(projects.map(async (project) => {
+      const connection = this.deps.connectionFor(project.hostId)
+      if (connection?.state.phase !== 'connected') return []
+      return connection.api.prFilterOptions(this.deps.directory.context(project.projectPath), field, query).catch((): PrFilterChoice[] => [])
+    }))
+    return mergeFilterChoices(lists)
   }
 
   /** Replaces the whole label set. */

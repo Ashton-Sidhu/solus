@@ -15,7 +15,8 @@ import {
   User as UserIcon,
   Users as UsersIcon,
 } from '@lucide/svelte'
-import type { PullRequest } from '@solus/contracts/providers'
+import type { PrMenuQualifiers } from '@solus/client-core/pr-host-query'
+import type { PrFilterChoice, PrFilterField, PullRequest } from '@solus/contracts/providers'
 import type { ListIcon } from '../../ui/list-page'
 import { labelChipColor } from '../../ui/labels/label-color'
 import { OPEN_PR_STATUS_KEYS, PR_STATUS_OPTIONS, type PrListView } from './prs-list-view'
@@ -38,6 +39,8 @@ export interface PrFilterGroup {
   valueLabel: string
   active: boolean
   searchable?: boolean
+  /** Asks the host for choices that match what is typed in the search field. */
+  search?: (query: string) => void
   options: PrFilterOption[]
   select: (value: string) => void
 }
@@ -54,6 +57,23 @@ export function prStatusKeysFor(state: string): string[] {
   if (state === 'open') return [...OPEN_PR_STATUS_KEYS]
   if (state === 'all') return PR_STATUS_OPTIONS.map((option) => option.value)
   return [state]
+}
+
+/** The menu choices the host can narrow by, as search qualifiers. The other
+ *  facets (review, checks, guide, lens, involvement) narrow loaded rows. */
+export function prMenuQualifiers(listView: Pick<PrListView, 'author' | 'label' | 'draft'>): PrMenuQualifiers {
+  return {
+    labels: listView.label ? [[listView.label]] : undefined,
+    author: listView.author,
+    draft: listView.draft === 'draft' ? 'only' : listView.draft === 'ready' ? 'hide' : null,
+  }
+}
+
+/** The choices only loaded rows can answer, as one key: a change starts the
+ *  page fill (`BoundedPageFill`) again. */
+export function prClientFilterKey(listView: PrListView): string {
+  const { statusKeys, involvement, review, checks, guide, lens } = listView
+  return JSON.stringify([statusKeys, involvement, review, checks, guide, lens])
 }
 
 /** Authors on the rows in view, most frequent first, behind an "Anyone" row. */
@@ -96,6 +116,25 @@ export function prLabelOptions(prs: readonly PullRequest[]): PrFilterOption[] {
   ]
 }
 
+/**
+ * A picker's options: the loaded rows' choices with their counts first, then
+ * what the host offers beyond them. A choice the rows already have is not
+ * repeated.
+ */
+export function withHostChoices(
+  loaded: readonly PrFilterOption[],
+  host: readonly PrFilterChoice[],
+  field: PrFilterField,
+): PrFilterOption[] {
+  const known = new Set(loaded.map((option) => option.value.toLowerCase()))
+  const added = host
+    .filter((choice) => !known.has(choice.value.toLowerCase()))
+    .map((choice): PrFilterOption => field === 'label'
+      ? { value: choice.value, label: choice.value, color: labelChipColor(choice.color ?? '') }
+      : { value: choice.value, label: choice.value, avatarUrl: choice.avatarUrl })
+  return [...loaded, ...added]
+}
+
 const INVOLVEMENT_LABELS = {
   all: 'All',
   created: 'Created',
@@ -109,7 +148,11 @@ const INVOLVEMENT_LABELS = {
  */
 export function prFilterGroups(
   listView: PrListView,
-  options: { authors: PrFilterOption[]; labels: PrFilterOption[] },
+  options: {
+    authors: PrFilterOption[]
+    labels: PrFilterOption[]
+    search: (field: PrFilterField, query: string) => void
+  },
   onStatusChange: (statusKeys: string[]) => void,
 ): PrFilterGroup[] {
   const stateValue = prStateValue(listView.statusKeys)
@@ -143,12 +186,14 @@ export function prFilterGroups(
       key: 'author', label: 'Author', icon: UserIcon,
       value: listView.author ?? '', valueLabel: listView.author ?? 'Anyone',
       active: listView.author !== null, searchable: true, options: options.authors,
+      search: (query) => options.search('author', query),
       select: (value) => (listView.author = value || null),
     },
     {
       key: 'labels', label: 'Labels', icon: TagIcon,
       value: listView.label ?? '', valueLabel: listView.label ?? 'Any',
-      active: listView.label !== null, options: options.labels,
+      active: listView.label !== null, searchable: true, options: options.labels,
+      search: (query) => options.search('label', query),
       select: (value) => (listView.label = value || null),
     },
     {

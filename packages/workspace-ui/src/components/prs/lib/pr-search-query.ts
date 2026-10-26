@@ -9,25 +9,10 @@
  * way (`matchesPrQualifiers`, `matchesPrText`).
  */
 import type { PullRequest } from '@solus/contracts/providers'
+import type { PrSearchChecks, PrSearchQualifiers, PrSearchQuery, PrSearchReview } from '@solus/client-core/pr-host-query'
 
-export type PrSearchReview = 'approved' | 'changes-requested' | 'review-required' | 'none'
-export type PrSearchChecks = 'passing' | 'failing'
-
-export interface PrSearchQualifiers {
-  /** Each inner list is one `label:` qualifier; a row needs one name from each. */
-  labels?: string[][]
-  excludedLabels?: string[]
-  /** A login, or `me` for the viewer. */
-  author?: string
-  draft?: 'only' | 'hide'
-  review?: PrSearchReview
-  checks?: PrSearchChecks
-}
-
-export interface PrSearchQuery {
-  text: string
-  qualifiers: PrSearchQualifiers
-}
+export { hostSearchQuery } from '@solus/client-core/pr-host-query'
+export type { PrSearchChecks, PrSearchQualifiers, PrSearchQuery, PrSearchReview }
 
 /** What `review:` takes, in GitHub's spelling and in the list's. */
 const REVIEW_VALUES = new Map<string, PrSearchReview>([
@@ -150,38 +135,6 @@ function readQualifier(
 function labelsOf(names: string[], negated: boolean): { labels: string[]; negated: boolean } | null {
   const labels = boundedNames(names)
   return labels.length > 0 ? { labels, negated } : null
-}
-
-const GITHUB_REVIEW = {
-  approved: 'approved',
-  'changes-requested': 'changes_requested',
-  'review-required': 'required',
-  none: 'none',
-} satisfies Record<PrSearchReview, string>
-
-function quoted(name: string): string {
-  return `"${name.replaceAll('"', '')}"`
-}
-
-/**
- * The query the code host is asked, in GitHub's own search syntax. Empty when
- * nothing was typed, which is the signal to read the ordinary listing instead.
- * `author:me` becomes GitHub's `author:@me`, so the host resolves who "me" is.
- */
-export function hostSearchQuery(query: PrSearchQuery): string {
-  const { qualifiers } = query
-  const parts: string[] = []
-  for (const group of qualifiers.labels ?? []) parts.push(`label:${group.map(quoted).join(',')}`)
-  for (const name of qualifiers.excludedLabels ?? []) parts.push(`-label:${quoted(name)}`)
-  if (qualifiers.author) {
-    parts.push(`author:${qualifiers.author.toLowerCase() === 'me' ? '@me' : qualifiers.author}`)
-  }
-  if (qualifiers.draft) parts.push(`draft:${qualifiers.draft === 'only'}`)
-  if (qualifiers.review) parts.push(`review:${GITHUB_REVIEW[qualifiers.review]}`)
-  if (qualifiers.checks) parts.push(`status:${qualifiers.checks === 'passing' ? 'success' : 'failure'}`)
-  const text = query.text.trim()
-  if (text) parts.push(text)
-  return parts.join(' ')
 }
 
 /**

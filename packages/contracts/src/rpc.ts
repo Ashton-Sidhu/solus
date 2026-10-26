@@ -442,6 +442,7 @@ export const RPC_INVOKE_METHODS = [
   // PR review mode (read PRs, enter review, comment, threads)
   'prList',
   'prListProjects',
+  'prFilterOptions',
   'prSetInterest',
   'prGuideMetadata',
   'prOpenReview',

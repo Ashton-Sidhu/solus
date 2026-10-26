@@ -24,6 +24,7 @@ import type {
   ReviewComment,
   ReviewThread,
   PrConversationItem,
+  PrFilterChoice,
   PrLabel,
   PrRevertResult,
   PrStack,
@@ -981,6 +982,18 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
+  async listMentionableUsers(repo: RepoRef, query: string, limit: number): Promise<PrFilterChoice[]> {
+    return this.withClient('list_mentionable_users', repo.host, async ({ graphql }) => {
+      const res = await graphql<MentionableUsersResponse>(MENTIONABLE_USERS_QUERY, {
+        owner: repo.owner,
+        repo: repo.repo,
+        query: query || undefined,
+        first: limit,
+      })
+      return res.repository.mentionableUsers.nodes.map((user) => ({ value: user.login, avatarUrl: user.avatarUrl }))
+    })
+  }
+
   async setLabels(repo: RepoRef, number: number, names: string[]): Promise<PrLabel[]> {
     return this.withClient('set_pull_request_labels', repo.host, async ({ rest }) => {
       const { data } = await rest.issues.setLabels({
@@ -1406,3 +1419,15 @@ export function makeGitHubProvider(): Provider {
   // Read at each use: tests install their own credentials after this registry is built.
   return { id: 'github', get auth() { return githubCredentials() }, review: new GitHubProvider() }
 }
+
+interface MentionableUsersResponse {
+  repository: { mentionableUsers: { nodes: Array<{ login: string; avatarUrl: string }> } }
+}
+
+const MENTIONABLE_USERS_QUERY = `
+  query($owner: String!, $repo: String!, $query: String, $first: Int!) {
+    repository(owner: $owner, name: $repo) {
+      mentionableUsers(first: $first, query: $query) { nodes { login avatarUrl } }
+    }
+  }
+`

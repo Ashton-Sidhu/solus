@@ -40,6 +40,8 @@ const checkoutRequests = new Map<string, Promise<PrCheckoutContext>>()
  *  Each read mostly waits on the network; the bound keeps a large workspace
  *  from opening a burst of code-host requests. */
 const PROJECT_LIST_CONCURRENCY = 6
+/** Choices one filter search answers: enough to pick from, small to send. */
+const FILTER_CHOICE_LIMIT = 50
 /** The most viewed-state changes one request may carry: a whole large diff. */
 const MAX_VIEWED_FILE_CHANGES = 3000
 
@@ -782,6 +784,21 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to remove requested reviewers.')
       return provider.review.removeRequestedReviewer(repo, number, reviewerId, kind)
     })
+  })
+
+  // The list's label and author filters search the repository, not only the
+  // rows a page has loaded. A read, so no permission beyond seeing the
+  // repository: the label picker of a pull request is the one that writes.
+  server.register('prFilterOptions', async (args) => {
+    const [ctx, field, query] = args
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const needle = query.trim()
+    if (field === 'author') return provider.review.listMentionableUsers(repo, needle, FILTER_CHOICE_LIMIT)
+    const labels = await provider.review.listLabelCandidates(repo)
+    return labels
+      .filter((label) => label.name.toLowerCase().includes(needle.toLowerCase()))
+      .slice(0, FILTER_CHOICE_LIMIT)
+      .map((label) => ({ value: label.name, color: label.color }))
   })
 
   server.register('prListLabelCandidates', async (args) => {

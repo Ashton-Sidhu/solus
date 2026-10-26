@@ -68,6 +68,8 @@ export type RootStackParamList = {
   PullRequestLabels: { hostId: string; projectPath: string; number: number }
   /** A change to the title or the description of a pull request, as a sheet. */
   PullRequestEdit: { hostId: string; projectPath: string; number: number; field: 'title' | 'body' }
+  /** Searches the hosts for a label or author to filter the Pull Requests tab by. */
+  PullRequestFilterSearch: { field: 'label' | 'author' }
   /** A project folder; `folderPath` is root-relative, `''` for the root. */
   Files: { hostId: string; projectPath: string; folderPath: string }
   /** One file; `path` is root-relative. */

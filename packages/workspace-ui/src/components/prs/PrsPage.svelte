@@ -74,7 +74,9 @@
     readSavedDetailPanelWidth,
     saveDetailPanelWidth,
   } from "../ui/list-page/detail-panel-width";
-  import { clearPrFilters, prAuthorOptions, prFilterGroups, prLabelOptions } from "./lib/pr-filter-menu";
+  import { clearPrFilters, prAuthorOptions, prClientFilterKey, prFilterGroups, prLabelOptions, prMenuQualifiers, withHostChoices } from "./lib/pr-filter-menu";
+  import { PrFilterOptionsStore } from "../../contexts/prs/pr-filter-options.store.svelte";
+  import { BoundedPageFill } from "@solus/client-core/bounded-page-fill";
   import { PrReviewSelection } from "./lib/pr-review-selection.svelte";
   import { queueReviewGuides } from "./lib/pr-guide-batch";
   import { reviewLensStore } from "../review/review-lens.store.svelte";
@@ -198,8 +200,9 @@
   const fetchScope = $derived(prFetchScope(listView.statusKeys));
 
   // ── Search ── typed text narrows the rows on screen; the host is asked
-  // once typing stops. Qualifiers (`label:bug`, `author:me`) read the same.
-  const search = new PrListSearch(() => listView.query);
+  // once typing stops. Qualifiers (`label:bug`, `author:me`) read the same,
+  // and so do the Filters menu's label, author and draft choices.
+  const search = new PrListSearch(() => listView.query, () => prMenuQualifiers(listView));
   const listFilter = $derived<PrFilter>(
     search.hostQuery ? { state: fetchScope, query: search.hostQuery } : { state: fetchScope },
   );
@@ -335,12 +338,21 @@
     )?.key ?? null,
   );
 
+  // The label and author pickers also offer what the host has beyond the
+  // loaded rows, searched from the picker's field.
+  const filterOptions = new PrFilterOptionsStore(() => paginating);
+  $effect(() => () => filterOptions.dispose());
+
   const filterGroups = $derived(
     prFilterGroups(
       listView,
-      { authors: prAuthorOptions(searched), labels: prLabelOptions(searched) },
-      // Narrowing within what is loaded is free; the read key only moves when
-      // the fetch scope does, so toggling Draft off and on costs no request.
+      {
+        authors: withHostChoices(prAuthorOptions(searched), filterOptions.choices.author, "author"),
+        labels: withHostChoices(prLabelOptions(searched), filterOptions.choices.label, "label"),
+        search: (field, query) => filterOptions.search(field, query),
+      },
+      // A state change moves the read key only when the fetch scope does.
+      // Label, author and draft are asked of the host (`prMenuQualifiers`).
       (next) => (listView.statusKeys = next),
     ),
   );
@@ -616,6 +628,20 @@
       readList();
       loadViewers();
     });
+  });
+
+  // Review, checks, involvement, guide and lens narrow only loaded rows, so a
+  // filtered page can come back short. Read a few more pages while it is,
+  // once the host has answered the search in the field.
+  const pageFill = new BoundedPageFill();
+  $effect(() => {
+    if (!listReadKey) return;
+    const fill = pageFill.next(`${listReadKey}\n${prClientFilterKey(listView)}`, {
+      rows: filtered.length,
+      hasMore: hasMorePullRequests && !loadCapped,
+      reading: activeScopeReading || loadingMorePullRequests || !hostAnswered,
+    });
+    if (fill) untrack(() => void loadMoreAll());
   });
 
   /** The projects this read covers, each created in the store on the way. */

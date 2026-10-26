@@ -77,6 +77,17 @@ export interface PrFilter {
   query?: string
 }
 
+/** A pull request list filter whose choices the code host can search. */
+export type PrFilterField = 'label' | 'author'
+
+/** One choice for a list filter, as the code host answered it: a label name
+ *  with its colour, or a login with its avatar. */
+export interface PrFilterChoice {
+  value: string
+  color?: string
+  avatarUrl?: string
+}
+
 /** A reason to keep pull request state fresh. PR sync on the host reads a
  *  repository only while some client or live task has interest in it
  *  (docs/plans/pr-sync.md §3.1). */

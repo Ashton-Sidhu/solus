@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, FlatList, Keyboard, Platform, Pressable, RefreshControl, ScrollView, View, type ScrollViewProps } from 'react-native'
 import { ScrollViewMarker } from 'react-native-screens'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { BoundedPageFill } from '@solus/client-core/bounded-page-fill'
 import { useApp, useListened } from '../../app/app-context'
 import { AppText as Text } from '../../components/AppText'
 import { EmptyState } from '../../components/EmptyState'
@@ -13,7 +14,7 @@ import type { RootStackParamList } from '../../navigation/routes'
 import { resolvePullRequestListScope, type PullRequestListPreferences } from '../workspace/list-preferences'
 import { PullRequestCardGroup, PullRequestCardRow } from './detail/pull-request-ui'
 import { prUnavailableTitle } from './lib/pr-presentation'
-import { filterPullRequestRows, hostNoticesSummary, pullRequestListFacets, pullRequestRowKey, type PullRequestRow } from './lib/pull-request-list'
+import { filterPullRequestRows, hostNoticesSummary, pullRequestHostQuery, pullRequestListFacets, pullRequestRowKey, type PullRequestRow } from './lib/pull-request-list'
 import { PullRequestListFilters, type PullRequestFilterProject } from './PullRequestListFilters'
 import { PullRequestListRow } from './PullRequestListRow'
 import { shownValue } from './pull-request-reads'
@@ -107,8 +108,9 @@ function HostNotices(props: { readonly notices: readonly HostNotice[]; readonly 
 
 /**
  * The Pull Requests tab: the pull requests of every paired host in one list,
- * newest activity first. The hosts answer the state and the search text; the
- * pill filters narrow the rows on the device. A host that cannot be read now
+ * newest activity first. The hosts answer the state, the search text, and the
+ * label, author and draft filters; the other pill filters narrow the rows on
+ * the device. A host that cannot be read now
  * shows its device copy with a notice, or says why it shows nothing.
  */
 export function PullRequestsScreen(props: {
@@ -128,7 +130,8 @@ export function PullRequestsScreen(props: {
   const pairedHostIds = useMemo(() => hostOptions.map((host) => host.id), [hostOptions])
   const { preferences, onPreferencesChange } = props
   const scope = useMemo(() => resolvePullRequestListScope(preferences, pairedHostIds), [preferences, pairedHostIds])
-  const query = useDebouncedValue(props.query.trim(), SEARCH_DELAY_MS)
+  const typed = useDebouncedValue(props.query.trim(), SEARCH_DELAY_MS)
+  const query = useMemo(() => pullRequestHostQuery(typed, preferences.filters), [typed, preferences.filters])
   const list = usePullRequestList(scope.hostIds, { state: preferences.state, query }, scope.project)
 
   const viewerOf = useMemo(() => {
@@ -137,6 +140,16 @@ export function PullRequestsScreen(props: {
   }, [list.hosts])
   const rows = useMemo(() => filterPullRequestRows(list.rows, scope.controls, viewerOf, list.connectedHostIds), [list.rows, scope.controls, viewerOf, list.connectedHostIds])
   const facets = useMemo(() => pullRequestListFacets(list.rows), [list.rows])
+
+  // Review, checks, involvement, host and project narrow only the rows the
+  // device holds, so a filtered page can come back short. Read a few more
+  // pages while it is.
+  const [pageFill] = useState(() => new BoundedPageFill())
+  const fillKey = JSON.stringify([query, preferences.state, scope.hostIds, scope.project, scope.controls.involvement, scope.controls.filters.review, scope.controls.filters.checks])
+  const { reading, hasMore, loadingMore, loadMore } = list
+  useEffect(() => {
+    if (pageFill.next(fillKey, { rows: rows.length, hasMore, reading: reading || loadingMore })) void loadMore()
+  }, [pageFill, fillKey, rows.length, hasMore, reading, loadingMore, loadMore])
   const showsHost = scope.hostIds.length > 1
   const projects = useMemo((): PullRequestFilterProject[] => {
     const result: PullRequestFilterProject[] = []
@@ -223,6 +236,7 @@ export function PullRequestsScreen(props: {
             onChange={onPreferencesChange}
             authors={facets.authors}
             labels={facets.labels}
+            onSearch={(field) => navigation.navigate('PullRequestFilterSearch', { field })}
             projects={projects}
           />
           <HostNotices
@@ -257,8 +271,8 @@ export function PullRequestsScreen(props: {
         ) : reads.every((host) => host.state.kind === 'error') ? undefined : (
           <EmptyState
             variant="plain"
-            title={query ? 'No results' : 'No matching pull requests'}
-            detail={query ? 'No pull request matches this search.' : 'Pull requests of the selected hosts’ projects appear here. Pull to refresh.'}
+            title={typed ? 'No results' : 'No matching pull requests'}
+            detail={typed ? 'No pull request matches this search.' : 'Pull requests of the selected hosts’ projects appear here. Pull to refresh.'}
           />
         )
       }

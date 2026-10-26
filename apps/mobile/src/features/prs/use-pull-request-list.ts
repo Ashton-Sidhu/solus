@@ -61,15 +61,17 @@ export function usePullRequestList(hostIds: readonly string[], filter: PullReque
   // newer read of it drops the older one.
   const [loadingMore, setLoadingMore] = useState(false)
   const loadingMoreRef = useRef(false)
+  // The projects in scope that have another page, by host.
+  const more = useMemo(() => hosts.flatMap(({ hostId, state: read }) => {
+    if (read.kind !== 'loaded') return []
+    const paths = read.value.projects
+      .filter((entry) => entry.kind === 'page' && entry.hasMore && (!project || (project.hostId === hostId && project.projectPath === entry.projectPath)))
+      .map((entry) => entry.projectPath)
+    return paths.length ? [{ hostId, paths }] : []
+  }), [hosts, project])
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current) return
-    const work = hosts.flatMap(({ hostId, state: read }) => {
-      if (read.kind !== 'loaded') return []
-      const paths = read.value.projects
-        .filter((entry) => entry.kind === 'page' && entry.hasMore && (!project || (project.hostId === hostId && project.projectPath === entry.projectPath)))
-        .map((entry) => entry.projectPath)
-      return paths.length ? [{ hostId, paths }] : []
-    })
+    const work = more
     if (work.length === 0) return
     loadingMoreRef.current = true
     setLoadingMore(true)
@@ -78,7 +80,9 @@ export function usePullRequestList(hostIds: readonly string[], filter: PullReque
     }))
     loadingMoreRef.current = false
     setLoadingMore(false)
-  }, [directory, hosts, project])
+  }, [directory, more])
+  const hasMore = more.length > 0
+  const reading = hosts.some(({ state: read }) => read.kind === 'idle' || read.kind === 'loading')
 
-  return { hosts, rows, connectedHostIds, refreshing, refresh, loadingMore, loadMore, reloadHost: (hostId: string) => void directory.loadHost(hostId) }
+  return { hosts, rows, connectedHostIds, refreshing, refresh, reading, hasMore, loadingMore, loadMore, reloadHost: (hostId: string) => void directory.loadHost(hostId) }
 }
