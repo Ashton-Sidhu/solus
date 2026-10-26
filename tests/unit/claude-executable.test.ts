@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 
 let directory: string
+let configDir: string
+const savedEnv = { configDir: process.env.CLAUDE_CONFIG_DIR, toolSearch: process.env.ENABLE_TOOL_SEARCH }
 let cliPath: Promise<string>
 let onPathLookup = () => {}
 const queries: Options[] = []
@@ -30,11 +32,22 @@ const { ClaudeAgent } = await import('@solus/server/execution/agents/claude/clau
 
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), 'solus-claude-executable-'))
+  // The host login reads this as the user's Claude settings; never the developer's own.
+  configDir = mkdtempSync(join(tmpdir(), 'solus-claude-config-'))
+  process.env.CLAUDE_CONFIG_DIR = configDir
+  delete process.env.ENABLE_TOOL_SEARCH
   cliPath = Promise.resolve(directory)
   onPathLookup = () => {}
   queries.length = 0
 })
-afterEach(() => rmSync(directory, { recursive: true, force: true }))
+afterEach(() => {
+  rmSync(directory, { recursive: true, force: true })
+  rmSync(configDir, { recursive: true, force: true })
+  for (const [name, value] of [['CLAUDE_CONFIG_DIR', savedEnv.configDir], ['ENABLE_TOOL_SEARCH', savedEnv.toolSearch]] as const) {
+    if (value === undefined) delete process.env[name]
+    else process.env[name] = value
+  }
+})
 
 function installClaude(): string {
   // WHY: Windows starts only a file with a startable extension, so the installed CLI is `claude.exe` there.
@@ -124,5 +137,57 @@ describe('installed Claude executable', () => {
     await drain
     await expect(run.result).resolves.toMatchObject({ signal: 'SIGINT' })
     expect(queries).toHaveLength(0)
+  })
+})
+
+// A user's auto tool search sends every MCP schema in full, and a late MCP connect then misses the
+// prompt cache. Flag settings env beats settings.json env, which beats the process env.
+describe('tool search in flag settings', () => {
+  async function openedSettings(options: { disableReasoning?: boolean; bare?: { webAccess: boolean } } = {}) {
+    installClaude()
+    queries.length = 0
+    const run = new ClaudeAgent().run({ prompt: 'hello', cwd: directory, ...options })
+    for await (const _ of run.events) { /* drain */ }
+    await run.result
+    return queries[0].settings
+  }
+  const userSettings = (value: string) => writeFileSync(join(configDir, 'settings.json'), JSON.stringify({ env: { ENABLE_TOOL_SEARCH: value } }))
+  const projectSettings = (value: string) => {
+    mkdirSync(join(directory, '.claude'), { recursive: true })
+    writeFileSync(join(directory, '.claude', 'settings.json'), JSON.stringify({ env: { ENABLE_TOOL_SEARCH: value } }))
+  }
+
+  test("the user's auto mode is pinned on, keeping thinking summaries", async () => {
+    userSettings('auto')
+    expect(await openedSettings()).toEqual({ showThinkingSummaries: true, env: { ENABLE_TOOL_SEARCH: 'true' } })
+    expect(await openedSettings({ disableReasoning: true })).toEqual({ env: { ENABLE_TOOL_SEARCH: 'true' } })
+  })
+
+  test("the user's explicit choice and an unset value are left alone", async () => {
+    userSettings('false')
+    expect(await openedSettings()).toEqual({ showThinkingSummaries: true })
+    rmSync(join(configDir, 'settings.json'))
+    expect(await openedSettings()).toEqual({ showThinkingSummaries: true })
+  })
+
+  test('project settings beat user settings', async () => {
+    userSettings('false')
+    projectSettings('auto:50')
+    expect(await openedSettings()).toEqual({ showThinkingSummaries: true, env: { ENABLE_TOOL_SEARCH: 'true' } })
+    userSettings('auto')
+    projectSettings('auto:100')
+    expect(await openedSettings()).toEqual({ showThinkingSummaries: true })
+  })
+
+  test('the process env applies only when no settings file sets the value', async () => {
+    process.env.ENABLE_TOOL_SEARCH = 'auto'
+    expect(await openedSettings()).toEqual({ showThinkingSummaries: true, env: { ENABLE_TOOL_SEARCH: 'true' } })
+    userSettings('true')
+    expect(await openedSettings()).toEqual({ showThinkingSummaries: true })
+  })
+
+  test('a bare run loads no settings, so nothing is pinned', async () => {
+    userSettings('auto')
+    expect(await openedSettings({ bare: { webAccess: false } })).toEqual({ showThinkingSummaries: true })
   })
 })

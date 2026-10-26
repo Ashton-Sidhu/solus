@@ -1,9 +1,10 @@
 import { spawn } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
-import { Options, query, type CanUseTool, type PermissionMode as SdkPermissionMode, type Query } from '@anthropic-ai/claude-agent-sdk'
+import { Options, query, type CanUseTool, type PermissionMode as SdkPermissionMode, type Query, type Settings } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { TurnInputChannel } from './claude-turn-input'
+import { resolveClaudeToolSearchOverride } from './claude-tool-search'
 import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
 import { findOnPath, launchedProcess, startableCommand, warmCliPath, type ProcessUser } from '../../../cli-env'
@@ -281,13 +282,14 @@ export class ClaudeAgent {
     }
     if (opts.systemPromptAppend) systemPrompt.append = opts.systemPromptAppend
     const bareTools = opts.bare?.webAccess ? ['WebFetch'] : []
+    const cwd = resolveHomePath(opts.cwd)
 
     const claudeOptions: Options = {
       // The CLI leaves TodoWrite out of the Claude 5 preset; naming it here adds
       // it back so the progress tracker still fills (see claude-event-normalizer).
       allowedTools: opts.bare ? [...bareTools, ...(opts.allowedTools ?? [])] : ['TodoWrite', ...(opts.allowedTools ?? [])],
       disallowedTools: [...BLOCKED_TOOLS],
-      cwd: resolveHomePath(opts.cwd),
+      cwd,
       systemPrompt,
       plugins: opts.bare ? [] : [{type: 'local', path: solusPluginsDir()}],
       maxTurns: opts.maxTurns,
@@ -308,10 +310,12 @@ export class ClaudeAgent {
     }
     if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
     if (opts.bare) claudeOptions.tools = bareTools
+    // Flag settings: they beat the user's and the project's settings.json.
+    let flagSettings: Settings | undefined
     if (!opts.disableReasoning) {
       claudeOptions.effort = opts.reasoningEffort ?? 'high'
       // Request readable summaries without changing the model's thinking budget.
-      claudeOptions.settings = { showThinkingSummaries: true }
+      flagSettings = { showThinkingSummaries: true }
     }
 
     if (opts.sessionId) {
@@ -357,10 +361,12 @@ export class ClaudeAgent {
       let agentIdle = false
       try {
         const executable = await resolveClaudeExecutable()
+        const toolSearch = opts.bare ? undefined : await resolveClaudeToolSearchOverride(cwd, claudeConfigDir(opts.seat), claudeOptions.env)
         abortController.signal.throwIfAborted()
+        if (toolSearch) flagSettings = { ...flagSettings, env: { ENABLE_TOOL_SEARCH: toolSearch } }
         const cquery = query({
           prompt: promptInput,
-          options: { ...claudeOptions, pathToClaudeCodeExecutable: executable },
+          options: { ...claudeOptions, settings: flagSettings, pathToClaudeCodeExecutable: executable },
         })
         activeQuery = cquery
 
