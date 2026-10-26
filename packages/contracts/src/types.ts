@@ -592,9 +592,10 @@ export type SessionStatus =
   | 'awaiting_plan'
   | 'rate_limited'
   | 'completed'
-  /** The agent ended its turn, but a background task it started (a shell, a
-   *  sub-agent) still runs. The turn is settled and a prompt steers into the
-   *  still-open provider query; Stop ends the background work. */
+  /** The agent ended its turn, but background work it waits on still runs: a
+   *  sub-agent, a Codex task, or a Claude shell or Monitor it marked as awaited.
+   *  The turn is settled and a prompt steers into the still-open provider
+   *  query; Stop ends the background work. */
   | 'background'
   | 'failed'
   | 'interrupted'
@@ -1892,7 +1893,10 @@ export type NormalizedEvent =
   /** Solus's authoritative top-level turn boundary. Unlike `task_complete`, this
    *  fires only after all work owned by the turn has stopped. */
   | { type: 'turn_settled'; turnId: string; outcome: 'completed' | 'failed' | 'interrupted' | 'dead'; settledAt: number }
-  | { type: 'background_task_started'; taskId: string; toolUseId?: string }
+  /** `awaitable`: the task holds its session only while the agent marks it as
+   *  awaited (`background_wait`). Claude's shells and Monitors; absent for
+   *  sub-agents and every Codex task, which always hold. */
+  | { type: 'background_task_started'; taskId: string; toolUseId?: string; awaitable?: boolean }
   | { type: 'background_task_progress'; taskId: string; toolUseId?: string; description?: string; toolUses?: number; totalTokens?: number; durationMs?: number; lastToolName?: string }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
   /** `kind: 'auth'`: the provider refused the turn's login. The client offers sign-in again. */
@@ -2230,10 +2234,15 @@ export interface BackendSession {
   /** Last turn whose terminal event was published. Prevents duplicate provider
    *  result/exit signals from settling one turn more than once. */
   settledTurnId?: string
-  /** Task IDs of run_in_background sub-agents/tools still in flight. While this is
-   *  non-empty the session is kept 'running' past turn end — the SDK query stays
-   *  open servicing the background work and will only truly exit once it settles. */
+  /** Task IDs of run_in_background sub-agents/tools still in flight. The SDK
+   *  query stays open servicing the background work and will only truly exit
+   *  once it settles. Which of them hold the session in 'background' is
+   *  `backgroundWorkHolds` (docs/background-work.md). */
   backgroundTaskIds?: Set<string>
+  /** Tasks in flight that hold the session only while awaited: Claude's shells and Monitors. */
+  awaitableTaskIds?: Set<string>
+  /** Tasks the agent marked with `background_wait`: it acts on their result when they wake it. */
+  awaitedTaskIds?: Set<string>
 }
 
 export interface RuntimeSessionInfo {

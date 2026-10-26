@@ -14,6 +14,7 @@ import { HOST_ACTOR, type Actor } from '../../admission/actor'
 import type { ActivityKind } from '@solus/contracts/activity'
 import { sameUser } from '@solus/contracts/user'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
+import { hasOpenBackgroundQuery } from './background-work'
 
 const log = createLogger('SessionRuntime', 'run-scheduler.ts')
 
@@ -472,10 +473,10 @@ export class RunScheduler {
       tools: req.run.tools.length ? req.run.tools : Object.values(solusToolbox).flatMap((group) => Object.values(group)) as AgentTool[],
       options: { ...req.run.options, promptSource: 'queued' },
     }
-    // A session in 'background' still has its provider query open. A second
-    // run would resume the same thread beside it, so the prompt goes into the
-    // open query; a fresh run is only the fallback once that query has closed.
-    const lifecycle = dispatchSession?.status === 'background' && dispatchSession.agentSessionId && dispatchSession.backendId === freshProvider
+    // A session with background work still has its provider query open. A
+    // second run would resume the same thread beside it, so the prompt goes into
+    // the open query; a fresh run is only the fallback once that query has closed.
+    const lifecycle = dispatchSession && hasOpenBackgroundQuery(dispatchSession) && dispatchSession.agentSessionId && dispatchSession.backendId === freshProvider
       ? this.rt.launcher.steerActiveTurn(run, dispatchSession.agentSessionId, dispatchSession)
         .then((steered) => steered ?? this.rt.launcher.startRunLifecycle(run))
       : this.rt.launcher.startRunLifecycle(run)

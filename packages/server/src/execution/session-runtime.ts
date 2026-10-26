@@ -45,6 +45,7 @@ import { SessionHistory } from './sessions/session-history'
 import { ProviderHandoffs } from './sessions/provider-handoffs'
 import { SessionCheckouts } from './sessions/session-checkouts'
 import { PromptDispatch } from './sessions/prompt-dispatch'
+import { hasOpenBackgroundQuery } from './sessions/background-work'
 
 const log = createLogger('SessionRuntime', 'session-runtime.ts')
 
@@ -616,8 +617,9 @@ export class SessionRuntime extends EventEmitter {
           })
         }
         // The turn is over, so a queued delivery has nothing to wait behind:
-        // any prompt goes into the query that the background work keeps open.
-        if (session.status === 'background' && session.agentSessionId && !isOtherProvider) {
+        // any prompt goes into the query that the background work keeps open,
+        // held or not.
+        if (hasOpenBackgroundQuery(session) && session.agentSessionId && !isOtherProvider) {
           const steered = await this.launcher.steerActiveTurn(request, session.agentSessionId, session)
           if (steered) return steered
         }
@@ -704,9 +706,9 @@ export class SessionRuntime extends EventEmitter {
     }
 
     const session = this.activeSessions.get(sessionId)
-    // 'background' is the way out of a task that never settles: cancelling the
-    // query is what ends the work the agent left running.
-    if (session?.agentSessionId && (isSessionBusyStatus(session.status) || session.status === 'background')) {
+    // Stop is the way out of a task that never settles: cancelling the query
+    // is what ends the work the agent left running, held or not.
+    if (session?.agentSessionId && (isSessionBusyStatus(session.status) || hasOpenBackgroundQuery(session))) {
       const cancelled = this.backendFor(session.backendId).cancelSession(session.agentSessionId)
       if (cancelled) {
         this.sessionEmitter.recordTerminal(sessionId, 'interrupted')

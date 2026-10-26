@@ -216,6 +216,7 @@ import { onTurnRowWritten } from './data/insights/span-table'
 import { projectSessionEvent, serializedBytes } from './data/sessions/result-projection'
 import { activityFor } from './data/activity/activity'
 import { WorktreeMover } from './execution/sessions/worktree-move'
+import { markAwaitedTasks } from './execution/sessions/background-work'
 import { WorktreeOffers } from './execution/sessions/worktree-offers'
 import { setWorktreeMover } from './execution/agents/tools/worktree-tools'
 
@@ -966,6 +967,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       opts.sessionRuntime.history.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
     listPlans: (provider, projectPath, allProjects) => opts.sessionRuntime.history.listPlans(provider, projectPath, allProjects),
     invalidatePlanCaches: (sessionId) => opts.sessionRuntime.history.invalidatePlanCaches(sessionId),
+    awaitBackgroundTasks: (sessionId, taskIds, waiting) => {
+      const session = opts.sessionRuntime.activeSessions.get(sessionId)
+      return session ? markAwaitedTasks(session, taskIds, waiting) : null
+    },
   })
   // A person deciding on a plan a session it sent work to wrote, from that card.
   // The decision drives the other session, so the caller must be allowed to.

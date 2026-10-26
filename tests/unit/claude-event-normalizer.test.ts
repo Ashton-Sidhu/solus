@@ -271,7 +271,8 @@ describe('ClaudeTurnNormalizer', () => {
     const { events } = await normalizeClaudeFixture('claude-task-stop.jsonl')
 
     expect(events.filter((event) => event.type.startsWith('background_task_'))).toEqual([
-      { type: 'background_task_started', taskId: 'task-bg-1', toolUseId: 'bash-bg-1' },
+      // A shell holds the session only while the agent awaits it (docs/background-work.md).
+      { type: 'background_task_started', taskId: 'task-bg-1', toolUseId: 'bash-bg-1', awaitable: true },
       { type: 'background_task_settled', taskId: 'task-bg-1', status: 'stopped' },
     ])
   })

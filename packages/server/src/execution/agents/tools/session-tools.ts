@@ -23,6 +23,7 @@ import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { checkAttachments } from '../../orchestration/prompt-attachments'
 import { findRemoteSession, type OrganizationApi, type RemoteSession } from '../../orchestration/remote-session-read'
+import type { AwaitedTasksResult } from '../../sessions/background-work'
 
 const log = createLogger('sessions', 'session-tools.ts')
 
@@ -88,6 +89,8 @@ export interface SessionController {
   loadPlanContent(provider: AgentId, sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
   listPlans(provider: AgentId, projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
   invalidatePlanCaches(sessionId: string): void
+  /** Mark the background tasks a live session's agent waits on; null when the session is not live. */
+  awaitBackgroundTasks?(sessionId: string, taskIds: readonly string[], waiting: boolean): AwaitedTasksResult | null
 }
 
 let sessionController: SessionController | null = null

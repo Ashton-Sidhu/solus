@@ -2,8 +2,36 @@
 
 An agent can leave work running after its turn ends: a background shell, a
 `Monitor` call, a sub-agent, a Codex command, or a Codex native sub-agent
-that outlives its turn. Solus shows this as one session status, `background`,
-for both providers.
+that outlives its turn. Solus shows the work that the agent waits on as one
+session status, `background`, for both providers.
+
+## Work that holds the session
+
+Only work that the agent waits on keeps the session in `background`. One rule
+(`backgroundWorkHolds`, `execution/sessions/background-work.ts`) decides this
+for the status, the "finished" notification, the restart record, and the
+power-save blocker:
+
+- A sub-agent holds. Every Codex task holds.
+- A Claude shell or Monitor holds only when the agent marks it with the
+  `background_wait` tool. A shell or Monitor can be a wait (tests, a build, a
+  CI wait) or a process that the agent leaves running (a dev server, its
+  watchdog). Only the agent knows which.
+
+`background_wait { task_ids, waiting }` marks the tasks (`waiting` is true by
+default). `waiting: false` removes the mark and does not stop the task. An id
+that is not running comes back in `unmatched` and changes nothing. The mark
+ends when its task ends, and when the Claude process exits. Claude Code loads
+Solus tools behind tool search, so the Claude system prompt says when to use
+the tool. **Codex** answers the tool with "unsupported": its turn ends before
+its commands, and each command wakes the agent, so all its work holds as before.
+
+When a Claude turn ends and only unmarked work runs, the session settles as
+`completed` and notifies. The SDK query stays open for that work: a new prompt
+goes into it, and Stop on the session cancels it and the work. The tool row of
+the shell or Monitor shows that the work still runs until it settles. If that
+work ends later and the SDK wakes the agent, the reply comes into the same
+session; the session is already `completed`, so it does not notify again.
 
 To wait for an outside result ("tell me when CI finishes"), the agent runs the
 wait as background work. The result wakes the agent. Solus has no host-side
@@ -14,12 +42,13 @@ path.
 
 | Event | Status |
 |---|---|
-| A turn ends while background work runs | `background`. The turn does not settle and does not notify. A Codex turn that failed shows its error at once, then waits in `background` too. |
+| A turn ends while held work runs | `background`. The turn does not settle and does not notify. A Codex turn that failed shows its error at once, then waits in `background` too. |
 | A background task finishes on its own | The agent wakes with the result in a new turn. That turn settles once, as usual. A nested Codex native sub-agent (one that another sub-agent started) wakes nobody: when the last task has ended, the session settles. |
 | The person stops the work from the background row, or Stop on mobile | Only the tasks stop, and the session settles as `completed`. Claude's SDK first gives the agent a turn to react; Codex does not wake the agent. |
 | The background work of a failed Codex turn ends | The session settles as `failed`, once. |
 | The person stops the session (Stop shortcut, `stop_session`) | The tasks stop and the session settles as `interrupted`. |
-| The host restarts | The work is lost. The restart prompt names the tools that were running. |
+| A Claude turn ends while only unmarked shells or Monitors run | `completed`. The turn settles and notifies. |
+| The host restarts | The work is lost. A session that waited in `background` gets the restart prompt, which names the tools that were running. |
 
 `background` is not busy. A new prompt is accepted and runs as the next turn.
 
@@ -95,12 +124,15 @@ answers the exchange, and its reply goes to the parent. If the work ends with no
 wake (it was stopped or killed, or a later turn saw it end), the exchange
 settles with the reply of the turn that left the work running. Stop on the child
 settles the exchange as `interrupted`. A Claude session needs none of this: its
-run ends only when its background tasks end.
+run ends only when its background tasks end. This includes unmarked work: a
+delegated Claude session that leaves a dev server running answers its exchange
+only when that work ends.
 
 ## Clients
 
-- **Desktop and web.** The last turn shows the background row: what runs and a
-  Stop that ends only the tasks (`stopBackgroundTasks`). The sidebar row shows
-  the background glyph.
+- **Desktop and web.** In `background`, the last turn shows the background
+  row: what runs and a Stop that ends only the tasks (`stopBackgroundTasks`).
+  The sidebar row shows the background glyph. Unmarked Claude work does not
+  show this row: its own tool row shows it as running.
 - **Mobile.** The thread shows the "Background task running" pill. Stop in
   `background` ends only the tasks, as on desktop and web.

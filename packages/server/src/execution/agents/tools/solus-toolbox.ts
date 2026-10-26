@@ -82,6 +82,7 @@ import { moveToWorktreeAgentTool, worktreeStatusAgentTool } from './worktree-too
 import { askJevAgentTool } from '../../../typesafe/jev-tool'
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 import { organizeSessionAgentTool } from './session-organize-tool'
+import { backgroundWaitAgentTool } from './background-wait-tool'
 
 export const solusToolbox = {
   intelligence: {
@@ -168,6 +169,7 @@ export const solusToolbox = {
     send: sendSessionAgentTool,
     stop: stopSessionAgentTool,
     organize: organizeSessionAgentTool,
+    backgroundWait: backgroundWaitAgentTool,
     worktreeStatus: worktreeStatusAgentTool,
     moveToWorktree: moveToWorktreeAgentTool,
   },

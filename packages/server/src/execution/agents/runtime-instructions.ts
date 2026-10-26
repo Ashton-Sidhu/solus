@@ -41,6 +41,13 @@ const PULL_REQUEST_WATCH_INSTRUCTIONS = `## Waiting on a pull request
 
 To wait for CI checks or review on a pull request, call watch_pull_request and end your turn. Solus wakes you with a message when a check fails, the required checks pass, the other checks finish, no check reports, someone comments or reviews, the branch conflicts, or the pull request closes. Do not poll with gh, sleep, or a watch loop. Before you hand the work back, call watch_pull_request with watching=false.`
 
+/** Claude Code defers Solus tools behind tool search, so the agent finds
+ *  background_wait only when the prompt says when to use it. Claude only:
+ *  Codex answers the tool with "unsupported" (docs/background-work.md). */
+const BACKGROUND_WAIT_INSTRUCTIONS = `## Background work you wait on
+
+Before you end your turn to wait for a background command or Monitor you started, such as tests, a build, or a CI wait, call background_wait with its task ID. The session then stays working until that task ends, instead of telling the user it is done. Do not mark a dev server, a watcher, or anything else you leave running.`
+
 const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
 
 Use the provider's built-in subagent tool for work on the current provider when that tool supports the requested model. A different model alone does not require start_session. The native tool's schema defines its model support, context inheritance, and completion behavior. Native subagents need no Solus task fields.
@@ -134,5 +141,6 @@ You can embed images and videos in your response with Markdown and absolute file
     ].join('\n\n'),
     has('link') && 'Use link without task_id to attach works, automations, PRs, and project files to the current session. Markdown plan files use kind=file and path. Relative paths use the calling session’s working directory.',
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
+    runtime.harness === 'Claude Code' && has('background_wait') && BACKGROUND_WAIT_INSTRUCTIONS,
   ].filter(Boolean).join('\n\n')
 }

@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
-import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/execution/agents/agent-runner'
 import type { AgentMetadata, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
+import { markAwaitedTasks } from '@solus/server/execution/sessions/background-work'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -63,11 +64,12 @@ class Backend extends EventEmitter implements AgentBackend {
   cancelled: string[] = []
   stoppedTasks: string[] = []
 
-  startRun(_request: AgentRunRequest): RunHandle {
+  startRun(_request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     let resolve!: () => void
     let reject!: (error: Error) => void
     const handle: RunHandle = {
       agentSessionId: THREAD_ID,
+      sessionId: sessionState?.sessionId,
       persistence: 'session',
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -90,8 +92,8 @@ class Backend extends EventEmitter implements AgentBackend {
     } satisfies NormalizedEvent)
   }
 
-  startTask(taskId: string): void {
-    this.emit('normalized', THREAD_ID, { type: 'background_task_started', taskId } satisfies NormalizedEvent)
+  startTask(taskId: string, awaitable?: boolean): void {
+    this.emit('normalized', THREAD_ID, { type: 'background_task_started', taskId, awaitable } satisfies NormalizedEvent)
   }
 
   settleTask(taskId: string): void {
@@ -141,8 +143,10 @@ async function flush(): Promise<void> {
 }
 
 /** A turn that started a background task (a `wrangler tail`, a dev server) and
- *  then ended its turn while that task still runs. */
-async function endTurnWithTaskRunning() {
+ *  then ended its turn while that task still runs. A sub-agent by default; an
+ *  `awaitable` task is a Claude shell or Monitor, and `awaited` marks it as the
+ *  agent's `background_wait` does. */
+async function endTurnWithTaskRunning(task: { awaitable?: boolean; awaited?: boolean } = {}) {
   const backend = new Backend()
   const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend]]))
   plane.on('error', () => {})
@@ -157,7 +161,8 @@ async function endTurnWithTaskRunning() {
   await lifecycle.agentSessionId
   await flush()
 
-  backend.startTask('tail')
+  backend.startTask('tail', task.awaitable)
+  if (task.awaited) markAwaitedTasks(plane.activeSessions.get(SESSION_ID)!, ['tail'], true)
   backend.result()
   await flush()
   return { backend, plane, events }
@@ -361,5 +366,107 @@ describe.serial('SessionRuntime background status when the turn ends first', () 
     } finally {
       plane.shutdown()
     }
+  })
+})
+
+describe.serial('SessionRuntime background status for Claude shells and Monitors', () => {
+  // WHY: a dev server or its watchdog Monitor runs for the life of the query.
+  // Holding 'background' for it kept a finished session "working" and never
+  // told the user it was done. Only work the agent waits on holds.
+  test('an unmarked shell completes the turn and notifies, with the query still open', async () => {
+    const { plane, events } = await endTurnWithTaskRunning({ awaitable: true })
+    try {
+      expect(statuses(events).at(-1)).toBe('completed')
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+      expect(plane.statuses.hasActiveWork()).toBe(false)
+      expect(plane.activeSessions.get(SESSION_ID)?.backgroundTaskIds?.has('tail')).toBe(true)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a prompt after an unmarked shell goes into the open query, never a second run', async () => {
+    const { backend, plane } = await endTurnWithTaskRunning({ awaitable: true })
+    try {
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'session', sessionId: SESSION_ID }, sessionId: SESSION_ID, input: input(), tools: [],
+        options: { prompt: 'is the server up?', promptSource: 'typed' },
+      })
+      expect(lifecycle.disposition).toBe('steered')
+      expect(backend.starts).toBe(1)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('Stop on the session still cancels the query an unmarked shell keeps open', async () => {
+    const { backend, plane } = await endTurnWithTaskRunning({ awaitable: true })
+    try {
+      expect(plane.stopSession(SESSION_ID, HOST_ACTOR)).toBe(true)
+      expect(backend.cancelled).toEqual([THREAD_ID])
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('an awaited shell holds background until the wake turn completes', async () => {
+    const { backend, plane, events } = await endTurnWithTaskRunning({ awaitable: true, awaited: true })
+    try {
+      expect(statuses(events).at(-1)).toBe('background')
+      expect(settlements(events)).toEqual([])
+      expect(plane.statuses.hasActiveWork()).toBe(true)
+
+      backend.settleTask('tail')
+      expect(plane.activeSessions.get(SESSION_ID)?.awaitedTaskIds?.has('tail')).toBe(false)
+      backend.init()
+      backend.result()
+      await flush()
+      expect(statuses(events).at(-1)).toBe('completed')
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('waiting=false removes the mark, and unknown ids come back unmatched', async () => {
+    const backend = new Backend()
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend]]))
+    plane.on('error', () => {})
+    const events: NormalizedEvent[] = []
+    plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
+    try {
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'new-session' }, sessionId: SESSION_ID, input: input(), tools: [],
+        options: { prompt: 'run the tests', promptSource: 'typed' },
+      })
+      lifecycle.done.catch(() => {})
+      await lifecycle.agentSessionId
+      await flush()
+      backend.startTask('tests', true)
+      const session = plane.activeSessions.get(SESSION_ID)!
+      expect(markAwaitedTasks(session, ['tests', 'gone'], true)).toEqual({ matched: ['tests'], unmatched: ['gone'] })
+      expect(markAwaitedTasks(session, ['tests'], false)).toEqual({ matched: ['tests'], unmatched: [] })
+      backend.result()
+      await flush()
+      expect(statuses(events).at(-1)).toBe('completed')
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a sub-agent holds background without a mark', async () => {
+    const { plane, events } = await endTurnWithTaskRunning()
+    try {
+      expect(statuses(events).at(-1)).toBe('background')
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('background_wait answers unsupported for Codex', async () => {
+    const { awaitBackgroundTasks } = await import('@solus/server/execution/agents/tools/background-wait-tool')
+    const result = awaitBackgroundTasks({ task_ids: ['b1'] }, 'codex', SESSION_ID)
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('unsupported')
   })
 })

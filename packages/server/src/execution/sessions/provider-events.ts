@@ -15,6 +15,7 @@ import type { SessionRuntime } from '../session-runtime'
 import { eventHasQuestionId } from './input-requests'
 import type { PendingStart } from './run-launcher'
 import { linkPreparedTask } from './run-task-context'
+import { backgroundWorkHolds } from './background-work'
 
 const log = createLogger('SessionRuntime', 'provider-events.ts')
 
@@ -350,7 +351,8 @@ export class ProviderEvents {
         // answers its tool call at launch rather than at completion.
         if (event.type === 'background_task_started') {
           ;(session.backgroundTaskIds ??= new Set()).add(event.taskId)
-          log.info('task_started', { taskId: event.taskId, sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size })
+          if (event.awaitable) (session.awaitableTaskIds ??= new Set()).add(event.taskId)
+          log.info('task_started', { taskId: event.taskId, sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size, awaitable: !!event.awaitable })
           // A task can be backgrounded after the turn already settled to idle;
           // pull the session back to running so it reflects the in-flight work.
           if (!isSessionBusyStatus(session.status)) this.rt.statuses.setStatus(session.sessionId, 'running')
@@ -358,6 +360,8 @@ export class ProviderEvents {
 
         if (event.type === 'background_task_settled') {
           session.backgroundTaskIds?.delete(event.taskId)
+          session.awaitableTaskIds?.delete(event.taskId)
+          session.awaitedTaskIds?.delete(event.taskId)
           log.info('task_settled', { taskId: event.taskId, status: event.status, sessionId: session.sessionId, inFlight: session.backgroundTaskIds?.size ?? 0 })
           // A still-open query (Claude) drives the real terminal status via its
           // next task_complete or its exit. A provider whose turn already ended
@@ -371,14 +375,16 @@ export class ProviderEvents {
           if (handle) handle.resultText = event.result
           this.rt.activeRunRequests.delete(session.sessionId)
           // The agent is done, but the SDK query stays open while its background
-          // tasks run and emits exit only once they settle. A task that never
-          // ends (a log tail, a dev server) would otherwise hold 'running' for
-          // the life of the query, so the turn settles into 'background'.
+          // tasks run and emits exit only once they settle. Work the agent waits
+          // on settles the turn into 'background'. Work it leaves running (a dev
+          // server, a log tail) does not: the turn completes and notifies, and
+          // the query stays open for that work (docs/background-work.md).
           if (this.rt.orchestration?.isAwaitingReplies(session.sessionId)) {
             log.info('turn_complete_awaiting_agent_reply', { sessionId: session.sessionId, holdingRunning: true })
           } else if (session.backgroundTaskIds?.size) {
-            log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size })
-            this.rt.statuses.setStatus(session.sessionId, 'background')
+            const holds = backgroundWorkHolds(session)
+            log.info('turn_complete_tasks_in_flight', { sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size, holds })
+            this.rt.statuses.setStatus(session.sessionId, holds ? 'background' : 'completed')
             this.rt.scheduler.processQueueForSession(session.sessionId)
           } else if (this.rt.scheduler.hasReadyQueuedRequest(session.sessionId)) {
             // A queued prompt takes over at the exit: the session is not done,
@@ -512,6 +518,9 @@ export class ProviderEvents {
               ? 'dead'
               : 'failed'
         this.failedBeforeBackground.delete(sessionId)
+        // The process is gone, and the tasks the agent marked went with it.
+        const exited = this.rt.activeSessions.get(sessionId)
+        if (exited) exited.awaitedTaskIds = exited.awaitableTaskIds = undefined
         const hasBackgroundWork = !!agentSessionId && !!backend.hasBackgroundTasks?.(agentSessionId)
         const newStatus = statusAfterExit(settledStatus, !!this.rt.orchestration?.isAwaitingReplies(sessionId), hasBackgroundWork)
         if (settledStatus === 'failed' && newStatus === 'background') this.failedBeforeBackground.add(sessionId)

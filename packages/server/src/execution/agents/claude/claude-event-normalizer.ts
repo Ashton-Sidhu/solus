@@ -46,7 +46,14 @@ interface ClaudeTaskSystemEvent {
   last_tool_name?: string
   status?: string
   patch?: { status?: string }
+  task_type?: string
 }
+
+/** Task types that are as often a process left running (a dev server, its
+ *  watchdog) as a wait: a shell (`local_bash`, which the Monitor tool also
+ *  uses) and an MCP or WebSocket monitor. They hold the session only while the
+ *  agent marks them as awaited. */
+const AWAITABLE_TASK_TYPES = new Set(['local_bash', 'monitor_mcp', 'monitor_ws'])
 
 /**
  * Maps raw Claude stream-json events to canonical SOLUS events.
@@ -233,7 +240,9 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
   // SAFETY: The SDK system union omits documented task lifecycle subtypes that use this exact field contract.
   const sys = event as ClaudeTaskSystemEvent
   if (sys.subtype === 'task_started' && sys.task_id) {
-    return [{ type: 'background_task_started', taskId: sys.task_id, toolUseId: sys.tool_use_id }]
+    const started: Extract<NormalizedEvent, { type: 'background_task_started' }> = { type: 'background_task_started', taskId: sys.task_id, toolUseId: sys.tool_use_id }
+    if (sys.task_type && AWAITABLE_TASK_TYPES.has(sys.task_type)) started.awaitable = true
+    return [started]
   }
   if (sys.subtype === 'task_progress' && sys.task_id) {
     return [{

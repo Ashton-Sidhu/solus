@@ -141,6 +141,16 @@ describe('runtime instructions', () => {
     expect(await claudeAppend([linkTool])).not.toContain(rule)
   })
 
+  test('only a Claude agent with background_wait is told when to mark the work it waits on', async () => {
+    // WHY: Claude Code defers the tool behind tool search, and only marked work
+    // keeps a session working. Codex answers the tool with "unsupported".
+    const rule = 'call background_wait with its task ID'
+    const waitTool = tool('background_wait')
+    expect(await claudeAppend([waitTool])).toContain(rule)
+    expect(await claudeAppend([])).not.toContain(rule)
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [waitTool])).not.toContain(rule)
+  })
+
   test('the pull request block is absent when the Tasks tool group is off', async () => {
     expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [browserStatusTool])).not.toContain(PR_LINKING_HEADING)
     expect(await claudeAppend([browserStatusTool])).not.toContain(PR_LINKING_HEADING)
