@@ -174,8 +174,8 @@ export function claudeConfigDir(seat?: ClaudeSeat): string {
  * How the SDK starts the CLI: its environment and, where Solus must own the
  * process, a spawn of its own. A member who is their own Linux user starts
  * through the member switch. A turn that can be stopped (`stopSignal`) starts its
- * CLI as the leader of a new process group on POSIX, and a Stop ends what the
- * turn left running (`endTreeAfterExit`). Elsewhere the SDK's own spawn stays,
+ * CLI as the leader of a new process group on POSIX, and when the turn ends, by a
+ * Stop or by itself, Solus ends what the turn left running (`endTreeAfterExit`). Elsewhere the SDK's own spawn stays,
  * which waits for stderr before it reports an exit and puts stderr in its error.
  */
 export function claudeLaunch(seat?: ClaudeSeat, stopSignal?: AbortSignal): Pick<Options, 'env' | 'spawnClaudeCodeProcess'> {
@@ -191,10 +191,26 @@ export function claudeLaunch(seat?: ClaudeSeat, stopSignal?: AbortSignal): Pick<
         const text = chunk.trim()
         if (text) log.warn('claude_cli_stderr', { uid: user?.uid, text })
       })
-      // Added before the SDK's own abort listener, so the tree is read before the CLI is told to exit.
       if (ownsGroup && stopSignal) {
-        if (stopSignal.aborted) endTreeAfterExit(child)
-        else stopSignal.addEventListener('abort', () => endTreeAfterExit(child), { once: true })
+        // Read the tree once, while the CLI is still alive: at a Stop, or when the
+        // SDK closes stdin because the turn is over. The CLI persists only for one
+        // turn, so either way it is about to exit. The abort listener is added
+        // before the SDK's own, so it runs before the CLI is told to exit.
+        let ending = false
+        const endTree = () => {
+          if (ending) return
+          ending = true
+          endTreeAfterExit(child)
+        }
+        if (stopSignal.aborted) endTree()
+        else stopSignal.addEventListener('abort', endTree, { once: true })
+        // Before the end, not at 'finish': by then the CLI can have exited and its children are reparented.
+        child.stdin.end = new Proxy(child.stdin.end, {
+          apply(end, stdin, args: Parameters<typeof child.stdin.end>) {
+            endTree()
+            return end.apply(stdin, args)
+          },
+        })
       }
       return child
     }

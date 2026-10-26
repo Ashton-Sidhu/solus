@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
+import { tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
 import { descendantGroups, endTreeAfterExit } from '@solus/server/platform/process-tree'
+import { claudeLaunch } from '@solus/server/execution/agents/claude/claude-agent'
 
 // Every PID here is one this test started; cleanup signals only those.
 const started: number[] = []
@@ -46,7 +48,7 @@ async function agentWithChildren(): Promise<{ agent: ChildProcess; inGroup: numb
   return { agent, inGroup, ownGroup }
 }
 
-describe.skipIf(process.platform === 'win32')('a stopped agent process tree', () => {
+describe.skipIf(process.platform === 'win32')('an agent process tree', () => {
   test('a Stop ends the agent’s children, also one in a group of its own, once the agent exits', async () => {
     // WHY: a dev server or Chrome an agent started must not outlive the turn the user stopped.
     const { agent, inGroup, ownGroup } = await agentWithChildren()
@@ -61,13 +63,37 @@ describe.skipIf(process.platform === 'win32')('a stopped agent process tree', ()
     expect(await gone(ownGroup)).toBe(true)
   })
 
-  test('without a Stop, what the agent leaves keeps running', async () => {
-    // WHY: only a Stop ends the tree; a turn that ends by itself keeps what it started.
+  test('unless Solus ends the tree, what the agent leaves outlives it', async () => {
+    // WHY: the CLI does not end its children when it exits, so Solus must end them itself.
     const { agent, inGroup, ownGroup } = await agentWithChildren()
     agent.kill('SIGKILL')
     await once(agent, 'exit')
     expect(isAlive(inGroup)).toBe(true)
     expect(isAlive(ownGroup)).toBe(true)
+  })
+
+  test('a turn that ends by itself ends what its CLI left running', async () => {
+    // WHY: a dev server or Chrome an agent started must not outlive its turn, also one the user did not stop.
+    // The CLI stand-in exits when the SDK closes its stdin, as the Claude CLI does at the end of a turn.
+    const spawnCli = claudeLaunch(undefined, new AbortController().signal).spawnClaudeCodeProcess!
+    const cli = spawnCli({
+      command: '/bin/sh',
+      args: ['-c', 'sleep 60 & echo $!; set -m; sleep 60 & echo $!; set +m; cat >/dev/null'],
+      cwd: tmpdir(),
+      env: { PATH: process.env.PATH },
+      signal: new AbortController().signal,
+    }) as ChildProcess
+    started.push(cli.pid!)
+    const lines = createInterface({ input: cli.stdout! })[Symbol.asyncIterator]()
+    const inGroup = Number((await lines.next()).value)
+    const ownGroup = Number((await lines.next()).value)
+    started.push(inGroup, ownGroup)
+
+    cli.stdin!.end()
+    await once(cli, 'exit')
+
+    expect(await gone(inGroup)).toBe(true)
+    expect(await gone(ownGroup)).toBe(true)
   })
 
   test('the server’s own process group is never one to signal', () => {

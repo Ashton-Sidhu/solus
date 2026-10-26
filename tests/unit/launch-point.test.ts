@@ -61,7 +61,7 @@ test('where members share the server’s user, the launch point gives no user', 
   expect(launch.env.HOME).toContain('alice')
 })
 
-test('Solus spawns the Claude CLI itself only where the user must change or a Stop must end its process tree', () => {
+test('Solus spawns the Claude CLI itself only where the user must change or the end of a turn must end its process tree', () => {
   // WHY: the SDK's own spawn waits for stderr before it reports an exit; replace it only where Solus must own the process.
   expect(claudeLaunch({ home: '/seats/claude/alice' }).spawnClaudeCodeProcess).toBeUndefined()
   expect(claudeLaunch({ home: '/seats/claude/alice', user: { uid: 20001 } }).spawnClaudeCodeProcess).toBeFunction()

@@ -42,7 +42,7 @@ function signalGroups(groups: Set<number>, signal: NodeJS.Signals): void {
 }
 
 /**
- * Ends what a stopped child left running. Call it while `child` is alive: it
+ * Ends what a child left running when it exits. Call it while `child` is alive: it
  * records the process groups of the child's tree now, because a leftover is
  * reparented when its parent exits. When the child exits, those groups get
  * SIGTERM, and SIGKILL after a grace. A process that left with `setsid` and a
