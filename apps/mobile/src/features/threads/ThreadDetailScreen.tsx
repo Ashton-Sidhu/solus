@@ -50,6 +50,7 @@ import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { ThreadSuggestionsCard } from "./ThreadSuggestionsCard";
 import { FLOATING_WORKING_CONTROL_COVERAGE, FloatingWorkingControl } from "./floating-working-control";
 import { backgroundFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
+import { showsBackgroundWork } from "@solus/client-core/background-work";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
 import { useTurnAnnouncements } from "./use-turn-announcements";
@@ -193,7 +194,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   // Answering the agent's cards is its own action, apart from prompting (docs/plans/custom-roles.md §3).
   const mayApprove = store.controller.mayApprove;
   // A settled turn can leave background work running; Stop ends it too.
-  const canStop = mayDrive && (turnActive || meta.status === "background");
+  const isBackground = showsBackgroundWork(meta.status, meta.backgroundWorkRunning);
+  const canStop = mayDrive && (turnActive || isBackground);
   const working = isWorkingStatus(meta.status);
   const activeWorkStartedAt = workStartedAt(store, working);
   const hostChrome = threadHostChrome(props.hostReadiness);
@@ -235,7 +237,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     if (activeWorkStartedAt !== null && contentPresentationKind === "ready") {
       return { kind: "working", startedAt: activeWorkStartedAt };
     }
-    if (meta.status === "background" && contentPresentationKind === "ready") {
+    if (isBackground && contentPresentationKind === "ready") {
       return backgroundFloatingStatus({ mayDrive, stopping: stoppingBackground, onStop: stopBackgroundWork });
     }
     return null;
@@ -382,7 +384,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     freeze.set(false);
   }, [freeze, props.threadKey]);
 
-  const isBackground = meta.status === "background";
   const stopThread = useCallback(() => {
     // The turn already ended: Stop ends the work it left running, as the
     // desktop and web background row does.

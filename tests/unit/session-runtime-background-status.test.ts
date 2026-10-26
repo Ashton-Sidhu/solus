@@ -409,6 +409,51 @@ describe.serial('SessionRuntime background status for Claude shells and Monitors
     }
   })
 
+  // WHY: the session completes, so its status no longer says that work runs.
+  // Without this fact no client shows the background row and its Stop, and the
+  // dev server runs on with only its own tool row to say so.
+  test('the clients learn that unmarked work runs while the session is completed, and when it ends', async () => {
+    const { backend, plane, events } = await endTurnWithTaskRunning({ awaitable: true })
+    const backgroundWork = () => events.flatMap((event) => (event.type === 'background_work' ? [event.running] : []))
+    try {
+      expect(statuses(events).at(-1)).toBe('completed')
+      expect(backgroundWork()).toEqual([true])
+
+      // The row's Stop: only the task, never an interrupt of the finished turn.
+      expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(true)
+      expect(backend.stoppedTasks).toEqual(['tail'])
+      expect(backend.cancelled).toEqual([])
+      backend.settleTask('tail')
+      await flush()
+      expect(backgroundWork()).toEqual([true, false])
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a client that joins sees the completed turn and the work that runs, not a running turn', async () => {
+    const { plane } = await endTurnWithTaskRunning({ awaitable: true })
+    try {
+      const watched = plane.watchers.watchSession({ sessionId: SESSION_ID, attachRuntime: true }, 'late-client')
+      expect(watched.runtime?.status).toBe('completed')
+      expect(watched.runtime?.backgroundWorkRunning).toBe(true)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('the exit of the Claude process ends the work the clients show', async () => {
+    const { backend, plane, events } = await endTurnWithTaskRunning({ awaitable: true })
+    try {
+      backend.handles.delete(THREAD_ID)
+      backend.emit('exit', THREAD_ID, 0, null)
+      await flush()
+      expect(events.filter((event) => event.type === 'background_work').at(-1)).toEqual({ type: 'background_work', running: false })
+    } finally {
+      plane.shutdown()
+    }
+  })
+
   test('an awaited shell holds background until the wake turn completes', async () => {
     const { backend, plane, events } = await endTurnWithTaskRunning({ awaitable: true, awaited: true })
     try {

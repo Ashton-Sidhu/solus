@@ -17,6 +17,8 @@ import type { PendingPermission, PendingQuestion, QueuedPrompt, TranscriptItem }
 export interface ConversationMeta {
   phase: ConversationPhase
   status: SessionStatus
+  /** Background work of the session runs, held or not. */
+  backgroundWorkRunning: boolean
   permissions: readonly PendingPermission[]
   questions: readonly PendingQuestion[]
   rateLimit: RateLimitInfo | null
@@ -128,6 +130,7 @@ export class ConversationStore {
     return {
       phase: this.controller.phase,
       status: model.status,
+      backgroundWorkRunning: model.backgroundWorkRunning,
       permissions: model.permissions,
       questions: model.questions,
       rateLimit: model.rateLimit,

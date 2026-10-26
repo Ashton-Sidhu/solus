@@ -5,8 +5,10 @@
   import type { BackgroundWait } from "./lib/activity-summary";
 
   /**
-   * The session's `background` state, stated where the live row would be: at
-   * the end of the last turn, beside the composer. The turn's own summary row
+   * The session's background work, stated where the live row would be: at
+   * the end of the last turn, beside the composer. It shows in `background`,
+   * and after a completed turn while work the agent did not mark (a dev
+   * server, its Monitor) still runs (`showsBackgroundWork`). The turn's own summary row
    * sits above a long answer, where nobody looks for what is still going on.
    *
    * It takes the live row's spinner and shimmer: the work is still running,
@@ -19,7 +21,7 @@
   interface Props {
     wait: BackgroundWait;
     /** Resolves once the host has taken the request; the row goes away when
-     *  the tasks settle and the session leaves `background`. */
+     *  the tasks settle. */
     onStop: () => Promise<void>;
   }
   let { wait, onStop }: Props = $props();

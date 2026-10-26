@@ -821,6 +821,7 @@ export class ConversationController {
     if (runtime) {
       this.model.setStatus(runtime.status)
       this.model.setRateLimit(runtime.rateLimitInfo)
+      this.model.setBackgroundWorkRunning(!!runtime.backgroundWorkRunning)
       this.queue = { held: runtime.queuedPrompts.some((entry) => entry.held), entries: runtime.queuedPrompts }
       this.model.setQueued(runtime.queuedPrompts.map((queued) => ({ queueId: queued.queueId, text: queued.text, clientPromptId: queued.clientPromptId })))
       // A pick waiting for a send keeps its own model.
@@ -835,6 +836,7 @@ export class ConversationController {
       // Nothing runs for the session any more.
       this.model.setStatus('idle')
       this.model.setRateLimit(null)
+      this.model.setBackgroundWorkRunning(false)
     }
     this.run.status = this.model.status
   }

@@ -139,6 +139,8 @@ export class TranscriptModel {
   private metaChanged = false
 
   status: SessionStatus = 'idle'
+  /** Background work of the session runs on its host, held or not (`background_work`). */
+  backgroundWorkRunning = false
   permissions: readonly PendingPermission[] = []
   questions: readonly PendingQuestion[] = []
   rateLimit: RateLimitInfo | null = null
@@ -416,6 +418,9 @@ export class TranscriptModel {
       case 'status_change':
         this.setStatus(event.status)
         return true
+      case 'background_work':
+        this.setBackgroundWorkRunning(event.running)
+        return true
       case 'task_complete':
         this.dropRunningCompaction()
         this.addProseOnce(event.result)
@@ -598,6 +603,12 @@ export class TranscriptModel {
     if (item?.kind !== 'user') return
     if (item.delivery === delivery && item.error === error) return
     this.replace({ ...item, delivery, error })
+  }
+
+  setBackgroundWorkRunning(running: boolean): void {
+    if (this.backgroundWorkRunning === running) return
+    this.backgroundWorkRunning = running
+    this.metaChanged = true
   }
 
   setStatus(status: SessionStatus): void {

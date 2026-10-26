@@ -75,6 +75,7 @@
   import { setHtmlBlockOrigin } from "./lib/html-block-origin";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
+  import { showsBackgroundWork } from "@solus/client-core/background-work";
   import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
   import { measureMount } from "../../lib/mount-timing";
   measureMount("ConversationView");
@@ -766,7 +767,7 @@
               <ConversationTurn {turn} index={turnIdx} total={turns.length}
                 expanded={turnExpansion.get(turn.id) ?? (turnIdx === turns.length - 1 && turn.end?.kind === "failed" && hasVisibleTurnBody(turn))}
                 {isAwaitingInput} {activityLabel} turnStart={sess.currentTurnStart}
-                hasBackgroundWork={sess.status === "background"}
+                hasBackgroundWork={showsBackgroundWork(sess.status, !!sess.backgroundWorkRunning)}
                 onStopBackgroundWork={stopBackgroundWork}
                 attempt={sess.retryAttempt ?? 1} history={session.toolHistory}
                 onToggle={(expanded) => toggleTurn(turn.id, expanded)} onRetry={handleRetry}

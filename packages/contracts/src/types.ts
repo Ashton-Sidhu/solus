@@ -1051,6 +1051,9 @@ export interface Session {
    *  optimistic state is reconciled with server queue snapshots and events. */
   outboundPrompts: OutboundPrompt[]
   rateLimitInfo: RateLimitInfo | null
+  /** Background work of the session runs on its host, held or not
+   *  (`background_work`). Unset until the host says so. */
+  backgroundWorkRunning?: boolean
   lastResult: RunResult | null
   /** What currently occupies the context window. Drives the context meter. */
   contextUsage: ContextUsage | null
@@ -1899,6 +1902,11 @@ export type NormalizedEvent =
   | { type: 'background_task_started'; taskId: string; toolUseId?: string; awaitable?: boolean }
   | { type: 'background_task_progress'; taskId: string; toolUseId?: string; description?: string; toolUses?: number; totalTokens?: number; durationMs?: number; lastToolName?: string }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
+  /** Whether any background work of the session runs, held or not. Sent when
+   *  that changes. A Claude shell or Monitor the agent did not mark runs while
+   *  the session is `completed`: the clients show its background row from this
+   *  (docs/background-work.md). */
+  | { type: 'background_work'; running: boolean }
   /** `kind: 'auth'`: the provider refused the turn's login. The client offers sign-in again. */
   | { type: 'error'; message: string; isError: boolean; sessionId?: string; kind?: 'auth' }
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
@@ -2256,6 +2264,8 @@ export interface RuntimeSessionInfo {
   queuedPrompts: QueuedPromptSnapshot[]
   rateLimitInfo: RateLimitInfo | null
   handoffFrom?: SessionHandoffLineage
+  /** Background work of the session runs, held or not (`background_work`). */
+  backgroundWorkRunning?: boolean
 }
 
 export interface WatchSessionInput {

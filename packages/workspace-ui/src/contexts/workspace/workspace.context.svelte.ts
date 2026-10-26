@@ -997,10 +997,12 @@ export class WorkspaceContext implements SurfaceContext {
       applyRuntimeConfig(session, info)
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
+      session.backgroundWorkRunning = !!info.backgroundWorkRunning
       this.lifecycle.reconcileQueuedPrompts(tabId, info.queuedPrompts)
     } else {
       // Background tasks live in the run's query, so with no run none are left.
       if (session.status === 'background') session.status = 'idle'
+      session.backgroundWorkRunning = false
       // No run is alive on the host, so no blocking request it asked can be answered.
       for (const request of session.permissionQueue) request.expired ??= 'run_ended'
       for (const request of session.questionQueue) {

@@ -206,13 +206,16 @@ export class SessionWatchers {
     // before it reconnected, answered or closed meanwhile, leaves.
     this.rt.publish(sessionId, { type: 'pending_input_sync', pendingInputEvents: [...session.pendingInputEvents] }, { only: clientId })
 
+    const backgroundWorkRunning = !!session.backgroundTaskIds?.size
     const status = pendingRateLimitEvent
       ? 'rate_limited'
-      : isRuntimeRunning && session.status === 'completed'
+      : isRuntimeRunning && session.status === 'completed' && !backgroundWorkRunning
         ? 'running'
         : session.status
     // Keep the stored turn status intact. `completed` can arrive just before the
     // runtime exits; only the reattaching client needs the live-runtime override.
+    // Background work the agent did not mark keeps the runtime open after a
+    // turn that really completed, so it is no sign of a running turn.
     this.rt.statuses.setStatus(sessionId, pendingRateLimitEvent ? 'rate_limited' : session.status)
 
     if (pendingRateLimitEvent && !replayed.has(pendingRateLimitEvent)) {
@@ -237,6 +240,7 @@ export class SessionWatchers {
       queuedPrompts: this.rt.scheduler.queuedPromptsForSession(sessionId),
       rateLimitInfo,
       handoffFrom: session.handoffFrom,
+      backgroundWorkRunning,
     }
   }
 

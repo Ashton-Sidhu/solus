@@ -551,6 +551,10 @@ export class SessionEventReducer {
         break
       }
 
+      case 'background_work':
+        session.backgroundWorkRunning = event.running
+        break
+
       case 'background_task_progress': {
         const msg = this.findBackgroundTaskMsg(session, event.taskId, event.toolUseId)
         if (!msg) break

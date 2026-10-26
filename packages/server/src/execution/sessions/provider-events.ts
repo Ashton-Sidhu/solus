@@ -350,7 +350,9 @@ export class ProviderEvents {
         // sub-agent's card can only track the agent through them, since the SDK
         // answers its tool call at launch rather than at completion.
         if (event.type === 'background_task_started') {
+          const wasRunning = !!session.backgroundTaskIds?.size
           ;(session.backgroundTaskIds ??= new Set()).add(event.taskId)
+          if (!wasRunning) this.rt.publish(session.sessionId, { type: 'background_work', running: true })
           if (event.awaitable) (session.awaitableTaskIds ??= new Set()).add(event.taskId)
           log.info('task_started', { taskId: event.taskId, sessionId: session.sessionId, inFlight: session.backgroundTaskIds.size, awaitable: !!event.awaitable })
           // A task can be backgrounded after the turn already settled to idle;
@@ -359,7 +361,9 @@ export class ProviderEvents {
         }
 
         if (event.type === 'background_task_settled') {
-          session.backgroundTaskIds?.delete(event.taskId)
+          if (session.backgroundTaskIds?.delete(event.taskId) && !session.backgroundTaskIds.size) {
+            this.rt.publish(session.sessionId, { type: 'background_work', running: false })
+          }
           session.awaitableTaskIds?.delete(event.taskId)
           session.awaitedTaskIds?.delete(event.taskId)
           log.info('task_settled', { taskId: event.taskId, status: event.status, sessionId: session.sessionId, inFlight: session.backgroundTaskIds?.size ?? 0 })
@@ -522,6 +526,11 @@ export class ProviderEvents {
         const exited = this.rt.activeSessions.get(sessionId)
         if (exited) exited.awaitedTaskIds = exited.awaitableTaskIds = undefined
         const hasBackgroundWork = !!agentSessionId && !!backend.hasBackgroundTasks?.(agentSessionId)
+        // A Claude task that the exit killed sends no settle: its row leaves here.
+        if (exited?.backgroundTaskIds?.size && !hasBackgroundWork) {
+          exited.backgroundTaskIds.clear()
+          this.rt.publish(sessionId, { type: 'background_work', running: false })
+        }
         const newStatus = statusAfterExit(settledStatus, !!this.rt.orchestration?.isAwaitingReplies(sessionId), hasBackgroundWork)
         if (settledStatus === 'failed' && newStatus === 'background') this.failedBeforeBackground.add(sessionId)
         this.rt.sessionEmitter.recordTerminal(
