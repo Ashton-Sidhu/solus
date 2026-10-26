@@ -37,7 +37,7 @@ function build(
   tasks: Task[],
   sessions: Record<string, SidebarSessionChild[]>,
   query: string,
-  options: { sort?: PickerSort; conversations?: SessionSearchResult[] } = {},
+  options: { sort?: PickerSort; conversations?: SessionSearchResult[]; recentSessions?: SessionMeta[] } = {},
 ) {
   return buildPickerRows({
     tasks: tasks.toSorted((a, b) => b.updatedAt - a.updatedAt),
@@ -45,6 +45,7 @@ function build(
     now: NOW,
     sort: options.sort,
     conversations: options.conversations,
+    recentSessions: options.recentSessions,
     sessionsFor: (item) => sessions[item.id] ?? [],
     expandedTaskIds: new Set(),
   })
@@ -124,9 +125,11 @@ describe('picker top hits', () => {
   })
 
   test('a session no task claims is a name hit when its words are in its name', () => {
+    // WHY: the client already holds every session's title, so a session named
+    // for the words ranks on the keystroke, not when a host answers.
     const named = orphan('named', 'what we said first')
     named.session.customTitle = 'Websocket reconnect loop notes'
-    const { entries } = build([...noise], {}, 'websocket reconnect', { conversations: [named] })
+    const { entries } = build([...noise], {}, 'websocket reconnect', { recentSessions: [named.session] })
     expect(idOf(entries[0]!)).toBe('named')
   })
 

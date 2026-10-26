@@ -283,11 +283,12 @@ describe('unified picker rows', () => {
       expect(result.entries[0]).toMatchObject({ kind: 'session', session: { sessionId: 'a1' }, hit: { messageId: 7 } })
     })
 
-    test('under relevance, name hits lead and content hits follow the index score', () => {
+    test('name hits lead, and content hits follow in the reader\'s order: the index score or the date', () => {
       // WHY: a session's name is its title, the strongest claim a query has
       // on it; among passages the index already knows which is the better
       // match, and throwing that away for the date made the section a timeline
-      // whatever the header promised.
+      // whatever the header promised. Name hits stay above under either order:
+      // the hosts answer later, and their rows must not push them down.
       const dated = {
         a: [{ ...child('a1', 'pass by name'), lastActivityAt: 1 }],
         b: [],
@@ -304,7 +305,7 @@ describe('unified picker rows', () => {
         ],
       }).entries.map((entry) => entry.kind === 'session' ? entry.session.sessionId : entry.kind === 'conversation' ? entry.meta.sessionId : null)
       expect(listed('relevance')).toEqual(['a1', 'strong-old', 'weak-new'])
-      expect(listed('recency')).toEqual(['weak-new', 'strong-old', 'a1'])
+      expect(listed('recency')).toEqual(['a1', 'weak-new', 'strong-old'])
     })
 
     test('a session whose name and words both matched ranks as a name hit and shows its words', () => {
@@ -332,29 +333,29 @@ describe('unified picker rows', () => {
       expect(snippet.indexOf(SNIPPET_HIT_OPEN)).toBeLessThan(40)
     })
 
-    test('the Sessions header counts every match the hosts hold, and the list ends with a row that reads the rest', () => {
+    test('the In messages header counts every match the hosts hold, and the list ends with a row that reads the rest', () => {
       // WHY: every session that matches is reachable (unified-search.md §6).
       // The count is the whole answer, not a cap, and the end row is what the
       // list reads the next page with; the keyboard never lands on it.
       const paged = buildWithHits('alpha', [hit('orphan', 'alpha')], [], null, 'relevance', 40)
-      expect(paged.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 41 })
+      expect(paged.rows.find((row) => row.kind === 'header' && row.label === 'In messages')).toMatchObject({ count: 41 })
       expect(paged.rows.at(-1)).toMatchObject({ kind: 'more', remaining: 40 })
       expect(paged.entries.some((entry) => (entry.kind as string) === 'more')).toBe(false)
       expect(paged.sessionCount).toBe(41)
       const whole = buildWithHits('alpha', [hit('orphan', 'alpha')])
-      expect(whole.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 1 })
+      expect(whole.rows.find((row) => row.kind === 'header' && row.label === 'In messages')).toMatchObject({ count: 1 })
       expect(whole.rows.some((row) => row.kind === 'more')).toBe(false)
     })
 
-    test('a session no task claims, found by its words, is listed under Sessions', () => {
+    test('a session no task claims, found by its words, is listed under In messages', () => {
       // WHY: the reader searched for what was said, not for a title, so a
-      // session no task claims must still be reachable — in the one section
-      // every session hit shares, not a section of its own.
+      // session no task claims must still be reachable. A host found it, so it
+      // is listed below every row this client found by name.
       const { rows, entries, sessionCount } = buildWithHits('alpha', [
         hit('orphan', '…the alpha rollout…'),
       ])
       expect(rows.map((row) => row.kind)).toEqual(['header', 'task', 'header', 'conversation'])
-      expect(rows[2]).toMatchObject({ kind: 'header', label: 'Sessions', count: 1, hint: 'best match first' })
+      expect(rows[2]).toMatchObject({ kind: 'header', label: 'In messages', count: 1, hint: 'best match first' })
       expect(entries.at(-1)).toMatchObject({
         kind: 'conversation',
         entryIndex: 1,
@@ -387,7 +388,7 @@ describe('unified picker rows', () => {
       expect(opened.entries.map((entry) => entry.key)).toEqual(rows.filter((row) => row.kind !== 'header').map((row) => row.key))
     })
 
-    test('under recency, name hits and word hits share one order: newest first by the date each row shows', () => {
+    test('under recency, name hits come first and word hits follow, each newest first by the date the row shows', () => {
       const dated = {
         a: [{ ...child('a1', 'first pass'), lastActivityAt: 300 }],
         b: [{ ...child('b1', 'beta run'), lastActivityAt: 100 }],
@@ -402,6 +403,29 @@ describe('unified picker rows', () => {
       })
       expect(entries.map((entry) => entry.kind === 'session' ? entry.session.sessionId : entry.meta.sessionId))
         .toEqual(['a1', 'orphan', 'b1'])
+    })
+
+    test('a late host answer never moves a row the names already placed', () => {
+      // WHY: the names are matched on each keystroke and the hosts answer a
+      // beat later. When their answer moved the rows, the reader aimed at a row
+      // and opened the one that slid under the cursor (t3code #24343).
+      const named = {
+        a: [{ ...child('a1', 'pass one'), lastActivityAt: 5 }],
+        b: [{ ...child('b1', 'pass one'), lastActivityAt: 5 }],
+      }
+      const listed = (conversations: SessionSearchResult[]) => buildPickerRows({
+        tasks,
+        query: 'pass',
+        sessionsFor: (item) => named[item.id as 'a' | 'b'] ?? [],
+        expandedTaskIds: new Set(),
+        conversations,
+      })
+      const before = listed([])
+      // b1's passage scores better than a1's; an orphan scores best of all.
+      const after = listed([hit('a1', 'pass said', 1, 'local', -1), hit('b1', 'pass said', 1, 'local', -5), hit('orphan', 'pass', 9, 'local', -50)])
+      expect(after.rows.slice(0, before.rows.length).map((row) => row.key)).toEqual(before.rows.map((row) => row.key))
+      expect(after.rows.slice(before.rows.length).map((row) => row.key)).toEqual(['header:messages', 'session:session:orphan'])
+      expect(after.entries[1]).toMatchObject({ session: { sessionId: 'b1' }, hit: { snippet: 'pass said' } })
     })
 
     test("a hit in a session of a task the scope removed stays out, whatever the host said", () => {

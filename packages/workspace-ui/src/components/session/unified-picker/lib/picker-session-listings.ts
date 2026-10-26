@@ -75,15 +75,26 @@ export function sessionIdentity(session: { serverId?: string | null; sessionId?:
   return session.sessionId ? `session:${session.sessionId}` : JSON.stringify([session.serverId ?? '', `tab:${session.tabId}`])
 }
 
-/** Merge all evidence without changing the session's title or listing it twice. */
+/** The listings under a query, in two groups. The rows in `named` are found
+ *  on this client by their names, so they are ranked again on each keystroke
+ *  and a host's answer only adds evidence to them, never a new place. The rows
+ *  in `inMessages` are the sessions only a host found; they come later, so they
+ *  are listed below every row in `named` and do not move it. */
+export interface MatchedSessions {
+  named: SessionListing[]
+  inMessages: SessionListing[]
+}
+
+/** Merge all evidence without changing the session's title, its place, or listing it twice. */
 export function matchedSessions(
   nameHits: readonly TaskSession[],
+  unclaimed: readonly SessionListing[],
   conversations: readonly SessionSearchResult[],
   ownerBySessionId: ReadonlyMap<string, SessionOwner>,
   sort: PickerSort,
   words: readonly string[],
   now: number,
-): SessionListing[] {
+): MatchedSessions {
   const byKey = new Map<string, SessionListing>()
   for (const { task, session } of nameHits) {
     const key = sessionIdentity(session)
@@ -91,31 +102,46 @@ export function matchedSessions(
     const score = nameScore(session.label, words) + activityScore(ts, now, isDone(task))
     if (!byKey.has(key)) byKey.set(key, { kind: 'session', task, session, ts: session.lastActivityAt, relevance: { tier: 'name', score } })
   }
+  // A session no task claims is still called something. When the words are in
+  // its title, it is a name hit. The opening message its row shows when it has
+  // no title is what was said, not a name.
+  for (const listing of unclaimed) {
+    if (listing.kind !== 'conversation') continue
+    const title = listing.meta.customTitle ?? ''
+    if (!matchesEveryWord(title, words)) continue
+    const key = sessionIdentity(listing.meta)
+    if (!byKey.has(key)) byKey.set(key, { ...listing, relevance: { tier: 'name', score: nameScore(title, words) + activityScore(listing.ts, now) } })
+  }
+  // Ranked before any host evidence is merged, so a passage cannot move a row.
+  const named = [...byKey.values()].sort(compareListings(sort))
+  const found = new Map<string, SessionListing>()
   for (const result of conversations) {
     const key = sessionIdentity(result.session)
     const owner = ownerBySessionId.get(key)
     if (owner && !owner.inScope) continue
-    let listing = byKey.get(key)
+    let listing = byKey.get(key) ?? found.get(key)
     if (!listing) {
-      if (owner) {
-        const ts = owner.session.lastActivityAt
-        listing = { kind: 'session', task: owner.task, session: owner.session, ts, relevance: { tier: 'evidence', score: activityScore(ts || owner.task.updatedAt, now, isDone(owner.task)) } }
-      } else {
-        // A session no task claims is still called something. When the words
-        // are in its title, it is a name hit. The opening message its row
-        // shows when it has no title is what was said, not a name.
-        const ts = Date.parse(result.session.lastTimestamp) || result.ts
-        const title = result.session.customTitle ?? ''
-        const relevance: Relevance = matchesEveryWord(title, words)
-          ? { tier: 'name', score: nameScore(title, words) + activityScore(ts, now) }
-          : { tier: 'evidence', score: activityScore(ts, now) }
-        listing = { kind: 'conversation', meta: result.session, hit: conversationHit(result), ts, relevance }
-      }
-      byKey.set(key, listing)
+      listing = foundListing(result, owner, words, now)
+      found.set(key, listing)
     }
     mergeSessionPassages(listing, result, owner?.session.serverId ?? '')
   }
-  return [...byKey.values()].sort(compareListings(sort))
+  return { named, inMessages: [...found.values()].sort(compareListings(sort)) }
+}
+
+/** A listing for a session only a host found: by its words, or by a title or
+ *  metadata this client does not hold. */
+function foundListing(result: SessionSearchResult, owner: SessionOwner | undefined, words: readonly string[], now: number): SessionListing {
+  if (owner) {
+    const ts = owner.session.lastActivityAt
+    return { kind: 'session', task: owner.task, session: owner.session, ts, relevance: { tier: 'evidence', score: activityScore(ts || owner.task.updatedAt, now, isDone(owner.task)) } }
+  }
+  const ts = Date.parse(result.session.lastTimestamp) || result.ts
+  const title = result.session.customTitle ?? ''
+  const relevance: Relevance = matchesEveryWord(title, words)
+    ? { tier: 'name', score: nameScore(title, words) + activityScore(ts, now) }
+    : { tier: 'evidence', score: activityScore(ts, now) }
+  return { kind: 'conversation', meta: result.session, hit: conversationHit(result), ts, relevance }
 }
 
 /** Keep only one host's message IDs, and choose the best bounded passages. */

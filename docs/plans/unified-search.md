@@ -72,7 +72,14 @@ pause in typing.
    in the `evidence` tier, and its row shows the comment passage.
 8. **Keywords mode searches names.** "Keywords in names only" asks the hosts
    for name and metadata hits only. It no longer turns session search off.
-9. **Filters live in the search options menu**, beside the order and the
+9. **Rows never move when a host answers.** The client matches task titles,
+   session names and the titles of the sessions it has listed on each
+   keystroke, and ranks them into Top hits, Tasks and Sessions. The hosts
+   answer later. A host's passage for a session already listed is shown in
+   its row, and the row keeps its place. A session that only a host found is
+   listed in a last section, In messages, under every other row (as in t3code
+   #24343). The keyboard cursor follows its row by key.
+10. **Filters live in the search options menu**, beside the order and the
    search mode. The chip shows how many are set. They apply with or without a
    query.
 
