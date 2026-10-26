@@ -16,6 +16,9 @@ export interface CodexItemsListResponse {
   nextCursor?: string | null
 }
 
+/** The most items one `thread/items/list` request asks for. */
+export const CODEX_ITEM_PAGE = 200
+
 /** Summaries omit tools. Read the newest item pages needed by the client window,
  * preserving chronological order and the turn's completion timestamp. */
 export async function loadCodexHistory(
@@ -39,7 +42,7 @@ export async function loadCodexHistory(
       do {
         const page = await readItems({
           threadId, turnId: turn.id, cursor,
-          limit: Math.min(200, cap - count - newestMessages.length), sortDirection: 'desc',
+          limit: Math.min(CODEX_ITEM_PAGE, cap - count - newestMessages.length), sortDirection: 'desc',
         })
         // Each page and the page sequence arrive newest first.
         for (const entry of page.data) {

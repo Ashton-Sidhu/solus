@@ -50,7 +50,7 @@ test('Codex older pages request only older turns and ignore appended turns', asy
     return { data: [{ turnId, item: { type: 'agentMessage', text: turnId } }], nextCursor: null }
   }
   const recent = await loadCodexHistoryPage('thread', turns, read, 1)
-  expect(recent.before).toBe('newer')
+  expect(JSON.parse(recent.before!)).toEqual({ turn: 'newer' })
   turns.push({ id: 'live', itemsView: 'summary' })
   const older = await loadCodexHistoryPage('thread', turns, read, 1, recent.before!)
   expect(requested).toEqual(['newer', 'older'])
@@ -111,7 +111,7 @@ test('a page is a number of user turns, however many rows each turn has', async 
   })
   const codex = await loadCodexHistoryPage('thread', codexTurns, read, 2)
   expect(codex.messages).toHaveLength(60)
-  expect(codex.before).toBe('b')
+  expect(JSON.parse(codex.before!)).toEqual({ turn: 'b' })
 })
 
 test('a page of many megabytes takes a few reads, not one per 64 KB', async () => {
