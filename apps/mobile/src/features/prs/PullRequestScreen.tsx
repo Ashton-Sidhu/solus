@@ -19,6 +19,7 @@ import { NativeHeaderToolbar, NativeStackScreenOptions } from '../../native/Stac
 import { HostStatusBanner } from '../hosts/HostStatusBanner'
 import { prAge } from './lib/pr-presentation'
 import { DEFAULT_ACTIVITY_FILTER, filterPullRequestActivity, type ActivityFilter } from './lib/pull-request-activity'
+import { canDeleteComment } from './lib/pull-request-permissions'
 import { pullRequestTabOffset } from './lib/pull-request-file-filters'
 import type { GuideDiffFocus } from './lib/pull-request-guide-tour'
 import { pullRequestRepositoryKey } from './lib/pull-request-list'
@@ -26,12 +27,13 @@ import type { PullRequestRef } from './pull-request-directory'
 import { shownValue } from './pull-request-reads'
 import { usePullRequestHostFallback } from './use-pull-request-host-fallback'
 import { PullRequestActionToolbar, ANDROID_PULL_REQUEST_TOOLBAR_HEIGHT } from './detail/PullRequestActionToolbar'
-import { PullRequestActivityFilters, pullRequestActivityRows, type ActivityRow } from './detail/PullRequestActivity'
+import { PullRequestActivityFilters, pullRequestActivityRows, type ActivityRow, type CommentDeletion } from './detail/PullRequestActivity'
 import { PullRequestGuideTab } from './detail/PullRequestGuide'
 import { PullRequestOverview } from './detail/PullRequestOverview'
 import { PullRequestStatusMenu } from './detail/PullRequestStatusRows'
 import { PullRequestAvatar, PullRequestDiffStats } from './detail/pull-request-ui'
 import type { PullRequestView } from './detail/pull-request-view'
+import { usePullRequestAction } from './detail/use-pull-request-action'
 import { usePullRequestView } from './detail/use-pull-request-view'
 import { PullRequestMediaContext } from './detail/use-pull-request-media-url'
 
@@ -148,14 +150,32 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
   }, [navigation, ref])
   const openCommit = useCallback((sha: string) => navigation.navigate('PullRequestFiles', { ...ref, commitSha: sha }), [navigation, ref])
   const openThread = useCallback((threadId: string) => navigation.navigate('PullRequestDiscussion', { ...ref, threadId }), [navigation, ref])
+  // Rows keep the delete command, so they read the confirm of this render from a ref.
+  const action = usePullRequestAction(ref)
+  const confirmRef = useRef(action.confirm)
+  confirmRef.current = action.confirm
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null)
+  const deletion = useMemo<CommentDeletion>(() => ({
+    canDelete: (item) => !!view && canDeleteComment(view.permissions, item, view.viewerLogin),
+    deletingId: deletingCommentId,
+    onDelete: (commentId) => confirmRef.current('Delete this comment?', 'It is removed from GitHub for everyone.', 'Delete', async () => {
+      setDeletingCommentId(commentId)
+      await app.pullRequestActions.deleteComment(ref, commentId).finally(() => setDeletingCommentId(null))
+    }, true),
+  }), [app, ref, view, deletingCommentId])
 
   const canReview = Boolean(permissions?.verdicts.length)
   const canComment = Boolean(permissions?.canComment)
+  const canEdit = Boolean(permissions?.canEditPullRequest)
   // Android draws the actions in its header; iOS has the native menu below.
   useLayoutEffect(() => {
     const actions = [
       ...(canReview ? [{ id: 'review', title: 'Submit review', image: 'text.bubble' }] : []),
       ...(canComment ? [{ id: 'comment', title: 'Add comment', image: 'plus.bubble' }] : []),
+      ...(canEdit ? [
+        { id: 'edit-title', title: 'Edit title', image: 'pencil' },
+        { id: 'edit-body', title: 'Edit description', image: 'square.and.pencil' },
+      ] : []),
       ...(pr ? [
         { id: 'open', title: 'Open on GitHub', image: 'arrow.up.right' },
         { id: 'copy', title: 'Copy link', image: 'doc.on.doc' },
@@ -171,6 +191,8 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
           actions={actions}
           onPressAction={({ nativeEvent }) => {
             if (nativeEvent.event === 'review' || nativeEvent.event === 'comment') navigation.navigate('PullRequestReview', { ...ref, mode: nativeEvent.event })
+            else if (nativeEvent.event === 'edit-title') navigation.navigate('PullRequestEdit', { ...ref, field: 'title' })
+            else if (nativeEvent.event === 'edit-body') navigation.navigate('PullRequestEdit', { ...ref, field: 'body' })
             else if (nativeEvent.event === 'open' && pr) void app.platform.openBrowser(pr.url)
             else if (nativeEvent.event === 'copy' && pr) copyTextWithHaptic(pr.url)
             else if (nativeEvent.event === 'share' && pr) void sharePullRequest(pr)
@@ -182,7 +204,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
         </ControlPillMenu>
       ) : undefined,
     })
-  }, [app, navigation, number, canReview, canComment, pr, ref])
+  }, [app, navigation, number, canReview, canComment, canEdit, pr, ref])
 
   const activity = useMemo(() => {
     if (!view) return null
@@ -190,7 +212,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
   }, [view, activityFilter])
   const rowsByTab = useMemo((): Record<Tab, ActivityRow[]> => {
     if (!view || !activity) return { overview: [], activity: [], guide: [] }
-    const timeline = pullRequestActivityRows(activity.activity, activityFilter.newestFirst, { openThread, openCommit })
+    const timeline = pullRequestActivityRows(activity.activity, activityFilter.newestFirst, { openThread, openCommit, deletion })
     const unread = (['comments', 'threads'] as const).filter((part) => view.detail.missing.includes(part))
     const reading = (['overview', 'comments', 'threads'] as const).some((part) => view.detail.reading?.includes(part))
     return {
@@ -203,7 +225,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
       ],
       guide: [{ key: 'guide', date: '', content: <PullRequestGuideTab view={view} onOpenFile={openFile} /> }],
     }
-  }, [view, activity, activityFilter, openThread, openFile, openCommit])
+  }, [view, activity, activityFilter, openThread, openFile, openCommit, deletion])
 
   const subtitle = pr ? `${pr.baseRepo.owner}/${pr.baseRepo.repo}${connected ? '' : ' · Offline'}` : connected ? undefined : 'Offline'
   const header = (
@@ -220,6 +242,16 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
           {canComment ? (
             <NativeHeaderToolbar.MenuAction icon="plus.bubble" onPress={() => navigation.navigate('PullRequestReview', { ...ref, mode: 'comment' })}>
               <NativeHeaderToolbar.Label>Add comment</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
+          ) : null}
+          {canEdit ? (
+            <NativeHeaderToolbar.MenuAction icon="pencil" onPress={() => navigation.navigate('PullRequestEdit', { ...ref, field: 'title' })}>
+              <NativeHeaderToolbar.Label>Edit title</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
+          ) : null}
+          {canEdit ? (
+            <NativeHeaderToolbar.MenuAction icon="square.and.pencil" onPress={() => navigation.navigate('PullRequestEdit', { ...ref, field: 'body' })}>
+              <NativeHeaderToolbar.Label>Edit description</NativeHeaderToolbar.Label>
             </NativeHeaderToolbar.MenuAction>
           ) : null}
           {pr ? pullRequestLinkMenuActions(pr, (url) => void app.platform.openBrowser(url)) : null}

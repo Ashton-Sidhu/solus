@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestTimeline.tsx, PullRequestActivityFilters.tsx, and PullRequestEntryRow.tsx (MIT, see UPSTREAM.md).
 import { useState, type ReactNode } from 'react'
-import { Pressable, View } from 'react-native'
+import { ActivityIndicator, Pressable, View } from 'react-native'
 import type { PrCommentActivityItem, PrCommit, PrConversationItem, ReviewThread } from '@solus/contracts/providers'
 import { groupThreadsByReview, reviewIsEvent } from '@solus/client-core/review-groups'
 import { SymbolView, type AppSymbolName } from '../../../components/AppSymbol'
@@ -37,7 +37,7 @@ function TimelineEvent(props: { readonly icon: AppSymbolName; readonly tone?: 's
   )
 }
 
-function EventHeader(props: { readonly author: string; readonly avatarUrl?: string; readonly verb: string; readonly at: string; readonly now: number }) {
+function EventHeader(props: { readonly author: string; readonly avatarUrl?: string; readonly verb: string; readonly at: string; readonly now: number; readonly trailing?: ReactNode }) {
   return (
     <View className="flex-row items-center gap-2">
       <PullRequestAvatar login={props.author} avatarUrl={props.avatarUrl ?? null} size={22} />
@@ -46,8 +46,26 @@ function EventHeader(props: { readonly author: string; readonly avatarUrl?: stri
         <Text className="text-foreground-muted">{` ${props.verb}`}</Text>
       </Text>
       <Text className="text-2xs text-foreground-tertiary">{prAge(props.at, props.now)}</Text>
+      {props.trailing}
     </View>
   )
+}
+
+/** Deletes a comment the person wrote, after they confirm. Shows the delete while it runs. */
+function DeleteCommentButton(props: { readonly deleting: boolean; readonly onDelete: () => void }) {
+  if (props.deleting) return <ActivityIndicator size="small" colorClassName="accent-icon-muted" accessibilityLabel="Deleting comment" />
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel="Delete your comment" hitSlop={10} onPress={props.onDelete} className="active:opacity-60">
+      <SymbolView name="trash" size={14} tintColorClassName="accent-icon-muted" />
+    </Pressable>
+  )
+}
+
+/** What a row needs to delete the person's own comments. */
+export interface CommentDeletion {
+  readonly canDelete: (item: PrCommentActivityItem) => boolean
+  readonly deletingId: string | null
+  readonly onDelete: (commentId: string) => void
 }
 
 /** One inline thread: where it is, its first words, and its state. Opens the discussion. */
@@ -86,11 +104,12 @@ function commentVerb(item: PrCommentActivityItem, threadCount: number): string {
 /** A long comment is cut until the person opens it. A review carries the
  *  inline threads it was submitted with, nested under its body as the host
  *  shows them. */
-function TimelineComment({ item, threads, now, onOpenThread }: {
+function TimelineComment({ item, threads, now, onOpenThread, deletion }: {
   readonly item: PrCommentActivityItem
   readonly threads: readonly ReviewThread[]
   readonly now: number
   readonly onOpenThread: (threadId: string) => void
+  readonly deletion: CommentDeletion
 }) {
   const [expanded, setExpanded] = useState(false)
   const approved = item.reviewState === 'APPROVED'
@@ -99,7 +118,14 @@ function TimelineComment({ item, threads, now, onOpenThread }: {
   const verb = commentVerb(item, threads.length)
   return (
     <TimelineEvent icon={approved ? 'checkmark' : changes ? 'doc.text' : 'text.bubble'} {...(approved ? { tone: 'success' as const } : changes ? { tone: 'danger' as const } : {})}>
-      <EventHeader author={item.author} {...(item.authorAvatarUrl ? { avatarUrl: item.authorAvatarUrl } : {})} verb={verb} at={item.createdAt} now={now} />
+      <EventHeader
+        author={item.author}
+        {...(item.authorAvatarUrl ? { avatarUrl: item.authorAvatarUrl } : {})}
+        verb={verb}
+        at={item.createdAt}
+        now={now}
+        trailing={deletion.canDelete(item) ? <DeleteCommentButton deleting={deletion.deletingId === item.id} onDelete={() => deletion.onDelete(item.id)} /> : null}
+      />
       {item.body.trim() ? (
         <View className="gap-2 overflow-hidden rounded-2xl bg-grouped-card p-3">
           <View style={long && !expanded ? { maxHeight: 240, overflow: 'hidden' } : undefined}>
@@ -118,8 +144,8 @@ function TimelineComment({ item, threads, now, onOpenThread }: {
   )
 }
 
-function conversationRow(item: PrConversationItem, threads: readonly ReviewThread[], now: number, onOpenThread: (threadId: string) => void): ActivityRow {
-  if (item.kind !== 'label') return { key: `comment:${item.id}`, date: item.createdAt, content: <TimelineComment item={item} threads={threads} now={now} onOpenThread={onOpenThread} /> }
+function conversationRow(item: PrConversationItem, threads: readonly ReviewThread[], now: number, onOpenThread: (threadId: string) => void, deletion: CommentDeletion): ActivityRow {
+  if (item.kind !== 'label') return { key: `comment:${item.id}`, date: item.createdAt, content: <TimelineComment item={item} threads={threads} now={now} onOpenThread={onOpenThread} deletion={deletion} /> }
   const color = pullRequestLabelColor(item.label.color)
   return {
     key: `label:${item.id}`,
@@ -177,7 +203,7 @@ function commitRow(commit: PrCommit, now: number, onOpen: (sha: string) => void)
 export function pullRequestActivityRows(
   activity: PullRequestActivity,
   newestFirst: boolean,
-  handlers: { readonly openThread: (threadId: string) => void; readonly openCommit: (sha: string) => void },
+  handlers: { readonly openThread: (threadId: string) => void; readonly openCommit: (sha: string) => void; readonly deletion: CommentDeletion },
 ): ActivityRow[] {
   const now = Date.now()
   const groups = groupThreadsByReview(activity.comments, activity.threads)
@@ -185,7 +211,7 @@ export function pullRequestActivityRows(
     ...activity.comments.flatMap((item) => {
       const threads = item.kind === 'review' ? groups.byReview.get(item.id) ?? [] : []
       if (item.kind === 'review' && !reviewIsEvent(item, threads)) return []
-      return [conversationRow(item, threads, now, handlers.openThread)]
+      return [conversationRow(item, threads, now, handlers.openThread, handlers.deletion)]
     }),
     ...groups.standalone.map((thread) => threadRow(thread, now, handlers.openThread)),
     ...activity.commits.map((commit) => commitRow(commit, now, handlers.openCommit)),

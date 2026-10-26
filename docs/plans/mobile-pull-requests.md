@@ -59,8 +59,9 @@ or a new server session made stale is dropped (`PullRequestDirectory.read`).
 - `pull-request-diffs.ts` — diff pages for one pull request (optionally one
   commit), with the provider cursor; file contents for context expansion.
 - `pull-request-actions.ts` — commands: merge, auto-merge, update branch,
-  lifecycle, reviewers, labels, review submit, thread reply/resolve, stack
-  merge, revert, workflow approval, and viewed marks.
+  lifecycle, reviewers, labels, title and description edit, review submit,
+  conversation comment and its delete, thread reply/resolve, stack merge,
+  revert, workflow approval, and viewed marks.
 - `pull-request-guides.ts` — guide status, read, and request for a pull request.
 - `pull-request-review-drafts.ts` — the review draft of each pull request.
 - `pull-request-cache.ts` — the pull request cache in `expo-sqlite`.
@@ -125,8 +126,15 @@ workspace UI. This module needs a new native build of the app.
 - Android shows Settings as a third destination (2026-10-19, T3 #20813). See
   "Android destinations" below.
 - New stack routes for the pull request detail flows: `PullRequestReview`,
-  `PullRequestInlineComment`, `PullRequestReviewers`, `PullRequestLabels`
-  (sheets) and `PullRequestDiscussion` (pushed).
+  `PullRequestInlineComment`, `PullRequestReviewers`, `PullRequestLabels`,
+  `PullRequestEdit` (sheets) and `PullRequestDiscussion` (pushed).
+- The actions menu has Edit title and Edit description. They open one
+  `PullRequestEdit` sheet. As on web, every connected viewer sees them, and
+  the host decides the account's right. A conversation comment that the
+  viewer wrote has a delete button, which asks for confirmation first.
+  `isOwnConversationComment` in `client-core/pull-request-comments.ts` is
+  the one rule for web and mobile. Editing a comment and reactions have no
+  RPC on any client, so they are not here.
 
 ### Guide
 

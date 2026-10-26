@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/usePullRequestAction.ts and usePullRequestAgentActions.ts (MIT, see UPSTREAM.md).
 import type { MergeMethod, PrMergeResult } from '@solus/contracts/types'
 import { worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
-import type { PrLabel, PrMergeMethod, PrReviewerCandidate, PrReviewerKind, PrReviewVerdict, PrStackHead, PrStackMergeResult, PrStateAction, PullRequest } from '@solus/contracts/providers'
+import type { PrLabel, PrMergeMethod, PrReviewerCandidate, PrReviewerKind, PrReviewVerdict, PrStackHead, PrStackMergeResult, PrStateAction, PullRequest, PullRequestUpdate } from '@solus/contracts/providers'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 import { conflictResolutionPrompt, pullRequestAgentPrompt, type PullRequestAgentTask } from './lib/pull-request-agent-tasks'
@@ -18,7 +18,7 @@ import type { PullRequestReviewDrafts } from './pull-request-review-drafts'
  */
 
 export type PullRequestActionKind =
-  | 'merge' | 'auto-merge' | 'update-branch' | 'lifecycle' | 'reviewers' | 'labels'
+  | 'merge' | 'auto-merge' | 'update-branch' | 'lifecycle' | 'reviewers' | 'labels' | 'edit'
   | 'review' | 'thread' | 'comment' | 'agent' | 'revert' | 'workflows'
 
 /** How long the viewed marks wait for more taps before they go in one write. */
@@ -182,6 +182,11 @@ export class PullRequestActions {
     return this.write(ref, 'labels', true, (api, ctx) => api.prSetLabels(ctx, ref.number, names))
   }
 
+  /** Changes the title or the description. The list shows the title, so it is read again too. */
+  update(ref: PullRequestRef, patch: PullRequestUpdate): Promise<PullRequest> {
+    return this.write(ref, 'edit', true, (api, ctx) => api.prUpdate(ctx, ref.number, patch))
+  }
+
   /**
    * Submits one review: the verdict, `body`, and the draft's inline comments
    * written on `headSha`. After the host accepts it, the draft loses what was
@@ -209,6 +214,11 @@ export class PullRequestActions {
   /** A comment on the pull request's conversation. */
   async comment(ref: PullRequestRef, body: string): Promise<void> {
     await this.write(ref, 'comment', false, (api, ctx) => api.prAddIssueComment(ctx, ref.number, body.trim()))
+  }
+
+  /** Deletes a conversation comment the person wrote. */
+  async deleteComment(ref: PullRequestRef, commentId: string): Promise<void> {
+    await this.write(ref, 'comment', false, (api, ctx) => api.prDeleteIssueComment(ctx, ref.number, commentId))
   }
 
   /**

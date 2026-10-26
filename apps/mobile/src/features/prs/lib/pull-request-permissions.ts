@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/usePullRequestPermissions.ts and pullRequestActions.ts (MIT, see UPSTREAM.md).
-import type { PrLifecycleAction, PrMergeMethod, PrReviewVerdict, PrStack, PrStackHead, PrStackLayer, PrStateAction, PullRequest } from '@solus/contracts/providers'
+import type { PrConversationItem, PrLifecycleAction, PrMergeMethod, PrReviewVerdict, PrStack, PrStackHead, PrStackLayer, PrStateAction, PullRequest } from '@solus/contracts/providers'
+import { isOwnConversationComment } from '@solus/client-core/pull-request-comments'
 import { canGiveVerdict } from './pr-presentation'
 
 /**
@@ -33,6 +34,9 @@ export interface PullRequestPermissions {
   /** True when the host can list people to ask for a review. */
   hasReviewerCandidates: boolean
   canManageLabels: boolean
+  /** The title and the description may be changed. As on the web client,
+   *  the host decides the account's right when it gets the write. */
+  canEditPullRequest: boolean
   /** True when an agent may push to the head: it lives in the base
    *  repository, and the person may change the pull request. */
   canUpdateHead: boolean
@@ -46,7 +50,7 @@ const NONE: PullRequestPermissions = {
   connected: false, verdicts: [], canInlineComment: false, canComment: false, canReply: false, canResolve: false,
   mergeMethods: [], defaultMergeMethod: null, canMerge: false, mergeUnavailableReason: null, canEnableAutoMerge: false,
   canDisableAutoMerge: false, canUpdateBranch: false, lifecycle: [], canRequestReviewers: false, hasReviewerCandidates: false,
-  canManageLabels: false, canUpdateHead: false, canRevert: false, canApproveWorkflows: false,
+  canManageLabels: false, canEditPullRequest: false, canUpdateHead: false, canRevert: false, canApproveWorkflows: false,
 }
 
 /** The host finished the merge check and found it cannot merge. `mergeable:
@@ -140,9 +144,16 @@ export function pullRequestPermissions(pr: PullRequest | null, viewerLogin: stri
     lifecycle: (['ready', 'draft', 'close', 'reopen'] as const).filter((action) => lifecycleAllowed(pr, action)),
     canRequestReviewers: pr.state === 'open' && pr.capabilities.reviewerRequests && pr.viewerPermissions.requestReviewers,
     canManageLabels: pr.capabilities.labelManagement && pr.viewerPermissions.manageLabels,
+    canEditPullRequest: true,
     canRevert: pr.state === 'merged' && may(pr, 'revert'),
     canApproveWorkflows: pr.state === 'open' && may(pr, 'approve-workflows'),
   }
+}
+
+/** The person may delete a conversation comment they wrote, as on the web
+ *  client; a write needs the host now. */
+export function canDeleteComment(permissions: PullRequestPermissions, item: PrConversationItem, viewerLogin: string | null): boolean {
+  return permissions.connected && isOwnConversationComment(item, viewerLogin)
 }
 
 /** GitHub keeps the viewed marks of the whole pull request when the host says

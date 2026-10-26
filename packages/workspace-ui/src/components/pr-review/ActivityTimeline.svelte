@@ -14,6 +14,7 @@
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import CommentMarkdown from '../github-markdown/CommentMarkdown.svelte';
+  import { isOwnConversationComment } from "@solus/client-core/pull-request-comments";
   import type {
     PrCommentActivityItem,
     PrCommit,
@@ -436,7 +437,7 @@
           {#if hasContent}
             {@render collapseToggle(eventKey, event.comment.author)}
           {/if}
-          {#if event.comment.kind === "comment" && viewerLogin && event.comment.author.toLowerCase() === viewerLogin.toLowerCase()}
+          {#if isOwnConversationComment(event.comment, viewerLogin)}
             {@render deleteCommentButton(event.comment.id, event.comment.author)}
           {/if}
         </div>
