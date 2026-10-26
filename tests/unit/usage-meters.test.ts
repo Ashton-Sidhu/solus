@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { providerUsage } from '@solus/workspace-ui/components/project-panel/lib/usage-meters'
+import { providerUsage, signInCommand } from '@solus/workspace-ui/components/project-panel/lib/usage-meters'
 import type { AgentMetadata, AgentUsageLimits } from '@solus/contracts/types'
 
 const NOW = 1_700_000_000_000
@@ -21,6 +21,16 @@ function limits(id: string, overrides: Partial<AgentUsageLimits> = {}): AgentUsa
 }
 
 describe('providerUsage', () => {
+  test('a signed-out agent keeps its row and says to sign in, not that the read failed', () => {
+    const [row] = providerUsage(
+      [agent('codex')],
+      { codex: limits('codex', { fiveHour: null, weekly: null, usageMode: 'signed_out' }) },
+      NOW,
+    )
+    expect(row).toMatchObject({ provider: 'codex', meters: [], status: 'signed_out', stale: false })
+    expect(signInCommand('codex')).toBe('codex login')
+  })
+
   test('reports what is left, not what was spent', () => {
     const [row] = providerUsage([agent('codex')], { codex: limits('codex') }, NOW)
     expect(row.meters.map((meter) => meter.remainingPercent)).toEqual([60, 20])

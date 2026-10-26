@@ -60,6 +60,8 @@ export class UsageLimitsStore {
     const next: AgentUsageLimits = current
       ? { ...current, fetchedAt: now, stale: false }
       : { provider: agentId, fiveHour: null, weekly: null, planType: null, fetchedAt: now, stale: false }
+    // Windows on the stream mean a login is running turns again.
+    if (next.usageMode === 'signed_out') next.usageMode = 'subscription'
 
     for (const update of windows) {
       if (update.windowDurationMins === FIVE_HOUR_WINDOW_MINS) next.fiveHour = mergeWindow(next.fiveHour, update)

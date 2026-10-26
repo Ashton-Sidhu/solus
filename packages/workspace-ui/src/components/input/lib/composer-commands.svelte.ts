@@ -1,5 +1,5 @@
 import { getWorkspaceContext, getSettingsContext, getClientShellContext } from '../../../contexts';
-import type { Prompt, PromptDelivery, RunConfig, PluginCommandsResult } from '@solus/contracts/types';
+import type { Attachment, Prompt, PromptDelivery, RunConfig, PluginCommandsResult } from '@solus/contracts/types';
 import type PromptEditor from '../../ui/PromptEditor.svelte';
 import { CODEX_SLASH_COMMANDS, SLASH_COMMANDS, slashCommandAppliesTo, type SlashCommand } from '../slash-commands';
 import { parseAgentAuthCommand } from '@solus/contracts/agent-auth';
@@ -560,6 +560,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     const serverId = runHost(run) ?? LOCAL_SERVER_ID;
     // One image failing — too large, say — must not drop the rest of the paste,
     // so each is attached on its own and reports its own error.
+    const imageUploads: Promise<void>[] = [];
     for (const blob of blobs) {
       try {
         // A video is a file, never pasted image content: it streams to the
@@ -572,14 +573,38 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
           continue;
         }
         const dataUrl = await readFileDataUrl(blob);
-        const capabilities = await serverConnections.capabilitiesFor(serverId);
-        const attachment = clientShell.supportsLocalAttachments && hostPolicy.isClientMachine(serverId)
-          ? await api.pasteImage(dataUrl, ctx)
-          : capabilities.attachUpload === true
-            ? await uploadPastedImage(api, ctx, serverId, dataUrl)
-            : pastedImageAttachment(dataUrl, serverId);
-        if (attachment) prompt.attachments.push(attachment);
+        // The chip shows at once with its thumbnail; on a remote host the
+        // upload can take seconds. Send waits while the chip is uploading.
+        const placeholder = pastedImageAttachment(dataUrl, serverId);
+        prompt.attachments.push(placeholder);
+        imageUploads.push(finishPastedImage(placeholder, async () => {
+          const capabilities = await serverConnections.capabilitiesFor(serverId);
+          if (clientShell.supportsLocalAttachments && hostPolicy.isClientMachine(serverId)) {
+            return api.pasteImage(dataUrl, ctx);
+          }
+          return capabilities.attachUpload === true
+            ? uploadPastedImage(api, ctx, serverId, dataUrl)
+            : placeholder;
+        }));
       } catch (error) {
+        toasts.error(error instanceof Error ? error.message : "Couldn't attach pasted image");
+      }
+    }
+    await Promise.all(imageUploads);
+
+    async function finishPastedImage(placeholder: Attachment, upload: () => Promise<Attachment | null>) {
+      const indexOfPlaceholder = () => prompt.attachments.findIndex((a) => a.id === placeholder.id);
+      try {
+        const result = await attachmentUploads.hold(placeholder.id, placeholder.size ?? 0, upload);
+        // The user removed the chip while it uploaded.
+        if (result.status === 'cancelled') return;
+        const index = indexOfPlaceholder();
+        if (index < 0) return;
+        if (result.attachment) prompt.attachments[index] = { ...result.attachment, id: placeholder.id };
+        else prompt.attachments.splice(index, 1);
+      } catch (error) {
+        const index = indexOfPlaceholder();
+        if (index >= 0) prompt.attachments.splice(index, 1);
         toasts.error(error instanceof Error ? error.message : "Couldn't attach pasted image");
       }
     }

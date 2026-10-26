@@ -1123,13 +1123,16 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   async readUsageLimits(seat?: TurnSeat): Promise<AgentUsageLimits> {
     const client = this.clientFor(seat)
     const account = await client.request('account/read', { refreshToken: false })
-    if (account.account?.type === 'apiKey') {
+    // Signed out: there is no quota to read, and the meter must say how to sign
+    // in rather than report a failed read.
+    const isSignedOut = account.account === null && account.requiresOpenaiAuth
+    if (account.account?.type === 'apiKey' || isSignedOut) {
       return {
         provider: this.id,
         fiveHour: null,
         weekly: null,
         planType: null,
-        usageMode: 'api',
+        usageMode: isSignedOut ? 'signed_out' : 'api',
         fetchedAt: Date.now(),
         stale: false,
       }

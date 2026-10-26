@@ -51,6 +51,7 @@
     conversationFindTopInset,
   } from "./lib/find";
   import { createEndFollow, scrollConversationTo } from "./lib/response-scroll";
+  import { TurnAnnouncer, turnPhaseFor } from "@solus/client-core/turn-announcement";
   import { questionAnchorScrollTop } from "./lib/question-scroll";
   import { ConversationFind } from "./lib/conversation-find.svelte";
   import {
@@ -424,6 +425,16 @@
     }
   });
 
+  // Screen readers hear a turn start, wait, and end. A phase is only seen as it
+  // arrives, so this cannot be a $derived of the current status.
+  const turnAnnouncer = new TurnAnnouncer();
+  let turnAnnouncement = $state("");
+  $effect(() => {
+    const phase = sess ? turnPhaseFor(sess.status, sess.permissionQueue.length > 0) : null;
+    turnAnnouncer.observe(tabId, phase);
+    turnAnnouncement = turnAnnouncer.text;
+  });
+
   const isAwaitingPlan = $derived(sess?.status === "awaiting_plan");
   const isAwaitingInput = $derived(sess?.status === "awaiting_input");
   const currentActivity = $derived(sess ? computeCurrentActivity(sess) : "");
@@ -650,6 +661,8 @@
     }
   }
 </script>
+
+<div class="sr-only" role="status" aria-live="polite">{turnAnnouncement}</div>
 
 <!-- No container: assistant prose sits directly on the canvas. Cards, code and
      tables are the only boxes it may draw. -->

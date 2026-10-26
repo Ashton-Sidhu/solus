@@ -1499,9 +1499,11 @@ input::placeholder {
 }
 
 .prose-cloud blockquote {
-  border-inline-start: 0.1875rem solid var(--solus-tool-running-border);
+  /* Quote text keeps the prose color, so it reads in every theme; only the bar
+     is quiet, a tint of that same color. */
+  border-inline-start: 0.1875rem solid color-mix(in oklch, currentColor 35%, transparent);
   padding-inline-start: 0.8em;
-  color: var(--solus-text-secondary);
+  color: inherit;
   margin: 0.5em 0;
 }
 
@@ -1860,9 +1862,9 @@ button.solus-token {
   font-size: 1em;
 }
 .solus-doc-editor .ProseMirror blockquote {
-  border-left: 0.1875rem solid var(--solus-tool-running-border);
+  border-left: 0.1875rem solid color-mix(in oklch, currentColor 35%, transparent);
   padding-left: 0.8em;
-  color: var(--solus-text-secondary);
+  color: inherit;
   margin: 0.5em 0;
 }
 .solus-doc-editor .ProseMirror hr {
@@ -3337,11 +3339,10 @@ button.solus-token {
 .prose-transcript blockquote {
   margin: 0.875rem 0 0.625rem;
   padding-inline-start: 0.75rem;
-  border-inline-start: 0.09375rem solid
-    color-mix(in oklch, var(--foreground) 12%, transparent);
+  border-inline-start: 0.09375rem solid color-mix(in oklch, currentColor 35%, transparent);
   font-size: calc(0.875rem * var(--solus-font-scale, 1));
   font-style: normal;
-  color: var(--solus-text-tertiary);
+  color: inherit;
 }
 .prose-transcript hr {
   margin: 1.125rem 0;
@@ -3711,8 +3712,8 @@ button.solus-token {
   padding-inline-start: 0;
 }
 .prose-agent-card blockquote {
-  border-inline-start: 0.125rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
-  color: var(--muted-foreground);
+  border-inline-start: 0.125rem solid color-mix(in oklch, currentColor 35%, transparent);
+  color: inherit;
 }
 /* A table scrolls rather than reflows, for the same reason a code block does: a
    shrunk-to-fit table is harder to read than a scrollbar. */
@@ -3800,10 +3801,8 @@ button.solus-token {
 .prose-transcript-user blockquote {
   margin: 0.35em 0;
   padding-inline-start: 0.625rem;
-  border-inline-start: 0.09375rem solid
-    color-mix(in oklch, var(--foreground) 20%, transparent);
+  border-inline-start: 0.09375rem solid color-mix(in oklch, currentColor 35%, transparent);
   font-style: normal;
-  opacity: 0.75;
 }
 /* Code and reference chips share one shell with the transcript — see §5. A bubble
    adds nothing: the spec's whole point is that the chip is identical on both
@@ -4085,10 +4084,10 @@ button.solus-token {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote {
   margin: 1rem 0;
   padding: 0 0 0 0.8rem;
-  border-left: 0.125rem solid var(--hairline-strong);
+  border-left: 0.125rem solid color-mix(in oklch, currentColor 35%, transparent);
   border-radius: 0;
   background: transparent;
-  color: var(--solus-text-tertiary);
+  color: inherit;
   font-size: var(--prose-pr-size);
   line-height: 1.7;
 }

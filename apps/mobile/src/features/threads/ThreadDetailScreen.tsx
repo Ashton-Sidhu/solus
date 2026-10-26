@@ -52,6 +52,7 @@ import { FLOATING_WORKING_CONTROL_COVERAGE, FloatingWorkingControl } from "./flo
 import { backgroundFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import { derivePendingUserInputMaxHeight, ESTIMATED_KEYBOARD_HEIGHT } from "./pendingUserInputLayout";
 import { KeyboardResumeGuard } from "./android-keyboard-resume";
+import { useTurnAnnouncements } from "./use-turn-announcements";
 import {
   COMPOSER_COLLAPSED_CHROME,
   COMPOSER_EXPANDED_CHROME,
@@ -200,6 +201,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   // Nobody can answer a request while the host is away: its cards come back with the host.
   const activePendingApproval = hostChrome.showsRequestCards ? (meta.permissions[0] ?? null) : null;
   const activePendingUserInput = hostChrome.showsRequestCards ? (meta.questions[0] ?? null) : null;
+  useTurnAnnouncements(`${store.controller.hostId}:${conversationIdOf(store)}`, meta.status, activePendingApproval !== null);
   const queuedCount = meta.queue.entries.length;
   // The Agents pill: the newest turn's agents and earlier ones still running.
   // Rows are added rarely; an agent's status changes its own item only.

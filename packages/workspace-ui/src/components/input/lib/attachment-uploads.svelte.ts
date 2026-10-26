@@ -96,6 +96,22 @@ class AttachmentUploads {
     return attachment
   }
 
+  /** Mark a chip as uploading while `upload` runs, so send waits for it.
+   *  `cancelled` means the chip was removed before the upload ended. */
+  async hold<T>(
+    attachmentId: string,
+    totalBytes: number,
+    upload: () => Promise<T>,
+  ): Promise<{ status: 'done'; attachment: T } | { status: 'cancelled' }> {
+    this.states.set(attachmentId, { status: 'uploading', loadedBytes: 0, totalBytes })
+    try {
+      const attachment = await upload()
+      return this.states.has(attachmentId) ? { status: 'done', attachment } : { status: 'cancelled' }
+    } finally {
+      this.states.delete(attachmentId)
+    }
+  }
+
   retry(attachmentId: string): void {
     if (this.states.get(attachmentId)?.status !== 'failed') return
     void this.send(attachmentId)
