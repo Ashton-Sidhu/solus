@@ -4,9 +4,9 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import type { AttachmentUploadTokenResult } from '@solus/contracts/rpc'
 import type { Attachment, HostCapabilities, IpcContext } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
+import { attachmentKind } from '@solus/contracts/media-types'
 import {
   assertUploadCount,
-  attachmentKind,
   attachmentUploadRoute,
   postAttachmentBytes,
   readFileDataUrl,

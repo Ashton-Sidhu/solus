@@ -12,14 +12,13 @@ import {
 } from '@solus/server/transport/handlers/attachment-handlers'
 import { serveAssetToken } from '@solus/server/data/assets/assets'
 import { signToken } from '@solus/server/admission/signed-token'
-import { MAX_VIDEO_UPLOAD_BYTES } from '@solus/contracts/media-types'
+import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind } from '@solus/contracts/media-types'
 import {
   MAX_ATTACHMENT_UPLOAD_BYTES,
   MAX_ATTACHMENT_UPLOAD_COUNT,
 } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 import {
-  attachmentKind,
   attachmentUploadRoute,
   clipboardMedia,
   postAttachmentBytes,
@@ -91,6 +90,20 @@ describe('attachment upload route', () => {
     expect(attachmentKind({ name: 'notes', mimeType: '' })).toEqual({ type: 'file', mimeType: 'application/octet-stream', isVideo: false })
   })
 
+  test('a DNG is a file with the DNG type, whatever the browser calls it', () => {
+    // WHY: browsers label a DNG as PNG, JPEG, TIFF, or nothing. Sent as image
+    // content, Claude refuses the turn; as a file, its original bytes reach the agent.
+    const dng = { type: 'file', mimeType: 'image/x-adobe-dng', isVideo: false }
+    for (const mimeType of ['image/png', 'image/jpeg', 'image/tiff', '', 'application/octet-stream']) {
+      expect(attachmentKind({ name: 'photo.DNG', mimeType })).toEqual(dng)
+    }
+    for (const mimeType of ['image/dng', 'image/x-dng', 'image/x-adobe-dng']) {
+      expect(attachmentKind({ name: 'clipboard', mimeType })).toEqual(dng)
+    }
+    // A picture exported from a DNG is a picture.
+    expect(attachmentKind({ name: 'export.dng.png', mimeType: 'image/png' })).toEqual({ type: 'image', mimeType: 'image/png', isVideo: false })
+  })
+
   test('every video streams when the host can take a stream, however small', () => {
     // WHY: base64 in one WebSocket frame is what a phone cannot afford for video.
     expect(attachmentUploadRoute({ name: 'bug.mp4', mimeType: 'video/mp4', size: 1 * MB }, streaming)).toBe('stream')
@@ -124,6 +137,14 @@ describe('clipboard videos', () => {
     const pdf = new File(['p'], 'spec.pdf', { type: 'application/pdf' })
 
     expect(clipboardMedia({ items: [], files: [video, pdf] }).map((file) => file.name)).toEqual(['screen.mov'])
+  })
+
+  test('takes a pasted DNG that the browser gives no image type', () => {
+    // WHY: the paste handler sends it to the host as a file; dropping it here
+    // would paste nothing at all.
+    const dng = new File(['raw'], 'photo.dng', { type: 'application/octet-stream' })
+
+    expect(clipboardMedia({ items: [], files: [dng] })).toEqual([dng])
   })
 })
 

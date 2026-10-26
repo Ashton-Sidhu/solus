@@ -6,6 +6,7 @@ import { reconcileQueuedPromptsForSession } from './session-transcript'
 import { readFileDataUrl } from '../../components/input/lib/attachment-upload'
 import { composeAttachmentContext } from './prompt-composer'
 import { uuid } from '@solus/contracts/uuid'
+import { attachmentKind } from '@solus/contracts/media-types'
 import { runHost } from './run-location'
 
 type QueueWorkspace = Pick<WorkspaceContext, 'apiFor' | 'ctxFor' | 'sessionFor'>
@@ -53,9 +54,12 @@ export class SessionQueueController {
     const ctx = this.workspace.ctxFor(tabId)
     const result: QueueAttachment[] = []
     for (const file of files) {
-      const dataUrl = await readFileDataUrl(file)
-      const hostPath = await api.attachUpload(ctx, { name: file.name, mime: file.type || 'application/octet-stream', dataUrl })
-      result.push({ id: uuid(), name: file.name, hostPath, type: file.type.startsWith('image/') ? 'image' : 'file', mimeType: file.type, size: file.size })
+      const kind = attachmentKind({ name: file.name, mimeType: file.type })
+      // The data URL must carry the type the host is told about.
+      const typed = file.type === kind.mimeType ? file : new Blob([file], { type: kind.mimeType })
+      const dataUrl = await readFileDataUrl(typed)
+      const hostPath = await api.attachUpload(ctx, { name: file.name, mime: kind.mimeType, dataUrl })
+      result.push({ id: uuid(), name: file.name, hostPath, type: kind.type, mimeType: kind.mimeType, size: file.size })
     }
     return result
   }

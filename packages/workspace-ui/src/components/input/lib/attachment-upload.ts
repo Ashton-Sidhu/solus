@@ -5,7 +5,7 @@ import {
   MAX_ATTACHMENT_UPLOAD_BYTES,
   MAX_ATTACHMENT_UPLOAD_COUNT,
 } from '@solus/contracts/rpc'
-import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
+import { MAX_VIDEO_UPLOAD_BYTES, attachmentKind, isDngFile, videoMimeType } from '@solus/contracts/media-types'
 import { z } from 'zod'
 
 export function assertUploadCount(count: number): void {
@@ -18,21 +18,6 @@ function assertUploadSize(size: number): void {
   if (size > MAX_ATTACHMENT_UPLOAD_BYTES) {
     throw new Error('Attachments can be up to 10 MB each.')
   }
-}
-
-/** What a picked file is, read the same way on every client: a video is a
- *  `file` attachment with its video MIME type, never an image. */
-export interface AttachmentKind {
-  type: 'image' | 'file'
-  mimeType: string
-  isVideo: boolean
-}
-
-export function attachmentKind(file: { name: string; mimeType?: string | null }): AttachmentKind {
-  const video = videoMimeType(file)
-  if (video) return { type: 'file', mimeType: video, isVideo: true }
-  const mimeType = file.mimeType || 'application/octet-stream'
-  return { type: isImageMime(mimeType) ? 'image' : 'file', mimeType, isVideo: false }
 }
 
 /**
@@ -160,7 +145,7 @@ export interface ComposerClipboard {
   files?: Iterable<File> | null
 }
 
-/** Every image and video on the clipboard, in order. A paste can carry more
+/** Every image, video, and DNG on the clipboard, in order. A paste can carry more
  *  than one.
  *  Both lists are read because neither is complete on its own: iOS Safari hands
  *  a screenshot or a photo over in `files` while leaving `items` empty, so a
@@ -174,7 +159,8 @@ export function clipboardMedia(clipboard: ComposerClipboard): File[] {
     .map((item) => item.getAsFile())
     .filter((blob): blob is File => !!blob)
   for (const file of clipboard.files ?? []) {
-    if (!isImageMime(file.type) && !videoMimeType({ name: file.name, mimeType: file.type })) continue
+    const isMedia = isImageMime(file.type) || videoMimeType({ name: file.name, mimeType: file.type }) !== null
+    if (!isMedia && !isDngFile({ name: file.name, mimeType: file.type })) continue
     const alreadyTaken = images.some(
       (seen) => seen.name === file.name && seen.size === file.size && seen.type === file.type,
     )
