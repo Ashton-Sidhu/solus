@@ -89,6 +89,8 @@ export interface SettledRun extends RunExchanges {
   provider: AgentId
   projectScope?: string
   gitContext?: GitCheckout | null
+  /** Work the agent left running outlives the turn (Codex); its wake turn answers. */
+  hasBackgroundWork?: boolean
 }
 
 export interface CreateSessionOrder {
@@ -226,6 +228,10 @@ export class SessionOrchestrator {
   private readonly openPlans = new Map<string, OpenPlan>()
   /** Exchange → the target host whose session it follows, until it settles. */
   private readonly remoteFollows = new Map<string, { host: RemoteHost; stop: () => void }>()
+  /** Target session → its last run that ended with background work still
+   *  running. That run's exchanges stay open: the turn the finished work wakes
+   *  answers them, or they settle with this run when the work ends without one. */
+  private readonly backgroundRuns = new Map<string, SettledRun>()
 
   constructor(
     private readonly runtime: OrchestratedRuntime,
@@ -785,13 +791,35 @@ export class SessionOrchestrator {
     const exchanges = this.exchangesOf(run).filter((exchange) =>
       isOpenExchange(exchange) && !exchange.revising && (!exchange.runId || exchange.runId === run.runId))
     if (!exchanges.length) return
+    const waitsOnBackground = run.outcome === 'completed' && !!run.hasBackgroundWork
+    if (waitsOnBackground) this.backgroundRuns.set(run.sessionId, run)
     const ready = exchanges.filter((exchange) => {
-      if (run.outcome !== 'completed' || !this.ledger.hasChildren(exchange.exchangeId)) return true
+      if (run.outcome !== 'completed' || (!waitsOnBackground && !this.ledger.hasChildren(exchange.exchangeId))) return true
       if (this.apply(exchange, { type: 'children_pending', runId: run.runId })) {
         this.publish(exchange, { phase: 'accepted', sessionId: exchange.targetSessionId, messageId: exchange.exchangeId, state: 'waiting_for_children' })
       }
       return false
     })
+    if (!ready.length) return
+    void this.runtime.trackWork(this.settleRun(run, ready)).catch((error) => {
+      log.warn('exchange_settle_failed', { sessionId: run.sessionId, error: String(error) })
+    })
+  }
+
+  /** The exchanges a target's background work holds open, for the turn its
+   *  finished work wakes: that turn's reply answers them. */
+  backgroundExchangeIds(targetSessionId: string): string[] {
+    const run = this.backgroundRuns.get(targetSessionId)
+    return run ? this.heldForBackground(run).map((exchange) => exchange.exchangeId) : []
+  }
+
+  /** A target's background work ended and no wake turn took its exchanges:
+   *  the run that left the work running answers them. */
+  backgroundEnded(targetSessionId: string): void {
+    const run = this.backgroundRuns.get(targetSessionId)
+    if (!run) return
+    this.backgroundRuns.delete(targetSessionId)
+    const ready = this.heldForBackground(run).filter((exchange) => !this.ledger.hasChildren(exchange.exchangeId))
     if (!ready.length) return
     void this.runtime.trackWork(this.settleRun(run, ready)).catch((error) => {
       log.warn('exchange_settle_failed', { sessionId: run.sessionId, error: String(error) })
@@ -891,6 +919,12 @@ export class SessionOrchestrator {
       found.push(exchange)
     }
     return found
+  }
+
+  /** The run's exchanges no later turn has taken over. */
+  private heldForBackground(run: SettledRun): Exchange[] {
+    return this.exchangesOf(run).filter((exchange) =>
+      exchange.state === 'waiting_for_children' && !exchange.revising && (!exchange.runId || exchange.runId === run.runId))
   }
 
   private apply(exchange: Exchange, event: ExchangeEvent): boolean {

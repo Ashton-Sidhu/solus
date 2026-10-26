@@ -57,7 +57,6 @@ import {
   CodexTurnNormalizer,
   normalizeThreadGoal,
 } from './codex-event-normalizer'
-import { codexCollaborationInstructions } from './codex-collaboration-instructions'
 import { runtimeInstructions } from '../runtime-instructions'
 import { enabledAgentTools } from '../tools/agent-tool'
 import type {
@@ -702,12 +701,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         serviceTier: request.fastMode ? 'fast' : null,
         summary: 'auto',
         reasoning_effort: reasoningEffort,
+        // Send the mode on every turn so a Default turn leaves an earlier Plan
+        // turn. Without developer_instructions, Codex supplies its own bundled
+        // mode prompt; Solus guidance stays in the thread developer message.
         collaborationMode: { mode: collaborationMode, settings: {
           model,
           reasoning_effort: collaborationReasoningEffort,
-          // User instructions and shared host guidance stay in the thread
-          // developer message, outside native collaboration-mode prompts.
-          developer_instructions: codexCollaborationInstructions(collaborationMode),
         }}
       }
       const turn = await handle.client.request<CodexTurnStartResponse>('turn/start', turnParams)
