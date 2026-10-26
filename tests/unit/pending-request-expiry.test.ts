@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
-import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
+import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/execution/agents/agent-runner'
 import type { AgentId, AgentMetadata, NormalizedEvent, PermissionRequest, QuestionRequest, Session, SessionRunInput, Tab } from '@solus/contracts/types'
 import type { Principal } from '@solus/server/admission/principal'
 
@@ -60,12 +60,13 @@ class Backend extends EventEmitter implements AgentBackend {
     this.metadata = { id, label: id, models: [], defaultModel: 'model-test' }
   }
 
-  startRun(request: AgentRunRequest): RunHandle {
+  startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     const threadId = (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? this.threadId
     let resolve!: () => void
     let reject!: (error: Error) => void
     const handle: RunHandle = {
       agentSessionId: null,
+      sessionId: sessionState?.sessionId,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
