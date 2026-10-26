@@ -7,6 +7,7 @@ import { createGoalCommand } from './goal-command';
 import { loadPromptHistory, savePromptToHistory } from './prompt-history';
 import { pendingPlanForPrompt } from './pending-plan';
 import { pendingQuestionForPrompt, answersForQuestionNote } from './pending-question';
+import { isTextOnly, permissionForFeedback, type PermissionFeedbackTarget } from './pending-permission';
 import { requestInputFocus } from '../../../lib/inputFocus';
 import { isMac } from '../../../lib/keybindings/match';
 import { toasts } from '../../../lib/toasts';
@@ -71,6 +72,8 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   // A ClipboardEvent carries no modifier state, so the intent has to be caught
   // on the way in and read by the paste that follows it in the same gesture.
   let pasteAsTextRequested = false;
+  // Permission requests whose feedback answer has not come back yet.
+  const feedbackInFlight = new Set<string>();
 
   function resetHistoryNavigation() {
     historyIndex = -1;
@@ -176,6 +179,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     const sess = sessionId ? session.sessions.byId[sessionId] : undefined;
     const pendingPlan = pendingPlanForPrompt(sess, session.planStore.plans);
     const pendingQuestion = pendingQuestionForPrompt(sess);
+    const feedbackTarget = permissionForFeedback(sess);
     const fallbackText = attachments.some(
       (attachment) =>
         attachment.type === "design-selection" &&
@@ -201,6 +205,11 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
         pendingQuestion.questionId,
         answersForQuestionNote(pendingQuestion, text),
       );
+    } else if (feedbackTarget && targetTabId) {
+      // The card's request waits on the agent that asked, a subagent's
+      // included. The text goes with its denial to that agent; sent as a
+      // prompt it would reach the parent while the request stayed open.
+      return sendPermissionFeedback(targetTabId, feedbackTarget, text, options.refocus !== false);
     } else if (onDispatch) {
       accepted = onDispatch(
         text || fallbackText,
@@ -265,6 +274,48 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     });
     composerEl?.focus();
     return true;
+  }
+
+  /** Feedback is text only: a draft with attachments or references stays. */
+  function sendPermissionFeedback(
+    targetTabId: string,
+    target: PermissionFeedbackTarget,
+    text: string,
+    refocus: boolean,
+  ): boolean {
+    const { prompt, refocusComposer } = getOptions();
+    // A second Send while the first is on its way would answer a closed request.
+    if (feedbackInFlight.has(target.questionId)) return false;
+    if (!text || !isTextOnly(prompt)) {
+      toasts.info("Feedback on a permission request is text only");
+      if (refocus) refocusComposer();
+      return false;
+    }
+    void denyWithFeedback(targetTabId, target, text, refocus);
+    return true;
+  }
+
+  /** The draft clears only once the host took the denial, and only if it is
+   *  still the text that was sent: a refused answer or an edit keeps it. */
+  async function denyWithFeedback(
+    targetTabId: string,
+    target: PermissionFeedbackTarget,
+    text: string,
+    refocus: boolean,
+  ): Promise<void> {
+    feedbackInFlight.add(target.questionId);
+    const answered = await session.controls
+      .respondPermission(targetTabId, target.questionId, target.denyOptionId, text)
+      .finally(() => feedbackInFlight.delete(target.questionId));
+    const { prompt, editor: composerEl, onSent, refocusComposer } = getOptions();
+    if (answered && prompt.text.trim() === text) {
+      promptHistory = savePromptToHistory(localStorage, text);
+      prompt.text = "";
+      resetHistoryNavigation();
+      composerEl?.clearEditor();
+      onSent?.();
+    }
+    if (refocus) refocusComposer();
   }
 
   /** The same two calls `conversation.interrupt` makes: the tab lets go of the

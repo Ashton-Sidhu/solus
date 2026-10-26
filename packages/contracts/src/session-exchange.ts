@@ -93,13 +93,15 @@ export function questionRequestFrom(event: Extract<NormalizedEvent, { type: 'que
 }
 
 export function permissionRequestFrom(event: Extract<NormalizedEvent, { type: 'permission_request' }>): PermissionRequest {
-  return {
+  const request: PermissionRequest = {
     questionId: event.questionId,
     toolTitle: event.toolName,
     toolDescription: event.toolDescription,
     toolInput: event.toolInput,
     options: event.options.map((option: PermissionOption) => ({ optionId: option.id, kind: option.kind, label: option.label })),
   }
+  if (event.supportsFeedback) request.supportsFeedback = true
+  return request
 }
 
 /** One line a card can show for a request. */

@@ -42,6 +42,7 @@ import type { LayoutVariant } from "../../lib/layout";
 import type { ViewInstance } from "react-native";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
+import { permissionForFeedback } from "../conversation/lib/transcript-model";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { AgentPlanCard } from "./ThreadPlanCard";
@@ -656,7 +657,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 meta={meta}
                 draftKey={props.draftKey}
                 editorRef={composerEditorRef}
-                placeholder="Ask the repo agent, or run a command…"
+                placeholder={permissionForFeedback(meta.permissions) ? "Send feedback to deny this request" : "Ask the repo agent, or run a command…"}
                     connected={isHostReady}
                 sendBlockedReason={
                   meta.phase.kind === "error"

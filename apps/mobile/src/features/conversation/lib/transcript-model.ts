@@ -96,8 +96,22 @@ export interface PendingPermission {
   options: PermissionOption[]
   /** A link guest sent the turn, so it runs in Ask mode whatever the session's mode is. */
   guestTurn?: true
+  /** A denial can carry the user's text to the agent that asked (Claude only). */
+  supportsFeedback?: true
   /** Set when the request can no longer be answered. */
   expired?: RequestExpiry
+}
+
+/**
+ * The permission the composer's text denies, as feedback to the agent that
+ * asked: the one the card shows, while it is open and its provider takes a
+ * denial message (Claude). Any other request leaves the composer ordinary.
+ */
+export function permissionForFeedback(permissions: readonly PendingPermission[]): { questionId: string; denyOptionId: string } | null {
+  const request = permissions[0]
+  if (!request || request.expired || !request.supportsFeedback) return null
+  const deny = request.options.find((option) => option.kind === 'deny')
+  return deny ? { questionId: request.questionId, denyOptionId: deny.id } : null
 }
 
 export interface PendingQuestion {
@@ -436,6 +450,7 @@ export class TranscriptModel {
           description: event.toolDescription ?? null,
           options: event.options,
           ...(event.guestTurn && { guestTurn: true as const }),
+          ...(event.supportsFeedback && { supportsFeedback: true as const }),
         }]
         this.metaChanged = true
         return true

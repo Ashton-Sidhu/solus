@@ -50,6 +50,7 @@ import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import type { RootStackParamList } from "../../navigation/routes";
 import type { PickedFile } from "../conversation/lib/attachments";
+import { permissionForFeedback } from "../conversation/lib/transcript-model";
 import { modelLabel, modelOptionsSummary } from "../conversation/lib/run-settings";
 import {
   resolveComposerSendPresentation,
@@ -279,6 +280,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const [isFocused, setIsFocused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftMessage, setDraftMessage] = useState(() => app.draft(hostId, props.draftKey));
+  // The draft as last edited, read after an answer settles to see whether it changed meanwhile.
+  const latestDraft = useRef(draftMessage);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
   const { onExpandedChange } = props;
@@ -292,6 +295,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const onChangeDraftMessage = useCallback(
     (value: string) => {
       setDraftMessage(value);
+      latestDraft.current = value;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(
         () => app.saveDraft(hostId, props.draftKey, value),
@@ -305,6 +309,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const restoreToConversationDraft = useCallback(
     (text: string) => {
       setDraftMessage(text);
+      latestDraft.current = text;
       app.saveDraft(hostId, props.draftKey, text);
     },
     [app, hostId, props.draftKey],
@@ -459,9 +464,34 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         void queuedEdit.save();
         return;
       }
-      inFlightRef.current = true;
       const prompt = draftMessage.trim();
+      const feedbackTarget = permissionForFeedback(meta.permissions);
+      if (feedbackTarget) {
+        // The card's request waits on the agent that asked, a subagent's
+        // included. The text goes with its denial to that agent; sent as a
+        // prompt it would reach the parent while the request stayed open.
+        if (!prompt || meta.attachments.length > 0) {
+          Alert.alert("Feedback is text only", "Remove the attachments to send feedback on this request.");
+          return;
+        }
+        inFlightRef.current = true;
+        try {
+          const answered = await store.controller.answerPermission(feedbackTarget.questionId, feedbackTarget.denyOptionId, prompt);
+          // A refused answer, or a draft edited meanwhile, keeps the draft.
+          if (answered && latestDraft.current.trim() === prompt) {
+            if (saveTimer.current) clearTimeout(saveTimer.current);
+            setDraftMessage("");
+            latestDraft.current = "";
+            app.saveDraft(hostId, props.draftKey, "");
+          }
+        } finally {
+          inFlightRef.current = false;
+        }
+        return;
+      }
+      inFlightRef.current = true;
       setDraftMessage("");
+      latestDraft.current = "";
       if (saveTimer.current) clearTimeout(saveTimer.current);
       try {
         const sending = store.controller.send(prompt, {
@@ -474,7 +504,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         inFlightRef.current = false;
       }
     },
-    [app, canSend, draftMessage, hostId, props.draftKey, props.onSent, queuedEdit, sendPresentation.action, store],
+    [app, canSend, draftMessage, hostId, meta.attachments.length, meta.permissions, props.draftKey, props.onSent, queuedEdit, sendPresentation.action, store],
   );
 
   const attach = useCallback(

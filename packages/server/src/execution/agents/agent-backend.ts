@@ -19,7 +19,8 @@ import type { TurnSeat } from '../seats/seat-manager'
 
 export interface PermissionResponder {
   getPendingInfo(questionId: string): { toolName: string; sessionId: string | null } | undefined
-  respondToPermission(questionId: string, decision: string, updatedPayload?: string): boolean
+  /** `feedback` is text for a denial; only a request that advertised `supportsFeedback` is sent one. */
+  respondToPermission(questionId: string, decision: string, updatedPayload?: string, feedback?: string): boolean
   respondToQuestion(questionId: string, answers: Record<string, string>): boolean
   clearPendingForSession(sessionId: string): void
   setCurrentSessionId(sessionId: string): void

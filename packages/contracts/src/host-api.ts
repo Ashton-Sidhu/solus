@@ -225,8 +225,9 @@ export interface SolusAPI {
   /** Install one known SCIP indexer on the host. The language selects a fixed command; clients cannot supply argv. */
   codeIntelInstall(request: CodeIntelInstallRequest): Promise<CodeIntelInstallResult>
   codeIntelReindex(ctx: IpcContext, request?: CodeIntelReindexRequest): Promise<CodeIntelReindexResult>
-  /** Answers a permission `askingSessionId` waits on — the caller's own session, or one it sent work to. */
-  respondPermission(ctx: IpcContext, askingSessionId: string, questionId: string, optionId: string, updatedPlan?: string): Promise<boolean>
+  /** Answers a permission `askingSessionId` waits on — the caller's own session, or one it sent work to.
+   *  `feedback` goes with a denial to the agent that asked; only a request with `supportsFeedback` takes it. */
+  respondPermission(ctx: IpcContext, askingSessionId: string, questionId: string, optionId: string, updatedPlan?: string, feedback?: string): Promise<boolean>
   writePlanFile(filePath: string, content: string, ctx?: IpcContext): Promise<{ ok: boolean; error?: string }>
   /** Answers a question `askingSessionId` waits on — the caller's own session, or one it sent work to. */
   respondQuestion(ctx: IpcContext, askingSessionId: string, questionId: string, answers: Record<string, string>): Promise<boolean>

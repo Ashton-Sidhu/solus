@@ -422,6 +422,18 @@ describe('native conversation: requests and plans', () => {
     expect(texts(controller).at(-1)).toBe("notice:You can't answer this request.")
   })
 
+  test('feedback on a Claude request goes with its denial, over the same answer call', async () => {
+    const api = baseApi().on('respondPermission', () => true)
+    const { controller, transport } = await open({ api })
+    await controller.load()
+    transport.emitSession('thread-1', { type: 'permission_request', questionId: 'q4', toolName: 'Bash', options: [{ id: 'deny', label: 'Deny', kind: 'deny' }], supportsFeedback: true })
+    // WHY: the card must offer the composer's text only where the provider takes it.
+    expect(controller.model.permissions[0]?.supportsFeedback).toBe(true)
+    expect(await controller.answerPermission('q4', 'deny', 'Run it in a safer manner.')).toBe(true)
+    expect(api.callsOf('respondPermission')[0]?.slice(1)).toEqual(['thread-1', 'q4', 'deny', undefined, 'Run it in a safer manner.'])
+    expect(api.callsOf('prompt')).toEqual([])
+  })
+
   test('an answer to a request the host closed shows the card closed and says why', async () => {
     const api = baseApi().on('respondPermission', () => { throw new HostRpcError('This request can no longer be answered.', REQUEST_NOT_ANSWERABLE_CODE) })
     const { controller, transport } = await open({ api })

@@ -67,6 +67,28 @@ describe('Claude permission bridge', () => {
     expect(request().options.map((option) => option.id)).toEqual(['allow', 'deny'])
   })
 
+  test('a denial with feedback hands the user text to the agent that asked', async () => {
+    const { manager, ask, request } = bridge()
+
+    const result = ask('Bash', { command: 'rm -f build/*.obj' })
+
+    // WHY: the deny message is the tool result of the agent that asked — a
+    // subagent's call included. Typed as a prompt, the reply would reach the
+    // parent and leave this call waiting.
+    expect(request().supportsFeedback).toBe(true)
+    manager.respondToPermission(request().questionId, 'deny', undefined, '  Run it in a safer manner.  ')
+    expect(await result).toEqual({ behavior: 'deny', message: 'Run it in a safer manner.' })
+  })
+
+  test('a denial without feedback keeps the plain message', async () => {
+    const { manager, ask, request } = bridge()
+
+    const result = ask('Bash', { command: 'ls' })
+    manager.respondToPermission(request().questionId, 'deny', undefined, '   ')
+
+    expect(await result).toEqual({ behavior: 'deny', message: 'User denied this action' })
+  })
+
   test('another tool with no suggestion allows that tool for the session', () => {
     expect(sessionPermissionUpdates('mcp__github__create_issue', [])).toEqual([
       { type: 'addRules', rules: [{ toolName: 'mcp__github__create_issue' }], behavior: 'allow', destination: 'session' },

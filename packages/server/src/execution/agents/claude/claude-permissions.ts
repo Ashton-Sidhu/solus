@@ -164,6 +164,9 @@ export class PermissionManager {
         toolDescription: input?.description ?? options.title,
         toolInput: input ? maskSensitiveFields(input) : undefined,
         options: sessionUpdates ? [ALLOW_ONCE, ALLOW_SESSION, DENY] : [ALLOW_ONCE, DENY],
+        // The denial message reaches the agent that asked — a subagent's call
+        // included — so the user's reply goes there, not to the parent.
+        supportsFeedback: true,
       })
 
       return new Promise((resolve) => {
@@ -180,9 +183,9 @@ export class PermissionManager {
   /**
    * Resolve a pending permission. `decision` is 'allow', 'allow-session', or
    * 'deny'; anything else denies. `updatedPlan` replaces `input.plan` for
-   * ExitPlanMode approvals.
+   * ExitPlanMode approvals. `feedback` is the denial's message to the agent.
    */
-  respondToPermission(questionId: string, decision: string, updatedPlan?: string): boolean {
+  respondToPermission(questionId: string, decision: string, updatedPlan?: string, feedback?: string): boolean {
     const pending = this.pendingPermissions.get(questionId)
     if (!pending) {
       log.info('permission_response_no_pending', { questionId })
@@ -192,8 +195,8 @@ export class PermissionManager {
     this.pendingPermissions.delete(questionId)
 
     if (decision !== 'allow' && decision !== 'allow-session') {
-      log.info('permission_denied', { toolName: pending.toolName, decision })
-      pending.resolve({ behavior: 'deny', message: 'User denied this action' })
+      log.info('permission_denied', { toolName: pending.toolName, decision, hasFeedback: !!feedback?.trim() })
+      pending.resolve({ behavior: 'deny', message: feedback?.trim() || 'User denied this action' })
       return true
     }
 
