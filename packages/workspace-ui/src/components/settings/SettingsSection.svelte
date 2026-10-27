@@ -26,11 +26,11 @@
 {#if visible}
   <section class="flex flex-col gap-3">
     {#if label || icon || action}
-      <!-- The heading starts on the card's edge, one step outside the rows, so
-           it reads as the name of the whole card. -->
+      <!-- The heading starts on the card's edge, one step outside the rows, and
+           one size above their labels, so it reads as the name of the whole card. -->
       <div class="flex min-h-7 items-start justify-between gap-4">
         <h2
-          class="flex min-h-7 min-w-0 items-center gap-2 text-sm font-medium tracking-[-0.005em] text-foreground"
+          class="flex min-h-7 min-w-0 items-center gap-2 text-base font-medium tracking-[-0.01em] text-foreground"
         >
           {#if icon}
             <span class="flex size-3.5 shrink-0 items-center justify-center">

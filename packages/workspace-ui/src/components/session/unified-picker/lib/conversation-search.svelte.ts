@@ -1,3 +1,4 @@
+import { SessionSearch, SESSION_SEARCH_PAGE_SIZE } from '@solus/client-core/session-search'
 import type { HostApi } from '@solus/client-core/host-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { loadServers, type SavedServer } from '@solus/client-core/server-registry'
@@ -107,7 +108,7 @@ const DEBOUNCE_MS = 180
 export const MIN_CONTENT_QUERY_LENGTH = 2
 /** Sessions per host per page. The list asks for the next page when its end
  *  comes into view, so every match is reachable (docs/plans/unified-search.md §6). */
-export const PAGE_SIZE = 30
+export const PAGE_SIZE = SESSION_SEARCH_PAGE_SIZE
 
 /** What a search is narrowed to, beyond its words and project. */
 export interface ConversationSearchOptions {
@@ -121,157 +122,64 @@ export interface ConversationSearchOptions {
   serverId?: string
 }
 
-/** One host's part of an answer: where its next page starts and how many it has. */
-interface HostPage {
-  serverId: string
-  scope: HostScope | undefined
-  next: number
-  total: number
-}
-
-interface HostHits {
-  results: SessionSearchResult[]
-  total: number
-  indexing: boolean
-}
-
-/**
- * The picker's search of sessions, as the user types.
- *
- * Each home is asked, because a session's messages live only where it is kept.
- * Replies are stamped with their host where they enter the client, and a reply
- * to a query the user has since left is dropped: the list must never show hits
- * for words no longer in the box. Every home answers with its total and a first
- * page; `loadMore` reads the next page of each home that has more.
- */
+/** Reactive desktop/web view of the shared cross-host search. */
 export class ConversationSearch {
   results = $state<SessionSearchResult[]>([])
-  /** True from the first keystroke until the last host answers, debounce included. */
   loading = $state(false)
-  /** True while a next page is read. */
   loadingMore = $state(false)
-  /** How many sessions match on every home; `results` holds the pages read so far. */
   total = $state(0)
-  /** Matches not read yet. The list ends with a row that reads them. */
   remaining = $state(0)
-  /** A host is still reading its sessions into its index for the first time,
-   *  so its hits are not all of them yet. */
   indexing = $state(false)
-  private timer: ReturnType<typeof setTimeout> | null = null
-  private requestId = 0
-  private query = ''
-  private options: ConversationSearchOptions = { namesOnly: false }
-  private pages: HostPage[] = []
+  error = $state<string | null>(null)
+  private readonly pages: SessionSearch
+  private readonly mapped = new WeakMap<import('@solus/contracts/types').SessionRecordSearchResult, SessionSearchResult>()
 
   constructor(
     private readonly hosts: ConversationSearchHosts = registryHosts,
-    private readonly debounceMs = DEBOUNCE_MS,
+    debounceMs = DEBOUNCE_MS,
     private readonly scopeOnHost: ScopeOnHost = checkoutScopeOnHost,
-  ) {}
+  ) {
+    this.pages = new SessionSearch(serverId => hosts.apiFor(serverId), () => this.apply(), debounceMs)
+  }
 
-  /** Search for `query`, scoped to one project or to every project. */
   search(query: string, projectRoot: string | null, options: ConversationSearchOptions = { namesOnly: false }): void {
-    const trimmed = query.trim()
-    const requestId = ++this.requestId
-    if (this.timer) clearTimeout(this.timer)
-    this.results = []
-    this.total = 0
-    this.remaining = 0
-    this.indexing = false
-    this.loadingMore = false
-    this.pages = []
-    if (trimmed.length < MIN_CONTENT_QUERY_LENGTH) {
-      this.timer = null
-      this.loading = false
-      return
-    }
-    this.loading = true
-    this.timer = setTimeout(() => {
-      this.timer = null
-      void this.run(requestId, trimmed, projectRoot, options)
-    }, this.debounceMs)
-  }
-
-  reset(): void {
-    this.search('', null)
-  }
-
-  /** Read the next page of every home that has more. */
-  async loadMore(): Promise<void> {
-    if (this.loading || this.loadingMore || this.remaining === 0) return
-    const requestId = this.requestId
-    this.loadingMore = true
-    const pending = this.pages.filter((page) => page.next < page.total)
-    const perHost = await Promise.all(pending.map((page) => this.readPage(page.serverId, this.query, page.scope, page.next)))
-    if (requestId !== this.requestId) return
-    pending.forEach((page, index) => {
-      const hits = perHost[index]!
-      // A home that fails or answers short has nothing more to give this query.
-      page.next = hits.results.length ? page.next + hits.results.length : page.total
-    })
-    // Appended in place: the rows already listed keep their places.
-    this.results.push(...perHost.flatMap((hits) => hits.results))
-    this.settleCounts()
-    this.loadingMore = false
-  }
-
-  private async run(requestId: number, query: string, projectRoot: string | null, options: ConversationSearchOptions): Promise<void> {
-    this.query = query
-    this.options = options
-    const homes = this.hosts.searchServerIds().flatMap((serverId): HostPage[] => {
+    const homes = this.hosts.searchServerIds().flatMap(serverId => {
       if (options.serverId && serverId !== options.serverId && !isSolusApiId(serverId)) return []
-      // A project scope reaches each machine as its own checkout of the
-      // repository, and the workspace service as the repository: one path sent
-      // everywhere missed clones at other paths and combined unrelated folders
-      // that happened to share one.
       const scope = projectRoot ? this.scopeOnHost(serverId, projectRoot) : undefined
-      return scope === null ? [] : [{ serverId, scope, next: 0, total: 0 }]
+      return scope === null ? [] : [{ serverId, scope }]
     })
-    const perHost = await Promise.all(homes.map((home) => this.readPage(home.serverId, query, home.scope, 0)))
-    if (requestId !== this.requestId) return
-    homes.forEach((home, index) => {
-      home.total = perHost[index]!.total
-      home.next = perHost[index]!.results.length
-    })
-    this.pages = homes
-    // The list builder orders the merged hits by the reader's chosen sort;
-    // here they are only gathered, newest first as a stable starting order.
-    this.results = perHost.flatMap((hits) => hits.results).sort((a, b) => b.ts - a.ts)
-    this.indexing = perHost.some((hits) => hits.indexing)
-    this.settleCounts()
-    this.loading = false
+    this.pages.search(query, homes, { namesOnly: options.namesOnly, activeSince: options.activeSince, provider: options.provider })
   }
 
-  private settleCounts(): void {
-    this.total = this.pages.reduce((sum, page) => sum + page.total, 0)
-    this.remaining = this.pages.reduce((sum, page) => sum + Math.max(0, page.total - page.next), 0)
-  }
+  reset(): void { this.pages.reset() }
+  async loadMore(): Promise<void> { await this.pages.loadMore() }
 
-  private async readPage(serverId: string, query: string, scope: HostScope | undefined, offset: number): Promise<HostHits> {
-    try {
-      const found = await this.hosts.apiFor(serverId).sessionRecordSearch({
-        query, ...scope, offset, limit: PAGE_SIZE,
-        namesOnly: this.options.namesOnly, activeSince: this.options.activeSince, provider: this.options.provider,
-      })
-      const results = found.results.map(({ record, ...hit }) => ({ ...hit, session: sessionMetaFromRecord(record) }))
-      if (!isSolusApiId(serverId)) {
-        stampSessionMetas(results.map((hit) => hit.session), serverId)
-      } else {
-        // A record from the workspace service opens on its runner while that
-        // machine is connected; otherwise it stays the service's, and the
-        // picker shows it read-only with its runner offline (session-home.ts).
-        // A hit's message id is a position in the service's copy, which the
-        // runner's index does not know: routed to the runner, the preview
-        // opens on the transcript's ends instead of a wrong passage.
-        for (const result of results) {
-          if (openOnRunner(result.session, serverId, this.hosts)) result.messageId = -1
+  private apply(): void {
+    const state = this.pages.state
+    this.loading = state.loading
+    this.loadingMore = state.loadingMore
+    this.total = state.total
+    this.remaining = state.remaining
+    this.indexing = state.indexing
+    this.error = state.errors.length ? state.errors.map(error => `${error.serverId}: ${error.message}`).join('; ') : null
+    const next = state.hits.map(({ serverId, result }) => {
+      const held = this.mapped.get(result)
+      if (held) return held
+      const { record, ...hit } = result
+      const session = sessionMetaFromRecord(record)
+      if (isSolusApiId(serverId)) {
+        if (openOnRunner(session, serverId, this.hosts)) {
+          hit.messageId = -1
+          hit.additionalMatches = hit.additionalMatches.map(passage => ({ ...passage, messageId: -1 }))
         }
       }
-      return { results, total: found.total, indexing: found.indexing }
-    } catch {
-      // A host that cannot answer contributes nothing; the others still do.
-      return { results: [], total: 0, indexing: false }
-    }
+      else stampSessionMetas([session], serverId)
+      const mapped = { ...hit, session }
+      this.mapped.set(result, mapped)
+      return mapped
+    })
+    if (this.results.length <= next.length && this.results.every((result, index) => result === next[index])) this.results.push(...next.slice(this.results.length))
+    else this.results = next
   }
 }
 

@@ -165,10 +165,10 @@
             ? ""
             : "s"} changed
         {/if}
-        <span class="font-medium" style="color:var(--solus-art-3)"
+        <span class="font-medium" style="color:var(--solus-diff-added-text-vivid)"
           >+{current.additions}</span
         >
-        <span class="font-medium" style="color:var(--solus-stop-bg)"
+        <span class="font-medium" style="color:var(--solus-diff-removed-text-vivid)"
           >−{current.deletions}</span
         >
       </span>
@@ -221,10 +221,10 @@
                 {:else if rect.node.status === "A"}
                   <span>new</span>
                 {/if}
-                <span class="font-medium" style="color:var(--solus-art-3)"
+                <span class="font-medium" style="color:var(--solus-diff-added-text-vivid)"
                   >+{rect.node.additions}</span
                 >
-                <span class="font-medium" style="color:var(--solus-stop-bg)"
+                <span class="font-medium" style="color:var(--solus-diff-removed-text-vivid)"
                   >−{rect.node.deletions}</span
                 >
               </span>

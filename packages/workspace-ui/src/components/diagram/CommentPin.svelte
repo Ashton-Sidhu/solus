@@ -34,7 +34,7 @@
   {/if}
 
   {#if pin.tone === 'resolved'}
-    <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M3 8.4l3.4 3.2L13 5" />
     </svg>
   {:else if pin.tone === 'agent'}
@@ -42,7 +42,7 @@
     <span class="comment-pin__spark" aria-hidden="true">✦</span>
     <span class="comment-pin__count">{pin.count}</span>
   {:else}
-    <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true">
       <path d="M2.6 4.2A1.6 1.6 0 0 1 4.2 2.6h7.6a1.6 1.6 0 0 1 1.6 1.6v4.8a1.6 1.6 0 0 1-1.6 1.6H6.6L3.6 13.2v-2.6h.6a1.6 1.6 0 0 1-1.6-1.6z" />
     </svg>
     <span class="comment-pin__count">{pin.count}</span>

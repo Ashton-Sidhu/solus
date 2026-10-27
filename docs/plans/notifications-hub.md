@@ -78,8 +78,9 @@ history reads; counts remain live. Opening it again reads a fresh first page.
 Capability is read once per source connection and checked again after reconnect.
 The first connection shares a pending startup read instead of starting another.
 
-- Sources are read on their own, with bounded concurrency; one slow or failing
-  source holds no other. A failed read is stale state, not a revocation: loaded
+- Every source is read at once, on its own, and its rows show when it answers;
+  one slow or failing source holds no other. A source that does not answer in
+  15 seconds is offline until it does. A failed read is stale state, not a revocation: loaded
   rows stay, marked, and their controls are off until the source answers.
 - A read or archive choice goes to the row's own source while it is connected.
   It is sent once and awaited; the source is then read again. Nothing is queued,

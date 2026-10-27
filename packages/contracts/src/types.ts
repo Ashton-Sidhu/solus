@@ -1,4 +1,5 @@
 import type { QueueEntryDetails, QueueAttachment } from './session-queue'
+import type { SessionSearchReason, SessionSearchTarget } from './session-search'
 import { hostPathKey } from './host-path'
 import type { WireSessionLoadMessage } from './session-history'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
@@ -1302,6 +1303,8 @@ export interface ContextCompaction {
 }
 
 export interface Message {
+  /** Provider thread identity retained through a handoff's combined history. */
+  sourceSessionId?: string
   /** In-memory answer receipt; reload uses only existing provider history. */
   questionAnswer?: QuestionAnswer
   /** A system row that marks a context compaction. Live from the
@@ -2659,6 +2662,8 @@ export interface SessionSearchResult extends SessionSearchHit {
 }
 
 export interface SessionSearchHit {
+  reason?: SessionSearchReason
+  target?: SessionSearchTarget
   /** The passage the words were found in, with each matched token wrapped in
    *  the markers of `search-snippet.ts`. Read it through `snippetRuns` or
    *  `plainSnippet`; never show it raw. */
@@ -2669,7 +2674,7 @@ export interface SessionSearchHit {
    *  snippet, when the session matched by its name alone. */
   messageId: number
   /** The session's standing in the answer. Lower is a better match, and a
-   *  rank is comparable only with others from the same index. */
+   *  rank uses the shared session-search score on every host. */
   rank: number
 }
 

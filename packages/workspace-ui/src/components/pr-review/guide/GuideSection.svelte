@@ -188,13 +188,13 @@
               </span>
               {#if file.additions}
                 <span
-                  class="tabular-nums shrink-0  text-(--solus-art-positive)"
+                  class="tabular-nums shrink-0  text-(--solus-diff-added-text-vivid)"
                   >+{file.additions}</span
                 >
               {/if}
               {#if file.deletions}
                 <span
-                  class="tabular-nums shrink-0  text-(--solus-art-negative)"
+                  class="tabular-nums shrink-0  text-(--solus-diff-removed-text-vivid)"
                   >−{file.deletions}</span
                 >
               {/if}

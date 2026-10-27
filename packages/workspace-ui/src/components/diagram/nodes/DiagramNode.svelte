@@ -225,7 +225,7 @@
              two pixels to stay legible at card scale. -->
         <Icon icon={iconifyName} width="14" height="14" />
       {:else if iconSvg}
-        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           {@html iconSvg}
         </svg>
       {:else}
@@ -247,7 +247,7 @@
         title="Open detail diagram ({childCount} {childCount === 1 ? 'node' : 'nodes'})"
         aria-label="Open detail diagram, {childCount} {childCount === 1 ? 'node' : 'nodes'}"
       >
-        <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
           <rect x="2" y="5" width="9" height="9" rx="2" />
           <path d="M5 5V3.5A1.5 1.5 0 0 1 6.5 2h6A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H11" />
         </svg>
@@ -266,7 +266,7 @@
       >
         <!-- One down-chevron rotated 180° when expanded, so the flip animates
              instead of hard-swapping between two paths. -->
-        <svg class="diagram-node__expand-icon" class:diagram-node__expand-icon--open={data.expanded} viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+        <svg class="diagram-node__expand-icon" class:diagram-node__expand-icon--open={data.expanded} viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
           <path d="M4 6l4 4 4-4" />
         </svg>
       </button>
@@ -303,7 +303,7 @@
       {#each fields.shown as field}
         <div class="diagram-node__field">
           {#if field.key === 'pk'}
-            <svg class="diagram-node__field-key" viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="var(--solus-accent)" stroke-width="1.7" aria-hidden="true">
+            <svg class="diagram-node__field-key" viewBox="0 0 16 16" width="9" height="9" fill="none" stroke="var(--solus-accent)" stroke-width="1" aria-hidden="true">
               <title>{KEY_TITLE.pk}</title>
               <circle cx="5.5" cy="5.5" r="3" />
               <path d="M8 8l5 5M11 11l-1.5 1.5" />

@@ -8,6 +8,7 @@
   import SessionOriginDivider from "./SessionOriginDivider.svelte";
   import PendingHandoffDivider from "./PendingHandoffDivider.svelte";
   import { revealTranscriptMatch } from "./lib/transcript-navigation";
+  import { SearchMessageNavigation } from "./lib/search-message-navigation.svelte";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { tick, untrack } from "svelte";
   import { modelLabelFor } from "@solus/contracts/types";
@@ -249,6 +250,20 @@
   // older history (a view reset to the top looked like a reader asking for it).
   let loadingOlder = false;
   let arriving = false;
+  const searchNavigation = new SearchMessageNavigation({
+    hostId: () => sessionHostId, sessionId: () => sess?.id ?? "",
+    ready: () => isVisible && !!sess && !sess.loadingHistory && !!scrollEl,
+    messages: () => sess?.messages ?? [], hasOlder: () => sess?.historyTruncated ?? false,
+    loadOlder: () => session.lifecycle.expandHistory(tabId),
+    stillWanted: () => isVisible,
+    reveal: async (messageId, word) => {
+      await tick(); endFollow?.release(); await find.openAt(messageId, word);
+      viewState.position = virtualizer.position();
+    },
+    unavailable: (error) => toasts.error("Could not open the matching message", {
+      description: error instanceof Error ? error.message : "The message is no longer available",
+    }),
+  });
   let wasShown = false;
   $effect(() => {
     const shown = isVisible && !!scrollEl;
@@ -261,7 +276,7 @@
     arriving = true;
     if (position) endFollow?.release();
     void tick().then(() => requestAnimationFrame(async () => {
-      if (!position || !(await virtualizer.restore(position))) {
+      if (!searchNavigation.opening && (!position || !(await virtualizer.restore(position)))) {
         viewState.position = null;
         endFollow?.jump();
       }
@@ -862,7 +877,7 @@
           {/if}
 
           {#if showSessionActions}
-            <div class="min-h-16"></div>
+            <div class="min-h-12"></div>
           {/if}
         </div>
       </div>

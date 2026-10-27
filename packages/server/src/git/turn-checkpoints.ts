@@ -2,6 +2,7 @@ import { createLogger } from '../logger'
 import { resolveHomePath } from '../platform/paths'
 import { resolveRepoRoot } from './git-helpers'
 import { getHeadCommit } from './worktree-manager'
+import { turnActivity } from './turn-activity'
 import { initSessionBase, prepareTurnSnapshot, snapshotTurn, type SnapshotOpts } from './session-snapshots'
 
 const log = createLogger('TurnCheckpoints', 'turn-checkpoints.ts')
@@ -10,7 +11,8 @@ const log = createLogger('TurnCheckpoints', 'turn-checkpoints.ts')
  * The one owner of a turn's checkpoints. A backend tells it where a turn starts
  * and where it ends; how the checkout is captured is decided here. Both ends
  * are whole-checkout snapshots (`session-snapshots.ts`), so a turn's diff holds
- * every change, whichever tool or person made it.
+ * every change, whichever tool or person made it, less what another session
+ * wrote at the same time (`session-snapshots.ts`, with times from `turn-activity.ts`).
  */
 
 /** Where one Solus session works. Snapshots belong to the session, not to one
@@ -25,6 +27,7 @@ export interface CheckpointTarget {
 export async function beginTurnCheckpoint(target: CheckpointTarget): Promise<void> {
   try {
     const workTree = resolveHomePath(target.workTree)
+    turnActivity.turnStarted(target.sessionId, workTree)
     const repoRoot = await resolveRepoRoot(workTree)
     if (!repoRoot) return
     const head = await getHeadCommit(workTree)
@@ -48,5 +51,7 @@ export async function endTurnCheckpoint(target: CheckpointTarget, facts: Snapsho
   } catch (error) {
     log.warn('turn_checkpoint_end_failed', { sessionId: target.sessionId, error: error instanceof Error ? error.message : String(error) })
     return null
+  } finally {
+    turnActivity.turnEnded(target.sessionId)
   }
 }

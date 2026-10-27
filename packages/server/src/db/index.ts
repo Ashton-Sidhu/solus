@@ -1,6 +1,8 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
+import { searchText, searchableMessageText } from '@solus/contracts/session-search'
+import { z } from 'zod'
 import { solusDir } from '../platform/paths'
 import { resolveEngine } from './engine'
 import { runMigrations } from './migrations'
@@ -52,8 +54,36 @@ export function getDb(): DatabaseSync {
     openedDb.exec('PRAGMA busy_timeout = 5000')
     openedDb.exec('PRAGMA synchronous = NORMAL')
     runMigrations(openedDb)
+    // Rebuild only the derived index. Original messages and identities stay intact.
+    if (!openedDb.prepare("SELECT 1 FROM kv WHERE key = 'session-search-normalized-v1'").get()) {
+      openedDb.exec('BEGIN IMMEDIATE')
+      try {
+        openedDb.exec("DROP TABLE session_fts; CREATE VIRTUAL TABLE session_fts USING fts5(text, content='', contentless_delete=1, tokenize='unicode61')")
+        const insert = openedDb.prepare('INSERT INTO session_fts(rowid, text) VALUES (?, ?)')
+        let after = -1
+        for (;;) {
+          const rows = openedDb.prepare('SELECT id, text FROM session_messages WHERE id > ? ORDER BY id LIMIT 300').all(after)
+          if (!rows.length) break
+          for (const row of rows) { insert.run(Number(row.id), searchText(String(row.text ?? ''))); after = Number(row.id) }
+        }
+        openedDb.exec("INSERT INTO kv(key, value) VALUES ('session-search-normalized-v1', '1')")
+        openedDb.exec('COMMIT')
+      } catch (error) { openedDb.exec('ROLLBACK'); throw error }
+    }
     // The generated tables live in this file only when it is the engine.
-    if (resolveEngine().kind === 'sqlite') runSqliteSchemaMigrations(openedDb)
+    if (resolveEngine().kind === 'sqlite') {
+      runSqliteSchemaMigrations(openedDb)
+      const messageSchema = z.object({ content: z.string().optional(), role: z.string().optional(), toolName: z.string().optional(), parentToolUseId: z.string().optional() }).nullable()
+      for (;;) {
+        const rows = openedDb.prepare("SELECT rowid, message FROM session_transcripts WHERE search_text = '' LIMIT 300").all()
+        if (!rows.length) break
+        openedDb.exec('BEGIN IMMEDIATE')
+        try {
+          for (const row of rows) openedDb.prepare('UPDATE session_transcripts SET search_text = ? WHERE rowid = ?').run(searchableMessageText(messageSchema.parse(JSON.parse(String(row.message)))) || ' ', Number(row.rowid))
+          openedDb.exec('COMMIT')
+        } catch (error) { openedDb.exec('ROLLBACK'); throw error }
+      }
+    }
     // Without planner statistics SQLite guesses index selectivity. This is the
     // open-time form SQLite recommends for a long-lived connection: check
     // every table (0x10000), analyze one only when its statistics are absent

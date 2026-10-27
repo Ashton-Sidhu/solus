@@ -169,6 +169,13 @@
       "when": 1792917807862,
       "tag": "0023_acl_custom_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793040650825,
+      "tag": "0024_session_search",
+      "breakpoints": true
     }
   ]
 }

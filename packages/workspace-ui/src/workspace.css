@@ -386,7 +386,7 @@
   --solus-diff-added-text: #3f704f;
   --solus-diff-added-bg: rgba(63, 112, 79, 0.18);
   --solus-diff-added-bg-write: rgba(63, 112, 79, 0.32);
-  --solus-diff-removed-text: #b06a5a;
+  --solus-diff-removed-text: #a05444;
   --solus-diff-removed-bg: rgba(176, 106, 90, 0.18);
   --solus-diff-gutter-bg: rgba(0, 0, 0, 0.015);
   --solus-diff-gutter-text: rgba(42, 38, 24, 0.42);
@@ -421,11 +421,13 @@
      @pierre/diffs treats these as a *mix target*, blending only 12% (light) /
      20% (dark) of them into the surface, so the rendered wash lands back near
      the design's value. Tune these, not diffTheme.ts. */
-  --solus-diff-added-text-vivid: var(--solus-art-3);
+  /* Diff text and +N/−N counts. Light mode needs darker inks than the fills
+     they share a hue with: a count must read at 4.5:1 on the canvas. */
+  --solus-diff-added-text-vivid: #047857;
   --solus-diff-added-bg-vivid: color-mix(in oklab, var(--solus-art-3) 18%, transparent);
   --solus-diff-added-number-vivid: color-mix(in oklab, var(--solus-art-3) 18%, transparent);
   --solus-diff-added-emphasis-vivid: color-mix(in oklab, var(--solus-art-3) 16%, transparent);
-  --solus-diff-removed-text-vivid: var(--solus-stop-bg);
+  --solus-diff-removed-text-vivid: #b91c1c;
   --solus-diff-removed-bg-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
   --solus-diff-removed-number-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
   --solus-diff-removed-emphasis-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
@@ -694,6 +696,8 @@
      above; they resolve through --solus-art-3 / --solus-stop-bg, which are
      already mode-aware. Only the neutral gutter text needs a dark value. */
   --solus-diff-gutter-text-vivid: rgba(240, 237, 229, 0.58);
+  --solus-diff-added-text-vivid: var(--solus-art-3);
+  --solus-diff-removed-text-vivid: var(--solus-stop-bg);
   /* Find-in-diff highlight — see light-mode block above. */
   --solus-diff-find-bg: rgba(230, 184, 64, 0.30);
   --solus-diff-find-text: inherit;
@@ -1440,6 +1444,18 @@ html, body, #root {
 textarea::placeholder,
 input::placeholder {
   color: var(--solus-placeholder);
+}
+
+/* ─── Icon stroke ───
+   One line weight for every icon: Lucide's 1.5 on its 24-unit box. A Lucide
+   icon draws `stroke-width="2"` when nobody chose a weight; any author rule
+   beats that attribute, and from the base layer a `stroke-*` utility or an
+   explicit `strokeWidth` still wins. A hand-drawn icon on another box scales
+   the same weight: 1 on a 16-unit box, 0.875 on 14, 0.75 on 12. */
+@layer base {
+  :where(svg.lucide-icon[stroke-width="2"]) {
+    stroke-width: 1.5;
+  }
 }
 
 /*

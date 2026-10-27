@@ -1,6 +1,12 @@
 # Unified search: tasks and sessions as equals
 
-Status: implemented, 2026-09-30. The Postgres Solus API is not yet run against a database.
+Status: updated, 2026-10-26. Host and SQLite service behavior have focused tests.
+The Postgres implementation has not been run against a database in this change.
+Current before/after results are in [Session search benchmark](session-search-benchmark.md).
+
+The picker defaults to sessions only on desktop and web. The result menu can
+include tasks or show tasks only, and the client remembers an explicit choice.
+Native session search already shows sessions only.
 
 The picker lists tasks and sessions as peers (`task-conversation.md` §8: a
 session has no task of its own). Search must treat them the same way: a person
@@ -16,9 +22,10 @@ pause in typing.
   pull request linked to it. Searched with its name.
 - **evidence** — where the words are when they are not in the name: a task's
   body or comments; the messages of a session.
-- **word rule** — how a query matches text, the same everywhere: the query is
-  split on white space, and every word must start a word of the text. Case is
-  ignored. There is no stemming.
+- **word rule** — session text and queries use the same normalization:
+  punctuation, camelCase, acronyms and numbers split words. Case and accents
+  are ignored. A word can match a prefix; a number must match a whole token.
+  There is no stemming.
 - **session match** — every word of the query is somewhere in the session: its
   name, its metadata, or any of its messages. The words need not be in one
   message.
@@ -37,14 +44,13 @@ pause in typing.
 
 ## Decisions
 
-1. **One word rule.** The client, the host index and the Solus API use
-   the word rule. The host index drops the Porter stemmer and matches every
-   word as a prefix, not only the last. "running" no longer finds "run" in a
-   session and still does not in a task: the two agree.
-   - The Postgres Solus API still stems (its `tsvector` is built with
-     the `english` configuration); it matches every word as a prefix. The
-     SQLite Solus API matches substrings. Both are listed under
-     "Known differences".
+1. **One session matcher.** `packages/contracts/src/session-search.ts` owns
+   normalization, name matching, score tiers and portable message targets.
+   The host uses normalized FTS5 tokens. The SQLite service uses normalized
+   FTS5 tokens; Postgres uses normalized text with the `simple` configuration.
+   Both services use the shared scorer. Client name matching uses it too.
+   A joined name such as `vscode` can find `VS Code`. If the first pass finds
+   no result, names get one conservative typo pass. Numbers get no correction.
 2. **Session match, not message match.** A session is listed when each word is
    in its name, its metadata or any message.
 3. **Names are searched on the host.** The host reads names and metadata from
@@ -53,16 +59,22 @@ pause in typing.
    message is not a name: it stands in for a title on screen, but it is what
    was said, and it is found as a message. (Treated as a name, a long opening
    message outranked sessions and tasks named for the words.)
-4. **Encoded message ids.** A message row id is `session number × 2^20 +
+4. **Portable targets and local index positions.** A local message row id is `session number × 2^20 +
    position`. The session a hit belongs to is read from its row id, with no
    join. This is what makes a session match affordable on a large index (see
-   "Measurements"). `session_keys` gives each session its number.
-5. **Session score.** A session's score sums, for each word, the word's weight
-   (rarer words weigh more) times a saturating count of the session's messages
-   that hold it. A session with one message that holds every word gains a
-   bonus, and one with the words as the phrase typed gains more. Recency
-   breaks ties. The passages are the newest messages with the phrase, then
-   with every word, then with each word, rarest first; at most three.
+   "Measurements"). `session_keys` gives each session its number. Search also
+   returns the provider thread and message identity, with a text/time reference
+   for messages without an identity. Previews resolve that target again instead
+   of trusting an old position. Opening a message result loads older history
+   pages until the matching message is available, then reveals it. A stalled
+   read stops and shows an error. Mirrored previews work while a runner is offline.
+5. **Session score before paging.** An exact session ID ranks first, then a
+   title, then a branch or PR, then a message phrase, words in one message,
+   and words spread across messages. Match quality orders names within their
+   tier. Message counts saturate within their tier. The score does not depend
+   on a host's corpus size or word frequency. Activity breaks ties. Read
+   visibility is applied before paging and totals. Each hit names the field
+   that matched. At most three message passages are returned per session.
 6. **Every session, in pages.** A query lists every session that matches. A
    host answers with the total and its first page; the list asks for the next
    page when its end comes into view. With no query the picker lists every
@@ -78,19 +90,33 @@ pause in typing.
    answer later. A host's passage for a session already listed is shown in
    its row, and the row keeps its place. A session that only a host found is
    listed in a last section, In messages, under every other row (as in t3code
-   #24343). The keyboard cursor follows its row by key.
+   #24343). Each host's reply appears at once; a slow host does not delay the
+   others. Later replies append. Errors remain visible beside partial results.
+   The keyboard cursor follows its row by key.
 10. **Filters live in the search options menu**, beside the order and the
    search mode. The chip shows how many are set. They apply with or without a
    query.
+11. **All clients.** Desktop and web share the picker. Native Home and the
+    tablet sidebar use the same paged client search controller. They show local
+    names at once, search full message history on hosts, expose errors and more
+    pages, and open the matching message. Project filters include all selected
+    clones on a host, with each worktree root searched once.
+12. **Rebuild derived data only.** The local FTS index is rebuilt from stored
+    messages. Mirrored messages get normalized search text and an engine index.
+    Original messages stay intact. There is one session matching model, with
+    no alternate legacy search path.
 
 ## Known differences
 
-- The Postgres Solus API stems English words.
-- The SQLite Solus API (a small lab service) matches substrings.
 - An upstream provider comment is not stored on the host, so only Solus
   comments are searched.
+- Task comment storage and retrieval are outside this session index change.
+  Client task titles use the shared name matcher.
 
-## Measurements
+## Historical measurements (2026-09-30)
+
+These results describe the earlier encoded-ID change. They are not the
+baseline for the 2026-10-26 replacement. See the [current matched runs](session-search-benchmark.md).
 
 `tests/benchmarks/picker-search.ts` measures speed and relevance on a seeded
 corpus. It records the "before" in `picker-search-baseline.json`. A 10× corpus
@@ -104,7 +130,7 @@ A lab test of the query shapes on 720k messages:
 | `sess` | 865 ms | ~25 ms |
 | `websocket` | 205 ms | ~5 ms |
 
-## Results
+## Historical results (2026-09-30)
 
 `bun tests/benchmarks/picker-search.ts` against the recorded "before", on the
 seeded corpus (67k messages) and at `--scale 10` (672k messages, 22k sessions).
@@ -155,11 +181,10 @@ Not measured here: the Solus API engines. The SQLite engine is
 covered by `api-mode.test.ts`; the Postgres engine is not run by the
 unit tests without `POSTGRES_ADMIN_URL`.
 
-## Open questions
+## Follow-ups
 
-- Under a query, the Tasks section still comes before the Sessions section.
-  Top hits lifts the best three rows of both kinds, but a session named for the
-  words, typed in another order ("reconnect websocket"), is #143 behind every
-  task that holds the words. This was the same before this change.
 - A second page could reuse the first page's match while the index is
   unchanged.
+- Fine word distance within one message is not a separate score tier. The
+  current tiers distinguish a phrase, one message and several messages.
+- Search selection history and a trigram index remain deferred.

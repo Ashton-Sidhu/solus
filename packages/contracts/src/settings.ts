@@ -262,7 +262,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   documentFontSize: 15,
   promptFontFamily: 'interface',
   promptFontSize: 13,
-  assistantTextOpacity: 100,
+  assistantTextOpacity: 90,
   conversationWidth: 'comfortable',
   extraInstructions: '',
   modelInstructions: {},

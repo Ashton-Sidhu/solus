@@ -467,7 +467,7 @@
         {/if}
         <!-- ml-auto is inert while the chip shrink-wraps; it only bites when a
              call site sets a width floor, keeping the caret on the edge. -->
-        <CaretDownIcon size={12} strokeWidth={2.25} class="ml-auto text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
+        <CaretDownIcon size={12} strokeWidth={1.5} class="ml-auto text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
       </button>
           {/snippet}
         </TooltipUI.Trigger>

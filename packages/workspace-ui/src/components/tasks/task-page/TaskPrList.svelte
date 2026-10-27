@@ -104,7 +104,7 @@
               viewBox="0 0 14 14"
               fill="none"
               stroke="currentColor"
-              stroke-width="1.5"
+              stroke-width="0.875"
               stroke-linecap="round"
               aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg
             >
@@ -191,7 +191,7 @@
             viewBox="0 0 14 14"
             fill="none"
             stroke="currentColor"
-            stroke-width="1.5"
+            stroke-width="0.875"
             stroke-linecap="round"
             aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg
           >

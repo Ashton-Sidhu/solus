@@ -16,7 +16,6 @@ let indexer: IndexerModule
 let search: SearchModule
 let closeDb: () => void
 let getDb: typeof import('@solus/server/db').getDb
-let runMigrations: typeof import('@solus/server/db/migrations').runMigrations
 
 let dataDir: string
 beforeAll(async () => {
@@ -25,7 +24,6 @@ beforeAll(async () => {
   indexer = await import('@solus/server/db/session-indexer')
   search = await import('@solus/server/db/session-search')
   ;({ closeDb, getDb } = await import('@solus/server/db'))
-  ;({ runMigrations } = await import('@solus/server/db/migrations'))
 })
 afterAll(() => {
   closeDb?.()
@@ -71,6 +69,14 @@ describe('searchSessionIndex', () => {
     const scoped = search.searchSessionIndex('pelican', { projectRoot: '/repo' }).results
     expect(scoped.map((result) => result.session.sessionId)).toEqual(['here'])
     expect(search.searchSessionIndex('pelican').results.map((result) => result.session.sessionId).toSorted()).toEqual(['here', 'there'])
+  })
+
+  test('record visibility is applied before the page and its total', () => {
+    for (let index = 0; index < 35; index++) seed(`hidden-${index}`, '/repo', ['pelican'])
+    seed('readable', '/repo', ['pelican'])
+    const page = search.searchSessionIndex('pelican', { sessionIds: new Set(['readable']), limit: 1 })
+    expect(page.total).toBe(1)
+    expect(page.results.map(result => result.session.sessionId)).toEqual(['readable'])
   })
 
   test('a session matches when its words are in different messages, and not when one word is missing', () => {
@@ -145,26 +151,61 @@ describe('searchSessionIndex', () => {
     db.prepare('UPDATE sessions SET last_timestamp = ? WHERE session_id = ?').run(9_000, 'new')
     expect(search.searchSessionIndex('egret', { activeSince: 5_000 }).results.map((result) => result.session.sessionId)).toEqual(['new'])
   })
+
+  test('another project never turns a phrase bonus into a penalty', () => {
+    seed('phrase', '/repo', ['websocket reconnect'])
+    seed('spread', '/repo', ['websocket', 'reconnect'])
+    const before = search.searchSessionIndex('websocket reconnect', { projectRoot: '/repo' }).results.map(result => [result.session.sessionId, result.rank])
+    for (let i = 0; i < 6; i++) seed(`outside-${i}`, '/elsewhere', ['websocket reconnect'])
+    expect(search.searchSessionIndex('websocket reconnect', { projectRoot: '/repo' }).results.map(result => [result.session.sessionId, result.rank])).toEqual(before)
+    expect(before[0]![0]).toBe('phrase')
+  })
+
+  test('an exact old name is on page one among more than thirty newer names', async () => {
+    seed('exact', '/repo', ['unrelated'])
+    await indexer.setSessionCustomTitle('exact', 'Tab')
+    getDb().prepare('UPDATE sessions SET last_timestamp = 0 WHERE session_id = ?').run('exact')
+    for (let i = 0; i < 35; i++) {
+      seed(`new-${i}`, '/repo', ['unrelated'])
+      await indexer.setSessionCustomTitle(`new-${i}`, `Tab details ${i}`)
+    }
+    const page = search.searchSessionIndex('tab', { namesOnly: true, limit: 30 })
+    expect(page.total).toBe(36)
+    expect(page.results[0]!.session.sessionId).toBe('exact')
+  })
+
+  test('normalization, portable targets and replacement stay in step with the index', () => {
+    seed('code', '/repo', ['serverConnections Café'])
+    const hit = search.searchSessionIndex('connections cafe').results[0]!
+    expect(hit.target).toMatchObject({ sourceSessionId: 'code', text: 'serverConnections Café' })
+    expect(hit.snippet).toContain(`${SNIPPET_HIT_OPEN}Connections${SNIPPET_HIT_CLOSE}`)
+    indexer.indexSessionMessages('code', [{ messageId: 'stable', role: 'assistant', content: 'a replacement', timestamp: 500 }])
+    expect(search.searchSessionIndex('connections cafe').total).toBe(0)
+    expect(search.searchSessionIndex('replacement').results[0]!.target?.messageId).toBe('stable')
+  })
+
+  test('a preview follows a stable message after a row-position change', () => {
+    indexer.persistIndexedSessionStart('portable', 'codex', '/repo', encodePathAsFolder('/repo'), 'gpt-5.5', 'high')
+    indexer.indexSessionMessages('portable', [{ messageId: 'stable', role: 'assistant', content: 'pelican migration', timestamp: 100 }])
+    const hit = search.searchSessionIndex('pelican').results[0]!
+    indexer.indexSessionMessages('portable', [
+      { messageId: 'inserted', role: 'user', content: 'earlier prompt', timestamp: 50 },
+      { messageId: 'stable', role: 'assistant', content: 'pelican migration', timestamp: 100 },
+    ])
+    const window = indexer.getSessionMessageWindow('portable', hit.messageId, 1, hit.target)
+    expect(window.messages.find(message => message.messageId === window.hitMessageId)?.text).toBe('pelican migration')
+    expect(window.hitMessageId).not.toBe(hit.messageId)
+  })
 })
 
-describe('the session match migration', () => {
-  test('clears the messages, re-reads every transcript, and says the index is rebuilding', () => {
-    // WHY: the index changed shape (encoded row ids, no stemmer). Rows written
-    // before it would be misread, so every transcript is read again, and a
-    // search says it answers from part of them until the sweep ends.
+describe('the derived search index rebuild', () => {
+  test('preserves messages while rebuilding normalized search text', () => {
+    seed('before', '/repo', ['the serverConnections store'])
     const db = getDb()
-    db.prepare('DELETE FROM kv').run()
-    expect(indexer.sessionMessagesRebuilding()).toBe(false)
-    db.prepare("INSERT INTO session_files(path, provider, last_offset) VALUES ('/t/a.jsonl', 'claude', 500)").run()
-    db.prepare("INSERT INTO kv(key, value) VALUES ('codex-session-index-watermark', '5')").run()
-    seed('before', '/repo', ['the osprey'])
-    // A file at the version before: no session numbers yet.
-    db.exec('DROP TABLE session_keys')
-    db.exec('PRAGMA user_version = 1')
-    runMigrations(db)
-    expect(db.prepare('SELECT COUNT(*) AS count FROM session_files').get()).toEqual({ count: 0 })
-    expect(db.prepare('SELECT COUNT(*) AS count FROM session_messages').get()).toEqual({ count: 0 })
-    expect(db.prepare("SELECT value FROM kv WHERE key = 'codex-session-index-watermark'").get()).toBeNull()
-    expect(indexer.sessionMessagesRebuilding()).toBe(true)
+    const count = db.prepare('SELECT COUNT(*) AS count FROM session_messages').get()
+    db.prepare("DELETE FROM kv WHERE key = 'session-search-normalized-v1'").run()
+    closeDb()
+    expect(search.searchSessionIndex('connections').results.map(result => result.session.sessionId)).toEqual(['before'])
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM session_messages').get()).toEqual(count)
   })
 })

@@ -8,7 +8,7 @@ import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-ap
 import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
 
 type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordSearch' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
-type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 'snippet' | 'timestamp' | 'messageId' | 'rank'>
+type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 'snippet' | 'timestamp' | 'messageId' | 'rank' | 'reason' | 'target'>
 
 /** A record this host does not have. `MOVED` is not absence: the record is on
  *  another host, and the caller asks that one (cloud-sharing.md §3a). */
@@ -122,7 +122,7 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
         activeSince: query.activeSince,
       } })
       // A session found by its name alone has no passage: an empty snippet and no message.
-      const hit = ({ snippet = '', timestamp, messageId = -1, rank }: SessionSearchHitPart) => ({ snippet, ts: timestamp, messageId, rank })
+      const hit = ({ snippet = '', timestamp, messageId = -1, rank, reason, target }: SessionSearchHitPart) => ({ snippet, ts: timestamp, messageId, rank, reason, target })
       return {
         results: result.items.map(item => ({ ...hit(item), record: sessionRecord(item.session), additionalMatches: item.additionalMatches.map(hit) })),
         total: result.total,

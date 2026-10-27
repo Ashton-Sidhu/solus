@@ -16,6 +16,7 @@ import { eventHasQuestionId } from './input-requests'
 import type { PendingStart } from './run-launcher'
 import { linkPreparedTask } from './run-task-context'
 import { backgroundWorkHolds } from './background-work'
+import { turnActivity } from '../../git/turn-activity'
 
 const log = createLogger('SessionRuntime', 'provider-events.ts')
 
@@ -268,6 +269,7 @@ export class ProviderEvents {
 
       const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
       if (sessionId && event.type !== 'rate_limit') {
+        turnActivity.observe(sessionId, event)
         this.rt.sessionEmitter.onEvent(sessionId, event)
       }
       const session = sessionId ? this.rt.activeSessions.get(sessionId) : undefined

@@ -102,10 +102,10 @@ export function PullRequestDiffStats(props: { readonly additions: number; readon
   return (
     <View className="shrink-0 flex-row items-center gap-2">
       {!props.compact || props.additions > 0 ? (
-        <Text className={cn(textSize, 'font-t3-medium tabular-nums text-adaptive-emerald-600-400')}>+{props.additions.toLocaleString()}</Text>
+        <Text className={cn(textSize, 'font-t3-medium tabular-nums text-diff-added')}>+{props.additions.toLocaleString()}</Text>
       ) : null}
       {!props.compact || props.deletions > 0 ? (
-        <Text className={cn(textSize, 'font-t3-medium tabular-nums text-danger-foreground')}>−{props.deletions.toLocaleString()}</Text>
+        <Text className={cn(textSize, 'font-t3-medium tabular-nums text-diff-removed')}>−{props.deletions.toLocaleString()}</Text>
       ) : null}
     </View>
   )

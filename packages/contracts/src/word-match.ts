@@ -1,16 +1,17 @@
 /**
  * The word rule every search in Solus applies (docs/plans/unified-search.md):
- * a query is split on white space, and every word must start a word of the
- * text. Case is ignored; nothing is stemmed. The client's pass over task and
+ * punctuation and coding boundaries split words, and every query word must
+ * start a word of the text. Case and accents are ignored; numbers match whole
+ * tokens and nothing is stemmed. The client's pass over task and
  * session names and the hosts' indexes read a query the same way, so one query
  * means one thing in every section and the marks in a row agree with the hit.
  */
 
+import { searchTokens, searchTokenMatches } from './session-search'
+
 /** The query's words, lower-cased. A word with no letter or digit starts no
  *  word of any text, so it is dropped. Empty for a blank query. */
-export function queryWords(query: string): string[] {
-  return query.trim().toLocaleLowerCase().split(/\s+/).filter((word) => /[\p{L}\p{N}]/u.test(word))
-}
+export { searchWords as queryWords } from './session-search'
 
 /** A word of the text starts at the start or after a character that is neither
  *  a letter nor a digit — the boundary of the index's unicode61 tokenizer. */
@@ -28,7 +29,8 @@ export function wordStartIndex(lowerText: string, word: string, from = 0): numbe
 
 /** True when every word starts a word of the lower-cased text. No words match everything. */
 export function holdsEveryWord(lowerText: string, words: readonly string[]): boolean {
-  return words.every((word) => wordStartIndex(lowerText, word) >= 0)
+  const tokens = searchTokens(lowerText)
+  return words.every(word => tokens.some(token => searchTokenMatches(token.text, word)))
 }
 
 const WORD_CHARACTER = /[\p{L}\p{N}]/u
@@ -44,18 +46,8 @@ const PASSAGE_LENGTH = 320
  * text's start when no word is found.
  */
 export function markedPassage(text: string, words: readonly string[], open: string, close: string): string {
-  const lower = text.toLocaleLowerCase()
   const spans: Array<[number, number]> = []
-  // Lower-casing can change a string's length; its positions then do not map.
-  if (lower.length === text.length) {
-    for (const word of words) {
-      for (let at = wordStartIndex(lower, word); at >= 0; at = wordStartIndex(lower, word, at + 1)) {
-        let end = at + word.length
-        while (end < text.length && WORD_CHARACTER.test(text[end]!)) end++
-        spans.push([at, end])
-      }
-    }
-  }
+  for (const token of searchTokens(text)) if (words.some(word => searchTokenMatches(token.text, word))) spans.push([token.start, token.end])
   spans.sort((a, b) => a[0] - b[0] || b[1] - a[1])
   const first = spans[0]?.[0] ?? 0
   let start = Math.max(0, first - PASSAGE_LEAD)

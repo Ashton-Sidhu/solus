@@ -373,7 +373,7 @@
  ? 'queued-bubble rounded-[0.875rem] py-2 pr-3.5 pl-3'
  : isHostSent
  ? 'rounded-2xl bg-card px-3 pt-2.5 pb-2.5 shadow-[shadow:var(--solus-tx-hairline)]'
- : 'rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 pt-2.5 pb-2.5'}"
+ : 'rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] px-3 pt-2.5 pb-2.5 dark:bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)]'}"
       >
         {#if !isHostSent}
           <!-- Another person's prompt carries their name, held or sent; the reader's own do not. -->

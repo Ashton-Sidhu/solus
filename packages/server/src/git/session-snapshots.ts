@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'crypto'
 import { createLogger } from '../logger'
 import { isInsideRoot } from '../paths'
 import { runAsync } from './exec'
+import { turnActivity } from './turn-activity'
 import type {
   ChangedFileStat,
   DiffFileContent,
@@ -206,7 +207,8 @@ export async function prepareTurnSnapshot(
  * in the session's own worktree. A narrower tree can only report the changes a
  * path list already knew about, so an edit through the shell, a subagent's
  * write, or a revert back to `HEAD` would diff to nothing. In a shared checkout
- * a turn therefore also shows what other authors changed while it ran.
+ * the tree also holds what other authors changed; see "Which changes in a
+ * checkout are the session's" below.
  */
 async function snapshotLiveTree(workTree: string, repoRoot: string): Promise<string> {
   const headSha = await runAsync('git', ['rev-parse', 'HEAD'], workTree)
@@ -247,7 +249,11 @@ async function snapshotTurnQueued(
 
   try {
     const turnFrom = sidecar.pendingTurnTreeSha
-    const turnTo = await snapshotLiveTree(workTree, repoRoot)
+    const liveTo = await snapshotLiveTree(workTree, repoRoot)
+    // Another session's writes during this turn stay out of it.
+    const othersPaths = await pathsOfOtherSessions(sessionId, workTree,
+      await changedPathsBetween(repoRoot, turnFrom, liveTo))
+    const turnTo = othersPaths.length ? await restorePaths(repoRoot, liveTo, turnFrom, othersPaths) : liveTo
     const treeSha = turnTo
     const turnStats = await diffStats(repoRoot, turnFrom, turnTo)
     await Promise.all([
@@ -260,7 +266,7 @@ async function snapshotTurnQueued(
       ...await changedPathsBetween(repoRoot, turnFrom, turnTo),
     ])]
     if (treeSha === prev.tree) {
-      const sessionChangedFiles = keepSessionPaths(workTree, repoRoot, sidecar,
+      const sessionChangedFiles = keepOwnPaths(workTree, repoRoot, sidecar.turnPaths,
         sidecar.sessionChangedFiles
           ?? await reconcileSessionPaths(repoRoot, sessionId, turnIndex, sidecar.baseSha, prev.commit))
       const snap: TurnSnapshot = {
@@ -311,7 +317,7 @@ async function snapshotTurnQueued(
     }
     if (opts.traceId) snap.traceId = opts.traceId
     sidecar.turns.push(snap)
-    const sessionChangedFiles = keepSessionPaths(workTree, repoRoot, sidecar,
+    const sessionChangedFiles = keepOwnPaths(workTree, repoRoot, sidecar.turnPaths,
       await reconcileSessionPaths(repoRoot, sessionId, turnIndex, sidecar.baseSha, commitSha))
     sidecar.latestTreeSha = treeSha
     if (sessionChangedFiles) sidecar.sessionChangedFiles = sessionChangedFiles
@@ -359,12 +365,106 @@ async function turnPathsOf(repoRoot: string, sidecar: Sidecar): Promise<string[]
   return [...paths]
 }
 
+// ─── Which changes in a checkout are the session's ───
+//
+// A turn's diff compares whole-checkout snapshots, so it holds every change,
+// whoever made it. In the session's own linked worktree that is the session's
+// work. In a checkout that other authors also edit:
+//
+// - Between turns, a path counts only when one of the session's turns changed
+//   it (`keepOwnPaths`, `ownLivePaths`).
+// - During a turn, when another Solus session had a turn in the same checkout
+//   at the same time, a path whose last write fell inside one of that
+//   session's tool calls, and inside none of this session's, is the other
+//   session's (`pathsOfOtherSessions`, with times from `turn-activity.ts`).
+//
+// Some limits remain. An edit by a person, or by a tool that writes after its
+// call ends (a background shell), has no tool call, so it stays in the turn.
+// When both sessions changed one file, the last write decides.
+
+/**
+ * True when the session works in its own linked worktree rather than the shared
+ * checkout. There it owns every change in the tree. In the shared checkout the
+ * developer and other sessions edit the same tree.
+ */
+function ownsCheckout(workTree: string, repoRoot: string): boolean {
+  return resolve(workTree) !== resolve(repoRoot)
+}
+
 /** A shared checkout has other authors, so the session's net paths keep only
  *  the ones its own turns changed. */
-function keepSessionPaths(workTree: string, repoRoot: string, sidecar: Sidecar, paths: string[] | null): string[] | null {
-  if (!paths || ownsWorkTree(workTree, repoRoot)) return paths
-  const turnPaths = new Set(sidecar.turnPaths)
-  return paths.filter((path) => turnPaths.has(path))
+function keepOwnPaths(workTree: string, repoRoot: string, turnPaths: string[] | undefined, paths: string[] | null): string[] | null {
+  if (!paths || ownsCheckout(workTree, repoRoot)) return paths
+  const own = new Set(turnPaths)
+  return paths.filter((path) => own.has(path))
+}
+
+/** Of `paths`, changed in `workTree` during the session's open turn, the ones
+ *  another session wrote. Empty unless another session had a turn there at
+ *  the same time. */
+async function pathsOfOtherSessions(sessionId: string, workTree: string, paths: string[]): Promise<string[]> {
+  const turn = paths.length ? turnActivity.concurrentTurn(sessionId, workTree) : null
+  if (!turn) return []
+  const foreign: string[] = []
+  await Promise.all(paths.map(async (path) => {
+    const writtenAt = await lastWriteOf(workTree, path)
+    if (writtenAt === null || writtenAt < turn.startedAt || turn.isOwnToolCallAt(writtenAt)) return
+    if (turn.isOtherToolCallAt(writtenAt)) foreign.push(path)
+  }))
+  return foreign
+}
+
+/** The last write time of a path, or null when it is gone (a deletion). */
+async function lastWriteOf(workTree: string, path: string): Promise<number | null> {
+  try {
+    return (await lstat(join(workTree, path))).mtimeMs
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The paths the session scope reads in a shared checkout: every path its turns
+ * changed, and every path changed since the current turn started that another
+ * session did not write. Each turn reads the whole checkout, so a shell edit
+ * counts.
+ */
+async function ownLivePaths(
+  workTree: string,
+  repoRoot: string,
+  sessionId: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string[]> {
+  const sidecar = readSidecar(repoRoot, sessionId)
+  if (!sidecar) return []
+  const paths = new Set(await turnPathsOf(repoRoot, sidecar))
+  if (sidecar.pendingTurnTreeSha) {
+    const live = (await runAsync('git',
+      ['diff', '--name-only', '--no-renames', '-z', sidecar.pendingTurnTreeSha],
+      workTree,
+      { env, raw: true },
+    )).split('\0').filter(Boolean)
+    const foreign = new Set(await pathsOfOtherSessions(sessionId, workTree, live))
+    for (const path of live) if (!foreign.has(path)) paths.add(path)
+  }
+  return [...paths]
+}
+
+/** `tree` with `paths` put back as they were in `from`, through a temporary
+ *  index, so a turn's end tree leaves out what another session wrote. */
+async function restorePaths(repoRoot: string, tree: string, from: string, paths: string[]): Promise<string> {
+  ensureSolusDirs(repoRoot)
+  const indexPath = tmpIndexPath(repoRoot)
+  const env: NodeJS.ProcessEnv = { GIT_INDEX_FILE: indexPath }
+  try {
+    await runAsync('git', ['read-tree', tree], repoRoot, { env })
+    for (const chunk of chunkPathspecs(paths)) {
+      await runAsync('git', ['--literal-pathspecs', 'reset', '-q', from, '--', ...chunk], repoRoot, { env })
+    }
+    return await runAsync('git', ['write-tree'], repoRoot, { env })
+  } finally {
+    try { unlinkSync(indexPath) } catch { /* best-effort */ }
+  }
 }
 
 async function resolveScope(repoRoot: string, sessionId: string, scope: DiffScope): Promise<{ from: string; to: string } | null> {
@@ -471,41 +571,6 @@ async function writeTreeForPaths(
 }
 
 /**
- * True when the session works in its own linked worktree rather than the shared
- * checkout. There it owns every change in the tree. In the shared checkout the
- * developer and other sessions edit the same tree.
- */
-function ownsWorkTree(workTree: string, repoRoot: string): boolean {
-  return resolve(workTree) !== resolve(repoRoot)
-}
-
-/**
- * The paths the session scope reads in a shared checkout: every path its turns
- * changed, and every path changed since the current turn started. Each turn
- * reads the whole checkout, so a shell edit counts. Another author's edit
- * counts only when it lands on a path during one of this session's turns.
- */
-async function sharedCheckoutSessionPaths(
-  workTree: string,
-  repoRoot: string,
-  sessionId: string,
-  env: NodeJS.ProcessEnv,
-): Promise<string[]> {
-  const sidecar = readSidecar(repoRoot, sessionId)
-  if (!sidecar) return []
-  const paths = new Set(await turnPathsOf(repoRoot, sidecar))
-  if (sidecar.pendingTurnTreeSha) {
-    const live = await runAsync('git',
-      ['diff', '--name-only', '--no-renames', '-z', sidecar.pendingTurnTreeSha],
-      workTree,
-      { env, raw: true },
-    )
-    for (const path of live.split('\0')) if (path) paths.add(path)
-  }
-  return [...paths]
-}
-
-/**
  * Run one `git diff <base>` against the live checkout for the session scope. In
  * the session's own worktree it reads the whole tree. In a shared checkout it
  * reads only the session's paths, so other sessions' work stays out.
@@ -523,8 +588,8 @@ async function diffSessionCheckout(
       workTree,
       { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER, raw: true },
     )
-    if (ownsWorkTree(workTree, repoRoot)) return run([])
-    const paths = await sharedCheckoutSessionPaths(workTree, repoRoot, sessionId, env)
+    if (ownsCheckout(workTree, repoRoot)) return run([])
+    const paths = await ownLivePaths(workTree, repoRoot, sessionId, env)
     let out = ''
     for (const chunk of chunkPathspecs(paths)) out += await run(chunk)
     return out

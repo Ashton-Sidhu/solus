@@ -10,6 +10,7 @@ import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
 import { resetTestDatabase } from './helpers/test-db'
+import { searchText } from '@solus/contracts/session-search'
 import { installTestIdentities } from './helpers/acting-identities'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -222,9 +223,9 @@ describe('organization isolation through HTTP operations and retained RPC', () =
 
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-org1', provider: 'claude-code', projectPath: '-repo', title: 'Ours', lastActivityAt: 1 }], ctx(runner1))
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-org2', provider: 'codex', projectPath: '-repo', title: 'Theirs', lastActivityAt: 2 }], ctx(runner2))
-    const aliceRecords = await api.listSessions(authority(alice), { limit: 50 })
+    const aliceRecords = await api.listSessions(authority(alice), { scope: 'all', limit: 50 })
     expect(aliceRecords.items.map(record => [record.id, record.runnerHostId])).toEqual([['s-org1', 'runner-1']])
-    expect((await api.listSessions(authority(bob), { limit: 50 })).items.map(record => record.id)).toEqual(['s-org2'])
+    expect((await api.listSessions(authority(bob), { scope: 'all', limit: 50 })).items.map(record => record.id)).toEqual(['s-org2'])
   })
 
   test('a runner report carries where its session runs, a later report keeps it, and a member lists it', async () => {
@@ -240,7 +241,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     }], ctx(runner1))
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-where', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 4 }], ctx(runner1))
 
-    const page = await api.listSessions(authority(alice), { limit: 50 })
+    const page = await api.listSessions(authority(alice), { scope: 'all', parentSessionId: 's-parent', limit: 50 })
     expect(page.items.find(item => item.id === 's-where')).toMatchObject({
       cwd: '/home/vm/repo', slug: 'brave-otter', isWorktree: true, branch: 'feat/x', projectRoot: '/home/vm/repo',
       delegation: { messageId: 'm-1', depth: 1, intent: 'delegate', createdAt: 2 },
@@ -270,7 +271,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     const records = await import('@solus/server/data/sessions/session-records')
     records.useSessionIndexState(() => false)
     try {
-      expect((await api.listSessions(authority(alice), { limit: 50 })).indexing).toBe(true)
+      expect((await api.listSessions(authority(alice), { scope: 'all', limit: 50 })).indexing).toBe(true)
       expect((await api.searchSessions(authority(alice), { q: 'anything' })).indexing).toBe(true)
     } finally {
       records.useSessionIndexState(() => true)
@@ -286,9 +287,9 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     const { sql } = await import('drizzle-orm')
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-said-1', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 5 }], ctx(runner1))
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-said-2', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 5 }], ctx(runner2))
-    const mirror = async (organizationId: string, sessionId: string, runnerHostId: string, position: number, message: object) =>
-      getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, updated_at)
-        VALUES (${organizationId}, ${sessionId}, ${position}, ${runnerHostId}, ${JSON.stringify(message)}, 1)`)
+    const mirror = async (organizationId: string, sessionId: string, runnerHostId: string, position: number, message: { role: string; content: string; timestamp: number; toolName?: string }) =>
+      getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, search_text, updated_at)
+        VALUES (${organizationId}, ${sessionId}, ${position}, ${runnerHostId}, ${JSON.stringify(message)}, ${searchText(message.content)}, 1)`)
     await mirror('org1', 's-said-1', 'runner-1', 0, { role: 'user', content: 'roll the canary out', timestamp: 10 })
     await mirror('org1', 's-said-1', 'runner-1', 1, { role: 'assistant', toolName: 'Bash', content: 'canary deploy log', timestamp: 11 })
     await mirror('org1', 's-said-1', 'runner-1', 2, { role: 'assistant', content: 'The canary is live.', timestamp: 12 })
@@ -316,11 +317,11 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     await upsert('s-laptop', '-Users-me-web', 'github.com/acme/web')
     await upsert('s-other', '-data-projects-u-api', 'github.com/acme/api')
     for (const id of ['s-vm-a', 's-laptop', 's-other']) {
-      await getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, updated_at)
-        VALUES ('org1', ${id}, 0, 'runner-1', ${JSON.stringify({ role: 'user', content: 'heron', timestamp: 1 })}, 1)`)
+      await getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, search_text, updated_at)
+        VALUES ('org1', ${id}, 0, 'runner-1', ${JSON.stringify({ role: 'user', content: 'heron', timestamp: 1 })}, 'heron', 1)`)
     }
 
-    const listed = await api.listSessions(authority(alice), { limit: 50, repositoryKey: 'github.com/acme/web' })
+    const listed = await api.listSessions(authority(alice), { scope: 'all', limit: 50, repositoryKey: 'github.com/acme/web' })
     const searched = await api.searchSessions(authority(alice), { q: 'heron', repositoryKey: 'github.com/acme/web' })
 
     expect(listed.items.map(item => item.id).sort()).toEqual(['s-laptop', 's-vm-a'])
@@ -340,8 +341,8 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     await upsert('s-spread', { lastActivityAt: 2 })
     await upsert('s-half', { lastActivityAt: 3 })
     const mirror = (sessionId: string, position: number, content: string) =>
-      getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, updated_at)
-        VALUES ('org1', ${sessionId}, ${position}, 'runner-1', ${JSON.stringify({ role: 'user', content, timestamp: position })}, 1)`)
+      getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, search_text, updated_at)
+        VALUES ('org1', ${sessionId}, ${position}, 'runner-1', ${JSON.stringify({ role: 'user', content, timestamp: position })}, ${searchText(content)}, 1)`)
     await mirror('s-titled', 0, 'nothing about birds')
     await mirror('s-spread', 0, 'the heron landed')
     await mirror('s-spread', 1, 'then the migration ran')

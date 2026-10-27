@@ -39,8 +39,9 @@ export type SessionListing =
       relevance: Relevance
       /** The host's rank for the session. Lower is better. */
       rank?: number
+      reason?: SessionSearchHit['reason']
     }
-  | { kind: 'conversation'; meta: SessionMeta; hit?: ConversationHit; additionalMatches?: ConversationHit[]; hitServerId?: string; ts: number; relevance: Relevance; rank?: number }
+  | { kind: 'conversation'; meta: SessionMeta; hit?: ConversationHit; additionalMatches?: ConversationHit[]; hitServerId?: string; ts: number; relevance: Relevance; rank?: number; reason?: SessionSearchHit['reason'] }
 
 /** A host's passage as a row's evidence. None for a session found by its name. */
 function conversationHit(result: SessionSearchHit): ConversationHit | undefined {
@@ -50,6 +51,7 @@ function conversationHit(result: SessionSearchHit): ConversationHit | undefined 
     snippet: snippetWindow(result.snippet),
     ts: result.ts,
     rank: result.rank,
+    target: result.target,
   }
 }
 
@@ -126,7 +128,7 @@ export function matchedSessions(
     }
     mergeSessionPassages(listing, result, owner?.session.serverId ?? '')
   }
-  return { named, inMessages: [...found.values()].sort(compareListings(sort)) }
+  return { named, inMessages: sort === 'recency' ? [...found.values()].sort(compareListings(sort)) : [...found.values()] }
 }
 
 /** A listing for a session only a host found: by its words, or by a title or
@@ -155,6 +157,7 @@ function mergeSessionPassages(listing: SessionListing, result: SessionSearchResu
     if (hitServerId !== preferredHost && listing.hitServerId! < hitServerId) return
   }
   listing.rank = Math.min(listing.rank ?? Number.POSITIVE_INFINITY, result.rank)
+  listing.reason = result.reason
   const hits = new Map<number, ConversationHit>()
   for (const hit of [...(changesSource ? [] : [listing.hit, ...(listing.additionalMatches ?? [])]), conversationHit(result), ...(result.additionalMatches ?? []).map(conversationHit)]) {
     if (hit) hits.set(hit.messageId, hit)

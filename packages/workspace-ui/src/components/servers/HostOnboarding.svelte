@@ -161,7 +161,7 @@
           {:else}
             {#each doneNames as name (name)}
               <span class="flex shrink-0 items-center gap-1.5">
-                <CheckIcon size={12} strokeWidth={2.6} class="text-(--success)" />
+                <CheckIcon size={12} strokeWidth={1.5} class="text-(--success)" />
                 {name}
               </span>
             {/each}

@@ -110,7 +110,7 @@
   <div class="picker__head">
     <span class="picker__title">Change color</span>
     <button type="button" class="picker__close" onclick={onClose} aria-label="Close colour picker">
-      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
         <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
       </svg>
     </button>

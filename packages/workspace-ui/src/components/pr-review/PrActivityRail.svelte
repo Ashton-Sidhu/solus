@@ -748,10 +748,10 @@
                       class="flex shrink-0 items-center gap-1 font-medium tabular-nums"
                     >
                       {#if file.additions}<span
-                          class="text-(--solus-art-positive)">+{file.additions}</span
+                          class="text-(--solus-diff-added-text-vivid)">+{file.additions}</span
                         >{/if}
                       {#if file.deletions}<span
-                          class="text-(--solus-art-negative)">−{file.deletions}</span
+                          class="text-(--solus-diff-removed-text-vivid)">−{file.deletions}</span
                         >{/if}
                     </span>
                   </Button>

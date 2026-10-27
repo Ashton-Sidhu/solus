@@ -181,6 +181,7 @@ export interface SessionIndexedMessage {
 }
 
 export interface SessionMessageWindowRequest {
+  target?: import('./session-search').SessionSearchTarget
   sessionId: string
   /** The message to centre on: the `messageId` of a search hit. */
   messageId: number
@@ -192,6 +193,7 @@ export interface SessionMessageWindowRequest {
  *  how many the window left out on either side. Empty when the message is no
  *  longer indexed. */
 export interface SessionMessageWindow {
+  hitMessageId?: number
   messages: SessionIndexedMessage[]
   hiddenBefore: number
   hiddenAfter: number

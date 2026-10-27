@@ -239,10 +239,10 @@
     font-variant-numeric: tabular-nums;
   }
   .menu-trail.stat-add {
-    color: var(--solus-status-complete);
+    color: var(--solus-diff-added-text-vivid);
   }
   .menu-trail.stat-del {
-    color: var(--solus-status-error);
+    color: var(--solus-diff-removed-text-vivid);
   }
   /* Disclosure caret closes the row. It points at where the menu opens — the
      menus flank the column rather than dropping into it. */

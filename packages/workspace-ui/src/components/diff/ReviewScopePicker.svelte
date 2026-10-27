@@ -120,8 +120,8 @@
             {#each turnsNewestFirst as turn, i (turn.index)}
               <DropdownMenu.RadioItem value={String(turn.index)} onSelect={() => selectTurn(turn.index)}>
                 <span class="whitespace-nowrap">Turn {turns.length - i}</span>
-                <span class="ml-auto shrink-0 tabular-nums text-(--solus-art-3)">+{turn.additions}</span>
-                <span class="shrink-0 tabular-nums text-(--solus-stop-bg)">−{turn.deletions}</span>
+                <span class="ml-auto shrink-0 tabular-nums text-(--solus-diff-added-text-vivid)">+{turn.additions}</span>
+                <span class="shrink-0 tabular-nums text-(--solus-diff-removed-text-vivid)">−{turn.deletions}</span>
               </DropdownMenu.RadioItem>
             {/each}
           </DropdownMenu.RadioGroup>

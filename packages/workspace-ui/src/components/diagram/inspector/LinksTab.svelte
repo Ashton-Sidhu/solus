@@ -101,7 +101,7 @@
     <span class="inspector-label">Detail diagram</span>
     <div class="detail-row">
       <button type="button" class="detail-btn" onclick={onOpenDetail}>
-        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="2" y="2.5" width="7" height="5" rx="1" />
           <rect x="7" y="8.5" width="7" height="5" rx="1" />
           <path d="M5.5 7.5v1.5a1 1 0 001 1h1" />
@@ -116,7 +116,7 @@
           title="Remove detail diagram"
           aria-label="Remove detail diagram"
         >
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M3 4.5h10M6.5 4.5V3a1 1 0 011-1h1a1 1 0 011 1v1.5" />
             <path d="M4 4.5l.5 8.5a1 1 0 001 1h5a1 1 0 001-1l.5-8.5" />
           </svg>
@@ -141,7 +141,7 @@
       >
         {clickLabel}
       </button>
-      <svg class="select__chevron" class:select__chevron--open={clickMenuOpen} viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <svg class="select__chevron" class:select__chevron--open={clickMenuOpen} viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M4 6.5l4 4 4-4" />
       </svg>
       <DropdownMenu.Root bind:open={clickMenuOpen}>

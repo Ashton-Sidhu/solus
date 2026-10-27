@@ -18,9 +18,21 @@ live session diff shows only the files that changed during this session's turns,
 including the turn that runs now. It compares each of those files in the checkout
 with the session base. A file that only other authors changed, between this
 session's turns, does not show. The session's changed-files list uses the same
-rule. Two limits remain: an edit by another author during one of this session's
-turns shows, and so does another author's edit to a file this session also
-changed. To keep a session's diff to its own work exactly, assign it a worktree.
+rule.
+
+When another Solus session has a turn in the same checkout at the same time,
+each turn's snapshots also hold the other session's edits. Solus records when
+each session's tool calls run. A file whose last write happened during another
+session's tool call, and during none of this session's, is left out of this
+session's turn and its live diff. The same rule applies to Claude and Codex.
+`packages/server/src/git/session-snapshots.ts` owns all of these rules. It reads the
+tool-call times from `packages/server/src/git/turn-activity.ts`.
+
+Some limits remain. An edit by a person shows, because a person does not run a
+tool call. A write from a tool that continues after its call ends, such as a
+background shell, shows. When both sessions change one file during the same
+turns, the session that wrote last gets the file. To keep a session's diff to
+its own work exactly, assign it a worktree.
 
 Snapshots use a temporary Git index. They do not change staged files or advance
 the checked-out branch. The same server behavior applies to Claude and Codex and

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { historyPageIsFull, startsHistoryTurn, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
+import { historyPageIsFull, startsHistoryTurn, type SessionHistoryPage, type WireSessionLoadMessage, type SessionMessageWindow, type SessionMessageWindowRequest } from '@solus/contracts/session-history'
 import { activitySchema, type Activity } from '@solus/contracts/activity'
 import { LINEAGE_SWITCH_ID_PREFIX } from '../activity/activity'
 import { getDatabase } from '../../db/database'
@@ -22,6 +22,8 @@ const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
 /** A mirrored row as the runner projected it; every field the wire contract names, nothing else. */
 const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
   messageId: z.string().optional(),
+  sourceSessionId: z.string().optional(),
+  sourceProvider: agentIdSchema.optional(),
   role: z.string(),
   content: z.string(),
   imageAttachments: z.array(z.object({ mimeType: z.string(), dataUrl: z.string() })).optional(),
@@ -116,6 +118,40 @@ export async function readTranscript(scope: RecordScope, sessionId: string, limi
     WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
     ORDER BY position
   `)))
+}
+
+/** Resolve a portable search target in the mirrored copy, even while its runner is offline. */
+export async function readTranscriptMessageWindow(scope: RecordScope, request: SessionMessageWindowRequest): Promise<SessionMessageWindow> {
+  const db = getDatabase()
+  const field = (name: 'role' | 'toolName' | 'parentToolUseId' | 'messageId' | 'sourceSessionId' | 'content' | 'timestamp') => db.engine === 'postgres'
+    ? sql`message::jsonb->>${name}` : sql`json_extract(message, ${'$.' + name})`
+  const visible = sql`${scopeClause(scope)} AND session_id = ${request.sessionId}
+    AND ${field('role')} IN ('user', 'assistant') AND ${field('toolName')} IS NULL AND ${field('parentToolUseId')} IS NULL`
+  const target = request.target
+  const identity = !target ? sql`position = ${request.messageId}` : sql`
+    COALESCE(${field('sourceSessionId')}, session_id) = ${target.sourceSessionId} AND ${target.messageId
+      ? sql`${field('messageId')} = ${target.messageId}`
+      : sql`${field('role')} = ${target.role} AND CAST(${field('timestamp')} AS BIGINT) = ${target.timestamp}
+        AND substr(${field('content')}, 1, length(${target.text})) = ${target.text}`}`
+  const hit = rowSchema.array().parse(await db.all(sql`SELECT position, message FROM ${sessionTranscripts} WHERE ${visible} AND ${identity} LIMIT 1`))[0]
+  if (!hit) return { messages: [], hiddenBefore: 0, hiddenAfter: 0 }
+  const radius = Math.min(5, Math.max(0, Math.trunc(request.radius ?? 1)))
+  const [before, after, counts] = await Promise.all([
+    db.all(sql`SELECT position, message FROM ${sessionTranscripts} WHERE ${visible} AND position < ${hit.position} ORDER BY position DESC LIMIT ${radius}`),
+    db.all(sql`SELECT position, message FROM ${sessionTranscripts} WHERE ${visible} AND position > ${hit.position} ORDER BY position LIMIT ${radius}`),
+    db.all(sql`SELECT COUNT(CASE WHEN position < ${hit.position} THEN 1 END) AS before_count,
+      COUNT(CASE WHEN position > ${hit.position} THEN 1 END) AS after_count FROM ${sessionTranscripts} WHERE ${visible}`),
+  ])
+  const count = z.object({ before_count: z.coerce.number(), after_count: z.coerce.number() }).parse(counts[0])
+  const rows = [...rowSchema.array().parse(before).reverse(), hit, ...rowSchema.array().parse(after)]
+  return {
+    hitMessageId: hit.position,
+    hiddenBefore: count.before_count - before.length, hiddenAfter: count.after_count - after.length,
+    messages: rows.map(row => {
+      const message = messageSchema.parse(JSON.parse(row.message))
+      return { messageId: row.position, role: z.enum(['user', 'assistant']).parse(message.role), ts: message.timestamp, text: message.content }
+    }),
+  }
 }
 
 function positionOf(cursor: string): number {

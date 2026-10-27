@@ -122,7 +122,7 @@
       >
         <!-- One down-chevron rotated to point right while collapsed, so the fold
              toggle animates instead of hard-swapping between two paths. -->
-        <svg class="diagram-group__collapse-icon" class:diagram-group__collapse-icon--collapsed={data.collapsed} viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg class="diagram-group__collapse-icon" class:diagram-group__collapse-icon--collapsed={data.collapsed} viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M4 6l4 4 4-4" />
         </svg>
       </button>
@@ -131,7 +131,7 @@
       {#if resolved.iconify}
         <Icon icon={resolved.iconify} width="18" height="18" />
       {:else if resolved.svg}
-        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           {@html resolved.svg}
         </svg>
       {:else}

@@ -51,7 +51,7 @@
             height="11"
             fill="none"
             stroke="currentColor"
-            stroke-width="1.8"
+            stroke-width="1"
             stroke-linecap="round"
             aria-hidden="true"
           >

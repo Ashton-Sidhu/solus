@@ -225,7 +225,7 @@
         class="flex size-[1.125rem] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--primary)_16%,transparent)] text-[var(--primary)]"
         aria-hidden="true"
       >
-        <CameraIcon size={10} strokeWidth={1.9} />
+        <CameraIcon size={10} strokeWidth={1.5} />
       </span>
       <span class="min-w-0 shrink truncate font-medium text-(--solus-text-primary)">
         {title}

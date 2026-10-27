@@ -212,7 +212,7 @@
                 aria-label={stat.verdict.label}
                 title={stat.verdict.label}
               >
-                <VerdictIcon size={12} strokeWidth={2.25} aria-hidden="true" />
+                <VerdictIcon size={12} strokeWidth={1.5} aria-hidden="true" />
               </span>
             {/if}
           </dt>

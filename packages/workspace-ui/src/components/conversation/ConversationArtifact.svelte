@@ -9,7 +9,6 @@
   import { getHtmlBlockOrigin } from "./lib/html-block-origin";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import type { ArtifactRevision } from "./lib/artifact-revisions";
-  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { lastReportedHeight } from "../artifact/lib/artifact-view";
   import { getSurfaceContext } from "../../contexts";
   import { loadArtifactHtml, worksArtifactHtmlSources } from "../../contexts/workspace/artifact-history";
@@ -137,9 +136,7 @@
     {#if pendingHtml?.error}
       <div class="py-2 text-sm text-(--muted-foreground)" role="alert">{pendingHtml.error}</div>
     {:else if pendingHtml}
-      <div class="overflow-hidden rounded-2xl" style="height:{(heightKey && lastReportedHeight(heightKey)) || 120}px">
-        <ContentSkeleton label="Loading artifact" preview />
-      </div>
+      <div role="status" aria-busy="true" aria-label="Loading artifact" style="height:{(heightKey && lastReportedHeight(heightKey)) || 120}px"></div>
     {:else if selected.workRef}
       <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} {heightKey} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
     {:else}

@@ -193,7 +193,7 @@
       label="Open {agentName} beside this conversation"
       onclick={() => open({ split: true })}
     >
-      <PanelRightIcon size={14} strokeWidth={1.75} />
+      <PanelRightIcon size={14} strokeWidth={1.5} />
     </TranscriptCardAction>
     <Popover.Root bind:open={menuOpen}>
       <Popover.Trigger>
@@ -207,7 +207,7 @@
             aria-label="More actions"
             title="More actions"
           >
-            <EllipsisIcon size={14} strokeWidth={2.5} />
+            <EllipsisIcon size={14} strokeWidth={1.5} />
           </button>
         {/snippet}
       </Popover.Trigger>

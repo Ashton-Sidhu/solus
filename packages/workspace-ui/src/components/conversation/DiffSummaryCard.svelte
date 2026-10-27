@@ -439,10 +439,10 @@
     font-variant-numeric: tabular-nums;
   }
   .diff-add {
-    color: var(--chart-3);
+    color: var(--solus-diff-added-text-vivid);
   }
   .diff-del {
-    color: var(--destructive);
+    color: var(--solus-diff-removed-text-vivid);
   }
   .diff-add.is-zero,
   .diff-del.is-zero {

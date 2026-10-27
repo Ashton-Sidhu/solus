@@ -1,4 +1,6 @@
 import { sql } from 'drizzle-orm'
+import { searchableMessageText } from '@solus/contracts/session-search'
+import { z } from 'zod'
 import { getDatabase } from '../../db/database'
 import { PermanentApplyError } from '../outbox/outbox-store'
 import type { ShareManager } from '../../sharing/share-manager'
@@ -40,11 +42,12 @@ async function applyTranscript(origin: MirrorOrigin, payload: TranscriptMirrorPa
     `)
     return
   }
+  const message = z.object({ content: z.string().optional(), role: z.string().optional(), toolName: z.string().optional(), parentToolUseId: z.string().optional() }).nullable().parse(payload.message ?? null)
   await db.run(sql`
-    INSERT INTO ${sessionTranscripts} (organization_id, session_id, position, runner_host_id, message, updated_at)
-    VALUES (${origin.organizationId}, ${payload.sessionId}, ${payload.position}, ${origin.hostId}, ${JSON.stringify(payload.message ?? null)}, ${Date.now()})
+    INSERT INTO ${sessionTranscripts} (organization_id, session_id, position, runner_host_id, message, search_text, updated_at)
+    VALUES (${origin.organizationId}, ${payload.sessionId}, ${payload.position}, ${origin.hostId}, ${JSON.stringify(payload.message ?? null)}, ${searchableMessageText(message) || ' '}, ${Date.now()})
     ON CONFLICT (organization_id, session_id, position) DO UPDATE SET
-      runner_host_id = excluded.runner_host_id, message = excluded.message, updated_at = excluded.updated_at
+      runner_host_id = excluded.runner_host_id, message = excluded.message, search_text = excluded.search_text, updated_at = excluded.updated_at
   `)
 }
 

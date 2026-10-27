@@ -149,6 +149,7 @@ export function toolActivitySummary(tool: Pick<ToolTranscriptItem, 'toolName' | 
     case 'read':
       return `${running ? 'Reading' : 'Read'} ${path ? basename(path) : 'file'}`
     case 'edit':
+      if (tool.toolName === 'Write') return `${running ? 'Writing' : 'Wrote'} ${path ? basename(path) : 'file'}`
       return `${running ? 'Editing' : 'Edited'} ${path ? basename(path) : 'file'}`
     case 'code-search':
       return running ? 'Searching code' : 'Searched code'

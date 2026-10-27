@@ -1,4 +1,5 @@
-import { holdsEveryWord, wordStartIndex } from '@solus/contracts/word-match'
+import { wordStartIndex } from '@solus/contracts/word-match'
+import { searchName, searchText } from '@solus/contracts/session-search'
 
 export { queryWords, wordStartIndex } from '@solus/contracts/word-match'
 
@@ -52,12 +53,12 @@ export function lowerCased(text: string): string {
 
 /** `text` lower-cased, whitespace collapsed and trimmed: a name compared as a whole. */
 export function flattenedLower(text: string): string {
-  return cached(flattened, text, (source) => lowerCased(source).replace(/\s+/g, ' ').trim())
+  return cached(flattened, text, searchText)
 }
 
 /** True when every word starts a token of `text`. No words match everything. */
 export function matchesEveryWord(text: string, words: readonly string[]): boolean {
-  return holdsEveryWord(lowerCased(text), words)
+  return !words.length || searchName(text, words) !== null
 }
 
 /** The position of the earliest word of the query in `text`, or -1. */

@@ -9,6 +9,7 @@ import { getDb, withAsyncTx } from '.'
 import { resolveEngine, type DatabaseEngine } from './engine'
 import { migrationsFolder } from './migration-files'
 import { assertTestDatabase } from './test-safety'
+import { rebuildMirroredSearch } from './session-search-rebuild'
 
 /**
  * The one database handle a ported domain uses (docs/plans/cloud-service-model.md).
@@ -275,6 +276,7 @@ async function migrateWithoutLimits(url: string): Promise<void> {
   const client = postgres(url, { max: 1, onnotice: () => {} })
   try {
     await migratePostgres(drizzlePostgres(client), { migrationsFolder: migrationsFolder('postgres') })
+    await rebuildMirroredSearch(new PostgresTransaction(drizzlePostgres(client)))
   } finally {
     await client.end()
   }

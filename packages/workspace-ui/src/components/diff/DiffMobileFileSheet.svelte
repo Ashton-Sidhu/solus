@@ -87,10 +87,10 @@
         <span class="mobile-tree-bar-del" style="width:{100 - addedShare}%"></span>
       </span>
       <span class="mobile-tree-stats tabular-nums">
-        <span style="color:color-mix(in oklch, var(--success) 62%, var(--foreground))"
+        <span style="color:var(--solus-diff-added-text-vivid)"
           >+{totals.additions}</span
         >
-        <span style="color:color-mix(in oklch, var(--failure) 70%, var(--foreground))"
+        <span style="color:var(--solus-diff-removed-text-vivid)"
           >−{totals.deletions}</span
         >
       </span>
@@ -117,11 +117,11 @@
         </span>
         <span class="mobile-tree-stats tabular-nums">
           {#if stats.additions > 0}<span
-              style="color:color-mix(in oklch, var(--success) 62%, var(--foreground))"
+              style="color:var(--solus-diff-added-text-vivid)"
               >+{stats.additions}</span
             >{/if}
           {#if stats.deletions > 0}<span
-              style="color:color-mix(in oklch, var(--failure) 70%, var(--foreground))"
+              style="color:var(--solus-diff-removed-text-vivid)"
               >−{stats.deletions}</span
             >{/if}
         </span>

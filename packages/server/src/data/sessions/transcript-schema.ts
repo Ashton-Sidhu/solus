@@ -19,6 +19,8 @@ export const sessionTranscripts = defineTable('session_transcripts', {
   position: integer({ notNull: true }),
   runner_host_id: text({ notNull: true }),
   message: json({ notNull: true }),
+  /** Shared word normalization, indexed without stemming by either engine. */
+  search_text: text({ notNull: true, default: '' }),
   updated_at: bigint({ notNull: true }),
 }, {
   // Session ids are unique on their own: leading with one lets a read that

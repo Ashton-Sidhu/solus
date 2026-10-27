@@ -494,6 +494,7 @@
                             "type": "string",
                             "enum": [
                               "none",
+                              "custom",
                               "viewer",
                               "commenter",
                               "editor",
@@ -1007,6 +1008,7 @@
                       "type": "string",
                       "enum": [
                         "none",
+                        "custom",
                         "viewer",
                         "commenter",
                         "editor",
@@ -1650,6 +1652,7 @@
                       "type": "string",
                       "enum": [
                         "none",
+                        "custom",
                         "viewer",
                         "commenter",
                         "editor",
@@ -2160,6 +2163,7 @@
                       "type": "string",
                       "enum": [
                         "none",
+                        "custom",
                         "viewer",
                         "commenter",
                         "editor",
@@ -3695,6 +3699,7 @@
                             "type": "string",
                             "enum": [
                               "none",
+                              "custom",
                               "viewer",
                               "commenter",
                               "editor",
@@ -4176,6 +4181,7 @@
                       "type": "string",
                       "enum": [
                         "none",
+                        "custom",
                         "viewer",
                         "commenter",
                         "editor",
@@ -5777,6 +5783,7 @@
                       "type": "string",
                       "enum": [
                         "none",
+                        "custom",
                         "viewer",
                         "commenter",
                         "editor",
@@ -6904,6 +6911,7 @@
                       "type": "string",
                       "enum": [
                         "none",
+                        "custom",
                         "viewer",
                         "commenter",
                         "editor",
@@ -7757,6 +7765,7 @@
                       "type": "string",
                       "enum": [
                         "none",
+                        "custom",
                         "viewer",
                         "commenter",
                         "editor",
@@ -9032,6 +9041,7 @@
                             "type": "string",
                             "enum": [
                               "none",
+                              "custom",
                               "viewer",
                               "commenter",
                               "editor",
@@ -10137,18 +10147,6 @@
             }
           },
           {
-            "name": "prefixLastToken",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
-            }
-          },
-          {
             "name": "namesOnly",
             "in": "query",
             "required": false,
@@ -10212,6 +10210,61 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "reason": {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "enum": [
+                                  "id",
+                                  "title",
+                                  "branch",
+                                  "pullRequest",
+                                  "messages"
+                                ]
+                              },
+                              "text": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "text"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "target": {
+                            "type": "object",
+                            "properties": {
+                              "sourceSessionId": {
+                                "type": "string"
+                              },
+                              "messageId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "role": {
+                                "type": "string"
+                              },
+                              "timestamp": {
+                                "type": "number"
+                              },
+                              "text": {
+                                "type": "string",
+                                "maxLength": 256
+                              }
+                            },
+                            "required": [
+                              "sourceSessionId",
+                              "messageId",
+                              "role",
+                              "timestamp",
+                              "text"
+                            ],
+                            "additionalProperties": false
+                          },
                           "snippet": {
                             "type": "string",
                             "maxLength": 2000
@@ -10313,6 +10366,7 @@
                                 "type": "string",
                                 "enum": [
                                   "none",
+                                  "custom",
                                   "viewer",
                                   "commenter",
                                   "editor",
@@ -11246,6 +11300,61 @@
                             "items": {
                               "type": "object",
                               "properties": {
+                                "reason": {
+                                  "type": "object",
+                                  "properties": {
+                                    "field": {
+                                      "type": "string",
+                                      "enum": [
+                                        "id",
+                                        "title",
+                                        "branch",
+                                        "pullRequest",
+                                        "messages"
+                                      ]
+                                    },
+                                    "text": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "text"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "target": {
+                                  "type": "object",
+                                  "properties": {
+                                    "sourceSessionId": {
+                                      "type": "string"
+                                    },
+                                    "messageId": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "role": {
+                                      "type": "string"
+                                    },
+                                    "timestamp": {
+                                      "type": "number"
+                                    },
+                                    "text": {
+                                      "type": "string",
+                                      "maxLength": 256
+                                    }
+                                  },
+                                  "required": [
+                                    "sourceSessionId",
+                                    "messageId",
+                                    "role",
+                                    "timestamp",
+                                    "text"
+                                  ],
+                                  "additionalProperties": false
+                                },
                                 "snippet": {
                                   "type": "string",
                                   "maxLength": 2000
@@ -11518,6 +11627,7 @@
                       "type": "string",
                       "enum": [
                         "none",
+                        "custom",
                         "viewer",
                         "commenter",
                         "editor",

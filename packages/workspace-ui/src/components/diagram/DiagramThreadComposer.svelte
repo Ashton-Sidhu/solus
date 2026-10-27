@@ -50,7 +50,7 @@
   transition:fade|global={{ duration: reduceMotion ? 0 : 120 }}
 >
   <div class="diagram-thread-composer__anchor">
-    <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+    <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
       <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
       <path d="M2.5 6.5h11M6.5 2.5v11" />
     </svg>

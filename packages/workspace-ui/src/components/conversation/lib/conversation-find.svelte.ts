@@ -64,6 +64,14 @@ export class ConversationFind {
     if (!target) this.active = null;
   }
 
+  /** Search navigation names the message, even when its words are not adjacent. */
+  async openAt(messageId: string, query: string): Promise<void> {
+    this.isOpen = true;
+    this.setQuery(query);
+    this.active = { messageId, occurrence: 0 };
+    await this.reveal(this.active);
+  }
+
   paint(root: HTMLElement | null) {
     this.highlighter.update(root, this.query, this.active);
     this.recordVisibleCounts();

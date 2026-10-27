@@ -18,6 +18,7 @@
     liveActivityLabel,
     parseToolInput,
     participleFor,
+    toolActivityTarget,
     toolEndMs,
     type BackgroundWait,
     type ParsedToolInput,
@@ -123,9 +124,7 @@
   const namedTarget = $derived.by(() => {
     if (showsBackgroundWait) return backgroundWait?.target ?? "";
     if (!namedTool) return "";
-    const raw = getToolDescription(namedTool.toolName || "Tool", namedTool.toolInput);
-    // The participle already carries the verb, so drop the description's own.
-    return raw.replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, "").trim();
+    return toolActivityTarget(namedTool.toolName || "Tool", namedTool.toolInput);
   });
   // A settled row that names no tool shows what the agent last thought
   // beside its "Thought for" label. No readable thought keeps the plain label.
@@ -178,8 +177,8 @@
     expanded={view.expanded}
     nested={!working && !runningTool}
     onToggle={toggleExpanded}
-    target={namedTarget ? targetText : thought ? thoughtText : undefined}
-    proseTarget={showsBackgroundWait || !!thought}
+    target={!isLive && namedTarget ? targetText : thought ? thoughtText : undefined}
+    proseTarget={true}
     foregroundTarget={!!thought}
     glyphClass={failedTool && !runningTool ? "is-destructive" : ""}
     testid={runningTool
@@ -203,11 +202,11 @@
 
     {#snippet label()}
       {#if runningTool}
-        <span class="activity-shimmer">{runningLabel}</span>
+        <span class="activity-shimmer">{runningLabel}{namedTarget ? ` ${namedTarget}` : ""}</span>
       {:else if working && !failedTool}
         <span class="activity-shimmer">
           {backgroundWait?.label ??
-            liveActivityLabel(activityLabel, 0, true, turnStart)}
+            liveActivityLabel(activityLabel, 0, true, turnStart)}{namedTarget ? ` ${namedTarget}` : ""}
         </span>
       {:else if failedTool}
         <span class="tool-named">{prettyToolName(failedTool.toolName || "Tool")} failed</span>

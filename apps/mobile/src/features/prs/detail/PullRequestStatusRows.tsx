@@ -85,7 +85,7 @@ function checkSummary(checks: readonly CheckItem[]) {
   const failed = tones.filter((tone) => tone === 'failing').length
   const pending = tones.filter((tone) => tone === 'pending').length
   const passed = tones.filter((tone) => tone === 'passing').length
-  const count = checks.length ? `${passed} of ${checks.length}` : undefined
+  const count = checks.length ? `${passed} of ${checks.length} passed` : undefined
   if (failed) return { title: `${failed} ${failed === 1 ? 'check' : 'checks'} failing`, count, ...CHECK_TONE.failing }
   if (pending) return { title: 'Checks running', count: `${pending} pending`, ...CHECK_TONE.pending }
   if (passed) return { title: passed === checks.length ? 'All checks passed' : 'Checks completed', count, ...CHECK_TONE.passing }

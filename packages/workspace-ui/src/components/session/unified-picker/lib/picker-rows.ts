@@ -37,6 +37,7 @@ export type TaskMatchField = 'title' | 'body' | 'id' | 'comment'
 /** Where a query's words were found in a session: the evidence its row shows
  *  and the passage its preview opens on. */
 export interface ConversationHit {
+  target?: import('@solus/contracts/session-search').SessionSearchTarget
   /** The indexed message the words were found in. */
   messageId: number
   /** The passage that matched, cut around its first hit, with the index's
@@ -94,6 +95,7 @@ export type PickerRow =
       hit?: ConversationHit
       additionalMatches?: ConversationHit[]
       hitServerId?: string
+      reason?: import('@solus/contracts/session-search').SessionSearchReason
     }
   | {
       kind: 'conversation'
@@ -104,6 +106,7 @@ export type PickerRow =
       hit?: ConversationHit
       additionalMatches?: ConversationHit[]
       hitServerId?: string
+      reason?: import('@solus/contracts/session-search').SessionSearchReason
     }
   | {
       /** The end of a list the hosts answer in pages. When it comes into view
@@ -417,6 +420,7 @@ function rowWriter(input: PickerRowsInput) {
         hit: listing.hit,
         additionalMatches: listing.additionalMatches,
         hitServerId: listing.hitServerId,
+        reason: listing.reason,
       })
       return
     }
@@ -433,6 +437,7 @@ function rowWriter(input: PickerRowsInput) {
     if (listing.hit) row.hit = listing.hit
     row.additionalMatches = listing.additionalMatches
     row.hitServerId = listing.hitServerId
+    row.reason = listing.reason
     push(row)
   }
 
@@ -652,13 +657,13 @@ export function previewHitTarget(entry: PickerEntry | null): PreviewHitTarget | 
   if (entry.kind === 'conversation') {
     const serverId = entry.meta.serverId
     return serverId && entry.hit
-      ? { serverId, sessionId: entry.meta.sessionId, messageId: entry.hit.messageId }
+      ? { serverId, sessionId: entry.meta.sessionId, messageId: entry.hit.messageId, ...(entry.hit.target ? { target: entry.hit.target } : {}) }
       : null
   }
   const { sessionId } = entry.session
   const serverId = entry.hitServerId ?? entry.session.serverId
   return entry.hit && serverId && sessionId
-    ? { serverId, sessionId, messageId: entry.hit.messageId }
+    ? { serverId, sessionId, messageId: entry.hit.messageId, ...(entry.hit.target ? { target: entry.hit.target } : {}) }
     : null
 }
 

@@ -207,7 +207,7 @@ describe('unified picker rows', () => {
     // tail of "oauth" in one section and not the other.
     const titled = [task('a', 'Flow for auth'), task('b', 'OAuth redesign'), task('c', 'Authentication')]
     expect(build(titled, {}, 'auth flow').entries.map((entry) => entry.kind === 'task' && entry.task.id)).toEqual(['a'])
-    expect(build(titled, {}, 'auth').entries.map((entry) => entry.kind === 'task' && entry.task.id).toSorted()).toEqual(['a', 'c'])
+    expect(build(titled, {}, 'auth').entries.map((entry) => entry.kind === 'task' && entry.task.id).toSorted()).toEqual(['a', 'b', 'c'])
     // A session name follows the same rule.
     const named = { a: [child('a1', 'Retry the oauth dance'), child('a2', 'Auth retry')] }
     expect(build([task('a', 'Alpha')], named, 'retry auth').entries.map((entry) => entry.kind === 'session' && entry.session.sessionId)).toEqual(['a2'])
@@ -304,7 +304,7 @@ describe('unified picker rows', () => {
           hit('strong-old', 'pass pass pass', 100, 'local', -9),
         ],
       }).entries.map((entry) => entry.kind === 'session' ? entry.session.sessionId : entry.kind === 'conversation' ? entry.meta.sessionId : null)
-      expect(listed('relevance')).toEqual(['a1', 'strong-old', 'weak-new'])
+      expect(listed('relevance')).toEqual(['a1', 'weak-new', 'strong-old'])
       expect(listed('recency')).toEqual(['a1', 'weak-new', 'strong-old'])
     })
 

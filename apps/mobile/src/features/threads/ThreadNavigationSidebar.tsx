@@ -21,6 +21,7 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useHomeListOptions } from "../home/home-list-options";
 import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
 import { buildHomeProjectScopes, sortHomeProjectScopes } from "../home/homeThreadList";
+import { SessionSearchResults } from "../home/SessionSearchResults";
 import { confirmRemoveProject } from "../home/confirm-remove-project";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
 import { ThreadUndoNotice } from "../home/ThreadUndoNotice";
@@ -627,6 +628,18 @@ function ThreadNavigationSidebarPane(
     </Text>
   );
 
+  const searchResults = props.visible && props.searchQuery.trim() ? (
+    <SessionSearchResults
+      query={props.searchQuery}
+      hostId={options.selectedEnvironmentId}
+      projects={projects}
+      threads={threads}
+      unlistedThreads={unlistedThreads}
+      projectKeys={selectedProjectScope?.projectKeys ?? null}
+      header={<View style={{ height: props.nativeChrome || Platform.OS === "android" ? 6 : topListInset }} />}
+      onSelect={handleSelectThread}
+    />
+  ) : null;
   if (props.nativeChrome) {
     return (
       <>
@@ -663,7 +676,7 @@ function ThreadNavigationSidebarPane(
           }}
         />
         <View className="flex-1">
-          <SwipeableScrollGateProvider enabled={swipeEnabled}>
+          {searchResults ?? <SwipeableScrollGateProvider enabled={swipeEnabled}>
             <GestureDetector gesture={sidebarScrollGesture}>
               <LegendList
                 data={listItems}
@@ -696,7 +709,7 @@ function ThreadNavigationSidebarPane(
                 ListEmptyComponent={listEmpty}
               />
             </GestureDetector>
-          </SwipeableScrollGateProvider>
+          </SwipeableScrollGateProvider>}
           <ThreadUndoNotice visible={props.visible} />
         </View>
       </>
@@ -727,7 +740,7 @@ function ThreadNavigationSidebarPane(
             : { paddingBottom: insets.bottom }
         }
       >
-        {Platform.OS === "android" && listItems.length === 0 ? (
+        {searchResults ?? (Platform.OS === "android" && listItems.length === 0 ? (
           <View className="flex-1 items-center justify-center">{listEmpty}</View>
         ) : (
           <SwipeableScrollGateProvider enabled={swipeEnabled}>
@@ -763,7 +776,7 @@ function ThreadNavigationSidebarPane(
               />
             </GestureDetector>
           </SwipeableScrollGateProvider>
-        )}
+        ))}
       </View>
 
       {Platform.OS === "android" ? (

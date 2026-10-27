@@ -104,7 +104,7 @@
         viewBox="0 0 14 14"
         fill="none"
         stroke="currentColor"
-        stroke-width="1.45"
+        stroke-width="0.875"
         stroke-linecap="round"
         stroke-linejoin="round"
       >

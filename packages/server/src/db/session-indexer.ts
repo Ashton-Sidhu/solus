@@ -1,9 +1,10 @@
 import { watch, type FSWatcher } from 'node:fs'
-import { open, readdir, stat } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import { z } from 'zod'
-import type { SessionLoadMessage, SessionMessageWindow } from '@solus/contracts/session-history'
+import { searchText } from '@solus/contracts/session-search'
+import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { AgentId, ReasoningEffort, SessionMeta, SessionOrigin } from '@solus/contracts/types'
 import {
   encodePathAsFolder,
@@ -31,14 +32,14 @@ import {
 import { resolveRepositoryKey } from '../git/git-helpers'
 import { withUserScope } from '../vault/acting-scope'
 import { getDb, withTx } from '.'
+import { readTailRecordBatches, type IndexedMessage } from './session-file-reader'
+export { readTailRecordBatches, MAX_INDEXED_SESSION_LINE_BYTES } from './session-file-reader'
+export { getSessionMessageWindow } from './session-search-window'
 import { recordSessionChange } from '../data/tasks/task-revisions'
 
 const log = createLogger('main', 'session-indexer')
 const PROJECTS_ROOT = join(homedir(), '.claude', 'projects')
 const WATCH_DEBOUNCE_MS = 2_000
-const LINES_PER_TRANSACTION = 300
-const READ_CHUNK_BYTES = 256 * 1024
-export const MAX_INDEXED_SESSION_LINE_BYTES = 4 * 1024 * 1024
 const CODEX_SESSION_WATERMARK_KEY = 'codex-session-index-watermark'
 const CLAUDE_SWEEP_COMPLETED_KEY = 'claude-session-index-swept-at'
 /** Set by the migration that re-reads every message; cleared by the next full sweep. */
@@ -51,19 +52,6 @@ export const SESSION_ROW_SPAN = 2 ** 20
 const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
 const storedProviderSchema = z.enum(['claude', 'claude-code', 'codex', 'opencode'])
 const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
-const transcriptContentPartSchema = z.object({
-  type: z.string(),
-  text: z.string().optional(),
-})
-const transcriptLineSchema = z.object({
-  type: z.enum(['user', 'assistant']),
-  message: z.object({
-    content: z.union([z.string(), z.array(transcriptContentPartSchema)]),
-    role: z.string().optional(),
-  }),
-  timestamp: z.union([z.string(), z.number()]),
-  uuid: z.string().nullable().optional(),
-})
 export const sessionRowSchema = z.object({
   session_id: z.string(),
   provider: storedProviderSchema,
@@ -90,7 +78,6 @@ export const sessionRowSchema = z.object({
 })
 /** `sessions.started_by`: written by this host after the strict parse in `createHeadlessSession`. */
 const sessionOriginSchema = z.object({ hostLabel: z.string(), sessionId: z.string() })
-const countRowSchema = z.object({ count: z.number() })
 const numberRowSchema = z.object({ number: z.number() })
 const lastIdRowSchema = z.object({ last: z.number().nullable() })
 const offsetRowSchema = z.object({ last_offset: z.number() })
@@ -106,12 +93,6 @@ const timestampRowSchema = z.object({
   last_timestamp: z.number().nullable(),
 })
 const sessionIdRowSchema = z.object({ session_id: z.string() })
-const indexedMessageRowSchema = z.object({
-  id: z.number(),
-  role: z.enum(['user', 'assistant']),
-  ts: z.number().nullable(),
-  text: z.string(),
-})
 const projectRootRowSchema = z.object({ project_root: z.string(), count: z.number() })
 
 type SessionRow = z.infer<typeof sessionRowSchema>
@@ -139,13 +120,6 @@ async function projectRemoteFor(projectRoot: string | null): Promise<string | un
   }
 }
 
-interface IndexedMessage {
-  endOffset: number
-  uuid: string | null
-  role: string
-  ts: number | null
-  text: string
-}
 
 type StoredMessage = Omit<IndexedMessage, 'endOffset'>
 
@@ -216,150 +190,6 @@ export function resetSession(filePath: string, sessionId: string): void {
   })
 }
 
-function extractMessage(line: string, endOffset: number): IndexedMessage | null {
-  try {
-    const parsed = transcriptLineSchema.safeParse(JSON.parse(line))
-    if (!parsed.success) return null
-    const obj = parsed.data
-
-    const content = obj.message.content
-    const text = Array.isArray(content)
-      ? content
-        .filter((item) => item.type === 'text')
-        .map((item) => item.text ?? '')
-        .join('\n')
-      : content
-    if (!text.trim()) return null
-
-    const parsedTs = new Date(obj.timestamp).getTime()
-    return {
-      endOffset,
-      uuid: obj.uuid ?? null,
-      role: obj.message.role ?? obj.type,
-      ts: Number.isFinite(parsedTs) ? parsedTs : null,
-      text,
-    }
-  } catch {
-    return null
-  }
-}
-
-/**
- * Stream complete JSONL records from the unread portion of a transcript.
- *
- * A session can grow to hundreds of megabytes. Reading its entire unread tail
- * used to retain both that Buffer and a second array containing every parsed
- * line until indexing began. Chunking here bounds the reader's working set to
- * one 256 KiB block plus the current line; callers separately bound parsed
- * records to one database transaction.
- */
-export async function* readTailRecordBatches(
-  filePath: string,
-  offset: number,
-  size: number,
-): AsyncGenerator<Array<{ endOffset: number; message: IndexedMessage | null }>> {
-  const file = await open(filePath, 'r')
-  let position = offset
-  let pendingChunks: Buffer[] = []
-  let pendingLength = 0
-  let skippingOversizedLine = false
-  let records: Array<{ endOffset: number; message: IndexedMessage | null }> = []
-
-  const parseLine = (lineBuffer: Buffer, endOffset: number): IndexedMessage | null => {
-    const withoutCarriageReturn = lineBuffer.at(-1) === 0x0d
-      ? lineBuffer.subarray(0, lineBuffer.length - 1)
-      : lineBuffer
-    return extractMessage(withoutCarriageReturn.toString('utf8'), endOffset)
-  }
-
-  try {
-    while (position < size) {
-      const requestedBytes = Math.min(READ_CHUNK_BYTES, size - position)
-      const buffer = Buffer.allocUnsafe(requestedBytes)
-      const { bytesRead } = await file.read(buffer, 0, requestedBytes, position)
-      if (bytesRead === 0) break
-
-      const chunk = buffer.subarray(0, bytesRead)
-      let lineStart = 0
-      while (lineStart < chunk.length) {
-        const newline = chunk.indexOf(0x0a, lineStart)
-        if (skippingOversizedLine) {
-          if (newline === -1) {
-            lineStart = chunk.length
-            break
-          }
-          const endOffset = position + newline + 1
-          records.push({ endOffset, message: null })
-          if (records.length >= LINES_PER_TRANSACTION) {
-            yield records
-            records = []
-          }
-          skippingOversizedLine = false
-          lineStart = newline + 1
-          continue
-        }
-        if (newline === -1) break
-
-        const segment = chunk.subarray(lineStart, newline)
-        const endOffset = position + newline + 1
-        if (pendingLength + segment.length > MAX_INDEXED_SESSION_LINE_BYTES) {
-          records.push({ endOffset, message: null })
-        } else {
-          const lineBuffer = pendingLength === 0
-            ? segment
-            : Buffer.concat([...pendingChunks, segment], pendingLength + segment.length)
-          records.push({ endOffset, message: parseLine(lineBuffer, endOffset) })
-        }
-        if (records.length >= LINES_PER_TRANSACTION) {
-          yield records
-          records = []
-        }
-        pendingChunks = []
-        pendingLength = 0
-        lineStart = newline + 1
-      }
-
-      if (lineStart < chunk.length) {
-        const remainder = chunk.subarray(lineStart)
-        if (pendingLength + remainder.length > MAX_INDEXED_SESSION_LINE_BYTES) {
-          pendingChunks = []
-          pendingLength = 0
-          skippingOversizedLine = true
-        } else {
-          pendingChunks.push(remainder)
-          pendingLength += remainder.length
-        }
-      }
-      position += bytesRead
-    }
-
-    if (!skippingOversizedLine && pendingLength > 0) {
-      const lineBuffer = pendingChunks.length === 1
-        ? pendingChunks[0]
-        : Buffer.concat(pendingChunks, pendingLength)
-      const endOffset = position
-      const message = parseLine(lineBuffer, endOffset)
-      if (message) {
-        records.push({ endOffset, message })
-      } else {
-        const withoutCarriageReturn = lineBuffer.at(-1) === 0x0d
-          ? lineBuffer.subarray(0, lineBuffer.length - 1)
-          : lineBuffer
-        try {
-          JSON.parse(withoutCarriageReturn.toString('utf8'))
-          records.push({ endOffset, message: null })
-        } catch {
-          // The agent may still be writing the final line. Leave the offset at
-          // the preceding newline so the completed record is read next sweep.
-        }
-      }
-    }
-    if (records.length > 0) yield records
-  } finally {
-    await file.close()
-  }
-}
-
 /** The number a session's message row ids are built on, given on first use. */
 function sessionNumber(sessionId: string): number {
   const db = getDb()
@@ -389,7 +219,7 @@ function insertSessionMessageRows(
       return
     }
     insertMessage.run(id, sessionId, message.uuid, message.role, message.ts, message.text)
-    insertFts.run(id, message.text)
+    insertFts.run(id, searchText(message.text))
     id += 1
   }
 }
@@ -401,10 +231,11 @@ export function indexSessionMessages(
   const storedMessages = messages
     .filter((message) =>
       (message.role === 'user' || message.role === 'assistant') &&
+      !message.toolName && !message.parentToolUseId &&
       message.content.trim(),
     )
     .map((message): StoredMessage => ({
-      uuid: null,
+      uuid: message.messageId ?? null,
       role: message.role,
       ts: Number.isFinite(message.timestamp) ? message.timestamp : null,
       text: message.content,
@@ -1129,54 +960,6 @@ export function getCodexSessionsWithMessages(sessionIds: string[]): Set<string> 
     for (const row of rows) withMessages.add(row.session_id)
   }
   return withMessages
-}
-
-const MAX_WINDOW_RADIUS = 5
-
-/**
- * The messages around one message of a session, for a preview that opens on
- * a search hit instead of on the transcript's ends.
- *
- * Rows are written in transcript order — a re-index replaces every row of the
- * session in one pass and a tail read appends — so the row id is the position
- * and the neighbours are the ids either side. Empty when the id is gone: the
- * session was re-indexed after the search that named it.
- */
-export function getSessionMessageWindow(
-  sessionId: string,
-  messageId: number,
-  radius = 1,
-): SessionMessageWindow {
-  const db = getDb()
-  const span = Math.min(MAX_WINDOW_RADIUS, Math.max(0, Math.trunc(radius)))
-  const hit = indexedMessageRowSchema.nullish().parse(db.prepare(`
-    SELECT id, role, ts, text FROM session_messages WHERE session_id = ? AND id = ?
-  `).get(sessionId, messageId))
-  if (!hit) return { messages: [], hiddenBefore: 0, hiddenAfter: 0 }
-  const before = indexedMessageRowSchema.array().parse(db.prepare(`
-    SELECT id, role, ts, text FROM session_messages
-    WHERE session_id = ? AND id < ? ORDER BY id DESC LIMIT ?
-  `).all(sessionId, messageId, span)).reverse()
-  const after = indexedMessageRowSchema.array().parse(db.prepare(`
-    SELECT id, role, ts, text FROM session_messages
-    WHERE session_id = ? AND id > ? ORDER BY id ASC LIMIT ?
-  `).all(sessionId, messageId, span))
-  const countBefore = countRowSchema.parse(db.prepare(`
-    SELECT COUNT(*) AS count FROM session_messages WHERE session_id = ? AND id < ?
-  `).get(sessionId, messageId)).count
-  const countAfter = countRowSchema.parse(db.prepare(`
-    SELECT COUNT(*) AS count FROM session_messages WHERE session_id = ? AND id > ?
-  `).get(sessionId, messageId)).count
-  return {
-    messages: [...before, hit, ...after].map((row) => ({
-      messageId: row.id,
-      role: row.role,
-      ts: row.ts,
-      text: row.text,
-    })),
-    hiddenBefore: countBefore - before.length,
-    hiddenAfter: countAfter - after.length,
-  }
 }
 
 /** Every distinct project (git-root) that has indexed sessions, most-recent

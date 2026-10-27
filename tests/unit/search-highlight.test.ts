@@ -16,10 +16,21 @@ describe('highlightWordRuns', () => {
     ])
   })
 
-  test('a typed regex character is a literal', () => {
+  test('punctuation separates indexed words and is never interpreted as a regex', () => {
     expect(highlightWordRuns('a+b and c', 'a+b')).toEqual([
-      { text: 'a+b', hit: true },
-      { text: ' and c', hit: false },
+      { text: 'a', hit: true },
+      { text: '+', hit: false },
+      { text: 'b', hit: true },
+      { text: ' ', hit: false },
+      { text: 'a', hit: true },
+      { text: 'nd c', hit: false },
+    ])
+  })
+
+  test('coding boundaries and accent folding use source positions', () => {
+    expect(highlightWordRuns('serverConnections Café', 'connections cafe')).toEqual([
+      { text: 'server', hit: false }, { text: 'Connections', hit: true },
+      { text: ' ', hit: false }, { text: 'Café', hit: true },
     ])
   })
 

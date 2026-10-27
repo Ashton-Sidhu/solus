@@ -26,7 +26,7 @@
     style:background-color={color ? `color-mix(in srgb, ${color} 12%, transparent)` : "var(--wash-2)"}
     aria-hidden="true"
   >
-    <Icon size={14} strokeWidth={2} />
+    <Icon size={14} strokeWidth={1.5} />
   </span>
   <span class="flex min-w-0 flex-1 flex-col">
     <span class="truncate text-insights-summary select-text" {title}>{title}</span>

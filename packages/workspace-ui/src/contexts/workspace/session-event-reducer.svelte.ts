@@ -469,7 +469,12 @@ export class SessionEventReducer {
             // This marks the end of the *call*, which for a sub-agent is only the
             // moment its prompt finished streaming — the agent itself runs for
             // minutes yet. Its card settles on the agent's own result instead.
-            if (!m.subMessages) {
+            // Claude ends the input stream before a file tool's result arrives.
+            // Keep that call live so its new path appears beside the live verb.
+            if (!m.subMessages && (
+              !['Read', 'NotebookRead', 'Edit', 'NotebookEdit', 'Write'].includes(m.toolName || '') ||
+              event.outcome || event.completedAtMs !== undefined
+            )) {
               m.toolStatus = 'completed'
               m.toolCompletedAt = Date.now()
             }

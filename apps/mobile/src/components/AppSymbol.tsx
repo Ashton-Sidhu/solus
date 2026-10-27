@@ -308,7 +308,8 @@ function AppSymbolView(props: AppSymbolViewProps) {
       accessibilityLabel={props.accessibilityLabel}
       color={props.tintColor}
       size={props.size}
-      strokeWidth={2}
+      // Desktop's one icon weight: Lucide 1.5 on the same 24-unit box.
+      strokeWidth={1.5}
       style={props.style}
       testID={props.testID}
     />

@@ -82,6 +82,7 @@ export class ThreadDirectory {
   /** Sessions another session started, read for their parent's agent cards
    *  (`loadChildren`); the list answers only top-level sessions. */
   private children = new Map<string, SolusThreadShell>()
+  private openedSearchResults = new Map<string, SolusThreadShell>()
 
   constructor(
     private readonly registry: HostRegistry,
@@ -106,6 +107,13 @@ export class ThreadDirectory {
 
   projects = (): readonly SolusProjectShell[] => this.merged.projects
 
+  /** A search can find a session beyond the directory's recent pages. */
+  rememberSearchResult(thread: SolusThreadShell): void {
+    if (this.openedSearchResults.size >= 100) this.openedSearchResults.delete(this.openedSearchResults.keys().next().value!)
+    this.openedSearchResults.set(thread.key, thread)
+    this.changes.notify()
+  }
+
   /** A session in or out of the list, or a child session its parent's agent card opens. */
   thread = (hostId: string, sessionId: string): SolusThreadShell | null => {
     // An open thread stays readable when its organization leaves the list.
@@ -115,6 +123,7 @@ export class ThreadDirectory {
     return value?.threads.find((thread) => thread.key === key)
       ?? value?.unlisted?.find((thread) => thread.key === key)
       ?? this.children.get(key)
+      ?? this.openedSearchResults.get(key)
       ?? null
   }
 
@@ -213,6 +222,7 @@ export class ThreadDirectory {
     this.retries.delete(hostId)
     this.hosts.delete(hostId)
     this.children = new Map([...this.children].filter(([, child]) => child.hostId !== hostId))
+    this.openedSearchResults = new Map([...this.openedSearchResults].filter(([, thread]) => thread.hostId !== hostId))
     this.remerge()
   }
 

@@ -46,7 +46,7 @@
             onclick={() => onChange(values.filter((_, idx) => idx !== i))}
             aria-label="Remove {label} {value}"
           >
-            <svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
               <path d="M4 4l8 8M12 4l-8 8" />
             </svg>
           </button>

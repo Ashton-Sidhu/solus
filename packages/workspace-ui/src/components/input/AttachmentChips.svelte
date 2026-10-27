@@ -116,7 +116,7 @@
             >
               <span class="truncate">{label}</span>
               <span class="flex size-5 shrink-0 items-center justify-center rounded-md opacity-55">
-                <XIcon size={10} strokeWidth={2} />
+                <XIcon size={10} strokeWidth={1.5} />
               </span>
             </button>
           {/if}

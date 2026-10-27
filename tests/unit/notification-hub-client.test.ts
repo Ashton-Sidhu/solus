@@ -14,7 +14,7 @@ import { FakeNotificationSource } from './helpers/fake-notification-source'
 const host = (id: string): NotificationSource => ({ sourceId: `host:${id}`, serverId: id, kind: 'host', label: id })
 const organization = (id: string): NotificationSource => ({ sourceId: `workspace:${id}`, serverId: `workspace:${id}`, kind: 'organization', label: id, organizationId: id })
 
-function hub(fakes: Record<string, FakeNotificationSource>, options: { pageSize?: number; concurrency?: number } = {}) {
+function hub(fakes: Record<string, FakeNotificationSource>, options: { pageSize?: number } = {}) {
   const client = new NotificationHubClient({ identity: 'person-a', connect: (source) => fakes[source.sourceId]!.link(), ...options })
   client.setHistoryVisible(true)
   return client
@@ -68,21 +68,24 @@ describe('reading sources', () => {
     expect(status(client, 'host:old')).toBe('unsupported')
   })
 
-  test('sources that never answer go offline and free their read slots for a source that answers', async () => {
+  test('sources that never answer hold no source that answers, and go offline', async () => {
     const local = new FakeNotificationSource()
     local.add({ id: 'mine', createdAt: 1 })
     // A host that never connects: its transport holds every call.
     const never = <T>() => new Promise<T>(() => {})
     const silentLink = () => ({ ...new FakeNotificationSource().link(), api: { notificationsCapability: never, notificationsList: never, notificationsCount: never, notificationsSetRead: never, notificationsSetArchived: never } })
     const client = new NotificationHubClient({
-      identity: 'person-a', concurrency: 3, readTimeoutMs: 10,
+      identity: 'person-a', readTimeoutMs: 10,
       connect: (source) => (source.sourceId === 'host:local' ? local.link() : silentLink()),
     })
     client.setHistoryVisible(true)
+    // The answering source is listed last, behind every silent one.
     client.setSources([host('a'), host('b'), host('c'), host('local')])
-    await client.idle()
+    for (let turn = 0; turn < 100 && status(client, 'host:local') !== 'ready'; turn++) await Promise.resolve()
+    // Its rows show while the silent sources still load.
     expect(titles(client)).toEqual(['mine'])
-    expect(status(client, 'host:local')).toBe('ready')
+    expect(status(client, 'host:a')).toBe('loading')
+    await client.idle()
     expect(status(client, 'host:a')).toBe('offline')
   })
 

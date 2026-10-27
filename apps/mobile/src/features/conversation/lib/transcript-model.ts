@@ -22,8 +22,8 @@ import type { AgentSwitch } from './provider-handoff'
 export type Delivery = 'sending' | 'queued' | 'sent' | 'failed'
 
 export type TranscriptItem =
-  | { kind: 'user'; id: string; text: string; delivery: Delivery; error: string | null; attachments: readonly MessageAttachment[] }
-  | { kind: 'assistant'; id: string; text: string }
+  | { kind: 'user'; id: string; text: string; timestamp?: number; sourceSessionId?: string; delivery: Delivery; error: string | null; attachments: readonly MessageAttachment[] }
+  | { kind: 'assistant'; id: string; text: string; timestamp?: number; sourceSessionId?: string }
   | { kind: 'browser_snapshot'; id: string; snapshot: BrowserSnapshotRef }
   | { kind: 'image'; id: string; path: string }
   | {
@@ -254,11 +254,11 @@ export class TranscriptModel {
       if (this.agentCards.applyUserRow(row.content, row.timestamp)) return null
       this.agentCards.closeTurn()
       const { text, files } = splitAttachedFiles(row.content)
-      this.items.set(id, { kind: 'user', id, text, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
+      this.items.set(id, { kind: 'user', id, text, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
       return id
     }
     if (row.role === 'assistant' && row.content.trim()) {
-      this.items.set(id, { kind: 'assistant', id, text: row.content })
+      this.items.set(id, { kind: 'assistant', id, text: row.content, timestamp: row.timestamp, sourceSessionId: row.sourceSessionId })
       return id
     }
     if (row.role === 'tool' && row.toolId) {

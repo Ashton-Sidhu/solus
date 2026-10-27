@@ -12,7 +12,7 @@ import { stampComments } from '../../annotations/stored-comments'
 import { getIndexedSession, getSessionMessageWindow, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { getSessionRecord, upsertSessionRecord } from '../../data/sessions/session-records'
-import { readTranscript, readTranscriptPage } from '../../data/sessions/transcript-reads'
+import { readTranscript, readTranscriptPage, readTranscriptMessageWindow } from '../../data/sessions/transcript-reads'
 import { isApiMode } from '../../host/api-mode'
 import { renamePinnedSession } from '../../data/sessions/pinned-sessions'
 import { projectsVisibleTo } from './setup-handlers'
@@ -194,10 +194,12 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('loadSessionMessageWindow', async (args) => {
+  server.register('loadSessionMessageWindow', async (args, ctx) => {
     const [request] = args
     try {
-      return getSessionMessageWindow(request.sessionId, request.messageId, request.radius)
+      return isApiMode()
+        ? await readTranscriptMessageWindow(recordScopeOf(ctx.principal), request)
+        : getSessionMessageWindow(request.sessionId, request.messageId, request.radius, request.target)
     } catch (err) {
       log.error('load_session_message_window_failed', { error: String(err), sessionId: request.sessionId })
       return { messages: [], hiddenBefore: 0, hiddenAfter: 0 }

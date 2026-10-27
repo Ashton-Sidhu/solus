@@ -68,8 +68,8 @@
             class="text-(--solus-text-primary) @max-[30rem]/band:hidden"
           />
         </span>
-        <span class="shrink-0 tabular-nums text-(--solus-art-3)">+{additions}</span>
-        <span class="shrink-0 tabular-nums text-(--solus-stop-bg)">−{deletions}</span>
+        <span class="shrink-0 tabular-nums text-(--solus-diff-added-text-vivid)">+{additions}</span>
+        <span class="shrink-0 tabular-nums text-(--solus-diff-removed-text-vivid)">−{deletions}</span>
       </button>
     {/snippet}
   </TooltipUI.Trigger>
@@ -105,14 +105,14 @@
               {/if}
             </span>
             <span class="min-w-0 flex-1 truncate text-(--solus-text-primary)">{part.label}</span>
-            <span class="shrink-0 tabular-nums text-(--solus-art-3)">+{part.additions}</span>
-            <span class="shrink-0 tabular-nums text-(--solus-stop-bg)">−{part.deletions}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-diff-added-text-vivid)">+{part.additions}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-diff-removed-text-vivid)">−{part.deletions}</span>
           </DropdownMenu.CheckboxItem>
         {:else}
           <div class={menuRowVariants()}>
             <span class="min-w-0 flex-1 truncate text-(--solus-text-primary)">{part.label}</span>
-            <span class="shrink-0 tabular-nums text-(--solus-art-3)">+{part.additions}</span>
-            <span class="shrink-0 tabular-nums text-(--solus-stop-bg)">−{part.deletions}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-diff-added-text-vivid)">+{part.additions}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-diff-removed-text-vivid)">−{part.deletions}</span>
           </div>
         {/if}
       {/each}
@@ -136,8 +136,8 @@
               <span class="text-(--solus-text-primary)">{file.name}</span>
               <span class="ml-1.5 text-(--solus-text-tertiary)">{file.dir}</span>
             </span>
-            <span class="shrink-0 tabular-nums text-(--solus-art-3)">+{file.additions}</span>
-            <span class="shrink-0 tabular-nums text-(--solus-stop-bg)">−{file.deletions}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-diff-added-text-vivid)">+{file.additions}</span>
+            <span class="shrink-0 tabular-nums text-(--solus-diff-removed-text-vivid)">−{file.deletions}</span>
           </DropdownMenu.Item>
         {/each}
       </div>

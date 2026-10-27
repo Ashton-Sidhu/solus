@@ -1,0 +1,106 @@
+{
+  "seed": 42,
+  "sessions": 2053,
+  "messages": 60055,
+  "hitAt1": 0.2727272727272727,
+  "mrr": 0.3181818181818182,
+  "results": [
+    {
+      "query": "connections",
+      "target": "serverConnections",
+      "namesOnly": true,
+      "rank": null,
+      "medianMs": 9.714582999999948,
+      "p95Ms": 10.912915999999996,
+      "total": 0
+    },
+    {
+      "query": "schema",
+      "target": "JSONSchema",
+      "namesOnly": true,
+      "rank": null,
+      "medianMs": 9.509583999999904,
+      "p95Ms": 10.176249999999982,
+      "total": 0
+    },
+    {
+      "query": "cafe",
+      "target": "Café",
+      "namesOnly": true,
+      "rank": null,
+      "medianMs": 10.770041999999876,
+      "p95Ms": 23.176208000000088,
+      "total": 0
+    },
+    {
+      "query": "keybindngs",
+      "target": "Keybindings",
+      "namesOnly": true,
+      "rank": null,
+      "medianMs": 9.451082999999926,
+      "p95Ms": 10.279459000000088,
+      "total": 0
+    },
+    {
+      "query": "vscode",
+      "target": "VS Code",
+      "namesOnly": true,
+      "rank": null,
+      "medianMs": 9.592167000000018,
+      "p95Ms": 10.576166999999941,
+      "total": 0
+    },
+    {
+      "query": "reconnect websocket",
+      "target": "Websocket reconnect",
+      "namesOnly": true,
+      "rank": 1,
+      "medianMs": 9.876999999999953,
+      "p95Ms": 10.669500000000198,
+      "total": 1
+    },
+    {
+      "query": "tab",
+      "target": "old-exact",
+      "projectRoot": "/titles",
+      "namesOnly": true,
+      "rank": null,
+      "medianMs": 0.3769160000001648,
+      "p95Ms": 0.4257920000000013,
+      "total": 36
+    },
+    {
+      "query": "websocket reconnect",
+      "target": "phrase",
+      "projectRoot": "/scope",
+      "rank": 2,
+      "medianMs": 10.712375000000065,
+      "p95Ms": 12.267790999999988,
+      "total": 2
+    },
+    {
+      "query": "lighthouse header",
+      "target": "across",
+      "rank": 1,
+      "medianMs": 10.089457999999922,
+      "p95Ms": 11.149332999999842,
+      "total": 1
+    },
+    {
+      "query": "connections store",
+      "target": "message-camel",
+      "rank": null,
+      "medianMs": 9.97479199999998,
+      "p95Ms": 10.731582999999773,
+      "total": 0
+    },
+    {
+      "query": "pelican migration",
+      "target": "old-history",
+      "rank": 1,
+      "medianMs": 10.070208000000093,
+      "p95Ms": 11.028542000000016,
+      "total": 1
+    }
+  ]
+}

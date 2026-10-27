@@ -78,8 +78,9 @@ export const SOLUS_LIGHT_THEME_COLORS = {
   accentSurface: '#f9e8e1',
   accentSurfaceForeground: '#2a2618',
   // The sent user bubble as desktop paints it (`UserMessageBubble.svelte`):
-  // 2% --foreground over the page. `--solus-user-bubble` is declared but unused.
-  messageSurface: '#fbfbf8',
+  // 5% --foreground over the page in light, so a turn stands off the near-white
+  // canvas. `--solus-user-bubble` is declared but unused.
+  messageSurface: '#f4f4f2',
   messageForeground: '#2a2618',
   // Filled primary actions are desktop's send button (--solus-send-bg,
   // --solus-send-hover).

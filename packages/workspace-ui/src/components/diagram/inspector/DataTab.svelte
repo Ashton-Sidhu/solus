@@ -103,12 +103,12 @@
       <Input class="inspector-input metric-key" bind:value={metric.k} oninput={commitMetrics} placeholder="Key" />
       <Input class="inspector-input" bind:value={metric.v} oninput={commitMetrics} placeholder="Value" />
       <button type="button" class="inspector-icon-btn" onclick={() => removeMetric(i)} aria-label="Remove metric">
-        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 8h8" /></svg>
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true"><path d="M4 8h8" /></svg>
       </button>
     </div>
   {/each}
   <button type="button" class="inspector-add-row" onclick={addMetric}>
-    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 4v8M4 8h8" /></svg>
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true"><path d="M8 4v8M4 8h8" /></svg>
     Add metric
   </button>
 </div>
@@ -134,7 +134,7 @@
           placeholder="Column name"
         />
         <button type="button" class="inspector-icon-btn" onclick={() => removeField(i)} aria-label="Remove field">
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 8h8" /></svg>
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true"><path d="M4 8h8" /></svg>
         </button>
       </div>
       <div class="row">
@@ -161,7 +161,7 @@
     <p class="note">The card shows the first {CARD_FIELD_LIMIT} and collapses the rest to “+n more”.</p>
   {/if}
   <button type="button" class="inspector-add-row" onclick={addField}>
-    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 4v8M4 8h8" /></svg>
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true"><path d="M8 4v8M4 8h8" /></svg>
     Add field
   </button>
 </div>

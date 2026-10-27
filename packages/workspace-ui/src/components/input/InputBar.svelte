@@ -211,9 +211,12 @@
   );
   const isConnecting = $derived(sess?.status === "connecting");
   const activeProvider = $derived(run?.provider ?? theme.activeAgent);
-  // A chat is plain conversation; a project is where work gets planned and built.
+  // A chat is plain conversation; a project is where work gets planned and built,
+  // so its placeholder names the three triggers once.
   const defaultIdlePlaceholder = $derived(
-    isChat(checkoutPlace(run)?.path) ? "Ask anything" : "Plan, Build, Automate · @ for context",
+    isChat(checkoutPlace(run)?.path)
+      ? "Ask anything"
+      : "Plan, Build, Automate · @ files, / commands, # references",
   );
   // Every provider steers; the turn just has to have actually started.
   const canSteer = $derived(!!sess && isSteerableStatus(sess.status));

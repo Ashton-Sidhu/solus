@@ -6,7 +6,9 @@ import {
   getToolDescriptionFromParsed,
   liveActivityLabel,
   parseToolInput,
+  participleFor,
   settledBackgroundWait,
+  toolActivityTarget,
 } from '@solus/workspace-ui/components/conversation/lib/activity-summary'
 import type { GroupedItem } from '@solus/workspace-ui/components/conversation/lib/turns'
 import type { Message } from '@solus/contracts/types'
@@ -229,6 +231,27 @@ describe('activityDurationMs', () => {
     expect(activityDurationMs([done, running], 9_000)).toBe(8_000)
     expect(activityDurationMs([running], 9_000)).toBe(6_500)
   })
+})
+
+describe('toolActivityTarget', () => {
+  test('waits for file tool input, then names the file', () => {
+    // WHY: Claude announces the tool before it sends the input. The live row
+    // must not repeat the tool name, and must name the file when it arrives.
+    for (const toolName of ['Read', 'Edit', 'Write']) {
+      expect(toolActivityTarget(toolName, '')).toBe('')
+      expect(toolActivityTarget(toolName, JSON.stringify({ file_path: '/repo/src/App.svelte' })))
+        .toBe('/repo/src/App.svelte')
+    }
+    expect(toolActivityTarget('NotebookRead', JSON.stringify({ notebook_path: '/repo/notes.ipynb' })))
+      .toBe('/repo/notes.ipynb')
+    expect(toolActivityTarget('NotebookEdit', JSON.stringify({ notebook_path: '/repo/notes.ipynb' })))
+      .toBe('/repo/notes.ipynb')
+  })
+})
+
+test('Write uses its own live verb', () => {
+  expect(participleFor('Write')).toBe('Writing')
+  expect(participleFor('Edit')).toBe('Editing')
 })
 
 describe('getToolDescription', () => {

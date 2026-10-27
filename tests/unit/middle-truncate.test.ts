@@ -21,10 +21,30 @@ describe("middle truncation split", () => {
 
   test("a long last segment keeps a fixed tail so the head can still show", () => {
     // WHY: a branch like `sidhu/fix-cache-main-20260918-180825` must keep the
-    // date suffix that tells it from its siblings, without pinning the whole
-    // segment and pushing the prefix out.
+    // timestamp suffix that tells it from its siblings, without pinning the
+    // whole segment and pushing the prefix out.
     const split = splitForMiddleTruncate("sidhu/fix-cache-main-20260918-180825");
-    expect(split?.tail).toBe("918-180825");
+    expect(split?.tail).toBe("180825");
+  });
+
+  test("an automatic tail starts on a word, not inside one", () => {
+    // WHY: `…er-machine` reads as a typo; `…machine` reads as the word it is.
+    expect(splitForMiddleTruncate("t3/clone-repo-to-other-machine")?.tail).toBe("machine");
+    expect(splitForMiddleTruncate("t3/investigate-release-build-times")?.tail).toBe("times");
+  });
+
+  test("a last word too short to stand alone falls back to an earlier word", () => {
+    // WHY: a two-letter tail tells nothing apart, so the tail grows back to a word.
+    expect(splitForMiddleTruncate("t3/compare-long-featurenames-ab")?.tail).toBe("featurenames-ab");
+  });
+
+  test("a value with no word break near the cut keeps the fixed tail", () => {
+    expect(splitForMiddleTruncate("t3/abcdefghijklmnopqrstuvwxyz")?.tail).toBe("qrstuvwxyz");
+  });
+
+  test("an explicit tail is never moved to a word", () => {
+    // WHY: a caller that asks for a count needs that count, e.g. to align columns.
+    expect(splitForMiddleTruncate("t3/clone-repo-to-other-machine", 6)?.tail).toBe("achine");
   });
 
   test("a short value is not split", () => {

@@ -7,7 +7,7 @@ afterEach(() => {
   else Reflect.deleteProperty(globalThis, 'localStorage')
 })
 
-test('result type survives a fresh read and defaults to sessions and tasks', () => {
+test('result type survives a fresh read and defaults to sessions only', () => {
   const values = new Map<string, string>()
   Object.defineProperty(globalThis, 'localStorage', {
     configurable: true,
@@ -16,7 +16,7 @@ test('result type survives a fresh read and defaults to sessions and tasks', () 
       setItem: (key: string, value: string) => values.set(key, value),
     },
   })
-  expect(loadPickerResultType()).toBe('all')
+  expect(loadPickerResultType()).toBe('sessions')
   savePickerResultType('sessions')
   expect(loadPickerResultType()).toBe('sessions')
   savePickerResultType('tasks')
@@ -30,6 +30,6 @@ test('blocked browser storage does not prevent using the picker', () => {
     configurable: true,
     get() { throw new Error('Storage blocked') },
   })
-  expect(loadPickerResultType()).toBe('all')
+  expect(loadPickerResultType()).toBe('sessions')
   expect(() => savePickerResultType('sessions')).not.toThrow()
 })

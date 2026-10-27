@@ -373,7 +373,7 @@
     return wrap;
   }
 
-  const CHEVRON_SVG = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const CHEVRON_SVG = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="0.625" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
   function buildCollapseButton(filePath: string): HTMLElement {
     const item = codeView?.getItem(filePath);

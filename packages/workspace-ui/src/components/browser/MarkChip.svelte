@@ -46,7 +46,7 @@
   <!-- The glyph is never dropped, however tight the row: a note on an element
        and a box drawn around a region are different instructions. -->
   <span class="flex shrink-0 items-center text-(--solus-text-tertiary) opacity-55" aria-hidden="true">
-    <ToolIcon size={11} strokeWidth={1.7} />
+    <ToolIcon size={11} strokeWidth={1.5} />
   </span>
   <span
     class="flex size-4 shrink-0 items-center justify-center rounded-full text-[0.625rem] font-semibold tracking-tight tabular-nums {chip.resolved
@@ -84,7 +84,7 @@
       aria-label="Remove mark {chip.pin}"
       class="flex size-5 shrink-0 items-center justify-center rounded-md text-(--solus-text-tertiary) opacity-55 transition-[background-color,color,opacity] duration-[var(--duration-quick)] hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary) hover:opacity-100 focus-visible:bg-[var(--wash-2)] focus-visible:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--ring) focus-visible:ring-offset-1"
     >
-      <XIcon size={10} strokeWidth={2} />
+      <XIcon size={10} strokeWidth={1.5} />
     </button>
   {/if}
 {/snippet}

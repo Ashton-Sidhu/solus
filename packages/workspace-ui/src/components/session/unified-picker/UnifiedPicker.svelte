@@ -1,5 +1,6 @@
 <script lang="ts">
   import { isSolusApiId } from "@solus/contracts/uplink";
+  import { sessionSearchNavigation } from "@solus/client-core/session-search-navigation";
   import { tick } from "svelte";
   import { fly } from "svelte/transition";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
@@ -564,6 +565,11 @@
   }
 
   function activate(entry: PickerEntry): void {
+    if (entry.kind !== "task" && entry.reason?.field === "messages" && entry.hit?.target) {
+      const serverId = entry.kind === "conversation" ? entry.meta.serverId : entry.session.serverId;
+      const sessionId = entry.kind === "conversation" ? entry.meta.sessionId : entry.session.sessionId;
+      if (serverId && sessionId) sessionSearchNavigation.request(serverId, sessionId, { target: entry.hit.target, query });
+    }
     if (entry.kind === "conversation") resumeConversation(entry.meta);
     else if (entry.kind === "session") selectSession(entry.session);
     else select(entry.task);
@@ -669,6 +675,7 @@
     }
     const where = scopeProject ? ` in ${scopeProject.label}` : "";
     if (isSearchingConversations) return "Searching conversations…";
+    if (searches.sessions.error) return `Search incomplete: ${searches.sessions.error}`;
     if (isIndexingConversations && session.ui.pickerResultType !== "tasks") return "Indexing sessions… Search again in a moment";
     if (session.ui.pickerResultType === "sessions") {
       return query.trim() ? `No sessions match “${query}”${where}` : `No sessions${where} yet`;
@@ -781,6 +788,8 @@
         <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground" aria-live="polite">
           Searching conversations…
         </div>
+      {:else if searches.sessions.error && list.entries.length > 0}
+        <div class="shrink-0 px-2.5 py-1.5 text-micro text-destructive" aria-live="polite">Search incomplete: {searches.sessions.error}</div>
       {:else if isIndexingConversations && list.entries.length > 0}
         <!-- A machine's first index sweep: its hits are real but not all of them. -->
         <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground" aria-live="polite">
@@ -846,7 +855,7 @@
             task={selectedTask}
             portalTarget={layer.el}
             primaryLabel="Resume"
-            onPrimary={() => selectSession(picked)}
+            onPrimary={() => selectedEntry ? activate(selectedEntry) : selectSession(picked)}
             onOpenTask={openTaskPage}
             onOpenSource={openSourceTicket}
           />

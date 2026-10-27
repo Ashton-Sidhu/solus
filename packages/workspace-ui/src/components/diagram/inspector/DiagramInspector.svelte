@@ -94,7 +94,7 @@
         {#if resolved.iconify}
           <Icon icon={resolved.iconify} width="18" height="18" />
         {:else if resolved.svg}
-          <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+          <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
             {@html resolved.svg}
           </svg>
         {:else}
@@ -103,7 +103,7 @@
         {#if hasDetail}
           <!-- Nest corner: present iff this node owns a nested graph. -->
           <span class="diagram-inspector__nest">
-            <svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.9">
+            <svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1">
               <rect x="2" y="5" width="9" height="9" rx="2" />
               <path d="M5 5V3.5A1.5 1.5 0 0 1 6.5 2h6A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H11" />
             </svg>
@@ -126,7 +126,7 @@
           title="Collapse to rail (⌘\)"
           aria-label="Collapse inspector"
         >
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
             <path d="M13.5 3v10M4 8h6.5M7 5l3 3-3 3" />
           </svg>
         </button>
@@ -137,7 +137,7 @@
           title="Close (Esc)"
           aria-label="Close inspector"
         >
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
             <path d="M4 4l8 8M12 4l-8 8" />
           </svg>
         </button>
@@ -148,7 +148,7 @@
       <span class="diagram-inspector__chip">{degree.in} in · {degree.out} out</span>
       {#if hasDetail}
         <span class="diagram-inspector__chip diagram-inspector__chip--accent">
-          <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
             <rect x="2" y="5" width="9" height="9" rx="2" />
             <path d="M5 5V3.5A1.5 1.5 0 0 1 6.5 2h6A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H11" />
           </svg>

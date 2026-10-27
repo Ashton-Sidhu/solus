@@ -104,10 +104,10 @@
       --color-md-user-fence-bg: rgba(0, 0, 0, 0.16);
       --color-md-user-fence-text: #2a2618;
       --color-md-hr: #d6d2c8;
-      --color-user-bubble: #fbfbf8;
+      --color-user-bubble: #f4f4f2;
       --color-user-bubble-foreground: #2a2618;
       --color-user-bubble-foreground-muted: rgba(42, 38, 24, 0.78);
-      --color-user-bubble-skill-foreground: #ad5f45;
+      --color-user-bubble-skill-foreground: #a75b43;
       --color-backdrop: rgba(0, 0, 0, 0.22);
       --color-drawer: #fffffd;
       --color-drawer-foreground: #2a2618;
@@ -117,6 +117,8 @@
       --color-dot-separator: rgba(125, 122, 110, 0.35);
       --color-wordmark: #2a2618;
       --color-chevron: rgba(125, 122, 110, 0.42);
+      --color-diff-added: #047857;
+      --color-diff-removed: #b91c1c;
       --color-adaptive-emerald-600-400: #34c26f;
       --color-adaptive-amber-700-300: #f59e0b;
       --color-adaptive-amber-700-400: #f59e0b;
@@ -242,6 +244,8 @@
       --color-dot-separator: rgba(154, 151, 143, 0.35);
       --color-wordmark: #f0ede5;
       --color-chevron: rgba(154, 151, 143, 0.42);
+      --color-diff-added: #2ee07e;
+      --color-diff-removed: #ef4444;
       --color-adaptive-emerald-600-400: #2ee07e;
       --color-adaptive-amber-700-300: #fbbf24;
       --color-adaptive-amber-700-400: #fbbf24;

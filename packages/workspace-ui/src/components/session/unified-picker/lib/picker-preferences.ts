@@ -12,9 +12,9 @@ const RESULT_TYPE_KEY = 'solus-picker-result-type'
 export function loadPickerResultType(): PickerResultType {
   try {
     const value = localStorage.getItem(RESULT_TYPE_KEY)
-    return value === 'tasks' || value === 'sessions' ? value : 'all'
+    return value === 'tasks' || value === 'all' ? value : 'sessions'
   } catch {
-    return 'all'
+    return 'sessions'
   }
 }
 

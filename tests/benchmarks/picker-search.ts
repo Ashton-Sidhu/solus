@@ -398,7 +398,8 @@ closeDb()
 rmSync(dataDir, { recursive: true, force: true })
 
 const here = new URL('.', import.meta.url).pathname
-const baselinePath = join(here, SCALE === 1 ? 'picker-search-baseline.json' : `picker-search-baseline-x${SCALE}.json`)
+const argument = (name: string) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined
+const baselinePath = argument('--baseline') ?? join(here, SCALE === 1 ? 'picker-search-baseline.json' : `picker-search-baseline-x${SCALE}.json`)
 if (process.argv.includes('--record-baseline')) {
   writeFileSync(baselinePath, JSON.stringify(metrics, null, 2))
   console.log('Recorded', baselinePath)
@@ -414,4 +415,4 @@ const rows = metrics.map((metric) => ({
   after: format(metric.value, metric.unit),
 }))
 console.table(rows)
-writeFileSync(join(here, SCALE === 1 ? 'picker-search-results.json' : `picker-search-results-x${SCALE}.json`), JSON.stringify(metrics, null, 2))
+writeFileSync(argument('--output') ?? join(here, SCALE === 1 ? 'picker-search-results.json' : `picker-search-results-x${SCALE}.json`), JSON.stringify(metrics, null, 2))

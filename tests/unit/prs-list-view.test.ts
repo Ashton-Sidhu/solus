@@ -176,7 +176,7 @@ describe('PR row slots', () => {
   test('every row tone names its dark-mode colour too', () => {
     // WHY: the tones are full-strength hues, not mixes of the theme's text
     // colour, so a tone without its own dark value would glare or vanish on a
-    // dark background.
+    // dark background. A Solus theme token carries both values itself.
     const tones = [
       ...Object.values(PR_STATUS_TONE),
       ...Object.values(PR_VERDICT_TONE),
@@ -184,7 +184,7 @@ describe('PR row slots', () => {
       PR_ADDITIONS_TONE,
       PR_DELETIONS_TONE,
     ]
-    for (const tone of tones) expect(tone).toMatch(/(^| )dark:text-/)
+    for (const tone of tones) expect(tone).toMatch(/(^| )(dark:text-|text-\(--solus-)/)
   })
 
   test('says where the row lives and who labelled it what', () => {

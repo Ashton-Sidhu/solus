@@ -11,7 +11,6 @@
   import ArtifactRail from "../artifact/ArtifactRail.svelte";
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
   import { lastReportedHeight } from "../artifact/lib/artifact-view";
-  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { downloadPayload } from "../work/lib/work-export";
   import { htmlBlockFileName } from "./lib/html-block";
   import { getHtmlBlockOrigin } from "./lib/html-block-origin";
@@ -125,9 +124,7 @@
   {/if}
   {#if page.html === null}
     <!-- The page's local images are loading. Hold the height it had last time. -->
-    <div class="overflow-hidden rounded-2xl" style="height:{lastReportedHeight(html) ?? 120}px">
-      <ContentSkeleton label="Loading artifact" preview />
-    </div>
+    <div role="status" aria-busy="true" aria-label="Loading artifact" style="height:{lastReportedHeight(html) ?? 120}px"></div>
   {:else}
     <SandboxFrame html={page.html} heightKey={html} expandable={false}>
       {#snippet actions()}

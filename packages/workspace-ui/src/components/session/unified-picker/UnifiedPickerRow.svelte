@@ -261,7 +261,7 @@
           >{@render marked(highlightWordRuns(pickerSessionTitle(row), query))}{#if row.kind === "conversation" && row.meta.archived}<span class="ml-1.5 text-micro text-(--solus-text-tertiary)" data-testid="picker-session-archived">Archived</span>{/if}</span
         >
         <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
-          >{#if row.hit}{@render marked(snippetRuns(row.hit.snippet))}{:else}{pickerSessionProject(row)}{/if}</span
+          >{#if row.reason && row.reason.field !== "title" && row.reason.field !== "messages"}{row.reason.field === "id" ? "ID" : row.reason.field === "branch" ? "Branch" : "PR"}: {@render marked(highlightWordRuns(row.reason.text, query))}{:else if row.hit}{@render marked(snippetRuns(row.hit.snippet))}{:else}{pickerSessionProject(row)}{/if}</span
         >
       </span>
       <PresenceStack {people} size={16} max={3} />

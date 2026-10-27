@@ -150,7 +150,8 @@ export function ComposerActionButton(props: {
           props.variant === "danger"
             ? "bg-danger"
             : props.disabled
-              ? "bg-primary/15"
+              ? // Neutral, like desktop: a faded accent reads as a broken colour.
+                "bg-subtle-strong"
               : "bg-primary",
         )}
       >
@@ -159,7 +160,11 @@ export function ComposerActionButton(props: {
           size={smallIconSize}
           weight="semibold"
           tintColorClassName={
-            props.variant === "danger" ? "accent-danger-foreground" : "accent-primary-foreground"
+            props.variant === "danger"
+              ? "accent-danger-foreground"
+              : props.disabled
+                ? "accent-foreground-tertiary"
+                : "accent-primary-foreground"
           }
           type="monochrome"
         />

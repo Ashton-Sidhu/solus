@@ -65,7 +65,7 @@
         {#if row.state === "busy"}
           <CircleNotchIcon size={14} class="shrink-0 animate-spin text-primary" />
         {:else if row.state === "done"}
-          <CheckIcon size={14} strokeWidth={2.6} class="shrink-0 text-(--success)" aria-label="Done" />
+          <CheckIcon size={14} strokeWidth={1.5} class="shrink-0 text-(--success)" aria-label="Done" />
         {/if}
       </div>
     {/each}

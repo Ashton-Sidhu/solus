@@ -462,6 +462,8 @@ export const workspaceSessionPageSchema = page(workspaceSessionSchema).extend({ 
 export type WorkspaceSessionPage = z.infer<typeof workspaceSessionPageSchema>
 
 const workspaceSessionSearchHitSchema = z.strictObject({
+  reason: z.strictObject({ field: z.enum(['id', 'title', 'branch', 'pullRequest', 'messages']), text: z.string() }).optional(),
+  target: z.strictObject({ sourceSessionId: z.string(), messageId: z.string().nullable(), role: z.string(), timestamp: z.number(), text: z.string().max(256) }).optional(),
   /** The matching passage on one line, each matched word between the markers of `search-snippet.ts`. */
   snippet: z.string().max(2000),
   timestamp: z.number().int().min(0),

@@ -1,12 +1,14 @@
 const DEFAULT_TAIL = 10
 const MAX_SEGMENT_TAIL = 16
+const MIN_WORD_TAIL = 4
+const WORD_BREAK = /[-_./\\]/
 
 /**
  * Where `MiddleTruncate` cuts a string. The head may shrink behind an ellipsis;
  * the tail always shows. A path keeps its last segment when that segment is
- * short enough to be the useful part; anything else keeps a fixed count. Nothing
- * is split when the tail would be most of the string, since the head could then
- * never show enough to be worth an ellipsis.
+ * short enough to be the useful part; anything else keeps a fixed count, moved
+ * to the start of a word. Nothing is split when the tail would be most of the
+ * string, since the head could then never show enough to be worth an ellipsis.
  */
 export function splitForMiddleTruncate(
   value: string,
@@ -25,6 +27,22 @@ export function splitForMiddleTruncate(
     }
   }
   if (keep <= 0 || chars.length <= keep + 4) return null
-  const cut = chars.length - keep
+  let cut = chars.length - keep
+  // An automatic tail starts on a word: `…machine`, not `…er-machine`. A shorter
+  // tail comes first so the head keeps its room; a longer one is the fallback.
+  if (tail === undefined && !WORD_BREAK.test(chars[cut - 1])) {
+    const startsWord = (index: number) => WORD_BREAK.test(chars[index - 1])
+    let snapped = -1
+    for (let index = cut + 1; index <= chars.length - MIN_WORD_TAIL; index++) {
+      if (startsWord(index)) {
+        snapped = index
+        break
+      }
+    }
+    for (let index = cut - 1; snapped < 0 && index >= chars.length - MAX_SEGMENT_TAIL && index > 4; index--) {
+      if (startsWord(index)) snapped = index
+    }
+    if (snapped > 0) cut = snapped
+  }
   return { head: chars.slice(0, cut).join(''), tail: chars.slice(cut).join('') }
 }

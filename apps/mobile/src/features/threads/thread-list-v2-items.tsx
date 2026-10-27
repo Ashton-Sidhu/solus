@@ -84,6 +84,8 @@ function ThreadListV2Section(props: {
   readonly label: string;
   readonly pane?: "screen" | "sidebar";
   readonly tone?: "default" | "snoozed";
+  /** A muted trailing count, as on desktop. */
+  readonly count?: number;
   readonly disclosure?: {
     readonly expanded: boolean;
     readonly disabled?: boolean;
@@ -118,9 +120,20 @@ function ThreadListV2Section(props: {
           snoozed ? "bg-primary/20" : sidebarPane ? "bg-drawer-border" : "bg-border",
         )}
       />
+      {props.count !== undefined ? (
+        <Text
+          className={cn(
+            "text-xs tabular-nums opacity-60",
+            sidebarPane ? "text-drawer-foreground-muted" : "text-foreground-tertiary",
+          )}
+        >
+          {props.count}
+        </Text>
+      ) : null}
       {props.disclosure ? (
+        // Right when collapsed, down when open: the direction the content goes.
         <SymbolView
-          name="chevron.down"
+          name="chevron.right"
           size={10}
           tintColorClassName={
             sidebarPane
@@ -130,7 +143,7 @@ function ThreadListV2Section(props: {
                 : "accent-foreground-muted"
           }
           type="monochrome"
-          style={{ transform: [{ rotate: props.disclosure.expanded ? "180deg" : "0deg" }] }}
+          style={{ transform: [{ rotate: props.disclosure.expanded ? "90deg" : "0deg" }] }}
         />
       ) : null}
     </>
@@ -171,7 +184,8 @@ function ThreadListV2ShelfHeader(
   const label = props.kind === "snoozed" ? "Snoozed" : "Settled";
   return (
     <ThreadListV2Section
-      label={props.expanded ? label : `${label} (${props.count})`}
+      label={label}
+      count={props.count}
       pane={props.pane}
       tone={props.kind === "snoozed" ? "snoozed" : "default"}
       disclosure={{

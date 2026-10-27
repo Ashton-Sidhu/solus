@@ -216,7 +216,7 @@
     viewBox="0 0 14 14"
     fill="none"
     stroke="currentColor"
-    stroke-width="1.4"
+    stroke-width="0.875"
     stroke-linecap="round"
     stroke-linejoin="round"
     class="size-[0.8125rem]"

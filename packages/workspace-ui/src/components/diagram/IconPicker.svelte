@@ -134,7 +134,7 @@
 
 <div class="icon-picker">
   <div class="icon-picker__search">
-    <svg class="icon-picker__search-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+    <svg class="icon-picker__search-icon" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
       <circle cx="7" cy="7" r="4.5" />
       <path d="M10.5 10.5L14 14" />
     </svg>
@@ -157,7 +157,7 @@
         title="Clear search (Esc)"
         aria-label="Clear search"
       >
-        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
           <path d="M4 4l8 8M12 4l-8 8" />
         </svg>
       </button>
@@ -212,7 +212,7 @@
           {#if iconifySrc}
             <Icon icon={iconifySrc} width="14" height="14" />
           {:else if svgPath}
-            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               {@html svgPath}
             </svg>
           {/if}

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { tick, untrack, type Snippet } from "svelte";
   import {
     Maximize as ArrowsOutIcon,
@@ -328,14 +327,14 @@
         {srcdoc}
       ></iframe>
     {/key}
-    {#if !frameSettled}
+    {#if !frameSettled && loading}
       <div class="absolute inset-0 overflow-hidden bg-(--solus-container-bg)">
-        {#if loading}
-          {@render loading()}
-        {:else}
-          <ContentSkeleton label="Loading artifact" preview />
-        {/if}
+        {@render loading()}
       </div>
+    {:else if !frameSettled}
+      <!-- The frame has no fill, so a filled skeleton flashed a box before
+           the render. Hold the height empty until the render lands. -->
+      <div class="absolute inset-0" role="status" aria-busy="true" aria-label="Loading artifact"></div>
     {:else if frameResult?.failed}
       <div class="absolute inset-0 grid place-items-center text-sm text-destructive" role="alert">
         This artifact could not be rendered.

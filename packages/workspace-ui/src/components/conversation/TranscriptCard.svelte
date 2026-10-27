@@ -217,13 +217,13 @@
           label={secondaryActionLabel}
           onclick={onOpenSecondary}
         >
-          <PanelRightIcon size={14} strokeWidth={1.75} />
+          <PanelRightIcon size={14} strokeWidth={1.5} />
         </TranscriptCardAction>
       {/if}
       {#if actionLabel && onOpen}
         {#if openAsIcon}
           <TranscriptCardAction kind="icon" label={actionLabel} onclick={onOpen}>
-            <ArrowUpRightIcon size={14} strokeWidth={1.75} />
+            <ArrowUpRightIcon size={14} strokeWidth={1.5} />
           </TranscriptCardAction>
         {:else}
           <TranscriptCardAction
@@ -249,7 +249,7 @@
           aria-label="More actions"
           title="More actions"
         >
-          <EllipsisIcon size={14} strokeWidth={2.5} />
+          <EllipsisIcon size={14} strokeWidth={1.5} />
         </button>
       {/snippet}
     </Popover.Trigger>

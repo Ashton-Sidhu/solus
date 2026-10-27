@@ -48,7 +48,7 @@ type SearchQuery = ReturnType<typeof workspaceSessionSearchQuerySchema.parse>
 type SearchHit = WorkspaceSessionSearchResult['items'][number]['additionalMatches'][number]
 /** One session's passages, best first, before its record is checked. A
  *  session that matched by its name alone has none. */
-interface SessionHits { sessionId: string; passages: SearchHit[]; rank: number }
+interface SessionHits { sessionId: string; passages: SearchHit[]; rank: number; reason?: SearchHit['reason'] }
 /** One page of matching sessions and how many match in all. */
 interface HitsPage { hits: SessionHits[]; total: number }
 
@@ -258,8 +258,8 @@ export class SessionApiOperations {
       if (!session) continue
       const [best, ...others] = hit.passages
       items.push(best
-        ? { ...best, session, additionalMatches: others }
-        : { timestamp: Date.parse(session.updatedAt), rank: hit.rank, session, additionalMatches: [] })
+        ? { ...best, reason: hit.reason, session, additionalMatches: others }
+        : { timestamp: Date.parse(session.updatedAt), rank: hit.rank, reason: hit.reason, session, additionalMatches: [] })
     }
     return { items, total, indexing }
   }
@@ -267,7 +267,9 @@ export class SessionApiOperations {
   private async indexedHits(context: WorkspaceRequestContext, query: SearchQuery): Promise<HitsPage> {
     // A machine's index knows its checkouts, not their repositories: it is searched by `projectRoot`.
     if (query.repositoryKey) throw new SolusApiError(400, 'INVALID_REQUEST', 'A machine searches one project by projectRoot; repositoryKey is answered by the workspace service.')
+    const readable = await getDatabase().all<{ session_id: string }>(sql`SELECT session_records.session_id FROM session_records WHERE ${sql.join(this.visible(context), sql` AND `)}`)
     const page = searchSessionIndex(query.q, {
+      sessionIds: new Set(readable.map(row => row.session_id)),
       projectRoot: query.projectRoot,
       providers: query.provider ? [query.provider] : undefined,
       namesOnly: query.namesOnly === 'true',
@@ -281,8 +283,9 @@ export class SessionApiOperations {
       hits: page.results.map(result => ({
         sessionId: result.session.sessionId,
         rank: result.rank,
+        reason: result.reason,
         passages: [...(result.messageId >= 0 ? [result] : []), ...result.additionalMatches ?? []]
-          .map(hit => ({ snippet: hit.snippet, timestamp: hit.ts, messageId: hit.messageId, rank: hit.rank })),
+          .map(hit => ({ snippet: hit.snippet, timestamp: hit.ts, messageId: hit.messageId, rank: hit.rank, target: hit.target })),
       })),
     }
   }
@@ -296,21 +299,22 @@ export class SessionApiOperations {
     const db = getDatabase()
     const words = queryWords(query.q)
     const page = await searchIndexFor(db.engine).searchSessions(db, {
-      words, namesOnly: query.namesOnly === 'true', records: sql.join(records, sql` AND `), limit: query.limit, offset: query.offset,
+      words, namesOnly: query.namesOnly === 'true', records: sql.join(records, sql` AND `), limit: query.limit, offset: query.offset, metadata: await pullRequestNames(apiScope(context)),
     })
     return {
       total: page.total,
-      hits: page.sessions.map((session, index) => {
-        // The service ranks in SQL: a session's rank is its place in the whole answer.
-        const rank = query.offset + index
+      hits: page.sessions.map((session) => {
+        const rank = session.rank
         return {
           sessionId: session.sessionId,
           rank,
+          reason: session.reason,
           passages: session.passages.map(passage => ({
             snippet: markedPassage(passage.content, words, SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE),
             timestamp: Math.max(0, Math.trunc(passage.timestamp ?? 0)),
             messageId: passage.position,
             rank,
+            target: passage.target,
           })),
         }
       }),

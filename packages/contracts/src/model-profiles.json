@@ -128,6 +128,14 @@
       "contextWindows": [1050000],
       "defaultContextWindow": 1050000
     },
+    "gpt-6.1-terra": {
+      "label": "Gpt 6.1 Terra",
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "defaultReasoningEffort": "low",
+      "supportsFastMode": true,
+      "contextWindows": [500000, 872000],
+      "defaultContextWindow": 500000
+    },
     "gpt-6-sol": {
       "label": "Gpt 6 Sol",
       "isLegacy": true,

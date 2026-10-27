@@ -28,6 +28,7 @@ interface PreviewLoaderDeps {
 /** A search hit to open the preview on: which host holds the session, and
  *  which indexed message the words were found in. */
 export interface PreviewHitTarget {
+  target?: import('@solus/contracts/session-search').SessionSearchTarget
   serverId: string
   sessionId: string
   messageId: number
@@ -168,7 +169,7 @@ export class PreviewLoader {
   ) {
     this.#cancelPending()
 
-    const windowKey = `${hit.serverId}:${hit.sessionId}:${hit.messageId}`
+    const windowKey = JSON.stringify([hit.serverId, hit.sessionId, hit.target ?? hit.messageId])
     const cachedWindow = this.#hitCache.get(windowKey)
     const cachedEnds = source ? this.#cachedEnds(source) : null
     if (cachedWindow && (cachedEnds || !source)) {
@@ -190,6 +191,7 @@ export class PreviewLoader {
               sessionId: hit.sessionId,
               messageId: hit.messageId,
               radius: HIT_WINDOW_RADIUS,
+              target: hit.target,
             }).then((loaded) => {
               this.#hitCache.set(windowKey, loaded)
               return loaded
@@ -213,7 +215,7 @@ export class PreviewLoader {
       this.snapshot = null
       this.messageCount = window.messages.length + window.hiddenBefore + window.hiddenAfter
     }
-    this.hitWindow = window.messages.length ? { window, hitMessageId: hit.messageId } : null
+    this.hitWindow = window.messages.length ? { window, hitMessageId: window.hitMessageId ?? hit.messageId } : null
   }
 
   show(

@@ -6,6 +6,8 @@ import type { WorkType } from '@solus/contracts/types'
 import type { Db } from './database'
 import { sanitizeFtsQuery } from './fts'
 import { works } from '../data/works/schema'
+import { searchMirroredSessions } from './mirrored-session-search'
+import type { SessionSearchReason, SessionSearchTarget } from '@solus/contracts/session-search'
 
 /**
  * Full-text search over works, one implementation per engine
@@ -47,6 +49,7 @@ export type WorkSearchRow = z.infer<typeof workSearchRowSchema>
 export interface SessionMatchQuery {
   /** The query's words, as `queryWords` reads them. */
   words: string[]
+  metadata?: ReadonlyMap<string, string>
   /** Match names and branches only; read no message. */
   namesOnly: boolean
   /** Which records the caller may read, over `session_records` (scope, visibility, filters). */
@@ -60,120 +63,19 @@ export interface SessionMatchPassage {
   position: number
   timestamp: number | null
   content: string
+  target: SessionSearchTarget
 }
 
 /** One page of matching sessions, best first: for each, up to three messages
  *  to cut passages from, best first. A session that matched by its name alone has none. */
 export interface SessionMatchPage {
-  sessions: Array<{ sessionId: string; passages: SessionMatchPassage[] }>
+  sessions: Array<{ sessionId: string; rank: number; reason: SessionSearchReason; passages: SessionMatchPassage[] }>
   total: number
 }
 
-const sessionMatchRowSchema = z.object({ session_id: z.string(), total: z.coerce.number() })
-const passageRowSchema = z.object({
-  session_id: z.string(),
-  position: z.coerce.number(),
-  timestamp: z.coerce.number().nullable(),
-  content: z.string().nullable(),
-})
-const PASSAGES_PER_SESSION = 3
-
 export interface SearchIndex {
-  /** Matching works, best match first; empty for a blank query. */
   searchWorks(db: Db, request: WorkSearchQuery): Promise<WorkSearchRow[]>
-  /** The sessions that match, one page, best first; empty for no words. */
   searchSessions(db: Db, request: SessionMatchQuery): Promise<SessionMatchPage>
-}
-
-/** How one engine reads the mirrored transcripts and tests a word. */
-interface WordTests {
-  inMessage(word: string): SQL
-  inName(word: string): SQL
-  /** Only what the person and the agent wrote. */
-  written: SQL
-  /** A message's text and timestamp, from its JSON. */
-  content: SQL
-  timestamp: SQL
-}
-
-/**
- * The session match both engines share. Each word is found per session in one
- * grouped pass over the transcripts; a session is kept when each word is in a
- * message or in its name. A name that holds every word ranks first, then a
- * message that holds every word, then how many messages hold the words, then
- * recency. Passages are read for the page only: the newest messages with every
- * word, then the newest with any.
- */
-async function matchSessions(db: Db, request: SessionMatchQuery, tests: WordTests): Promise<SessionMatchPage> {
-  const { words } = request
-  if (words.length === 0) return { sessions: [], total: 0 }
-  const names = words.map((word) => tests.inName(word))
-  let rows: z.infer<typeof sessionMatchRowSchema>[]
-  if (request.namesOnly) {
-    rows = sessionMatchRowSchema.array().parse(await db.all(sql`
-      SELECT session_records.session_id, COUNT(*) OVER () AS total
-      FROM session_records
-      WHERE ${request.records} AND ${sql.join(names, sql` AND `)}
-      ORDER BY session_records.last_activity_at DESC, session_records.session_id
-      LIMIT ${request.limit} OFFSET ${request.offset}
-    `))
-    return { sessions: rows.map((row) => ({ sessionId: row.session_id, passages: [] })), total: rows[0]?.total ?? 0 }
-  }
-  const grouped = (match: SQL) => sql`
-    SELECT t.session_id, t.organization_id, COUNT(*) AS c
-    FROM session_transcripts t
-    WHERE ${match} AND ${tests.written}
-    GROUP BY t.session_id, t.organization_id`
-  const joined = (name: string) => sql`LEFT JOIN ${sql.raw(name)} ON ${sql.raw(name)}.session_id = session_records.session_id AND ${sql.raw(name)}.organization_id = session_records.organization_id`
-  const every = sql.join(words.map((word) => tests.inMessage(word)), sql` AND `)
-  const ctes = words.map((word, index) => sql`${sql.raw(`w${index}`)} AS (${grouped(tests.inMessage(word))})`)
-  const joins = words.map((_, index) => joined(`w${index}`))
-  if (words.length > 1) {
-    ctes.push(sql`together AS (${grouped(every)})`)
-    joins.push(joined('together'))
-  }
-  const together = words.length > 1 ? sql`CASE WHEN together.session_id IS NULL THEN 0 ELSE 1 END DESC, ` : sql``
-  const counts = sql.join(words.map((_, index) => sql`COALESCE(${sql.raw(`w${index}`)}.c, 0)`), sql` + `)
-  const kept = words.map((_, index) => sql`(${sql.raw(`w${index}`)}.session_id IS NOT NULL OR ${names[index]!})`)
-  rows = sessionMatchRowSchema.array().parse(await db.all(sql`
-    WITH ${sql.join(ctes, sql`, `)}
-    SELECT session_records.session_id, COUNT(*) OVER () AS total
-    FROM session_records
-    ${sql.join(joins, sql` `)}
-    WHERE ${request.records} AND ${sql.join(kept, sql` AND `)}
-    ORDER BY CASE WHEN ${sql.join(names, sql` AND `)} THEN 1 ELSE 0 END DESC, ${together}${counts} DESC,
-      session_records.last_activity_at DESC, session_records.session_id
-    LIMIT ${request.limit} OFFSET ${request.offset}
-  `))
-  if (!rows.length) return { sessions: [], total: 0 }
-  const any = sql.join(words.map((word) => tests.inMessage(word)), sql` OR `)
-  const passages = passageRowSchema.array().parse(await db.all(sql`
-    SELECT best.session_id, best.position, best.sent_at AS timestamp, best.content FROM (
-      SELECT t.session_id, t.position, ${tests.timestamp} AS sent_at, ${tests.content} AS content,
-        ROW_NUMBER() OVER (PARTITION BY t.session_id ORDER BY CASE WHEN ${every} THEN 1 ELSE 0 END DESC, t.position DESC) AS n
-      FROM session_transcripts t
-      JOIN session_records ON session_records.session_id = t.session_id AND session_records.organization_id = t.organization_id
-      WHERE t.session_id IN (${sql.join(rows.map((row) => sql`${row.session_id}`), sql`, `)})
-        AND ${request.records} AND ${tests.written} AND (${any})
-    ) best
-    WHERE best.n <= ${PASSAGES_PER_SESSION}
-    ORDER BY best.session_id, best.n
-  `))
-  const bySession = new Map<string, SessionMatchPassage[]>()
-  for (const row of passages) {
-    const held = bySession.get(row.session_id) ?? []
-    held.push({ position: row.position, timestamp: row.timestamp, content: row.content ?? '' })
-    bySession.set(row.session_id, held)
-  }
-  return {
-    sessions: rows.map((row) => ({ sessionId: row.session_id, passages: bySession.get(row.session_id) ?? [] })),
-    total: rows[0]!.total,
-  }
-}
-
-/** A word's letters and digits, the only parts an engine's syntax cannot misread. */
-function wordParts(word: string): string[] {
-  return word.match(/[\p{L}\p{N}_]+/gu) ?? []
 }
 
 function typeFilter(type: WorkType | undefined): SQL {
@@ -201,20 +103,7 @@ const fts5SearchIndex: SearchIndex = {
       LIMIT ${request.limit}
     `))
   },
-  // A SQLite workspace service is a small one (a lab, a single machine): the
-  // mirrored text is scanned, and a word matches anywhere in it.
-  async searchSessions(db, request) {
-    const content = sql`COALESCE(json_extract(t.message, '$.content'), '')`
-    const name = sql`LOWER(COALESCE(session_records.custom_title, '') || ' ' || COALESCE(session_records.branch, ''))`
-    const like = (word: string) => `%${word.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
-    return matchSessions(db, request, {
-      inMessage: (word) => sql`LOWER(${content}) LIKE ${like(word)} ESCAPE '\\'`,
-      inName: (word) => sql`${name} LIKE ${like(word)} ESCAPE '\\'`,
-      written: sql`json_extract(t.message, '$.role') IN ('user', 'assistant') AND json_extract(t.message, '$.toolName') IS NULL`,
-      content,
-      timestamp: sql`CAST(json_extract(t.message, '$.timestamp') AS INTEGER)`,
-    })
-  },
+  searchSessions: searchMirroredSessions,
 }
 
 const tsvectorSearchIndex: SearchIndex = {
@@ -236,22 +125,7 @@ const tsvectorSearchIndex: SearchIndex = {
       LIMIT ${request.limit}
     `))
   },
-  // Each word is a prefix of a stemmed English word, as the stored `search`
-  // column was built. A name matches where the word starts one of its words.
-  async searchSessions(db, request) {
-    const tsquery = (word: string) => sql`to_tsquery('english', ${wordParts(word).map((part) => `${part}:*`).join(' <-> ')})`
-    const name = sql`(' ' || regexp_replace(LOWER(COALESCE(session_records.custom_title, '') || ' ' || COALESCE(session_records.branch, '')), '[^[:alnum:]]+', ' ', 'g'))`
-    return matchSessions(db, {
-      ...request,
-      words: request.words.filter((word) => wordParts(word).length),
-    }, {
-      inMessage: (word) => sql`t.search @@ ${tsquery(word)}`,
-      inName: (word) => sql`${name} LIKE ${`% ${wordParts(word).join(' ').replace(/[\\%_]/g, (character) => `\\${character}`)}%`}`,
-      written: sql`t.message::jsonb->>'role' IN ('user', 'assistant') AND t.message::jsonb->>'toolName' IS NULL`,
-      content: sql`COALESCE(t.message::jsonb->>'content', '')`,
-      timestamp: sql`CAST(t.message::jsonb->>'timestamp' AS BIGINT)`,
-    })
-  },
+  searchSessions: searchMirroredSessions,
 }
 
 export function searchIndexFor(engine: Db['engine']): SearchIndex {

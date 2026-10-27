@@ -50,6 +50,7 @@ import { createSwipeRowActivation } from "./swipe-row-activation";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
 import { useMaterialFabScroll } from "./MaterialFabScrollContext";
 import { deriveHomeEmptyState } from "./home-empty-state";
+import { SessionSearchResults } from "./SessionSearchResults";
 import type { WorkspaceState } from "./workspace-connection-status";
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
@@ -568,6 +569,8 @@ export function HomeScreen(props: HomeScreenProps) {
       variant={Platform.OS === "android" ? "plain" : undefined}
     />
   );
+
+  if (hasSearchQuery) return <SessionSearchResults query={props.searchQuery} hostId={props.selectedEnvironmentId} projects={props.projects} threads={props.threads} unlistedThreads={props.unlistedThreads} projectKeys={v2ScopedProjectGroup?.projectKeys ?? null} header={v2ListHeader} onSelect={props.onSelectThread} />;
 
   if (Platform.OS === "android" && threadListV2Items.length === 0) {
     return (

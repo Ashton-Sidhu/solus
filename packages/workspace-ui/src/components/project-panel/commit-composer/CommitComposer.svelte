@@ -211,8 +211,8 @@
         </button>
         {#if composer.selected.size > 0}
           <span class="shrink-0 text-xs tabular-nums">
-            <span class="text-(--solus-status-complete)">+{selectedTotals.additions}</span>
-            <span class="text-(--solus-status-error)">−{selectedTotals.deletions}</span>
+            <span class="text-(--solus-diff-added-text-vivid)">+{selectedTotals.additions}</span>
+            <span class="text-(--solus-diff-removed-text-vivid)">−{selectedTotals.deletions}</span>
           </span>
         {/if}
         {#if composer.files.length >= FILTER_MIN_FILES}

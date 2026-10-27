@@ -69,12 +69,12 @@ All values are in `em` of `--prose-size`, except where a value is a hairline.
 
 | Element | Value |
 | --- | --- |
-| Body | `--prose-size`, line height 1.625, ink at 80% of `--solus-text-primary`, `text-wrap: pretty` |
+| Body | `--prose-size`, line height 1.625, ink at 90% of `--solus-text-primary`, `text-wrap: pretty` |
 | Block gap | 0.65em between `p`, `ul`, `ol`, `table`, quote, and `hr`. The first child has no top margin and the last child has no bottom margin. |
 | Headings | Full ink, weight 600, line height 1.3, margin 1.4em above and 0.45em below. Sizes: h1 1.4286em, h2 1.2857em, h3 1.1429em, h4–h6 1em. h6 uses tertiary ink. |
 | Strong | Weight 600, full ink |
 | Links | Link color, no underline. A dotted rule shows on hover and on focus. File-link chips and reference tokens keep their own treatment. |
-| Inline code | The user's code face at `font-size: 1em`, x-height matched to the body (`font-size-adjust: from-font` on the root), weight 450, letter spacing −0.025em, `margin-inline: -0.04em`, full ink. No fill, no border. |
+| Inline code | The user's code face at `font-size: 1em`, x-height matched to the body (`font-size-adjust: from-font` on the root), weight 440, the code face's own letter spacing, `margin-inline: 0.12em`, full ink. No fill, no border. |
 | Lists | Native markers in tertiary ink, `padding-inline-start: 1.25em`. Nested `ul` uses `circle`. `ol` markers use tabular figures. 0.25em between items. A nested list has 0.25em above it. |
 | Task items | A 13px box with a hairline. A checked item has a tinted box with a tick, and its text uses tertiary ink. |
 | Code block | The transcript's `.solus-code-block`: a language label and Copy in the head, a 1.5% wash over the card, a hairline ring, 10px radius. Code is 0.857em, line height 1.55. |

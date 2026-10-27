@@ -208,11 +208,11 @@
         class="flex w-[66px] shrink-0 justify-end gap-[5px] tabular-nums @max-[30rem]/pane:order-12 @max-[30rem]/pane:w-auto @max-[30rem]/pane:font-mono"
       >
         <span
-          class="text-[color:color-mix(in_oklch,var(--success)_64%,var(--foreground))]"
+          class="text-(--solus-diff-added-text-vivid)"
           >+{compactCount(row.churn.additions)}</span
         >
         <span
-          class="text-[color:color-mix(in_oklch,var(--failure)_66%,var(--foreground))]"
+          class="text-(--solus-diff-removed-text-vivid)"
           >−{compactCount(row.churn.deletions)}</span
         >
       </span>

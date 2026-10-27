@@ -121,7 +121,7 @@
   <div class="diagram-inspector__head">
     <div class="diagram-inspector__identity">
       <span class="diagram-inspector__tile" style="--tile-tint:{tint}" aria-hidden="true">
-        <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3.6 4h4a2 2 0 0 1 2 2v5.4M7.6 9.4l2 2 2-2" />
           <circle cx="3.6" cy="4" r="1.4" />
         </svg>
@@ -146,7 +146,7 @@
           title="Collapse to rail (⌘\)"
           aria-label="Collapse inspector"
         >
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
             <path d="M13.5 3v10M4 8h6.5M7 5l3 3-3 3" />
           </svg>
         </button>
@@ -157,7 +157,7 @@
           title="Close (Esc)"
           aria-label="Close inspector"
         >
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
             <path d="M4 4l8 8M12 4l-8 8" />
           </svg>
         </button>
@@ -169,7 +169,7 @@
       {#if trunkSiblings > 1}
         <!-- Siblings share the trunk x, so three edges read as one branch. -->
         <span class="diagram-inspector__chip diagram-inspector__chip--accent">
-          <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
             <path d="M3 8h4M7 8v-4h6M7 8v4h6" />
           </svg>
           shares trunk with {trunkSiblings - 1}

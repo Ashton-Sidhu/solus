@@ -296,6 +296,7 @@ export function materializeSessionTranscript(
     const msgTimestamp = m.timestamp ?? Date.now()
     const msg: any = {
       id: m.messageId ?? nextMsgId(),
+      sourceSessionId: m.sourceSessionId,
       role: m.role,
       content: m.content,
       toolName: m.toolName,

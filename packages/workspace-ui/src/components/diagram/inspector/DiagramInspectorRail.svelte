@@ -75,32 +75,32 @@
         aria-label="Open {TAB_LABELS[name]} tab"
       >
         {#if name === 'identity'}
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
             <path d="M3 4.5h7M3 8h10M3 11.5h5.5" />
             <circle cx="12.5" cy="4.5" r="1.4" />
           </svg>
         {:else if name === 'style'}
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true">
             <path d="M9.5 2.6 13.4 6.5 6.8 13.1a2.5 2.5 0 0 1-1.4.7l-2.7.4.4-2.7c.07-.5.32-1 .7-1.4L9.5 2.6Z" />
           </svg>
         {:else if name === 'data'}
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
             <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
             <path d="M2.5 6.5h11M6.5 6.5v7" />
           </svg>
         {:else if name === 'links'}
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
             <path d="M6.5 9.5a2.8 2.8 0 0 0 4 0l2-2a2.83 2.83 0 0 0-4-4l-.6.6" />
             <path d="M9.5 6.5a2.8 2.8 0 0 0-4 0l-2 2a2.83 2.83 0 0 0 4 4l.6-.6" />
           </svg>
         {:else if name === 'route'}
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">
             <path d="M2.5 4h5a2 2 0 0 1 2 2v6" />
             <circle cx="2.5" cy="4" r="1.3" />
             <path d="M7.5 10l2 2 2-2" />
           </svg>
         {:else}
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true">
             <path d="M2.6 4.2A1.6 1.6 0 0 1 4.2 2.6h7.6a1.6 1.6 0 0 1 1.6 1.6v4.8a1.6 1.6 0 0 1-1.6 1.6H6.6L3.6 13.2v-2.6h.6a1.6 1.6 0 0 1-1.6-1.6z" />
           </svg>
           {#if hasUnreadThreads}
@@ -114,7 +114,7 @@
   <span class="diagram-rail__rule" aria-hidden="true"></span>
 
   <span class="diagram-rail__expand" aria-hidden="true">
-    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round">
       <path d="M2.5 3v10M12 8H5.5M9 5L6 8l3 3" />
     </svg>
   </span>

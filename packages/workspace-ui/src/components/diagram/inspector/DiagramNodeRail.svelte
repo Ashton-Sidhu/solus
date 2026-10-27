@@ -32,7 +32,7 @@
     {#if resolved.iconify}
       <Icon icon={resolved.iconify} width="16" height="16" />
     {:else if resolved.svg}
-      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
         {@html resolved.svg}
       </svg>
     {:else}

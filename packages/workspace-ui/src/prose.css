@@ -14,7 +14,7 @@
     /* Structure (headings, strong, code) at full ink; running text a step
        back. A surface changes the ink, never the element rules. */
     --prose-ink-strong: var(--solus-text-primary);
-    --prose-ink: color-mix(in oklch, var(--prose-ink-strong) 80%, transparent);
+    --prose-ink: color-mix(in oklch, var(--prose-ink-strong) 90%, transparent);
     font-size: var(--prose-size);
     line-height: 1.625;
     font-weight: 400;
@@ -72,15 +72,17 @@
   }
 
   /* Inline code is mono and nothing else: no fill, no border. `1em` with the
-     inherited `font-size-adjust` puts its x-height on the body's; weight 450
-     keeps it from reading bold beside 400 text; the negative side margin takes
-     back the mono face's wide side bearings so the spaces around it look even. */
+     inherited `font-size-adjust` puts its x-height on the body's. Weight 440,
+     a step over the body's 400: a mono face's even strokes already read
+     heavier, so a run of spans looks bold at 450 and up. The mono face keeps its own
+     spacing, and a small side margin puts air between a span and the text
+     beside it, so a run of spans in one sentence still reads as separate
+     words. */
   .prose :not(pre) > code {
     font-family: var(--solus-code-font-family);
     font-size: 1em;
-    font-weight: 450;
-    letter-spacing: -0.025em;
-    margin-inline: -0.04em;
+    font-weight: 440;
+    margin-inline: 0.12em;
     color: var(--prose-ink-strong);
     font-feature-settings: 'calt' 1, 'liga' 0;
   }
@@ -313,14 +315,11 @@
      restates an element's style. These come after the element rules: they tie
      on specificity, so source order decides. */
 
-  /* An assistant reply takes the Appearance opacity on its running text.
-     Headings keep full ink, so a reply's structure stays visible. */
+  /* An assistant reply takes the Appearance opacity on its running text, as
+     the value the setting shows. Headings keep full ink, so a reply's
+     structure stays visible. */
   .prose-transcript-main {
-    --prose-ink: color-mix(
-      in oklch,
-      var(--prose-ink-strong) calc(var(--solus-assistant-text-opacity, 100%) * 0.8),
-      transparent
-    );
+    --prose-ink: color-mix(in oklch, var(--prose-ink-strong) var(--solus-assistant-text-opacity, 100%), transparent);
   }
 
   /* The person's own message: the bubble sets the colour, and the prose

@@ -15,7 +15,7 @@
       height="28"
       fill="none"
       stroke="currentColor"
-      stroke-width="1.3"
+      stroke-width="1"
       stroke-linecap="round"
       stroke-linejoin="round"
       aria-hidden="true"

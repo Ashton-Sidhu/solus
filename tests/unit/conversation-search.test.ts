@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { SessionRecord, SessionRecordList, SessionRecordListFilter, SessionRecordSearch, SessionRecordSearchQuery } from '@solus/contracts/types'
 import type { TaskCommentHit, TaskCommentSearchQuery } from '@solus/contracts/task-types'
 import { solusApiId } from '@solus/contracts/uplink'
+import { SessionSearch } from '@solus/client-core/session-search'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 type ConversationSearchModule = typeof import(
@@ -60,6 +61,33 @@ function homes(
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5))
+
+test('fast homes display before slow ones, late replies keep rows in place, and failure is explicit', async () => {
+  const fast = Promise.withResolvers<SessionRecordSearch>()
+  const slow = Promise.withResolvers<SessionRecordSearch>()
+  const asked = Promise.withResolvers<void>()
+  let asks = 0
+  const changes = new Set<() => void>()
+  const search = new SessionSearch(serverId => ({ sessionRecordSearch: () => {
+    if (++asks === 2) asked.resolve()
+    return serverId === 'fast' ? fast.promise : slow.promise
+  } }), () => { for (const listener of changes) listener() }, 0)
+  const when = (predicate: () => boolean) => predicate() ? Promise.resolve() : new Promise<void>(resolve => {
+    const check = () => { if (predicate()) { changes.delete(check); resolve() } }
+    changes.add(check)
+  })
+  search.search('pelican', [{ serverId: 'fast' }, { serverId: 'slow' }])
+  await asked.promise
+  fast.resolve(found([{ sessionId: 'first', ts: 1 }]))
+  await when(() => search.state.hits.length === 1)
+  expect(search.state.loading).toBe(true)
+  expect(search.state.hits[0]!.result.record.sessionId).toBe('first')
+  slow.reject(new Error('host disconnected'))
+  await when(() => !search.state.loading)
+  expect(search.state.hits[0]!.result.record.sessionId).toBe('first')
+  expect(search.state.errors).toEqual([{ serverId: 'slow', message: 'host disconnected' }])
+  search.reset()
+})
 
 describe('which homes a search reads', () => {
   test('this machine, then the person\'s other machines, then the workspace service; never an organization\'s machine', () => {
@@ -122,7 +150,7 @@ describe('ConversationSearch', () => {
     ])
   })
 
-  test('asks every home, stamps each hit with its host, and orders by hit date', async () => {
+  test('asks every home, stamps each hit, and preserves the host order as replies arrive', async () => {
     const requests: Array<{ serverId: string; query: SessionRecordSearchQuery }> = []
     const hosts = homes({
       local: async (query) => { requests.push({ serverId: 'local', query }); return found([{ sessionId: 'old', ts: 1 }, { sessionId: 'newest', ts: 9 }]) },
@@ -136,8 +164,8 @@ describe('ConversationSearch', () => {
     expect(requests.map((entry) => entry.serverId)).toEqual(['local', 'laptop'])
     // The first page of each home, every word a prefix on the host.
     expect(requests[0]!.query).toMatchObject({ query: 'rate limit', projectRoot: '/repo', offset: 0, limit: PAGE_SIZE, namesOnly: false })
-    expect(search.results.map((result) => result.session.sessionId)).toEqual(['newest', 'mid', 'old'])
-    expect(search.results.map((result) => result.session.serverId)).toEqual(['local', 'laptop', 'local'])
+    expect(search.results.map((result) => result.session.sessionId)).toEqual(['old', 'newest', 'mid'])
+    expect(search.results.map((result) => result.session.serverId)).toEqual(['local', 'local', 'laptop'])
     // The record's working directory survives the trip, so a hit can be resumed.
     expect(search.results[0]!.session.cwd).toBe('/repo')
     expect(search.loading).toBe(false)

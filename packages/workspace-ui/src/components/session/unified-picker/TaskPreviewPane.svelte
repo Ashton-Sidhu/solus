@@ -246,7 +246,7 @@
                     title="Unlink {row.ref}"
                     aria-label="Unlink {row.ref}"
                   >
-                    <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg>
+                    <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="0.875" stroke-linecap="round" aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg>
                   </button>
                 {/if}
               </span>
@@ -272,7 +272,7 @@
                   viewBox="0 0 14 14"
                   fill="none"
                   stroke="currentColor"
-                  stroke-width="1.4"
+                  stroke-width="0.875"
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   aria-hidden="true"><path d={row.icon} /></svg
@@ -292,7 +292,7 @@
                   title="Unlink {row.label}"
                   aria-label="Unlink {row.label}"
                 >
-                  <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg>
+                  <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="0.875" stroke-linecap="round" aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg>
                 </button>
               </span>
             </div>

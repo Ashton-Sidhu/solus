@@ -137,8 +137,8 @@
               class="cursor-default rounded-sm border-0 bg-transparent p-0 font-mono focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
               tabindex={breakdown.length > 0 ? 0 : -1}
             >
-              <span class="text-(--solus-art-positive)">+{additions}</span>
-              <span class="text-(--solus-art-negative)">−{deletions}</span>
+              <span class="text-(--solus-diff-added-text-vivid)">+{additions}</span>
+              <span class="text-(--solus-diff-removed-text-vivid)">−{deletions}</span>
             </button>
           {/snippet}
         </TooltipUI.Trigger>

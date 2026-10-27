@@ -16,6 +16,7 @@ export type ActivityKind = 'think' | 'ask' | 'search' | 'read' | 'edit' | 'run' 
 
 const KIND_FOR_TOOL = {
   Read: 'read',
+  NotebookRead: 'read',
   Glob: 'search',
   Grep: 'search',
   WebSearch: 'search',
@@ -136,6 +137,7 @@ export function activityKind(toolName: string | undefined): ActivityKind {
 }
 
 export function participleFor(toolName: string | undefined): string {
+  if (toolName === 'Write') return 'Writing'
   return PARTICIPLE_FOR_KIND[activityKind(toolName)]
 }
 
@@ -335,8 +337,10 @@ export function getToolDescriptionFromParsed(
   if (name.startsWith('mcp__')) return describeMcpTool(name, parsed, truncate)
   switch (name) {
     case 'Read':
-      return `Read ${parsed.file_path || parsed.path || 'file'}`
+    case 'NotebookRead':
+      return describeFilePaths('Read', toolPathsFromParsed(parsed))
     case 'Edit':
+    case 'NotebookEdit':
       return describeFilePaths('Edit', toolPathsFromParsed(parsed))
     case 'Write':
       return describeFilePaths('Write', toolPathsFromParsed(parsed))
@@ -374,6 +378,13 @@ export function getToolDescription(
   const trimmed = input.trim()
   if (truncate && trimmed.length > 60) return `${pretty}: ${trimmed.substring(0, 57)}...`
   return trimmed ? `${pretty}: ${trimmed}` : pretty
+}
+
+/** The target beside a live tool verb. A file call has no target until its
+ * input arrives, so the row does not repeat its tool name during the stream. */
+export function toolActivityTarget(name: string, input?: string): string {
+  if (['Read', 'NotebookRead', 'Edit', 'NotebookEdit', 'Write'].includes(name) && !input) return ''
+  return getToolDescription(name, input).replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, '').trim()
 }
 
 /** Formats elapsed activity time for the right-hand rail. */

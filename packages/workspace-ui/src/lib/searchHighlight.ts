@@ -1,5 +1,6 @@
 // Shared by every surface that filters a list on a literal query and wants to
 // show *why* a row matched: the workspace ledger and the session picker.
+import { searchTokens, searchWords, searchTokenMatches } from '@solus/contracts/session-search';
 
 /** One run of a row's text, flagged when it is part of the active query so the
  *  row can `<mark>` it without the markup doing the matching. */
@@ -29,16 +30,17 @@ export function highlightRuns(text: string, query: string): TextRun[] {
  *  index matches by, where the words are ANDed and need not sit next to each
  *  other. "auth" marks "auth" and "Authentication", not the tail of "oauth". */
 export function highlightWordRuns(text: string, query: string): TextRun[] {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const words = searchWords(query);
   if (!words.length) return [{ text, hit: false }];
-  const alternatives = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})`, "giu");
   const runs: TextRun[] = [];
   let from = 0;
-  for (const match of text.matchAll(pattern)) {
-    if (match.index > from) runs.push({ text: text.slice(from, match.index), hit: false });
-    runs.push({ text: match[0], hit: true });
-    from = match.index + match[0].length;
+  for (const token of searchTokens(text)) {
+    const word = words.filter(word => searchTokenMatches(token.text, word)).sort((a, b) => b.length - a.length)[0];
+    if (!word) continue;
+    const end = Math.min(token.end, token.start + word.length);
+    if (token.start > from) runs.push({ text: text.slice(from, token.start), hit: false });
+    runs.push({ text: text.slice(token.start, end), hit: true });
+    from = end;
   }
   if (from < text.length) runs.push({ text: text.slice(from), hit: false });
   return runs.length ? runs : [{ text, hit: false }];

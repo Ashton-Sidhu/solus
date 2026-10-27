@@ -26,5 +26,5 @@ export const PR_VERDICT_TONE = {
   'changes-requested': 'text-amber-600/90 dark:text-amber-400/80',
 } satisfies Record<PrVerdict, string>
 
-export const PR_ADDITIONS_TONE = 'text-emerald-600 dark:text-emerald-400'
-export const PR_DELETIONS_TONE = 'text-red-500 dark:text-red-400'
+export const PR_ADDITIONS_TONE = 'text-(--solus-diff-added-text-vivid)'
+export const PR_DELETIONS_TONE = 'text-(--solus-diff-removed-text-vivid)'

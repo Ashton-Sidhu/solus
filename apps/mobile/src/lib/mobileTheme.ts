@@ -359,6 +359,10 @@ export function createMobileThemeVariables(
     "--color-dot-separator": withAlpha(c.textMuted, 0.35),
     "--color-wordmark": c.text,
     "--color-chevron": withAlpha(c.textMuted, 0.42),
+    // +N/−N diff counts, as desktop's `--solus-diff-*-text-vivid`: light mode
+    // takes darker inks so a count reads at 4.5:1 on the canvas.
+    "--color-diff-added": appearance === "dark" ? c.green : "#047857",
+    "--color-diff-removed": appearance === "dark" ? c.errorForeground : "#b91c1c",
     // T3's adaptive status pairs (adaptive-colors.css) in desktop's status hues.
     "--color-adaptive-emerald-600-400": c.green,
     "--color-adaptive-amber-700-300": c.amber,

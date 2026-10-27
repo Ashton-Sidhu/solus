@@ -19,8 +19,8 @@ import { compareHubRows, hubRowKey, matchesHubFilter, mergedHorizon, type HubRow
  * One engine per signed-in identity. Each source is read on its own: its count,
  * plus history only while a page shows it. Reads follow changes, reconnects,
  * the app returns to the foreground, or a person asks. A burst of signals while a
- * read runs costs one more read. One source failing or being slow never holds
- * the others. A read or archive choice goes to the row's own source while that
+ * read runs costs one more read. Every source is read at once and its rows
+ * show when it answers: one source failing or being slow never holds the others. A read or archive choice goes to the row's own source while that
  * source is connected, is awaited, and is followed by a fresh read; nothing is
  * queued, saved, or sent again on its own.
  *
@@ -90,8 +90,6 @@ export interface NotificationHubClientOptions {
   sources?: Map<string, HubSourceState>
   /** Row keys whose choice is waiting for its source's answer. */
   pending?: Set<string>
-  /** Sources read at once. */
-  concurrency?: number
   pageSize?: number
   /** How long one source's read may hold its slot before the source is offline. */
   readTimeoutMs?: number
@@ -116,9 +114,7 @@ export class NotificationHubClient {
   readonly sources: Map<string, HubSourceState>
   readonly pending: Set<string>
   private readonly runtimes = new Map<string, SourceRuntime>()
-  private readonly waiting: (() => Promise<void>)[] = []
   private readonly inFlight = new Set<Promise<unknown>>()
-  private active = 0
   private isStopped = false
   private filter: NotificationFilter = { view: 'all' }
   private historyVisible = false
@@ -184,8 +180,7 @@ export class NotificationHubClient {
       runtime.readAgain = true
       return runtime.reading
     }
-    const read = new Promise<void>((resolve) => this.schedule(() => this.readFirstPage(runtime).finally(resolve)))
-    runtime.reading = this.track(read).finally(() => {
+    runtime.reading = this.track(this.readFirstPage(runtime)).finally(() => {
       runtime.reading = null
       if (runtime.readAgain && this.runtimes.get(sourceId) === runtime) {
         runtime.readAgain = false
@@ -257,7 +252,7 @@ export class NotificationHubClient {
 
   /** Resolves once no read or write this engine started is still running. */
   async idle(): Promise<void> {
-    while (this.inFlight.size > 0 || this.waiting.length > 0) await Promise.allSettled([...this.inFlight])
+    while (this.inFlight.size > 0) await Promise.allSettled([...this.inFlight])
   }
 
   /** Stop reading and give back every connection. */
@@ -316,21 +311,6 @@ export class NotificationHubClient {
     }
   }
 
-  private schedule(task: () => Promise<void>): void {
-    const run = async () => {
-      this.active++
-      try {
-        await task()
-      } finally {
-        this.active--
-        const next = this.waiting.shift()
-        if (next) void next()
-      }
-    }
-    if (this.active < (this.options.concurrency ?? 3)) void run()
-    else this.waiting.push(run)
-  }
-
   private track<T>(work: Promise<T>): Promise<T> {
     this.inFlight.add(work)
     void work.finally(() => this.inFlight.delete(work)).catch(() => {})
@@ -370,7 +350,7 @@ export class NotificationHubClient {
     const { sourceId } = runtime.source
     try {
       // A call to a host that never connects waits in its transport. The time
-      // limit frees this read's slot, so a silent source never holds the others.
+      // limit marks a silent source offline instead of loading forever.
       await this.withinReadTimeout(this.readSource(runtime, generation))
     } catch (error) {
       if (!this.isCurrent(runtime, generation)) return

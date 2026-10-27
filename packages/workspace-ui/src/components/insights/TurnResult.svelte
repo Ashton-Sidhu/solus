@@ -210,8 +210,8 @@
             <DiffFileCardHeader path={file.path} open={isOpen} onToggle={() => toggleFile(file.path)}>
               {#snippet trailing()}
                 <span class="shrink-0 text-chrome-shelf tabular-nums">
-                  <span class="text-(--solus-art-positive)">+{file.additions}</span>
-                  <span class="text-(--solus-art-negative)">−{file.deletions}</span>
+                  <span class="text-(--solus-diff-added-text-vivid)">+{file.additions}</span>
+                  <span class="text-(--solus-diff-removed-text-vivid)">−{file.deletions}</span>
                 </span>
               {/snippet}
             </DiffFileCardHeader>
