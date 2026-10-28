@@ -27,7 +27,7 @@
     sessionTitle,
     type AttentionState,
   } from "../../../lib/sessionUtils";
-  import { orderTaskSessions, taskSessionRow, type TaskSessionHost } from "./lib/task-page";
+  import { taskSessionRow, type TaskSessionHost } from "./lib/task-page";
   import { runHost } from "../../../contexts/workspace/run-location";
 
   interface Props {
@@ -41,9 +41,6 @@
     onUnlink: (sessionId: string) => void;
     /** Start a session on this task. Null where the task's host runs none (the workspace service). */
     onNewSession: (() => void) | null;
-    /** Start the task's lead, the session the task is talked to through. Null
-     *  once it has one, or where no session can start. */
-    onStartLead: (() => void) | null;
     /** True where the section is a tab of its own. The wide table hides four
      *  controls behind hover and spreads the attempt across five columns;
      *  neither survives a thumb, so each attempt becomes a card that states its
@@ -59,7 +56,6 @@
     onStop,
     onUnlink,
     onNewSession,
-    onStartLead,
     stacked = false,
   }: Props = $props();
 
@@ -82,7 +78,7 @@
   // a teammate in an attempt this client never opened. The lead — the session
   // that owns the task's conversation — is pinned first, above the workers.
   const rows = $derived(
-    orderTaskSessions(sessions).map((link) => {
+    sessions.map((link) => {
       const taskServerId = link.taskId
         ? session.tasksStore.get(link.taskId).serverId
         : null;
@@ -185,18 +181,6 @@
        and unlink as the way back out. "Open in split" is not among them —
        there is no second pane on a phone to open into. -->
   <div class="flex flex-col gap-3 pt-3.5">
-    <!-- The lead is the way to talk to the task, so starting one is offered
-         above the attempts and not as the bar's run, which stays a plain
-         attempt. -->
-    {#if onStartLead}
-      <button
-        type="button"
-        class="flex h-11 w-full cursor-pointer items-center justify-center gap-[7px] rounded-lg border-0 bg-transparent font-medium text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
-        onclick={onStartLead}
-      >
-        Start lead
-      </button>
-    {/if}
     {#if !rows.length}
       <div class="px-1 py-3.5 text-muted-foreground">
         No session has worked on this task yet. Start one to run an agent against this task
@@ -217,10 +201,6 @@
             <span class="flex min-w-0 flex-1 flex-col gap-1">
               <span class="leading-[1.35] font-medium text-pretty">{row.title}</span>
               <span class="flex flex-wrap items-center gap-[7px]">
-                {#if row.isLead}
-                  <span class="text-muted-foreground">Lead</span>
-                  <span class="text-muted-foreground opacity-40" aria-hidden="true">·</span>
-                {/if}
                 <span class="font-mono text-xs tabular-nums text-muted-foreground"
                   >{row.date}</span
                 >
@@ -319,18 +299,6 @@
     <span class="font-normal text-muted-foreground uppercase">Sessions</span>
     <span class="tabular-nums text-muted-foreground opacity-70">{sessions.length}</span>
     <span class="flex-1" aria-hidden="true"></span>
-    <!-- Two ways in. The lead is the session the task is talked to through,
-         so it is offered until the task has one; New session is a plain
-         attempt at any time. -->
-    {#if onStartLead}
-      <button
-        type="button"
-        class="flex h-[22px] cursor-pointer items-center gap-1.5 rounded-md px-2 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground focus-visible:bg-[var(--wash-2)] focus-visible:text-foreground focus-visible:outline-none"
-        onclick={onStartLead}
-      >
-        Start lead
-      </button>
-    {/if}
     {#if onNewSession}
       <button
         type="button"
@@ -386,11 +354,6 @@
 
           <span class="flex min-w-0 flex-1 items-center gap-2">
             <span class="min-w-0 truncate" title={row.title}>{row.title}</span>
-            <!-- The lead is the one row that is not an attempt: it owns the
-                 conversation above, so it says so. -->
-            {#if row.isLead}
-              <span class="shrink-0 text-muted-foreground">Lead</span>
-            {/if}
             <!-- Who is in this attempt right now, from the host's roster. The
                  ring marks whose prompt is running, the dot a draft being typed. -->
             <PresenceStack people={row.people} size={14} max={3} activeUserId={row.activeUserId} />

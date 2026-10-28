@@ -151,7 +151,7 @@
     gitOpen = !gitOpen;
   }
 
-  async function selectBranch(branch: string) {
+  async function selectBranch(branch: string, options?: { create?: boolean }) {
     if (!source) return;
     if (pendingDispatch) return;
     const entry = worktrees.find((worktree) => worktree.branch === branch);
@@ -159,7 +159,7 @@
       await selectWorktree(entry);
       return;
     }
-    const ok = await session.switchToBranch(branch, source);
+    const ok = await session.switchToBranch(branch, source, "click", options);
     if (!ok) {
       requestInputFocus(focusTarget);
       return;

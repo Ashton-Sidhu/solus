@@ -1,6 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/threadListV2.ts (MIT, see UPSTREAM.md).
 import { isChat } from "@solus/contracts/chat";
 import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
+import type { MenuAction } from "@react-native-menu/menu";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
 import {
   EMPTY_SESSION_VIEW,
@@ -181,6 +182,14 @@ export interface ThreadPrPresentation {
   /** What the row menu's Watch or Stop Watching acts on: the watched link,
       else the badge's link while it may still be open. */
   readonly watchTarget: ThreadPrWatchTarget | null;
+  /** The links the row menu can unlink, newest first. */
+  readonly unlinkTargets: ReadonlyArray<ThreadPrUnlinkTarget>;
+}
+
+export interface ThreadPrUnlinkTarget {
+  readonly repository: string;
+  readonly number: number;
+  readonly title: string;
 }
 
 export interface ThreadPrWatchTarget {
@@ -227,7 +236,36 @@ export function presentThreadPullRequests(
     watchTarget: watchable
       ? { repository: watchable.repository, number: watchable.number, isWatched: watchable === watched }
       : null,
+    unlinkTargets: newestFirst.map((candidate) => ({
+      repository: candidate.repository,
+      number: candidate.number,
+      title: candidate.title,
+    })),
   };
+}
+
+/** The row menu's action id that unlinks one pull request. */
+export function unlinkPullRequestActionId(target: ThreadPrUnlinkTarget): string {
+  return `unlink-pr:${target.repository}#${target.number}`;
+}
+
+/** Unlink in the row menu: one item for one link, a submenu with an item per
+    link for several. PR sync does not link an unlinked pull request again. */
+export function unlinkPullRequestMenuItems(targets: ReadonlyArray<ThreadPrUnlinkTarget>): MenuAction[] {
+  const item = (target: ThreadPrUnlinkTarget, title: string): MenuAction => ({
+    id: unlinkPullRequestActionId(target),
+    title,
+    image: "xmark",
+    attributes: { destructive: true },
+  });
+  if (targets.length === 0) return [];
+  if (targets.length === 1) return [item(targets[0]!, `Unlink #${targets[0]!.number}`)];
+  return [{
+    id: "unlink-pr",
+    title: "Unlink Pull Request",
+    image: "xmark",
+    subactions: targets.map((target) => item(target, `#${target.number} ${target.title}`.trim())),
+  }];
 }
 
 /** Why the host did not start a watch, or null when the request is done. */
@@ -384,7 +422,12 @@ function samePr(previous: ThreadPrPresentation | null, next: ThreadPrPresentatio
     previous.label === next.label &&
     previous.state === next.state &&
     previous.isDraft === next.isDraft &&
-    previous.number === next.number
+    previous.number === next.number &&
+    previous.unlinkTargets.length === next.unlinkTargets.length &&
+    previous.unlinkTargets.every(
+      (target, index) =>
+        target.repository === next.unlinkTargets[index]?.repository && target.number === next.unlinkTargets[index]?.number,
+    )
   );
 }
 

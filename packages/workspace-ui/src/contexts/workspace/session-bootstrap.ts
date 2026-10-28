@@ -8,7 +8,7 @@ import { loadServers } from '@solus/client-core/server-registry'
 import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
 import { loadRestoredSessionTranscript } from './session-transcript'
-import { applyRuntimeConfig, followThreadProvider, nextMsgId } from './session.utils'
+import { applyRuntimeConfig, followThreadProvider, nextMsgId, parentSessionIdOf } from './session.utils'
 import { initDraftState, loadCachedStart, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { readSessionMeta, stampSessionMeta } from '@solus/client-core/session-meta'
@@ -310,6 +310,7 @@ export function applyRestoredSessionMeta(session: Session, meta: SessionMeta): v
   }
   if (followsThread && meta.reasoningEffort) session.run.modelConfig.reasoningEffort = meta.reasoningEffort
   session.startedBy = meta.startedBy
+  session.parentSessionId = parentSessionIdOf(meta)
   if (meta.organizationId) session.organizationId = meta.organizationId
   session.currentTurnStartedAt = isSessionBusyStatus(session.status)
     ? meta.currentTurnStartedAt ?? session.currentTurnStartedAt

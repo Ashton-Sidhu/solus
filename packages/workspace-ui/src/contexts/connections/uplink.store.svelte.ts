@@ -16,7 +16,8 @@ import { serversStore } from './servers.store.svelte'
  * which only a local connection may call — `controlFor` says whether this client is
  * one for that host. A signed-in client registers a host it manages by itself; the
  * desktop's own host is registered by the desktop's main process, which holds the
- * sign-in. Linking only exposes the host to the internet.
+ * sign-in. The host links a new registration itself, so a registered host is
+ * reachable from every device its owner signs in on; unlinking only closes the tunnel.
  */
 class UplinkStore {
   readonly statusByServer = new SvelteMap<string, UplinkStatus>()

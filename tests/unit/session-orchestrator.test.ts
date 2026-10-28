@@ -249,13 +249,13 @@ function reportRuns(backend: Backend, senderThreadId: string): string[] {
 /** Sessions with their turns open: targets solus-target (and solus-second), sender
  *  solus-sender. The orchestrator names them by session id; the fake provider
  *  runs them on threads thread-1 (and thread-3) and thread-2. */
-async function sessions(options: { secondTarget?: boolean; claude?: Backend } = {}) {
+async function sessions(options: { secondTarget?: boolean; claude?: Backend; lead?: string } = {}) {
   const backend = new Backend()
   const backends = new Map<AgentId, Backend>([['codex', backend]])
   if (options.claude) backends.set('claude-code', options.claude)
   const plane = new sessionRuntimeModule.SessionRuntime(backends)
   plane.on('error', () => {})
-  const orchestrator = runtime.orchestrateSessions(plane)
+  const orchestrator = runtime.orchestrateSessions(plane, async (sessionId) => sessionId === options.lead)
   const updates: AgentConversationUpdate[] = []
   /** The sender's queued prompts, by queue id, as its clients see them. */
   const senderQueue = new Set<string>()
@@ -796,19 +796,12 @@ describe('session orchestration', () => {
   })
 })
 
-// WHY: a task's lead is the conversation a person reads, and every wake reads
-// its whole thread again (docs/plans/task-conversation.md). It is woken once,
-// when the work it sent out is done, to tell the person — not for each worker's
-// turn, and not for a request the person answers on the card.
-describe("a task's lead", () => {
-  async function leadSessions(options: { secondTarget?: boolean } = {}) {
-    const started = await sessions(options)
-    const taskStore = await import('@solus/server/data/tasks/task-store')
-    const { Task } = await import('@solus/server/data/tasks/task')
-    const task = await taskStore.createTask('local', { title: 'Led', projectKey: projectDir })
-    await (await Task.byId('local', task.id)).linkSession('solus-sender', 'lead')
-    return started
-  }
+// WHY: a lead is the conversation a person reads, and every wake reads its
+// whole thread again. It is woken once, when the work it sent out is done, to
+// tell the person — not for each worker's turn, and not for a request the
+// person answers on the card.
+describe('a lead', () => {
+  const leadSessions = (options: { secondTarget?: boolean } = {}) => sessions({ ...options, lead: 'solus-sender' })
 
   test('is woken once, when its last worker finishes, with every report', async () => {
     const { backend, plane, orchestrator, updates } = await leadSessions({ secondTarget: true })

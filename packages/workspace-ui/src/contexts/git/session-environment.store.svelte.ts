@@ -1,7 +1,7 @@
 import { CheckoutStore } from './checkout.store.svelte'
 import { isChat } from '@solus/contracts/chat'
 import { createAppContext } from '../app/create-app-context'
-import { gitCheckoutFromState, sameGitCheckout, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type Place, type RunConfig, type RunLocation, type Session, type WorktreeEntry } from '@solus/contracts/types'
+import { parseBranchRefs, gitCheckoutFromState, sameGitCheckout, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type Place, type RunConfig, type RunLocation, type Session, type WorktreeEntry } from '@solus/contracts/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
@@ -138,6 +138,7 @@ export class SessionEnvironmentStore {
   private inflight = new Map<string, Promise<GitFacetOutcome>>()
   private refsInflight = new Map<string, Promise<GitFacetOutcome>>()
   private refsLoading = new SvelteSet<string>()
+  private refsFetching = new SvelteSet<string>()
   private lastRefresh = new Map<string, number>()
   private detailsLastRefresh = new Map<string, number>()
   private refsLastRefresh = new Map<string, number>()
@@ -604,7 +605,7 @@ export class SessionEnvironmentStore {
         else if (includeDetails && superseded) this.scheduleDetailsRefresh(serverId, cwd)
         if (plainStatus && refs) {
           const refsKey = hostKey(serverId, plainStatus.repoRoot)
-          this.refsByRoot[refsKey] = refs
+          this.refsByRoot[refsKey] = { worktrees: refs.worktrees, branches: parseBranchRefs(refs.branches) }
           this.refsLastRefresh.set(refsKey, Date.now())
           return { ok: true, refsApplied: true }
         }
@@ -735,15 +736,18 @@ export class SessionEnvironmentStore {
       return this.refreshRefsOutcomeForHost(serverId, projectRoot, ctx, opts)
     }
     const api = serverConnections.apiFor(serverId)
+    // The refs on disk answer at once; a fetch can take seconds on a large
+    // remote, so it runs behind them and replaces the branches when it lands.
     const promise = Promise.allSettled([
       api.worktreeListProject($state.snapshot(ctx)),
-      api.worktreeBranches($state.snapshot(ctx)),
+      api.worktreeBranches($state.snapshot(ctx), { skipFetch: true }),
     ])
       .then(([worktreesResult, branchesResult]): GitFacetOutcome => {
         const previous = this.refsForHost(serverId, projectRoot)
         const worktrees = worktreesResult.status === 'fulfilled' ? worktreesResult.value : previous.worktrees
-        const branches = branchesResult.status === 'fulfilled' ? branchesResult.value : previous.branches
+        const branches = branchesResult.status === 'fulfilled' ? parseBranchRefs(branchesResult.value) : previous.branches
         this.refsByRoot[key] = { worktrees, branches }
+        if (branchesResult.status === 'fulfilled') this.fetchBranches(serverId, projectRoot, ctx)
         const ok = worktreesResult.status === 'fulfilled' && branchesResult.status === 'fulfilled'
         if (ok) this.refsLastRefresh.set(key, Date.now())
         const rejected = worktreesResult.status === 'rejected'
@@ -770,6 +774,25 @@ export class SessionEnvironmentStore {
   /** Whether a worktree/branch scan is in flight for this project, so a picker
    *  that has nothing cached yet can say it is loading rather than say the repo
    *  has no branches. */
+  private fetchBranches(serverId: string, projectRoot: string, ctx: IpcContext): void {
+    const key = hostKey(serverId, projectRoot)
+    if (this.refsFetching.has(key)) return
+    this.refsFetching.add(key)
+    serverConnections.apiFor(serverId).worktreeBranches($state.snapshot(ctx))
+      .then((branches) => {
+        const refs = this.refsByRoot[key]
+        if (refs) refs.branches = parseBranchRefs(branches)
+      })
+      .catch(() => {})
+      .finally(() => this.refsFetching.delete(key))
+  }
+
+  /** Whether the branches on screen are waiting for a fetch from the remote. */
+  refsFetchingFor(serverId: string, projectRoot: string | null | undefined): boolean {
+    if (!projectRoot) return false
+    return this.refsFetching.has(hostKey(serverId, projectRoot))
+  }
+
   refsLoadingFor(serverId: string, projectRoot: string | null | undefined): boolean {
     if (!projectRoot) return false
     return this.refsLoading.has(hostKey(serverId, projectRoot))
@@ -840,7 +863,7 @@ export class SessionEnvironmentStore {
         const root = rootsResult.status === 'fulfilled'
           ? rootsResult.value.find((candidate) => candidate.repoKey === pending.repoKey)?.path ?? null
           : null
-        const branches = branchesResult.status === 'fulfilled' ? branchesResult.value : []
+        const branches = branchesResult.status === 'fulfilled' ? parseBranchRefs(branchesResult.value).map((branch) => branch.name) : []
         this.dispatchRootByTarget.set(key, root)
         if (!root) {
           this.dispatchBranchesByTarget.set(key, branches)

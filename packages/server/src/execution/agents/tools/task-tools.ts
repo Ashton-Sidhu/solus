@@ -8,7 +8,7 @@ import { toolAgentAttribution } from './agent-attribution'
 import { resolveRepoRoot, resolveRepositoryKey } from '../../../git/git-helpers'
 import { Task } from '../../../data/tasks/task'
 import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
-import { linkSessionPullRequest, readSessionPullRequests } from '../../../data/sessions/session-pull-requests'
+import { linkSessionPullRequest, readSessionPullRequests, unlinkSessionPullRequest } from '../../../data/sessions/session-pull-requests'
 import { resolvePullRequestUrl } from '../../../providers/pull-request-url'
 import { applyOpToForeignTask, foreignTaskFor } from '../../../data/tasks/foreign-tasks'
 import { formatTaskEpic, formatTaskLink } from '../../../data/tasks/task-context'
@@ -119,12 +119,17 @@ const linkFields = {
 
 const listSessionPullRequestsFields = {}
 
+const unlinkPullRequestFields = {
+  target_id: z.string().min(1).describe('The pull request to remove from this session: its number in the project repository, or its URL.'),
+}
+
 const listTasksInputSchema = z.object(listTasksFields)
 const readTaskInputSchema = z.object(readTaskFields)
 const updateStatusInputSchema = z.object(updateStatusFields)
 const createTaskInputSchema = z.object(createTaskFields)
 const commentTaskInputSchema = z.object(commentTaskFields)
 const linkInputSchema = z.object(linkFields)
+const unlinkPullRequestInputSchema = z.object(unlinkPullRequestFields)
 
 // ─── Descriptions ───
 
@@ -140,6 +145,8 @@ const COMMENT_TASK_DESC =
   "Add a local comment to a Solus task for durable findings, status, or handoff notes."
 const LINK_DESC =
   "Link a work, automation, pull request, or file to the calling session by omitting task_id. Markdown plan files use kind=file and path, relative to the calling session’s working directory or absolute on its host. Other items use target_id. Link each PR you create or work on immediately; Solus keeps its state current and settles the session when its PRs end. With task_id, existing task links for works, Solus plans, PRs, automations, and sessions retain their meaning. Repeated links are safe."
+const UNLINK_PULL_REQUEST_DESC =
+  "Remove a pull request from the calling session's links. Use it when a linked pull request is not this session's work, such as one Solus found by mistake. Solus does not link it again on its own; link it again to undo. Removing a pull request that is not linked is safe."
 const LIST_SESSION_PULL_REQUESTS_DESC =
   "List the pull requests linked to this session, with the state that Solus last saw for each. Before you finish pull request work, call this and link each pull request from your work that is missing."
 
@@ -417,6 +424,9 @@ async function executeTaskTool(
     }
 
     if (name === 'list_session_pull_requests') return await listCallerPullRequests(deps.ctx)
+    if (name === 'unlink_pull_request') {
+      return await unlinkCallerPullRequest(deps.ctx, toolContext, projectKey, unlinkPullRequestInputSchema.parse(args))
+    }
 
     return { ok: false, text: `Unknown task tool: ${name}` }
   } catch (err: unknown) {
@@ -459,6 +469,30 @@ export async function linkCallerPullRequest(
   const { operations, context, remote } = await toolContext()
   if (remote) await operations.putLink(context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url }, title: input.title })
   return { ok: true, text: `Linked pull request #${identity.number} (${identity.repository}) to this session.` }
+}
+
+/**
+ * Remove a pull request from the calling session. The row stays as a
+ * tombstone, so PR sync does not link it again. For an organization session
+ * the Solus API holds the session too, so the link is removed there as well.
+ */
+export async function unlinkCallerPullRequest(
+  ctx: TaskToolCtx,
+  toolContext: () => ReturnType<typeof workspaceToolContext>,
+  projectKey: string,
+  input: { target_id: string },
+): Promise<TaskToolResult> {
+  const sessionId = ctx.sessionId
+  if (!sessionId) return { ok: false, text: 'unlink_pull_request needs a calling session, and this session has no id yet.' }
+  const named = input.target_id.trim()
+  const identity = await namedPullRequest(projectKey, named)
+  if (!identity) return { ok: false, text: `unlink_pull_request could not find pull request "${named}". Pass its number or URL as target_id.` }
+  const removed = await unlinkSessionPullRequest(sessionId, identity.repository, identity.number)
+  const { operations, context, remote } = await toolContext()
+  if (remote) await operations.deleteLink(context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url } })
+  return removed || remote
+    ? { ok: true, text: `Removed pull request #${identity.number} (${identity.repository}) from this session.` }
+    : { ok: true, text: `Pull request #${identity.number} (${identity.repository}) was not linked to this session.` }
 }
 
 /** The pull requests linked to the calling session, as the rail shows them. */
@@ -552,3 +586,4 @@ export const createTaskAgentTool = taskAgentTool('create_task', CREATE_TASK_DESC
 export const commentTaskAgentTool = taskAgentTool('comment_task', COMMENT_TASK_DESC, commentTaskFields, true)
 export const linkAgentTool = taskAgentTool('link', LINK_DESC, linkFields, true)
 export const listSessionPullRequestsAgentTool = taskAgentTool('list_session_pull_requests', LIST_SESSION_PULL_REQUESTS_DESC, listSessionPullRequestsFields, false)
+export const unlinkPullRequestAgentTool = taskAgentTool('unlink_pull_request', UNLINK_PULL_REQUEST_DESC, unlinkPullRequestFields, true)

@@ -216,7 +216,7 @@ describe('runtime instructions', () => {
     expect(await claudeAppend([])).not.toContain('## Chat')
   })
 
-  test('both providers are told when a visual says more than prose, only when they can render one', async () => {
+  test('both providers are told to chart trends and comparisons unasked, only when they can render one', async () => {
     // WHY: the tool description says how to show a page, but an agent reads it
     // only once it has chosen to make one. The prompt is where it learns to
     // choose a chart over a paragraph of numbers.
@@ -225,7 +225,7 @@ describe('runtime instructions', () => {
     const claude = await claudeAppend([renderArtifactTool])
     for (const prompt of [codex, claude]) {
       expect(prompt).toContain('## Showing visuals')
-      expect(prompt).toContain('would say more than prose')
+      expect(prompt).toContain('Show trends, comparisons, and flows as a chart or diagram, even unasked')
       // A preview shows nothing. An agent that stopped after it pasted the
       // screenshot, and the user got no live page.
       expect(prompt).toContain('then write it in a ```html fence')

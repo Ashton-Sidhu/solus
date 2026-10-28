@@ -45,7 +45,11 @@
   } from "./lib/workspace-body";
   import { ComposerDock } from "../input/lib/composer-dock.svelte";
   import { hasSessionStarted } from "../../lib/sessionUtils";
-  import { isProjectRailOpen } from "../project-panel/lib/rail-width";
+  import {
+    canExpandProjectRail,
+    isProjectRailOpen,
+    toggleProjectRail,
+  } from "../project-panel/lib/rail-width";
   import * as Resizable from "../ui/resizable";
   import { provideOuterScrollbarContext } from "./lib/outer-scrollbar.context";
 
@@ -128,6 +132,9 @@
     leadingDraft?.id ?? (session.activeTabId || "workspace"),
   );
   let projectPanelPopoutTabKey = $state<string | null>(null);
+  // The user opened the rail in a column too narrow for it to open on its own.
+  // Transient: a narrow column hides a persisted-open rail again next launch.
+  let projectRailRevealed = $state(false);
   const newTabProjectPanelPoppedOut = $derived(
     projectPanelPopoutTabKey === activeProjectPanelTabKey,
   );
@@ -300,16 +307,17 @@
     }
   }
 
-  // Each conversation view owns its rail, so the shortcut acts on the one the
-  // user is in. The tab strip's button only ever reaches the leading pane — it
-  // lives in that pane's chrome; the split chat carries its own toggle.
-  function toggleProjectPanel(isSplit = false) {
-    if (isSplit) {
-      settings.setLayout("splitProjectPanelOpen", !settings.splitProjectPanelOpen);
-      return;
-    }
+  // The leading rail's toggle. Each conversation view owns its rail, so the
+  // split chat carries its own toggle and shortcut. A press acts on what is on
+  // screen, so it also opens a rail that a narrow column hid.
+  function toggleProjectPanel() {
+    const { open, revealed } = toggleProjectRail(
+      isPrimaryProjectPanelOpen,
+      projectRailContainerWidth,
+      projectRailRevealed,
+    );
+    projectRailRevealed = revealed;
     if (!leadingStarted) {
-      const open = !newTabProjectPanelPoppedOut;
       projectPanelPopoutTabKey = open ? activeProjectPanelTabKey : null;
       // An explicit reveal becomes the user's conversation preference once the
       // first session starts; hiding the empty-home rail remains transient.
@@ -319,7 +327,6 @@
       if (!open) requestInputFocus();
       return;
     }
-    const open = !settings.projectPanelOpen;
     settings.setLayout("projectPanelOpen", open);
     if (!open) requestInputFocus();
   }
@@ -335,7 +342,13 @@
   frameChrome.toggleProjectPanelFromFrame = () => toggleProjectPanel();
   $effect(() => {
     frameChrome.sidebarOpen = active ? sidebarOpen : true;
-    frameChrome.projectPanelOpen = active ? isPrimaryProjectPanelOpen : true;
+    frameChrome.projectPanelOpen = active
+      ? !canExpandProjectRail(
+          isPrimaryProjectPanelOpen,
+          projectRailContainerWidth,
+          projectRailRevealed,
+        )
+      : true;
   });
 
   useKeybinding("global.toggle-sidebar", () => toggleSidebar(), {
@@ -382,14 +395,14 @@
         !!document.activeElement?.closest(".secondary-pane-wrap"),
     },
   );
-  useKeybinding(
-    "global.toggle-project-panel",
-    () =>
-      toggleProjectPanel(
-        !!session.chatSurfaceTabId && router.focusedPaneId !== leadingPane.id,
-      ),
-    { enabled: () => active && enableProjectPanel },
-  );
+  // A focused companion targets the split chat's rail, which `AsidePaneShell`
+  // toggles because it owns that rail's width.
+  useKeybinding("global.toggle-project-panel", () => toggleProjectPanel(), {
+    enabled: () =>
+      active &&
+      enableProjectPanel &&
+      !(session.chatSurfaceTabId && router.focusedPaneId !== leadingPane.id),
+  });
   useKeybinding(
     "global.new-split-chat",
     async () => {
@@ -537,6 +550,7 @@
         isPrimaryProjectPanelOpen,
         projectRailContainerWidth,
         secondaryMinimizesProjectPanel,
+        projectRailRevealed,
       ),
   );
 
@@ -822,6 +836,7 @@
                         {active}
                         containerWidth={projectRailContainerWidth}
                         {workspaceWidth}
+                        revealed={projectRailRevealed}
                         minimized={secondaryMinimizesProjectPanel ||
                           (!leadingStarted && !newTabProjectPanelPoppedOut)}
                         onCollapse={() => toggleProjectPanel()}

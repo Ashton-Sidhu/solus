@@ -2,6 +2,7 @@
   import {
     ArrowDownUp as SortIcon,
     ChevronDown as CaretDownIcon,
+    Network as AnyHostIcon,
   } from "@lucide/svelte";
   import { BitsConfig } from "bits-ui";
   import * as DropdownMenu from "../../ui/dropdown-menu";
@@ -24,6 +25,8 @@
     type PickerUpdatedFilter,
   } from "./lib/picker-filters";
   import { serversStore } from "../../../contexts/connections/servers.store.svelte";
+  import HostOperatingSystemIcon from "../../servers/HostOperatingSystemIcon.svelte";
+  import { hostIsManaged } from "../../servers/lib/managed-host";
 
   /**
    * The choices a reader makes about a query, to the right of the box it is
@@ -172,7 +175,21 @@
           options={hostOptions}
           selected={[filters.host]}
           onChange={([host]) => onFilters({ ...filters, host: host ?? "any" })}
-        />
+        >
+          {#snippet optionIcon(hostId)}
+            {#if hostId === "any"}
+              <AnyHostIcon size={14} class="shrink-0 text-muted-foreground" />
+            {:else}
+              {@const host = serversStore.hostFor(hostId)}
+              <HostOperatingSystemIcon
+                os={host && "os" in host ? host.os : undefined}
+                managed={hostIsManaged(host)}
+                size={14}
+                class="shrink-0 text-muted-foreground"
+              />
+            {/if}
+          {/snippet}
+        </ListFilterGroup>
       </BitsConfig>
     {/if}
   </DropdownMenu.Content>

@@ -65,7 +65,7 @@ export function PullRequestMergeControls({ view }: { readonly view: PullRequestV
             title="Merge options"
             actions={[
               ...methods.map((id) => ({ id, title: MERGE_METHODS[id].title, state: id === method ? 'on' as const : 'off' as const, attributes: { disabled: busy } })),
-              ...(autoMerge ? [{ id: 'auto-merge', title: autoMerge === 'disable' ? 'Disable auto-merge' : 'Enable auto-merge', image: 'clock', attributes: { disabled: busy } }] : []),
+              ...(autoMerge ? [{ id: 'auto-merge', title: autoMerge === 'disable' ? 'Disable auto-merge' : 'Enable auto-merge', image: 'arrow.triangle.merge', attributes: { disabled: busy } }] : []),
             ]}
             onPressAction={({ nativeEvent }) => {
               const selected = methods.find((id) => id === nativeEvent.event)

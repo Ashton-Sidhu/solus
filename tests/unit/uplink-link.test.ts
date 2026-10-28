@@ -3,7 +3,7 @@ import { createPublicKey, verify } from 'crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { UplinkLinkManager, splitLegacyLinkRecord, type UplinkConnectorHandle } from '@solus/server/transport/uplink/link'
+import { UplinkLinkManager, registerAndLink, splitLegacyLinkRecord, type UplinkConnectorHandle } from '@solus/server/transport/uplink/link'
 import { HostRegistrar } from '@solus/server/host/host-registration'
 import { CLIENT_ASSERTION_TYPE, type EnrollHostResponse, type HostLinkEnv, type HostLinkResponse, type HostPublicJwk, type UplinkStatus } from '@solus/contracts/uplink'
 import { linkDescription, registrationDescription } from '../../packages/workspace-ui/src/contexts/connections/host-routes'
@@ -400,6 +400,45 @@ describe('the link: a tunnel, and nothing else (rule 9)', () => {
     await host.link.link()
     host.link.handleConnectorObservation({ observed: 'online' })
     expect(linkDescription(host.status())).toBe(`Reachable at h-${HOST_ID}.example.test through a Cloudflare tunnel.`)
+  })
+})
+
+describe('linking a device to Solus cloud: a new registration links (rule 9, amended)', () => {
+  useDataDir('solus-register-and-link-test-')
+  const linkPosts = (plane: ReturnType<typeof fakeControlPlane>) => plane.calls.filter((call) => call.method === 'POST' && call.url.endsWith('/link'))
+
+  test('the first registration turns the tunnel on, so every device the owner signs in on reaches the host', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane)
+    await registerAndLink(host.registrar, host.link, { ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    expect(host.status()).toMatchObject({ registration: { registered: true }, link: { linked: true, tunnel: plane.tunnel } })
+    expect(host.connector.events).toEqual(['start'])
+  })
+
+  test('a host registered already keeps the link its owner chose: an unlink stays an unlink', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane)
+    await registerAndLink(host.registrar, host.link, { ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    await host.link.unlink()
+    // A second client that also saw the host, or the desktop presenting again, registers nothing new.
+    await registerAndLink(host.registrar, host.link, { ticket: 'set_again', directoryUrl: DIRECTORY })
+    expect(host.status().link).toEqual({ linked: false })
+    expect(linkPosts(plane)).toHaveLength(1)
+  })
+
+  test('a link that fails keeps the registration, and the link status says why', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane, { proxiedPort: 0 })
+    await registerAndLink(host.registrar, host.link, { ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    expect(host.status().registration).toMatchObject({ registered: true })
+    expect(host.status().link).toEqual({ linked: false, error: expect.stringMatching(/tunnel listener/) })
+  })
+
+  test('a refused registration makes no link', async () => {
+    const plane = fakeControlPlane({ enroll: () => Response.json({ error: 'invalid_ticket' }, { status: 401 }) })
+    const host = hostOf(plane)
+    await expect(registerAndLink(host.registrar, host.link, { ticket: 'set_bad', directoryUrl: DIRECTORY })).rejects.toThrow(/ticket is invalid/)
+    expect(linkPosts(plane)).toHaveLength(0)
   })
 })
 

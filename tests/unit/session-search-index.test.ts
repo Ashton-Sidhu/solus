@@ -143,6 +143,34 @@ describe('searchSessionIndex', () => {
     expect(search.searchSessionIndex('socket').results).toHaveLength(0)
   })
 
+  test('an identifier typed as one word finds a message that wrote it in camel case', () => {
+    seed('camel', '/repo', ['set defaultMergeMethod in the config'])
+    const [hit] = search.searchSessionIndex('defaultmergemethod').results
+    expect(hit?.session.sessionId).toBe('camel')
+    expect(hit?.snippet).toContain(`${SNIPPET_HIT_OPEN}defaultMergeMethod${SNIPPET_HIT_CLOSE}`)
+  })
+
+  test('recent use and reads lift a message match within its tier, and a name match keeps its place', () => {
+    // WHY: on real transcripts use raised message matches and lowered title
+    // matches, so only message matches take it.
+    const day = 86_400_000
+    const now = 200 * day
+    seed('quiet', '/repo', ['the pelican migration'])
+    seed('busy', '/repo', ['the pelican migration'])
+    seed('read', '/repo', ['the pelican migration'])
+    const db = getDb()
+    db.prepare('UPDATE sessions SET last_timestamp = ? WHERE session_id = ?').run(now - 90 * day, 'quiet')
+    db.prepare('UPDATE sessions SET last_timestamp = ? WHERE session_id = ?').run(now - day, 'busy')
+    db.prepare('UPDATE sessions SET last_timestamp = ? WHERE session_id = ?').run(now - 90 * day, 'read')
+    const order = (viewedAt?: Map<string, number>) => search.searchSessionIndex('pelican', { now, viewedAt }).results.map(result => result.session.sessionId)
+    expect(order()).toEqual(['busy', 'quiet', 'read'])
+    expect(order(new Map([['read', now]]))[0]).toBe('read')
+    db.prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run('Pelican', 'quiet')
+    db.prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run('Pelican', 'busy')
+    // Two equal names: use does not add to a name match, so the newer one wins only the tie.
+    expect(search.searchSessionIndex('pelican', { now, viewedAt: new Map([['quiet', now]]) }).results[0]?.session.sessionId).toBe('busy')
+  })
+
   test('active since keeps only sessions active at or after the instant', () => {
     seed('old', '/repo', ['the egret'])
     seed('new', '/repo', ['the egret'])
@@ -155,9 +183,11 @@ describe('searchSessionIndex', () => {
   test('another project never turns a phrase bonus into a penalty', () => {
     seed('phrase', '/repo', ['websocket reconnect'])
     seed('spread', '/repo', ['websocket', 'reconnect'])
-    const before = search.searchSessionIndex('websocket reconnect', { projectRoot: '/repo' }).results.map(result => [result.session.sessionId, result.rank])
+    // One clock for both reads: recent use is part of a message match's rank.
+    const now = Date.now()
+    const before = search.searchSessionIndex('websocket reconnect', { projectRoot: '/repo', now }).results.map(result => [result.session.sessionId, result.rank])
     for (let i = 0; i < 6; i++) seed(`outside-${i}`, '/elsewhere', ['websocket reconnect'])
-    expect(search.searchSessionIndex('websocket reconnect', { projectRoot: '/repo' }).results.map(result => [result.session.sessionId, result.rank])).toEqual(before)
+    expect(search.searchSessionIndex('websocket reconnect', { projectRoot: '/repo', now }).results.map(result => [result.session.sessionId, result.rank])).toEqual(before)
     expect(before[0]![0]).toBe('phrase')
   })
 
@@ -203,7 +233,7 @@ describe('the derived search index rebuild', () => {
     seed('before', '/repo', ['the serverConnections store'])
     const db = getDb()
     const count = db.prepare('SELECT COUNT(*) AS count FROM session_messages').get()
-    db.prepare("DELETE FROM kv WHERE key = 'session-search-normalized-v1'").run()
+    db.prepare("DELETE FROM kv WHERE key = 'session-search-normalized-v2'").run()
     closeDb()
     expect(search.searchSessionIndex('connections').results.map(result => result.session.sessionId)).toEqual(['before'])
     expect(getDb().prepare('SELECT COUNT(*) AS count FROM session_messages').get()).toEqual(count)

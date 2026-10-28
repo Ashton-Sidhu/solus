@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import type { DeviceCommandResult } from '@solus/server/devices/device-process'
+import { outputLines, type DeviceCommandResult } from '@solus/server/devices/device-process'
 import type { SshClient, SshRunOptions, SshTarget } from '@solus/server/platform/ssh'
-import { installPlaceFromEnv, SshProvisioner, type RemoteInstallPlace } from '@solus/server/remote-machines/ssh-provisioner'
-import { parseSshTarget } from '@solus/server/remote-machines/ssh-targets'
+import { installPercent, installPlaceFromEnv, SshProvisioner, type RemoteInstallPlace } from '@solus/server/remote-machines/ssh-provisioner'
+import { parseSshTarget, withConfigAlias, type SshConfigEntry } from '@solus/server/remote-machines/ssh-targets'
 
 // WHY: docs/plans/host-routes.md D6. Adding a machine over SSH installs and starts
 // Solus only when it is not there, never takes over a server that already runs, gives
@@ -21,6 +21,8 @@ interface Machine {
   authFails?: boolean
   /** An older Solus answers a session with no identity key. */
   oldSession?: boolean
+  /** The lines the installer prints as it runs. */
+  installOutput?: string[]
 }
 
 /** A fake machine: each step's script changes it the way the real step would. */
@@ -40,6 +42,7 @@ function fakeSsh(machine: Machine) {
         return ok(`os=${machine.windows ? 'Windows' : 'Linux'}\nname=box\ncli=${cli}\nport=${machine.running ? '3000' : ''}\ninstallation=install-box\n`)
       }
       if (text.includes('install.sh') || text.includes('install.ps1') || text.includes(' setup')) {
+        for (const line of machine.installOutput ?? []) options.onOutput?.(line)
         machine.installed = true
         machine.running = true
         return ok('Solus server is running.\n')
@@ -65,11 +68,15 @@ function stepTexts(calls: Call[]): string[] {
 async function add(machine: Machine, options: { link?: boolean; place?: RemoteInstallPlace } = {}) {
   const { ssh, calls } = fakeSsh(machine)
   const steps: string[] = []
+  const percents: string[] = []
   const outcome = await new SshProvisioner(ssh, options.place).add(
     { target: TARGET, deviceLabel: 'Ada’s Mac', link: options.link ? { ticket: 'ticket-1', directoryUrl: 'https://app.solus.sh' } : undefined },
-    (step) => steps.push(step),
+    (step, message, percent) => {
+      if (percent === undefined) steps.push(step)
+      else percents.push(`${step} ${percent}: ${message}`)
+    },
   )
-  return { outcome, calls, steps, texts: stepTexts(calls) }
+  return { outcome, calls, steps, percents, texts: stepTexts(calls) }
 }
 
 describe('adding a machine over SSH', () => {
@@ -81,6 +88,47 @@ describe('adding a machine over SSH', () => {
       status: 'ready',
       host: { target: TARGET, os: 'linux', label: 'box', installationId: 'install-box', remotePort: 3000, startedBySolus: true, session: { sessionToken: 'token-1', identityKey: KEY } },
     })
+  })
+
+  test('the install reports its percentage as the installer moves, and no other installer output leaves the host', async () => {
+    const { steps, percents, texts } = await add({
+      installed: false,
+      running: false,
+      installOutput: [
+        'solus-progress download 0',
+        'Downloading Solus 1.2.3 (linux-x64)...',
+        'solus-progress download 50',
+        'solus-progress download 50',
+        'solus-progress download 100',
+        'solus-progress unpack',
+        'Linking with ticket-1@app.solus.sh',
+        'solus-progress setup',
+      ],
+    }, { link: true })
+    expect(steps).toEqual(['connect', 'check', 'install'])
+    expect(percents).toEqual([
+      'install 5: Installing Solus on box',
+      'install 45: Installing Solus on box',
+      'install 85: Installing Solus on box',
+      'install 92: Installing Solus on box',
+    ])
+    // The installer prints its progress lines only when the provisioner asks.
+    expect(texts.some((text) => text.includes('install.sh') && text.includes('SOLUS_INSTALL_PROGRESS=1 sh -s'))).toBe(true)
+  })
+
+  test('a Windows install asks the installer for its progress too', async () => {
+    const { texts } = await add({ windows: true, installed: false, running: false }, { link: true })
+    expect(texts.some((text) => text.includes('install.ps1') && text.includes("$env:SOLUS_INSTALL_PROGRESS = '1'"))).toBe(true)
+  })
+
+  test('the install percentage: the download fills the space before unpacking, and other lines are not progress', () => {
+    expect(installPercent('solus-progress download 0')).toBe(5)
+    expect(installPercent('solus-progress download 100')).toBe(85)
+    expect(installPercent('solus-progress download 250')).toBe(85)
+    expect(installPercent('  solus-progress unpack  ')).toBe(85)
+    expect(installPercent('solus-progress setup')).toBe(92)
+    expect(installPercent('Downloading Solus 1.2.3 (linux-x64)...')).toBeNull()
+    expect(installPercent('solus-progress somewhere-else 4')).toBeNull()
   })
 
   test('uses a server that already runs there and does not take it over', async () => {
@@ -129,7 +177,7 @@ describe('adding a machine over SSH', () => {
 
   test('a refused key asks the person for a password or passphrase', async () => {
     const { outcome } = await add({ installed: true, running: true, authFails: true })
-    expect(outcome).toEqual({ status: 'needs-auth', message: 'SSH refused the key for ada@box.' })
+    expect(outcome).toEqual({ status: 'needs-auth', message: 'ada@box refused the SSH keys this computer offered. Name the machine as in ~/.ssh/config, where its key is set, or add the key to ssh-agent.' })
   })
 
   test('a Solus too old to prove its identity is refused with what to do', async () => {
@@ -161,5 +209,38 @@ describe('an SSH target', () => {
     expect(parseSshTarget('ada@box:2222')).toEqual({ destination: 'ada@box', port: 2222 })
     expect(parseSshTarget('ada@[fe80::1]:2222')).toEqual({ destination: 'ada@[fe80::1]', port: 2222 })
     expect(() => parseSshTarget('  ')).toThrow('SSH target is required.')
+  })
+})
+
+describe('a target named by its address', () => {
+  // WHY: `ssh ashto@10.10.1.10` offers only the default keys, while the alias for that
+  // address in ~/.ssh/config names the machine's key. A person who types the address
+  // must get the key their SSH config already gives that machine.
+  const windows: SshConfigEntry = { hosts: ['solus-windows'], hostname: '10.10.1.10', user: 'ashto' }
+
+  test('uses the one ~/.ssh/config alias for that address, keeping the user', () => {
+    expect(withConfigAlias(parseSshTarget('ashto@10.10.1.10'), [windows])).toEqual({ destination: 'ashto@solus-windows' })
+    expect(withConfigAlias(parseSshTarget('10.10.1.10'), [windows])).toEqual({ destination: 'solus-windows' })
+  })
+
+  test('is left alone when the alias names another user, two aliases name the address, or none does', () => {
+    expect(withConfigAlias(parseSshTarget('root@10.10.1.10'), [windows])).toEqual({ destination: 'root@10.10.1.10' })
+    expect(withConfigAlias(parseSshTarget('ashto@10.10.1.10'), [windows, { hosts: ['win-2'], hostname: '10.10.1.10' }])).toEqual({ destination: 'ashto@10.10.1.10' })
+    expect(withConfigAlias(parseSshTarget('ada@10.0.0.9'), [windows])).toEqual({ destination: 'ada@10.0.0.9' })
+  })
+
+  test('an alias the person typed stays as it is', () => {
+    expect(withConfigAlias(parseSshTarget('solus-windows'), [windows])).toEqual({ destination: 'solus-windows' })
+  })
+})
+
+describe('the output of a running command', () => {
+  test('arrives as lines, across chunks, and a progress bar that redraws with a carriage return reports each redraw', () => {
+    const lines: string[] = []
+    const write = outputLines((line) => lines.push(line))
+    write('Downloading Solus 1.2')
+    write('.3...\n###   10%\r######   40%\rdone\r\n')
+    write('tail without a newline')
+    expect(lines).toEqual(['Downloading Solus 1.2.3...', '###   10%', '######   40%', 'done'])
   })
 })

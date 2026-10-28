@@ -2,12 +2,11 @@ import type { DraftRow } from './draft-list'
 import type { SidebarTask } from './task-list'
 
 /** Where a row sits in the one list. */
-export type SidebarSection = 'tasks' | 'sessions' | 'working' | 'snoozed' | 'completed'
+export type SidebarSection = 'sessions' | 'working' | 'snoozed' | 'completed'
 
 /**
- * One entry of the sidebar's single list. Drafts, the Tasks section, the
- * Sessions section, the Working section, and the Snoozed and Completed
- * sections are one list with section headers as entries
+ * One entry of the sidebar's single list. Drafts, the sessions, the Working
+ * section, and the Snoozed and Completed sections are one list with section headers as entries
  * (docs/plans/sidebar-motion.md, step 3), so a row that changes section, and a
  * draft that arrives or leaves, animate like any other change of order.
  */
@@ -19,18 +18,13 @@ export type SidebarListItem =
 
 export interface SidebarListInput {
   drafts: readonly DraftRow[]
-  /** Open tasks: each row opens its lead's conversation with the task page
-   *  beside it (docs/plans/task-conversation.md). */
-  tasks: readonly SidebarTask[]
-  /** Open sessions that are not a task's own: a session with no task, and a
-   *  session linked to a task that has no row in `tasks`. */
+  /** Open sessions that are not working. Every row stands for one session; a
+   *  session linked to a task names it on a chip. */
   sessions: readonly SidebarTask[]
-  /** Open tasks and sessions whose agent is busy without the user. */
+  /** Open sessions whose agent is busy without the user. */
   working: readonly SidebarTask[]
   snoozed: readonly SidebarTask[]
   completed: readonly SidebarTask[]
-  isTasksOpen: boolean
-  isSessionsOpen: boolean
   isWorkingOpen: boolean
   isSnoozedOpen: boolean
   isCompletedOpen: boolean
@@ -41,16 +35,15 @@ export interface SidebarListInput {
 }
 
 /**
- * A row's list key names its variant as well as the row: a task or a session
- * row is a full card and a shelved row is slim. Changing variant mounts the
- * other shape, which the list cross-fades, while a row that keeps its shape —
- * a session gaining a lead, a slim row moving between the two shelves — keeps
- * its element and slides.
+ * A row's list key names its variant as well as the row: an open session row
+ * is a full card and a shelved row is slim. Changing variant mounts the other
+ * shape, which the list cross-fades, while a row that keeps its shape — a slim
+ * row moving between the two shelves — keeps its element and slides.
  */
 function taskItem(task: SidebarTask, section: SidebarSection): SidebarListItem {
   // A working row keeps the card it had, so a row that starts or finishes a
   // turn slides between sections rather than changing shape.
-  const variant = section === 'tasks' || section === 'sessions' || section === 'working' ? 'card' : 'slim'
+  const variant = section === 'sessions' || section === 'working' ? 'card' : 'slim'
   return { kind: 'task', key: `${task.id}:${variant}`, section, task }
 }
 
@@ -77,12 +70,9 @@ export function buildSidebarListItems(input: SidebarListInput): SidebarListItem[
   return [
     ...drafts,
     ...(drafts.length > 0 ? [{ kind: 'drafts-divider', key: 'drafts-divider' } as const] : []),
-    ...section('tasks', input.tasks, input.isTasksOpen, input.shelfRevealTaskId),
-    // With no tasks, sessions are the whole list: a header would only divide
-    // them from nothing, so they stand bare and cannot collapse.
-    ...(input.tasks.length > 0
-      ? section('sessions', input.sessions, input.isSessionsOpen, input.shelfRevealTaskId)
-      : input.sessions.map((task) => taskItem(task, 'sessions'))),
+    // Sessions are the body of the list: a header would only divide them from
+    // nothing, so they stand bare and cannot collapse.
+    ...input.sessions.map((task) => taskItem(task, 'sessions')),
     ...section('working', input.working, input.isWorkingOpen, input.shelfRevealTaskId),
     ...section('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealTaskId),
     ...section('completed', input.completed, input.isCompletedOpen, input.shelfRevealTaskId),

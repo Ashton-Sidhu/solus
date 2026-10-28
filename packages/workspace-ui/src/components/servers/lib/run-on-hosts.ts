@@ -48,15 +48,24 @@ export function checkoutPathOn(run: RunConfig, hostId: string, checkouts: readon
   return checkouts.find((checkout) => checkout.serverId === hostId)?.projectRoot ?? null
 }
 
-/** The second line of a row: what the host will use. The current host needs none. */
-export function runOnHostNote(action: RunOnHostAction): string | null {
-  switch (action.kind) {
-    case 'checkout': return 'Uses its checkout'
-    case 'clone': return 'Copies the repository'
-    case 'choose-folder': return 'Choose a folder'
-    case 'chat': return null
-    case 'current': return null
-  }
+/** An organization a host belongs to, as its row marks it. */
+export interface HostOrganizationMark {
+  organizationId: string
+  name: string
+  /** Organizations have no logo, so the mark is the name's first letter. */
+  initial: string
+}
+
+/** The organizations of the account that a host belongs to — shared with
+ *  them, or managed for one. A personal host belongs to none. */
+export function hostOrganizationMarks(
+  organizationIds: readonly string[] | undefined,
+  organizations: readonly { organizationId: string; name: string }[],
+): HostOrganizationMark[] {
+  if (!organizationIds?.length) return []
+  return organizations
+    .filter((organization) => organizationIds.includes(organization.organizationId))
+    .map(({ organizationId, name }) => ({ organizationId, name, initial: name.trim().charAt(0).toUpperCase() || '?' }))
 }
 
 /**

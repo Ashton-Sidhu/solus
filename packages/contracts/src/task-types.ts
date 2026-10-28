@@ -22,11 +22,9 @@ export type TaskStatus =
 
 export type TaskTitleSource = 'prompt' | 'generated' | 'manual'
 export type TaskSource = 'user' | 'agent' | 'automation' | 'import'
-/** How a session relates to a task. `lead` is the one session that owns the
- *  task's conversation (docs/plans/task-conversation.md); `working` is an
- *  attempt; `referenced` is a relationship, not ownership. A task has at most
- *  one lead. */
-export type TaskSessionRole = 'lead' | 'working' | 'referenced'
+/** How a session relates to a task. `working` is an attempt; `referenced` is
+ *  a relationship, not ownership. */
+export type TaskSessionRole = 'working' | 'referenced'
 export type TaskSyncState = 'ok' | 'dirty' | 'error' | 'auth_error'
 
 export interface ExternalTicketRef {
@@ -462,8 +460,6 @@ export interface PrepareSessionTaskRequest {
    *  dispatch to a different execution host, which needs the snapshot to ride
    *  the prompt (see docs/plans/dispatch-parity.md). */
   includeSnapshot?: boolean
-  /** Start this session as the task's lead. Refused when the task has one. */
-  role?: 'lead'
 }
 
 export interface PrepareSessionTaskResult {

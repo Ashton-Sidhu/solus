@@ -200,6 +200,26 @@ describe('the worktree card at Send', () => {
     expect(session.statusCard).toBeNull()
   })
 
+  test('settles and stays when the host made the worktree and the run started', async () => {
+    // WHY: the finished card keeps the step times and any warning in view; it
+    // leaves at the next send, not when the agent starts.
+    const session = draftSession()
+    const reducer = await reducerFor(session)
+    const card = setupCard.pendingWorktreeSetupCard('session-1', 'main')
+    const hostCard = {
+      ...card,
+      steps: card.steps.map((step) => step.id === 'agent'
+        ? { ...step, status: 'active' as const, startedAt: 30 }
+        : step.id === 'fetch'
+          ? { ...step, status: 'warning' as const, startedAt: 10, endedAt: 20, detail: 'Used local origin/main; fetch failed' }
+          : { ...step, status: 'done' as const, startedAt: 10, endedAt: 25 }),
+    }
+    reducer.apply('session-1', { type: 'status_card', card: hostCard })
+    reducer.apply('session-1', { type: 'status_change', status: 'running', oldStatus: 'connecting' })
+    expect(session.statusCard).toMatchObject({ status: 'done', title: 'Worktree ready' })
+    expect(session.statusCard?.steps.map((step) => step.status)).toEqual(['warning', 'done', 'done', 'done'])
+  })
+
   test('goes when the send fails or is stopped', async () => {
     // WHY: a refused or failed send has no setup going on; a spinning card would lie.
     const failed = draftSession()

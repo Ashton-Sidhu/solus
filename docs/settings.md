@@ -202,9 +202,13 @@ The Solus Cloud section shows two facts (docs/adr/0001-standard-authentication.m
   registered), the section says so and offers **Register**. Removing a host on the
   account website ends its registration.
 - **Reachable from the internet**: the link. The switch exposes the host to the
-  internet through a Cloudflare tunnel, and does nothing else. Turning it off removes
-  only the tunnel. A registered host that is not linked is reached on the local
-  network (LAN discovery finds it by its installation id) or by pairing.
+  internet through a Cloudflare tunnel, and does nothing else. A new registration
+  turns it on, so every device you sign in on reaches the host with no second step.
+  If the link fails, the section shows why. Turning it off removes only the tunnel,
+  and the host stays off until you turn it on again. A registered host that is not
+  linked is reached on the local network (LAN discovery finds it by its installation
+  id) or by pairing. To give an organization access, share the host with it; the
+  link alone gives access only to you.
 
 Settings → Account & sync also shows this section for this computer, when the desktop
 app hosts a server here. A browser has no computer of its own, so web does not show it

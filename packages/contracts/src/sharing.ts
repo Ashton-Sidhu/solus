@@ -109,6 +109,21 @@ export const shareListSchema = z.object({
 export type ShareList = z.infer<typeof shareListSchema>
 
 /**
+ * What a listing says of a resource's sharing at a glance
+ * (docs/workspace-page.md): who else may open it, without the names. The
+ * list itself is read with `shareGet`.
+ */
+export const shareSummarySchema = z.object({
+  /** People and teams named on the list. */
+  named: z.number().int().min(0),
+  /** The whole organization may open it. */
+  organization: z.boolean(),
+  /** A link that still opens; null without one, or once it expired. `expiresAt` is the host's clock; null never expires. */
+  link: z.object({ role: shareRoleSchema, expiresAt: z.number().nullable() }).nullable(),
+})
+export type ShareSummary = z.infer<typeof shareSummarySchema>
+
+/**
  * `shareSet`: the whole named list, and the link when `link` is present (`null`
  * role turns it off), written in one transaction. Without `link` the link stays.
  */

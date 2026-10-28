@@ -40,16 +40,6 @@ export const ATTENTION_RANK = {
   background: 1,
 } satisfies Record<NonNullable<AttentionState>, number>
 
-/** A task reports work and requests shared by its sessions, but a failed turn
- * stays on its own session row. One failed attempt must not make the durable
- * task itself look failed. */
-export function maxTaskAttention(current: AttentionState, next: AttentionState): AttentionState {
-  if (next === 'error') return current
-  if (!next) return current
-  if (!current) return next
-  return ATTENTION_RANK[next] > ATTENTION_RANK[current] ? next : current
-}
-
 /** Statuses that earn a glyph. Running reports elapsed time instead; idle and
  *  done report nothing at all. */
 export function hasGlyph(status: TaskStatus): boolean {
@@ -96,21 +86,6 @@ export function shouldLeadTitle(
  * unread dot wins over idle, running, or done presentation. */
 export function showsUnreadIndicator(status: TaskStatus, unread: boolean): boolean {
   return unread && !hasGlyph(status)
-}
-
-/**
- * The one session a task row lists under itself: the session on screen, when
- * it is one of the task's sessions and not its lead. The row stands for the
- * lead, and the task's other sessions are on its page, so the list names only
- * the one being read.
- */
-export function disclosedSession<T extends { tabId?: string; isLead?: boolean }>(
-  sessions: readonly T[],
-  onScreenTabId: string | null,
-): T | null {
-  if (!onScreenTabId) return null
-  const session = sessions.find((candidate) => candidate.tabId === onScreenTabId)
-  return session && !session.isLead ? session : null
 }
 
 /**
@@ -307,19 +282,13 @@ export function shouldRecedeRow(
 }
 
 export interface SidebarTask {
-  /** Stable renderer identity for this row: a task's id, the tab of a session
-   *  that has a row of its own, or `session:<id>` for a shelved session with
-   *  no conversation open here. */
+  /** Stable renderer identity for this row: the tab of a mounted session, or
+   *  `session:<id>` for a session with no conversation open here. */
   id: string
-  /** The session a shelved row stands for when no conversation of it is open
-   *  on this client. Its host settled or snoozed it; selecting the row opens
-   *  it. Absent on every other row. */
+  /** The session a row stands for when no conversation of it is open on this
+   *  client; selecting the row opens it. Absent on a mounted session's row. */
   sessionId?: string
-  /** Durable task id when this row is backed by the task store. A session's
-   *  own row leaves it unset: the session has no task, or its task has no row
-   *  here (`linkedTask`). */
-  taskId?: string
-  /** Navigation key. Durable task rows use their task id. */
+  /** Navigation key. */
   key: string
   title: string
   projectKey: string
@@ -331,39 +300,32 @@ export interface SidebarTask {
   groupKey: string
   /** Real git branch, matched against a PR's head ref. Null off a branch. */
   branchName: string | null
-  /** The host this task's sessions run on. Null when nothing is open for it —
-   *  the task record itself does not remember a machine. */
+  /** The host this row's session runs on. */
   serverId: string | null
-  /** The PR number the task record captured, for when the live PR list can't
-   *  answer (another project's PRs, or a PR that has already been merged out of
-   *  the list). 0 and null both mean "none". */
-  prNumber: number | null
   status: TaskStatus
   /** The raw state behind `status`, kept so glyphs can be labelled in the
    *  app's own words rather than the sidebar's narrower vocabulary. */
   attention: AttentionState
-  /** A task row reads only its lead's unread output. A session row reads its
-   *  own output. The active session clears its own flag. */
+  /** The session has output the user has not read. The active session clears
+   *  its own flag. */
   unread: boolean
-  /** Durable creation position shared by task-backed rows and loose rows —
-   *  the sessions that have no task, which Solus supports on purpose. */
+  /** Durable creation position. */
   createdAt: number
   /** Start of the turn in flight, for the elapsed readout. 0 unless running. */
   runStartedAt: number
-  /** While a session of the row is rate limited: when its provider window
-   *  reopens, in epoch ms. Absent when nothing is limited or no reset is known. */
+  /** While the row's session is rate limited: when its provider window
+   *  reopens, in epoch ms. Absent when it is not limited or no reset is known. */
   limitResetsAt?: number
   lifecycle: 'active' | 'snoozed' | 'completed'
   completedAt: number
   snoozedUntil: number
   snoozeNote: string | null
   lastReadAt: number
-  /** The last snooze expired after this task was last visited. */
+  /** The last snooze expired after this row was last visited. */
   woke: boolean
   tabIds: string[]
-  /** The task this session is linked to, when that task has no row in the
-   *  Tasks section of this client. The session then keeps its own row and
-   *  names the task on a chip. Absent on a task's own row. */
+  /** The task this session is linked to, named on a chip. A task has no row
+   *  of its own: the chip opens its page. */
   linkedTask?: SidebarLinkedTask
 }
 
@@ -439,9 +401,7 @@ export function resolveTaskSidebarLifecycle(input: {
 /**
  * Which shelf a session's row sits on, from the state its host holds
  * (docs/plans/session-pull-requests.md): a settled session is on Completed, a
- * snoozed one on Snoozed, and a session with no state is active. A task's row
- * takes its shelf from the task: a finished task is on Completed, a snoozed
- * task on Snoozed.
+ * snoozed one on Snoozed, and a session with no state is active.
  */
 export function sessionRowLifecycle(
   state: { settledAt: number | null; snoozedUntil: number | null } | null,
@@ -457,17 +417,6 @@ export function sessionRowLifecycle(
   })
 }
 
-/** A task appears only after this client opens it, and a local dismissal
- * keeps it closed until a session reopens it. Task status does not add a row
- * by itself. */
-export function shouldShowDurableSidebarTask(
-  isDismissed: boolean,
-  hasOpenSession: boolean,
-  isOpenOnClient: boolean,
-): boolean {
-  return hasOpenSession || (!isDismissed && isOpenOnClient)
-}
-
 /** A session whose task is done is finished work, whatever its tab is doing.
  * The sidebar keeps that row behind the Completed shelf, so the picker must not
  * offer the same session under "Open" beside sessions still being worked on.
@@ -479,31 +428,9 @@ export function isCompletedTaskSession(
   return tasks.taskForSession(session.id)?.status === 'done'
 }
 
-/**
- * Whether finished work earns a Completed row the active column never gave it.
- *
- * The column is a working set — a row is there because this client has the task
- * open — and that rule is right for work in flight and exactly wrong for work
- * that ended. A task the user finished and put away is the one they go looking
- * for later, so the shelf asks the task store instead and lets retention decide
- * how long it stays. Both explicit workflow endings count.
- */
-export function shouldShelveCompletedTask(
-  task: Pick<Task, 'status'>,
-  isAlreadyInColumn: boolean,
-): boolean {
-  if (isAlreadyInColumn) return false
-  return task.status === 'done' || task.status === 'dropped'
-}
-
 /** The task store's answer for one session, narrowed to what this rule reads. */
 export interface TaskBySessionLookup {
   taskForSession(sessionId: string | null | undefined): Task | null
-}
-
-/** Same rule one level down: a dismissed session returns with a reopened tab. */
-export function shouldShowSidebarChild(isDismissed: boolean, hasOpenTab: boolean): boolean {
-  return !isDismissed || hasOpenTab
 }
 
 /**
@@ -522,14 +449,12 @@ export function reconcileSidebarTasks(
     const previous = previousById.get(next.id)
     if (
       previous &&
-      previous.taskId === next.taskId &&
       previous.key === next.key &&
       previous.title === next.title &&
       previous.projectKey === next.projectKey &&
       previous.projectLabel === next.projectLabel &&
       previous.branchName === next.branchName &&
       previous.serverId === next.serverId &&
-      previous.prNumber === next.prNumber &&
       previous.status === next.status &&
       previous.attention === next.attention &&
       previous.unread === next.unread &&
@@ -559,27 +484,8 @@ export function reconcileSidebarTasks(
   return reconciled
 }
 
-/** Oldest first. `shortId` is allocated monotonically, so it preserves the
- * creation order of records written in the same millisecond. A ULID's random
- * suffix is only a deterministic final fallback, not a creation sequence. */
-export function compareTaskCreationOrder(a: Task, b: Task): number {
-  const created = (a.createdAt ?? 0) - (b.createdAt ?? 0)
-  if (created !== 0) return created
-  if (a.shortId !== undefined && b.shortId !== undefined) {
-    return a.shortId - b.shortId
-  }
-  return a.id.localeCompare(b.id)
-}
-
-/** The sidebar's durable order. Copy before sorting so a renderer projection
- * never mutates the task store that every other mounted surface shares. */
-export function sortTasksByCreation(tasks: readonly Task[]): Task[] {
-  return [...tasks].sort(compareTaskCreationOrder)
-}
-
 /** Keep sidebar rows in their fixed creation order, newest first, so new work
- * lands at the top. Session tabs can open, close, merge under one task, or be
- * dragged independently without moving the task row the user already learned. */
+ * lands at the top. */
 export function sortSidebarRowsByCreation(tasks: SidebarTask[]): SidebarTask[] {
   return [...tasks].sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
 }
@@ -596,17 +502,14 @@ export function isWorkingStatus(status: TaskStatus): boolean {
 }
 
 /** Whether a row folds into the Working section until it comes back to the
- *  user with a question, a plan, an error, or a finished turn. Only a session
- *  row does. A task keeps its place in Tasks while its lead or workers run,
- *  and its row shows that they run (docs/plans/task-conversation.md). */
-export function isInWorkingSection(row: Pick<SidebarTask, 'taskId' | 'status'>): boolean {
-  return !row.taskId && isWorkingStatus(row.status)
+ *  user with a question, a plan, an error, or a finished turn. */
+export function isInWorkingSection(row: Pick<SidebarTask, 'status'>): boolean {
+  return isWorkingStatus(row.status)
 }
 
-/** Order the Tasks and Sessions sections newest first by when each row last
- *  came back to the user, so a session row that leaves the Working section
- *  lands on top (`SidebarReturnOrder`). A task row never leaves Tasks, so it
- *  keeps its creation order. */
+/** Order the sessions newest first by when each row last came back to the
+ *  user, so a row that leaves the Working section lands on top
+ *  (`SidebarReturnOrder`). */
 export function sortRowsByReturn(tasks: readonly SidebarTask[], returnedAt: RowActivity): SidebarTask[] {
   const returned = new Map(tasks.map((task) => [task, returnedAt(task)]))
   return tasks.toSorted((a, b) =>
@@ -618,8 +521,8 @@ export function sortRowsByReturn(tasks: readonly SidebarTask[], returnedAt: RowA
  * Rank tasks by urgency, then most recent activity. This is for the *pickers*,
  * which are read top-down in one glance and gain from putting the loudest task
  * first. The sidebar list does not rank by status: the glyph carries it. Busy
- * rows fold into the Working section, and the Tasks and Sessions sections are
- * ordered by when each row came back to the user (`sortRowsByReturn`).
+ * rows fold into the Working section, and the sessions are ordered by when
+ * each row came back to the user (`sortRowsByReturn`).
  */
 export function sortTasks(tasks: SidebarTask[], activityAt: RowActivity): SidebarTask[] {
   const activity = new Map(tasks.map((task) => [task, activityAt(task)]))

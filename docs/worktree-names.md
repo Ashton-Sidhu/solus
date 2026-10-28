@@ -117,6 +117,15 @@ checkout path when the session index has one, with their recorded branch as a
 fallback. Custom browser page labels remain unchanged, even when they happen to
 match the original branch name.
 
+When a session's worktree folder was deleted outside Solus, its next turn makes
+the folder again before the agent starts (`recreateMissingWorktree`). If the
+branch still exists, the worktree comes back on it with its commits. If the
+branch was also deleted, Solus makes it again from the branch the project folder
+is on now; the earlier commits do not come back. If the project folder has no
+current branch (detached HEAD), or git refuses, the turn stops before the agent
+starts with an error that names the branch and path. Only Solus worktree paths
+are made again. This applies to Claude and Codex, on every client.
+
 ## Agent worktrees
 
 A session is bound to one checkout. The diff, Git status, changed files,

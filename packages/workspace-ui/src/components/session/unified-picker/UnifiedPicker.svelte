@@ -59,6 +59,9 @@
     type PickerRow,
   } from "./lib/picker-rows";
   import { openPickerLinkedItem } from "./lib/picker-linked-actions";
+  import { pickedEvent } from "./lib/picker-pick-stats";
+  import { track } from "../../../lib/analytics";
+  import type { Via } from "@solus/contracts/analytics-events";
   import { ownsTask } from "../../tasks/lib/task-ownership";
 
   interface Props {
@@ -131,11 +134,9 @@
       sessionHomes,
     ).map((row) => row.meta),
   );
-  // The sidebar already knows every session a task owns — links, mounted tabs
-  // and their attention — so the picker asks it rather than keeping a second
-  // model of the same tree. It asks about the *task*, not about a sidebar row:
-  // most pickable tasks have no row on this client, and reading their sessions
-  // through one reported every such task as empty.
+  // The sidebar already knows every session linked to a task — links, mounted
+  // tabs and their attention — so the picker asks it rather than keeping a
+  // second model of the same tree.
   function sessionsFor(task: Task): SidebarSessionChild[] {
     return sidebarStore.sessionsForPickableTask(task);
   }
@@ -165,7 +166,6 @@
       projectKey: scopeProjectKey,
       projectKeyOf: (task) => session.tasksStore.projectKeyOf(task),
       sort: session.ui.pickerSort,
-      openTaskIds: new Set(sidebarStore.activeTasks.flatMap((row) => row.taskId ?? [])),
       conversations: conversationHits,
       conversationsRemaining: searches.sessions.remaining,
       recentSessions: recentSessionMetas,
@@ -384,12 +384,9 @@
     searchEl?.focus();
   }
 
-  /** ⏎ on a task: the same move as clicking its row in the sidebar. */
+  /** ⏎ on a task: open its task page. */
   function select(task: Task): void {
-    window.dispatchEvent(
-      new CustomEvent("solus:reveal-sidebar-task", { detail: task.id }),
-    );
-    void sidebarStore.selectTaskRecord(task);
+    session.goToTask(task.id, "click");
     close();
   }
 
@@ -507,7 +504,7 @@
       toasts.error("Couldn't delete task", { description: "Only the owner can delete a task." });
       return;
     }
-    const pending = sidebarStore.deleteTasks([task.id]);
+    const pending = session.tasksStore.softRemove([task.id]);
     if (!pending.length) return;
     toasts.undo("Task deleted", () => session.tasksStore.restorePending(pending), {
       onDismiss: () =>
@@ -564,7 +561,13 @@
     if (selectedIndex !== entry.entryIndex) selectIndex(entry.entryIndex);
   }
 
-  function activate(entry: PickerEntry): void {
+  function recordPick(entry: PickerEntry, via: Via): void {
+    const event = pickedEvent({ list, entry, query, sort: session.ui.pickerSort, via, storage: localStorage, now: Date.now() });
+    if (event) track("session_search_picked", event);
+  }
+
+  function activate(entry: PickerEntry, via: Via): void {
+    recordPick(entry, via);
     if (entry.kind !== "task" && entry.reason?.field === "messages" && entry.hit?.target) {
       const serverId = entry.kind === "conversation" ? entry.meta.serverId : entry.session.serverId;
       const sessionId = entry.kind === "conversation" ? entry.meta.sessionId : entry.session.sessionId;
@@ -577,11 +580,12 @@
 
   function clickEntry(entry: PickerEntry): void {
     if (entry.kind === "task" && !isTaskGroup(entry) && entry.sessions[0]) {
+      recordPick(entry, "click");
       selectSession(entry.sessions[0]);
       return;
     }
     if (toggleTaskEntry(entry)) return;
-    activate(entry);
+    activate(entry, "click");
   }
 
   function stepIn(): void {
@@ -628,7 +632,7 @@
       expandTaskEntry(selectedEntry);
     } else if (event.key === "Enter" && selectedEntry) {
       event.preventDefault();
-      activate(selectedEntry);
+      activate(selectedEntry, "keybinding");
     }
   }
 
@@ -855,7 +859,7 @@
             task={selectedTask}
             portalTarget={layer.el}
             primaryLabel="Resume"
-            onPrimary={() => selectedEntry ? activate(selectedEntry) : selectSession(picked)}
+            onPrimary={() => selectedEntry ? activate(selectedEntry, "click") : selectSession(picked)}
             onOpenTask={openTaskPage}
             onOpenSource={openSourceTicket}
           />

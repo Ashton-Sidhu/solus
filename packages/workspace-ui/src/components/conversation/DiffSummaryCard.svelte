@@ -125,10 +125,13 @@
       : 'rounded-2xl'}"
     data-testid="diff-summary"
   >
-    <div class="diff-summary-header flex items-center gap-2">
+    <!-- Wraps rather than squeezing: in a narrow column the count keeps its
+         line and the diff link drops under it, instead of running out of the
+         card. -->
+    <div class="diff-summary-header flex flex-wrap items-center gap-x-2 gap-y-1">
       <button
         type="button"
-        class="diff-header flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
+        class="diff-header flex min-w-[9rem] flex-1 items-center gap-2 overflow-hidden"
         aria-expanded={isExpanded}
         onclick={toggleCard}
       >
@@ -275,7 +278,9 @@
 
 <style>
   /* Three quarters of the reading column, collapsed and open alike, so the card
-     reads as a footnote to the turn rather than another message in it. */
+     reads as a footnote to the turn rather than another message in it. A
+     narrow column has no room for a footnote, so there it takes the width it
+     needs, up to the whole column. */
   .diff-summary {
     --diff-indent: 1.375rem;
     --diff-row-pad: 0.375rem;
@@ -284,7 +289,7 @@
     --diff-icon-size: 0.8125rem;
     --diff-bar-width: 2.125rem;
 
-    width: 75%;
+    width: max(75%, min(100%, 22rem));
     background: var(--card);
     /* A step up from the transcript's shared hairline: this card is a control
        surface the reader clicks into, not prose, so its edge has to be findable

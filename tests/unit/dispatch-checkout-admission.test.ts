@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import type { IpcContext } from '@solus/contracts/types'
+import type { DispatchRepository, IpcContext } from '@solus/contracts/types'
 import type { SessionRunRequest } from '@solus/server/execution/session-runtime'
 import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
 
@@ -79,7 +79,7 @@ afterAll(async () => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-async function harness() {
+async function harness(projectsFolder = 'projects') {
   const { registerSessionHandlers } = await import('@solus/server/transport/handlers/session-handlers')
   const { registerSetupHandlers } = await import('@solus/server/transport/handlers/setup-handlers')
   const { SolusServer } = await import('@solus/server/transport/server')
@@ -100,7 +100,7 @@ async function harness() {
   await hostOrganizations.refresh()
 
   const setup = registerSetupHandlers(new SolusServer(), {
-    projectsRoot: () => join(base, 'projects'),
+    projectsRoot: () => join(base, projectsFolder),
     registerProject: async (path) => path,
     loadGithubToken: async () => null,
     hasCommand: () => false,
@@ -147,7 +147,7 @@ async function harness() {
     },
   )
   /** A Run on send from a paired laptop, in the owner's window for organization A. */
-  const sendRunOn = (sessionId: string, clientFolder: string, method: 'prompt' | 'retry' = 'prompt') => {
+  const sendRunOn = (sessionId: string, clientFolder: string, method: 'prompt' | 'retry' = 'prompt', repository: DispatchRepository = { cloneUrl: CLONE_URL, newWorktree: true }) => {
     const ctx = {
       session: {
         sessionId, organizationId: 'A', provider: 'codex', agentSessionId: null, status: 'idle',
@@ -155,7 +155,7 @@ async function harness() {
         gitContext: { branch: 'main', targetBranch: 'main', repoRoot: clientFolder, worktreePath: clientFolder },
         worktreeBaseBranch: null, preferredModel: 'gpt-requested', reasoningEffort: 'medium', contextWindow: null,
         fastMode: false, permissionMode: 'supervised', readOnlyReason: null,
-        repository: { cloneUrl: CLONE_URL, newWorktree: true },
+        repository,
       },
       settings: { activeAgent: 'codex' },
       statusBar: { model: 'gpt-requested', reasoningEffort: 'medium', fastMode: false },
@@ -168,7 +168,7 @@ async function harness() {
 describe('a Run on send on a machine attached for organization work', () => {
   test('is admitted and recorded in the host\'s dispatch checkout folder, and the copy lands in that folder', async () => {
     const { setup, shares, admissions, runs, sendRunOn } = await harness()
-    const checkoutPath = join(base, 'projects', 'solus-remote', 'laptop-1', 'github.com', 'owner', 'repo')
+    const checkoutPath = join(base, 'projects', 'repo')
 
     await sendRunOn('s-run-on', '/Users/someone/solus')
 
@@ -197,7 +197,7 @@ describe('a Run on send on a machine attached for organization work', () => {
   test('a client that sends `~` gets the same host folder', async () => {
     const { admissions, runs, sendRunOn } = await harness()
     await sendRunOn('s-run-on-home', '~')
-    const checkoutPath = join(base, 'projects', 'solus-remote', 'laptop-1', 'github.com', 'owner', 'repo')
+    const checkoutPath = join(base, 'projects', 'repo')
     expect(admissions[0].record?.cwd).toBe(checkoutPath)
     expect(runs[0].input.workingDirectory).toBe(checkoutPath)
   })
@@ -208,10 +208,33 @@ describe('a Run on send on a machine attached for organization work', () => {
     const { rt, runs, sendRunOn } = await harness()
     rt.activeSessions.set('s-run-on-dead', { status: 'dead', agentSessionId: 'old-thread' })
     await sendRunOn('s-run-on-dead', '~', 'retry')
-    const checkoutPath = join(base, 'projects', 'solus-remote', 'laptop-1', 'github.com', 'owner', 'repo')
+    const checkoutPath = join(base, 'projects', 'repo')
     expect(runs).toHaveLength(1)
     expect(runs[0].target).toEqual({ kind: 'new-session' })
     expect(runs[0].repository?.repository.cloneUrl).toBe(CLONE_URL)
     expect(runs[0].input.workingDirectory).toBe(checkoutPath)
+  })
+
+  test('in a checkout Solus did not make, the run always gets a new worktree', async () => {
+    // WHY: a person's own checkout of the repository may have their work open
+    // in it. A dispatch on the default branch must not run the agent there.
+    const own = join(base, 'projects-own', 'repo')
+    fixtureGit(['clone', '-q', remote, own], base)
+    fixtureGit(['remote', 'set-url', 'origin', CLONE_URL], own)
+    const { runs, sendRunOn } = await harness('projects-own')
+    await sendRunOn('s-run-on-own', '~', 'prompt', { cloneUrl: CLONE_URL })
+    expect(runs[0].input.workingDirectory).toBe(own)
+    expect(runs[0].repository?.repository.newWorktree).toBe(true)
+  })
+
+  test('in a clone Solus made, the run may work in the checkout itself', async () => {
+    const clone = join(base, 'projects-marked', 'repo')
+    fixtureGit(['clone', '-q', remote, clone], base)
+    fixtureGit(['remote', 'set-url', 'origin', CLONE_URL], clone)
+    fixtureGit(['config', '--local', 'solus.dispatchClone', 'true'], clone)
+    const { runs, sendRunOn } = await harness('projects-marked')
+    await sendRunOn('s-run-on-marked', '~', 'prompt', { cloneUrl: CLONE_URL })
+    expect(runs[0].input.workingDirectory).toBe(clone)
+    expect(runs[0].repository?.repository.newWorktree).toBeUndefined()
   })
 })

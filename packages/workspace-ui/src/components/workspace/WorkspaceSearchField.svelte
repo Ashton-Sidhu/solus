@@ -75,7 +75,7 @@
      control: the focus ring every other Solus field takes, and at the record
      rung a 44px card with a 16px field — under 16px iOS zooms in on focus and
      does not zoom back out. -->
-<div class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-card px-2.5 text-workspace-chrome shadow-[shadow:var(--elev-ring)] focus-within:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] @max-[30rem]/pane:h-10 @max-[30rem]/pane:text-base">
+<div class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-card px-2.5 text-workspace-chrome shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_color-mix(in_oklch,var(--foreground)_4%,transparent)] transition-shadow duration-150 hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_20%,transparent),0_1px_2px_color-mix(in_oklch,var(--foreground)_4%,transparent)] focus-within:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent),0_0_0_4px_color-mix(in_oklch,var(--primary)_10%,transparent)]! @max-[30rem]/pane:h-10 @max-[30rem]/pane:text-base">
   <MagnifyingGlassIcon size={16} class="shrink-0 text-muted-foreground" />
 
   {#each chips as chip (chip.key)}

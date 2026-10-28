@@ -1,4 +1,4 @@
-import type { AtlassianJiraProject, AtlassianProduct, AtlassianStatus } from '@solus/contracts/atlassian'
+import type { AtlassianApiTokenInput, AtlassianJiraProject, AtlassianProduct, AtlassianStatus } from '@solus/contracts/atlassian'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { localApi } from '@solus/client-core/local-api'
@@ -8,9 +8,10 @@ import { isSolusApiId } from '@solus/contracts/uplink'
 /**
  * The one place the renderer knows anything about the Atlassian site connection.
  *
- * No credential ever lands here. The browser sign-in happens on the host, and
- * what survives is only what the host reports back — the site, the products the
- * grant reaches, and whether this build can sign in at all.
+ * No credential is kept here. The browser sign-in happens on the host; a pasted
+ * API token passes through once, on its way to the host. What survives is only
+ * what the host reports back — the site, the products the connection reaches,
+ * and which ways to connect this host offers.
  */
 
 export interface AtlassianConnectFailure {
@@ -50,6 +51,16 @@ export class AtlassianStore {
    *  to connect, and the UI says so rather than offering a button that fails. */
   oauthAvailable(serverId: string | null | undefined): boolean {
     return this.status(serverId)?.oauthAvailable === true
+  }
+
+  /** Whether the host takes a pasted API token: false on an older host, and
+   *  where the account website owns the connection. */
+  apiTokenAvailable(serverId: string | null | undefined): boolean {
+    return this.status(serverId)?.apiTokenAvailable === true
+  }
+
+  connectedWithApiToken(serverId: string | null | undefined): boolean {
+    return this.status(serverId)?.authMethod === 'apiToken'
   }
 
   /** The site's hostname — what a user recognizes, without the scheme noise. */
@@ -138,6 +149,32 @@ export class AtlassianStore {
     } catch (e) {
       console.error('atlassianStartOAuth failed', e)
       this.failures.set(serverId, { message: 'Could not start the Atlassian sign-in.' })
+      return false
+    } finally {
+      this.connectingServers.set(serverId, false)
+    }
+  }
+
+  /** Connects with a token the user pasted. The host checks it with Atlassian
+   *  before it keeps it, so a false answer means nothing changed. */
+  async connectApiToken(serverId: string, input: AtlassianApiTokenInput): Promise<boolean> {
+    if (this.connecting(serverId)) return false
+    this.connectingServers.set(serverId, true)
+    this.failures.delete(serverId)
+    try {
+      const result = await serverConnections.apiFor(serverId).atlassianConnectApiToken(input)
+      if (!result.ok) {
+        this.failures.set(serverId, { message: result.error })
+        return false
+      }
+      // A browser sign-in the host just cancelled will never report back.
+      this.awaitingBrowserServers.set(serverId, false)
+      this.jiraProjectsByServer.delete(serverId)
+      await this.refreshStatus(serverId)
+      return true
+    } catch (e) {
+      console.error('atlassianConnectApiToken failed', e)
+      this.failures.set(serverId, { message: 'Could not connect with this API token.' })
       return false
     } finally {
       this.connectingServers.set(serverId, false)

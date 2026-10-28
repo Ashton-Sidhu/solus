@@ -129,11 +129,27 @@ branch keeps its old branch until its next turn. Before PR sync writes a
 session's branch is still the one it looked up (`linkBranchOwners`), so a
 stale lookup can only miss a link, never make a wrong one.
 
+**A branch name alone does not match** (2026-10-27). GitHub matches
+`headRefName` in every fork, so a session on `main` in a fork of a busy
+repository found the pull request another contributor opened from their own
+`main`. A session's branch has one head: the repository and branch that
+`git push` sends it to (`resolvePushHead`: `<branch>@{push}`, else the push
+remote `git push` would choose, under the branch's own name). A pull request is
+the branch's only when it names that head (`PullRequestHead` in
+`@solus/contracts/repository-key`). PR sync, the branch lookup of a git action,
+orchestration, and the detailed status's `prUrl` all key branches by head. A
+scope that is no checkout on this host, such as the record of a run on another
+machine, names the branch of the base repository. A session on its
+repository's default branch is not looked up at all: it works on the project,
+not on a pull request. A client does not know where a checkout pushes, so it
+never matches a branch by name: the git card names the host's `prUrl`
+(`prForCheckout`), and a task row shows the session links PR sync writes.
+
 `link` with `kind=pr` for a task the calling session does not work on, the
 task page's link picker, and a pull request review session's first prompt write
 a task link. There is one agent tool for links, `link` (it was `link_task`):
 a separate tool for the session case would be a second name for one question.
-An agent has no unlink tool; a person removes a link in the list.
+An agent removes a session link with `unlink_pull_request` (by number or URL), as a person does in the list; the row stays a tombstone, so PR sync does not link it again (2026-10-27).
 
 Every session that has the `link` tool gets a "Pull request linking" block in
 its runtime instructions (`execution/agents/runtime-instructions.ts`), for Claude
@@ -161,9 +177,13 @@ session's links in interest while it is shown, so a linked pull request the
 project has not read yet is pushed to it. A link in another repository is not
 on the card: a number means nothing outside its repository, and the card acts
 on this project's checkout. On desktop and web, the session sidebar row
-shows the links and can unlink them, and the session menu opens the link
-dialog. The phone has no rail, so the Actions tab of its plus menu shows the
-links with an unlink button and a "Link a pull request" row.
+shows the links. The "N PRs" chip's list unlinks a row with its hover ×,
+or with Delete or Backspace on the highlighted row; a single chip unlinks
+from its right-click menu. The session menu opens the link dialog, which lists
+the session's links as the chip's list does, each with the same ×; the item
+reads "Pull Requests…" while the session has links. On
+the phone, the thread row's menu has "Unlink #N", or an "Unlink Pull Request"
+submenu with one item per link.
 
 ### An agent on an attached machine
 

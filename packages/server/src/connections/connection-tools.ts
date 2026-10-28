@@ -10,7 +10,6 @@ import type { ConnectionConnectNeeded, ConnectionProvider, ConnectionReason } fr
 import type { Integration } from '@solus/contracts/integration-types'
 import { IntegrationSignIn } from '@solus/contracts/integrations/integration-sign-in'
 import { loadCredential as loadAtlassianCredential } from '../atlassian/token-store'
-import { isOAuthConfigured as isAtlassianOAuthConfigured } from '../atlassian/oauth'
 import { githubCredentials } from '../providers/github/credentials'
 import { getAccessToken as getGoogleAccessToken, isGoogleOAuthConfigured } from '../google/oauth'
 import { ANY_ORGANIZATION } from '../admission/principal'
@@ -49,9 +48,7 @@ async function atlassianState(): Promise<ConnectionState> {
   if (credential) {
     return { connected: true, source: 'stored', account: credential.siteName ?? credential.siteUrl }
   }
-  if (!usesAccountIntegration() && !isAtlassianOAuthConfigured()) {
-    return { connected: false, unavailableReason: 'This build ships no Atlassian OAuth client.' }
-  }
+  // A build with no OAuth client still connects with a pasted API token.
   return { connected: false }
 }
 

@@ -7,7 +7,7 @@ import path from 'node:path'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
-const { resolvePrimaryRepoRef, resolveRepositoryKey } = await import('@solus/server/git/git-helpers')
+const { resolvePrimaryRepoRef, resolvePushHead, resolveRepositoryKey } = await import('@solus/server/git/git-helpers')
 
 const roots: string[] = []
 
@@ -70,5 +70,43 @@ describe('resolvePrimaryRepoRef', () => {
 
   test('a repository with no remote has none', async () => {
     expect(await resolvePrimaryRepoRef(repoWithRemotes({}))).toBeNull()
+  })
+})
+
+describe('resolvePushHead', () => {
+  /** A fork clone with one commit on branch `fix`. */
+  function forkOnFix(): string {
+    const root = repoWithRemotes({ origin: 'git@github.com:me/web.git', upstream: 'https://github.com/Acme/web.git' })
+    const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root })
+    git('commit', '-q', '--allow-empty', '-m', 'first')
+    git('checkout', '-q', '-b', 'fix')
+    return root
+  }
+
+  test('a branch never pushed goes to origin, under its own name', async () => {
+    // WHY: an agent's new branch has no upstream yet. Its pull request will be
+    // opened from the fork, so the fork names its head, not upstream.
+    expect((await resolvePushHead(forkOnFix(), 'fix'))?.key).toBe('github.com/me/web:fix')
+  })
+
+  test('a branch that pushes under another name is that name', async () => {
+    // WHY: `git push` sends local `fix` to `fix-2`; the pull request names `fix-2`.
+    const root = forkOnFix()
+    execFileSync('git', ['config', 'push.default', 'upstream'], { cwd: root })
+    execFileSync('git', ['config', 'branch.fix.remote', 'origin'], { cwd: root })
+    execFileSync('git', ['config', 'branch.fix.merge', 'refs/heads/fix-2'], { cwd: root })
+    execFileSync('git', ['update-ref', 'refs/remotes/origin/fix-2', 'HEAD'], { cwd: root })
+    expect((await resolvePushHead(root, 'fix'))?.key).toBe('github.com/me/web:fix-2')
+  })
+
+  test("a branch's push remote wins over origin", async () => {
+    // WHY: a maintainer pushes some branches straight to upstream.
+    const root = forkOnFix()
+    execFileSync('git', ['config', 'branch.fix.pushRemote', 'upstream'], { cwd: root })
+    expect((await resolvePushHead(root, 'fix'))?.key).toBe('github.com/acme/web:fix')
+  })
+
+  test('a folder with no remote has no head', async () => {
+    expect(await resolvePushHead(repoWithRemotes({}), 'fix')).toBeNull()
   })
 })

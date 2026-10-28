@@ -1,12 +1,13 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { TurnStartKind } from "@solus/contracts/types";
+  import type { StatusCardState, TurnStartKind } from "@solus/contracts/types";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
   import { getSettingsContext } from "../../contexts";
   import { type Turn, type GroupedItem, itemKey, needsLiveRow, shouldAnimateTurnEntry, visibleTurnBody } from "./lib/turns";
   import { describeBackgroundWait, settledBackgroundWait } from "./lib/activity-summary";
   import BackgroundWorkRow from "./BackgroundWorkRow.svelte";
   import TurnActivityRow from "./TurnActivityRow.svelte";
+  import StatusCard from "./StatusCard.svelte";
   import TurnBody from "./TurnBody.svelte";
   import TurnEndDivider from "./TurnEndDivider.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
@@ -14,16 +15,21 @@
   import ToolGroupItem from "./ToolGroupItem.svelte";
   import { measureMount } from "../../lib/mount-timing";
   measureMount("ConversationTurn");
-  let { turn, index, total, expanded, isAwaitingInput, activityLabel, turnStart, attempt,
-    hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem, serverId }: {
+  let { turn, index, total, expanded, isAwaitingInput, activityLabel, setupLabel, turnStart, attempt,
+    hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem, serverId,
+    settledSetupCard }: {
     turn: Turn; index: number; total: number; expanded: boolean; isAwaitingInput: boolean;
-    activityLabel?: string; turnStart: TurnStartKind | null; attempt: number;
+    activityLabel?: string;
+    /** The setup step that runs now, while the session's setup card is active. */
+    setupLabel?: string; turnStart: TurnStartKind | null; attempt: number;
     /** The session's turn ended, but a task it launched is still running. */
     hasBackgroundWork?: boolean; onStopBackgroundWork?: () => Promise<void>; history: ToolHistoryStore;
     onToggle: (expanded: boolean) => void; onRetry: () => void;
     transcriptItem: Snippet<[GroupedItem, boolean]>;
     /** The session's host, for naming who stopped a turn. */
     serverId?: string;
+    /** The setup this turn's send ran, once it finished: drawn after the prompt. */
+    settledSetupCard?: StatusCardState;
   } = $props();
   const settings = getSettingsContext();
   const body = $derived(visibleTurnBody(turn, settings.showToolCalls));
@@ -51,6 +57,9 @@
   (body.length > 0 || turn.end?.kind === "failed")}
 {#if turn.lead}
   {@render transcriptItem(turn.lead, skipMotion)}
+{/if}
+{#if settledSetupCard}
+  <StatusCard card={settledSetupCard} {skipMotion} />
 {/if}
 <!-- The row only exists once the turn is over; until then the
    transcript below renders exactly as it always did.
@@ -142,6 +151,7 @@
     {turn}
     live
     {activityLabel}
+    {setupLabel}
     turnStart={turnStart}
     backgroundWait={describeBackgroundWait(turn.body)}
     expanded={false}

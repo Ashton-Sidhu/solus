@@ -21,7 +21,7 @@
   import SolusTips from "../layout/SolusTips.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
-  import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
+  import { checkoutGit, checkoutPlace } from "../../contexts/workspace/run-location";
 
   let {
     params,
@@ -193,7 +193,7 @@
         title={projectName}
         class="group inline-flex max-w-64 items-baseline align-baseline whitespace-nowrap focus-visible:outline-none"
         ><ProjectFavicon
-          projectKey={groupKeyFor(runHost(draft?.run) ?? "", projectRoot)}
+          projectKey={groupKeyFor(checkoutPlace(draft?.run)?.serverId ?? "", projectRoot)}
           class="mr-[0.22em] size-[0.8em] translate-y-[0.05em]"
         /><span
           class="min-w-0 overflow-x-clip text-ellipsis underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.28em] transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium) group-hover:decoration-[color:var(--solus-text-secondary)] group-focus-visible:decoration-[color:var(--solus-accent)]"

@@ -6,16 +6,14 @@ execution control: the task keeps its status, and its agents keep working.
 ## Behavior
 
 - **Snooze.** Snoozing a task hides it only for you. Use the **Snooze**
-  submenu of the task context menu (Tasks page and sidebar), or the snooze
-  button on the task's sidebar row. The choices are the shared snooze presets
-  (15 minutes to next week). The sidebar snooze menu also has **Pick date and
-  time…**, which uses the shared date and time picker, and an optional
-  reminder note. The task page has no snooze control.
+  submenu of the task context menu on the Tasks page. The choices are the
+  shared snooze presets (15 minutes to next week). The task page has no snooze
+  control.
 - **Where it goes.** The Tasks page list and board leave a snoozed task out.
   The **Snoozed** filter shows only snoozed tasks, each with a "wakes in" chip.
-  An open task's sidebar row moves to the Snoozed shelf.
-- **Wake early.** Use **Wake now** in the context menu, or the sun button on
-  the sidebar row.
+  Tasks have no sidebar rows, so a task snooze moves nothing in the session
+  sidebar.
+- **Wake early.** Use **Wake now** in the context menu.
 - **Expiry.** A task returns on its own at the wake time. Each list sets a
   timer for the next wake time, so the task comes back on time without a
   reload.

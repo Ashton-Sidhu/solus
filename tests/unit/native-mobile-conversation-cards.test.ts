@@ -58,6 +58,23 @@ describe('native conversation card state', () => {
     expect(model.items.get('setup:setup')).toMatchObject({ card: { status: 'done', output: ['Created branch'], steps: [{ status: 'done' }, { status: 'done' }] } })
   })
 
+  test('the status pill follows the setup step that runs now', async () => {
+    // WHY: the pill and the card describe one wait. A card update that does not
+    // reach the pill leaves it on an old step.
+    const { setupActivityLabel } = await import('@solus/contracts/setup-card')
+    const model = new TranscriptModel('s')
+    model.takeChanges()
+    model.apply({ type: 'status_card', card: { id: 'worktree-s', title: 'Preparing worktree…', status: 'active', steps: [
+      { id: 'fetch', label: 'Fetch base branch', status: 'active' },
+      { id: 'checkout', label: 'Check out files', status: 'active', percent: 42 },
+      { id: 'agent', label: 'Start agent', status: 'pending' },
+    ] } })
+    expect(model.takeChanges().meta).toBe(true)
+    expect(setupActivityLabel(model.activeSetupCard())).toBe('Checking out files… 42%')
+    model.setStatus('running')
+    expect(model.activeSetupCard()).toBeNull()
+  })
+
   test('an MCP app survives replay and remains outside a completed work fold', () => {
     const activity: Activity = { id: 'a', kind: 'mcp_app', subject: { kind: 'session', id: 'earlier-session' }, at: 1, by: { kind: 'system' }, app: { integrationId: 'i', title: 'Chart', tool: 'chart', resourceUri: 'ui://chart', assetId: 'asset.json' } }
     const model = TranscriptModel.fromHistory('s', { before: null, messages: [{ role: 'activity', content: '', activity, timestamp: 1 }] })

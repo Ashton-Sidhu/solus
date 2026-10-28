@@ -104,6 +104,7 @@ const PERMISSION_OF_METHOD = {
   googleDisconnect: 'host.admin.connections',
   atlassianStartOAuth: 'host.admin.connections',
   atlassianCancelOAuth: 'host.admin.connections',
+  atlassianConnectApiToken: 'host.admin.connections',
   atlassianDisconnect: 'host.admin.connections',
   providerConnect: 'host.admin.connections',
   providerCancelConnect: 'host.admin.connections',
@@ -173,6 +174,9 @@ const PERMISSION_OF_METHOD = {
   usageLimits: 'host.usage.read',
   // Project files: reading a checkout's files, and changing them.
   searchFiles: 'host.files.read',
+  listIgnoredProjectFiles: 'host.files.read',
+  readWorktreeIncludedFiles: 'host.files.read',
+  setWorktreeIncluded: 'host.files.write',
   searchProjectContents: 'host.files.read',
   listDirectory: 'host.files.read',
   readProjectFile: 'host.files.read',

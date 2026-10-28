@@ -59,7 +59,7 @@ export function connectCardCopy(
   // One Atlassian grant reaches both products, so a user connecting for Jira
   // should know Confluence came with it rather than being asked twice.
   if (provider === 'atlassian') {
-    copy.note = 'One Atlassian sign-in covers both Confluence and Jira.'
+    copy.note = 'One Atlassian connection covers both Confluence and Jira.'
   }
   return copy
 }

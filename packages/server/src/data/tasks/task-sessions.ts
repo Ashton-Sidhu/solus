@@ -37,7 +37,7 @@ import type {
  * hydrate from. */
 
 const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
-const taskSessionRoleSchema = z.enum(['lead', 'working', 'referenced'])
+const taskSessionRoleSchema = z.enum(['working', 'referenced'])
 const taskSessionLinkRowSchema = z.object({
   task_id: z.string(),
   session_id: z.string(),
@@ -48,7 +48,6 @@ const taskSessionLinkRowSchema = z.object({
   started_by: z.string().nullable(),
 })
 const taskIdRowSchema = z.object({ task_id: z.string() })
-const sessionIdRowSchema = z.object({ session_id: z.string() })
 
 type TaskSessionLinkRow = z.infer<typeof taskSessionLinkRowSchema>
 interface TaskSessionsByTask {
@@ -149,8 +148,6 @@ export async function writeSessionLink(
   const isNewLink = !(await db.get(sql`
     SELECT 1 AS present FROM ${taskSessionLinks} WHERE task_id = ${taskId} AND session_id = ${sessionId}
   `))
-  if (role === 'lead') await requireNoOtherLead(db, taskId, sessionId)
-  // A lead owns its session exactly as a working attempt does.
   if (role !== 'referenced') await transferSessionOwnership(db, organizationId, taskId, sessionId, now)
   await db.run(sql`
     INSERT INTO ${taskSessionLinks}(task_id, session_id, role, linked_at, started_by, organization_id)
@@ -172,21 +169,6 @@ export async function writeSessionLink(
     }, now), db)
   }
   return isNewLink
-}
-
-/**
- * A task has at most one lead (docs/plans/task-conversation.md). There is no
- * promotion or release: only a session started as lead is lead, and a second
- * one is refused rather than demoting the first, so the task page's
- * conversation never changes hands underneath the person reading it.
- */
-async function requireNoOtherLead(db: Db, taskId: string, sessionId: string): Promise<void> {
-  const lead = sessionIdRowSchema.nullish().parse(await db.get(sql`
-    SELECT session_id FROM ${taskSessionLinks}
-    WHERE task_id = ${taskId} AND role = 'lead' AND session_id <> ${sessionId}
-    LIMIT 1
-  `))
-  if (lead) throw new Error('This task already has a lead session.')
 }
 
 /**
@@ -284,16 +266,6 @@ export async function taskIdForSession(scope: RecordScope, sessionId: string): P
   return link?.task_id ?? null
 }
 
-/** Whether the session is the lead of a task. */
-export async function sessionIsLead(scope: RecordScope, sessionId: string): Promise<boolean> {
-  const link = taskIdRowSchema.nullish().parse(await getDatabase().get(sql`
-    SELECT task_id FROM ${taskSessionLinks}
-    WHERE ${scopeClause(scope)} AND session_id = ${sessionId} AND role = 'lead'
-    LIMIT 1
-  `))
-  return !!link
-}
-
 /** The tasks linked to these sessions. An id may be a provider thread: its
  *  session is the one a link holds (docs/plans/task-snapshot-resume.md). */
 export async function taskIdsForSessions(scope: RecordScope, sessionIds: readonly string[]): Promise<string[]> {
@@ -340,8 +312,6 @@ interface PrepareSessionTaskInput {
   sessionId?: string
   projectKey?: string | null
   originSessionId?: string | null
-  /** Start the session as the task's lead. Refused when the task has one. */
-  role?: 'lead'
 }
 
 /** First-dispatch boundary: bind the task a session names, in a single
@@ -365,10 +335,6 @@ export async function prepareSessionTask(
     const projectKey = rawProjectKey ? worktreeProjectRoot(rawProjectKey) : null
     const existing = await requireTask(scope, input.taskId, db)
     const organizationId = existing.organization_id
-    // Checked here, before the session exists, so the refusal reaches the
-    // client that asked instead of a link write the run has already left
-    // behind. The link write checks again for every other writer.
-    if (input.role === 'lead') await requireNoOtherLead(db, input.taskId, input.sessionId ?? '')
     await db.run(sql`
       UPDATE ${tasks} SET
         project_key = COALESCE(project_key, ${projectKey}),
@@ -385,7 +351,7 @@ export async function prepareSessionTask(
     const updated = await requireTask(scope, input.taskId, db)
     await diffTaskActivity(db, organizationId, input.taskId, existing, updated, agentAttribution(input.sessionId ?? input.originSessionId), now)
     if (!input.sessionId) return taskFromRow(updated)
-    await writeSessionLink(db, organizationId, input.taskId, input.sessionId, input.role ?? 'working', {
+    await writeSessionLink(db, organizationId, input.taskId, input.sessionId, 'working', {
       originSessionId: input.originSessionId,
     }, now)
     return taskFromRow(await requireTask(organizationId, input.taskId, db))

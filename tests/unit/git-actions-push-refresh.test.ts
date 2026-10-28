@@ -52,7 +52,7 @@ async function runAction(push: 'pushed' | 'skipped') {
   }
   const pullRequests = {
     get: () => ({
-      prForBranch: (branch: string) => ({ refreshDetail: async () => { refreshed.push(branch) } }),
+      prForCheckout: (prUrl: string | null) => prUrl ? { refreshDetail: async () => { refreshed.push(prUrl) } } : null,
       absorbCreated: () => {},
     }),
   }
@@ -62,6 +62,8 @@ async function runAction(push: 'pushed' | 'skipped') {
     environmentStore as unknown as ConstructorParameters<typeof GitActions>[2],
     pullRequests as unknown as ConstructorParameters<typeof GitActions>[3],
   )
+  // The host's answer names the branch's pull request (`prForCheckout`).
+  actions.prUrl = 'https://github.com/acme/a/pull/7'
   await actions.run('commit_push')
   return refreshed
 }
@@ -71,7 +73,7 @@ describe('a Git action that pushes', () => {
     // WHY: mergeability and checks belong to the head. The rail used to learn
     // of a push through a flag and an effect; the push itself now says so,
     // whether or not the rail is on screen.
-    expect(await runAction('pushed')).toEqual(['feature/x'])
+    expect(await runAction('pushed')).toEqual(['https://github.com/acme/a/pull/7'])
   })
 
   test('leaves the pull request alone when nothing was pushed', async () => {

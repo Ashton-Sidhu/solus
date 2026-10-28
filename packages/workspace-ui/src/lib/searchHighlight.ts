@@ -1,6 +1,6 @@
 // Shared by every surface that filters a list on a literal query and wants to
 // show *why* a row matched: the workspace ledger and the session picker.
-import { searchTokens, searchWords, searchTokenMatches } from '@solus/contracts/session-search';
+import { SearchQuery, searchTokens, searchTokenMatches } from '@solus/contracts/search-query';
 
 /** One run of a row's text, flagged when it is part of the active query so the
  *  row can `<mark>` it without the markup doing the matching. */
@@ -30,7 +30,7 @@ export function highlightRuns(text: string, query: string): TextRun[] {
  *  index matches by, where the words are ANDed and need not sit next to each
  *  other. "auth" marks "auth" and "Authentication", not the tail of "oauth". */
 export function highlightWordRuns(text: string, query: string): TextRun[] {
-  const words = searchWords(query);
+  const { words } = new SearchQuery(query);
   if (!words.length) return [{ text, hit: false }];
   const runs: TextRun[] = [];
   let from = 0;

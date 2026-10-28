@@ -42,37 +42,40 @@
     task: SidebarTask;
     prChip: PrChipModel | null;
     prChoices: TaskPrChoice[];
-    /** True while the session you are reading belongs to this task. The active
-     *  task leads with full ink and weight; the rest rest at a legible tone. */
+    /** True while the session you are reading is this row's session or one it
+     *  delegated. That row leads with full ink and weight; the rest rest at a
+     *  legible tone. */
     onPath: boolean;
     bulkSelected?: boolean;
-    /** Every session of the row, for the facts the row states about them. */
+    /** The row's session, for the facts the row states about it. */
     sessions: SidebarSessionChild[];
     /** A share link's guest is not told which host runs the session (host-sharing.md §10). */
     isGuest: boolean;
-    /** The session on screen, listed under the row when the row does not
-     *  stand for it already. Null on every other row, so one click updates
-     *  two rows and not the whole list. */
-    disclosedSession: SidebarSessionChild | null;
+    /** The sessions that the row's session delegated, listed under the row
+     *  whether or not they are on screen. */
+    nestedSessions: SidebarSessionChild[];
+    /** Whether the row's session delegated sessions, folded or not. */
+    hasNestedSessions: boolean;
+    isNestedCollapsed: boolean;
+    /** Fold or unfold the delegated sessions under the row. */
+    onToggleNested: () => void;
+    /** The tab on screen, which a session under the row marks as current. */
+    onScreenTabId: string | null;
     /** Tab whose session name is being edited in place. */
     renamingTabId: string | null;
-    /** The same for rows the task store backs, which are named by the task
-     *  rather than by whichever session happens to be open under them. */
-    renamingTaskId: string | null;
     onSelect: (event?: MouseEvent) => void;
     /** A click just opened a session and reordered the list under the resting
      *  pointer: the tooltip stays shut until the pointer moves. */
     isTooltipQuiet?: boolean;
     /** The pointer went down on the row: its reads can start before the click lands. */
     onPressStart?: () => void;
-    /** Rename a row in place. `null` names the task row itself, matching
-     *  `onRename` — a task row is named by its task, a session row by its tab. */
+    /** Rename a row in place. `null` names the row's own session, matching
+     *  `onRename`; a session listed under the row is named by its tab. */
     onStartRename: (session: SidebarSessionChild | null) => void;
     onRename: (session: SidebarSessionChild | null, next: string) => void;
     onRenameCancel: () => void;
     onMore: (event: MouseEvent | PointerEvent) => void;
-    /** Whether the row can be snoozed: a session's row snoozes the session, a
-     *  Solus task's row the task (docs/task-snooze.md). */
+    /** Whether the row's session can be snoozed (docs/task-snooze.md). */
     canSnooze: boolean;
     /** The snooze menu drops from the button that opened it. */
     onSnooze: (anchor: HTMLElement) => void;
@@ -84,6 +87,8 @@
     onWarmPr?: (choice: TaskPrChoice) => void;
     /** Open a pull request's own menu. */
     onMorePr: (event: MouseEvent, choice: TaskPrChoice) => void;
+    /** The way to unlink a pull request from this row, or null when it has none. */
+    onUnlinkPr?: (choice: TaskPrChoice) => (() => void) | null;
     /** Open the task a session's chip names. */
     onOpenLinkedTask: () => void;
     onSelectSession: (session: SidebarSessionChild) => void;
@@ -98,9 +103,12 @@
     bulkSelected = false,
     sessions,
     isGuest,
-    disclosedSession,
+    nestedSessions,
+    hasNestedSessions,
+    isNestedCollapsed,
+    onToggleNested,
+    onScreenTabId,
     renamingTabId,
-    renamingTaskId,
     onSelect,
     isTooltipQuiet = false,
     onPressStart,
@@ -116,6 +124,7 @@
     onOpenPr,
     onWarmPr,
     onMorePr,
+    onUnlinkPr,
     onOpenLinkedTask,
     onSelectSession,
     onMoreSession,
@@ -123,9 +132,7 @@
   }: Props = $props();
 
   const completeLabel = $derived(
-    task.status === "done"
-      ? task.taskId ? "Reopen task" : "Reopen session"
-      : task.taskId ? "Mark task completed" : "Mark session done",
+    task.status === "done" ? "Reopen session" : "Mark session done",
   );
 
   // A row on a quiet shelf collapses to a single line. Snoozed and completed
@@ -160,10 +167,14 @@
   // the icon falls back to a globe in that case.
   const remoteOs = $derived(host && "os" in host ? host.os : undefined);
 
-  // With no session listed under it, this row stands for the session you are
-  // reading, so it carries the current-session weight and clock itself. A row
-  // that lists the session on screen under it leaves both to that row.
-  const isCurrentSession = $derived(onPath && !disclosedSession);
+  // With no session listed under it on screen, this row stands for the
+  // session you are reading, so it carries the current-session weight and
+  // clock itself. A row that lists the session on screen under it leaves both
+  // to that row.
+  const isCurrentSession = $derived(
+    onPath &&
+      !nestedSessions.some((session) => session.tabId === onScreenTabId),
+  );
   const titleIsEmphasized = $derived(
     shouldEmphasizeTitle(task.status, task.unread, isCurrentSession),
   );
@@ -202,12 +213,21 @@
     }),
   );
 
-  // A durable row is named by its task; a session's own row by its only tab.
+  // A row is named by its session, through its only tab.
   const renamingRow = $derived(
-    task.taskId
-      ? renamingTaskId === task.taskId
-      : !!task.tabIds[0] && renamingTabId === task.tabIds[0],
+    !!task.tabIds[0] && renamingTabId === task.tabIds[0],
   );
+
+  // A click on the row you are already reading has nothing to open, so it
+  // folds or unfolds the sessions it delegated, as a tree does.
+  function activate(event?: MouseEvent) {
+    const hasModifier = !!event && (event.metaKey || event.ctrlKey || event.shiftKey);
+    if (hasNestedSessions && isCurrentSession && !hasModifier) {
+      onToggleNested();
+      return;
+    }
+    onSelect(event);
+  }
 
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressNextClick = false;
@@ -341,10 +361,9 @@
       {@render stateMark()}
     </span>
 
-    <!-- A task with nothing open still owns its name and completion state, so
-         completion and overflow remain available. The check finishes the task;
-         the cross only removes the row from this client's sidebar. -->
-    {#if task.tabIds[0] || task.taskId || task.sessionId}
+    <!-- A session with no conversation here still owns its completion state,
+         so completion and archive remain available. -->
+    {#if task.tabIds[0] || task.sessionId}
       <span
         class="pointer-events-none absolute inset-y-0 right-0 -mr-1 flex items-center gap-px opacity-0 transition-opacity duration-150 pointer-coarse:pointer-events-auto pointer-coarse:static pointer-coarse:opacity-100 pointer-fine:group-hover/row:pointer-events-auto pointer-fine:group-hover/row:static pointer-fine:group-hover/row:opacity-100 pointer-fine:group-has-[:focus-visible]/row:pointer-events-auto pointer-fine:group-has-[:focus-visible]/row:static pointer-fine:group-has-[:focus-visible]/row:opacity-100"
       >
@@ -359,7 +378,7 @@
             <button
               class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
               title="Wake now"
-              aria-label={task.taskId ? "Wake task now" : "Wake session now"}
+              aria-label="Wake session now"
               onclick={(event) => {
                 event.stopPropagation();
                 onWake();
@@ -371,7 +390,7 @@
             <button
               class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground @max-[15rem]:hidden"
               title="Snooze"
-              aria-label={task.taskId ? "Snooze task" : "Snooze session"}
+              aria-label="Snooze session"
               onclick={(event) => {
                 event.stopPropagation();
                 onSnooze(event.currentTarget);
@@ -396,25 +415,19 @@
             <CheckIcon size={14} weight="bold" />
           {/if}
         </button>
-        <!-- Close takes a row out of the column. A session's row archives the
-             session, on every device (docs/plans/session-archive.md). A
-             finished task is not in the working column any more — the shelf
-             lists it from the task store and retention decides when it goes —
-             so on the shelf a task's control only earns its place while there
-             are still tabs to unload. -->
-        {#if task.tabIds.length > 0 || task.sessionId || (task.taskId && task.lifecycle !== "completed")}
-          <button
-            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
-            title={task.taskId ? "Remove from sidebar" : "Archive"}
-            aria-label={task.taskId ? "Remove task from sidebar" : "Archive session"}
-            onclick={(event) => {
-              event.stopPropagation();
-              onClose();
-            }}
-          >
-            <XIcon size={14} weight="bold" />
-          </button>
-        {/if}
+        <!-- Close takes a row out of the column: it archives the session, on
+             every device (docs/plans/session-archive.md). -->
+        <button
+          class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
+          title="Archive"
+          aria-label="Archive session"
+          onclick={(event) => {
+            event.stopPropagation();
+            onClose();
+          }}
+        >
+          <XIcon size={14} weight="bold" />
+        </button>
       </span>
     {/if}
   </span>
@@ -466,7 +479,7 @@
     tabindex="0"
     data-task-key={task.key}
     aria-selected={isCurrentSession}
-    aria-expanded={disclosedSession ? true : undefined}
+    aria-expanded={hasNestedSessions ? !isNestedCollapsed : undefined}
     aria-label={mark?.kind === "glyph"
       ? `${task.title} — ${attentionLabel(task.attention, task.limitResetsAt)}`
       : task.title}
@@ -482,7 +495,7 @@
         return;
       }
       if (!shouldActivateRenameableRow(event.detail)) return;
-      onSelect(event);
+      activate(event);
     }}
     ondblclick={() => onStartRename(null)}
     oncontextmenu={onMore}
@@ -493,7 +506,7 @@
     onkeydown={(event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        onSelect();
+        activate();
       }
     }}
   >
@@ -520,7 +533,7 @@
             ? 'opacity-75 group-hover/row:opacity-100'
             : ''}"
         >
-          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} />
+          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} onUnlink={onUnlinkPr} />
         </span>
       {/if}
       {@render trailingSlot()}
@@ -605,8 +618,9 @@
         >
           {@render rowTitle()}
           {#if task.linkedTask}
-            <!-- This session belongs to a task that has no row in the Tasks
-                 section here, so the session names it. The chip is navigation,
+            <!-- The task this session is linked to. A task has no row of its
+                 own, so the session names it, and the chip opens the task's
+                 page. The chip is navigation,
                  as the pull request token beside it is, so it takes the same
                  bare form: glyph and label in one ink, no plate. Blue keeps it
                  apart from every pull request state (green, plum, red). The
@@ -644,7 +658,7 @@
                 ? 'opacity-75 group-hover/row:opacity-100'
                 : ''}"
             >
-              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} />
+              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} onUnlink={onUnlinkPr} />
             </span>
           {/if}
         </span>
@@ -670,24 +684,27 @@
     />
   </TooltipUI.Root>
 
-  {#if disclosedSession && !isSlim}
-    <!-- The session on screen, one step in from the row it belongs to. The
-         row's other sessions are on the task page; the list names only the
-         one being read. -->
+  {#if nestedSessions.length > 0 && !isSlim}
+    <!-- Sessions one step in from the row they belong to: every session the
+         row's session delegated. -->
     <div class="pt-px pb-2">
-      <TaskSessionRow
-        session={disclosedSession}
-        groupKey={task.groupKey}
-        projectLabel={task.projectLabel}
-        {isGuest}
-        renaming={!!disclosedSession.tabId && renamingTabId === disclosedSession.tabId}
-        onRename={(next) => onRename(disclosedSession, next)}
-        {onRenameCancel}
-        onStartRename={() => onStartRename(disclosedSession)}
-        onSelect={() => onSelectSession(disclosedSession)}
-        onMore={(event) => onMoreSession(event, disclosedSession)}
-        onClose={() => onCloseSession(disclosedSession)}
-      />
+      {#each nestedSessions as listed, index (listed.tabId ?? listed.sessionId)}
+        <TaskSessionRow
+          session={listed}
+          isCurrent={!!listed.tabId && listed.tabId === onScreenTabId}
+          continues={index < nestedSessions.length - 1}
+          groupKey={task.groupKey}
+          projectLabel={task.projectLabel}
+          {isGuest}
+          renaming={!!listed.tabId && renamingTabId === listed.tabId}
+          onRename={(next) => onRename(listed, next)}
+          {onRenameCancel}
+          onStartRename={() => onStartRename(listed)}
+          onSelect={() => onSelectSession(listed)}
+          onMore={(event) => onMoreSession(event, listed)}
+          onClose={() => onCloseSession(listed)}
+        />
+      {/each}
     </div>
   {/if}
 </div>

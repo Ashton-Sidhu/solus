@@ -177,3 +177,41 @@ test('switching organizations replaces cached sessions and preserves Local and l
     expect([...fakes.values()].map((home) => home.lists.length)).toEqual([1, 1, 1])
   } finally { restore() }
 })
+
+test("a forgotten host's sessions leave the list; one its Solus API keeps opens from the Solus API", async () => {
+  // WHY: a forgotten host's sessions stayed in the sidebar as "Removed host" rows
+  // that could not be opened. Forgetting a host takes its sessions with it.
+  const runners: Record<string, string> = { 'vm-on': 'runner' }
+  const { store, restore } = fakeHomes({
+    'workspace:org-1': [record('org-session', { organizationId: 'org-1', publication: 'published', runnerHostId: 'vm-on' })],
+    runner: [record('personal')],
+    other: [record('elsewhere')],
+  }, runners)
+  try {
+    await store.load()
+    delete runners['vm-on']
+    store.forgetHost('runner')
+    expect(store.listed('personal')).toBeUndefined()
+    expect(store.listed('elsewhere')).toBeDefined()
+    await Bun.sleep(0)
+    expect(store.listed('org-session')).toMatchObject({ serverId: 'workspace:org-1', runnerOffline: true })
+  } finally { restore() }
+})
+
+test('a listed session keeps what the Workspace page shows of it: its activity, status, branch, owner, and the reader\'s role', async () => {
+  const { store, restore } = fakeHomes({
+    host: [
+      record('shared', { lastActivityAt: 42, status: 'running', branch: 'fix/reconnect', ownerKey: 'account:ada', role: 'editor' }),
+      record('own', { lastActivityAt: 7, status: 'idle', branch: null, ownerKey: 'account:me' }),
+    ],
+  })
+  try {
+    await store.load()
+    expect(store.listed('shared')).toMatchObject({ lastActivityAt: 42, status: 'running', branch: 'fix/reconnect', ownerKey: 'account:ada', role: 'editor' })
+    // A host that is the reader's own answers no role, and the row carries none.
+    expect(store.listed('own')).toMatchObject({ lastActivityAt: 7, status: 'idle', ownerKey: 'account:me' })
+    expect('role' in store.listed('own')!).toBe(false)
+  } finally {
+    restore()
+  }
+})

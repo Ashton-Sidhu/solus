@@ -25,7 +25,7 @@ export default cloudModeScenario('cloud sign-in: identity, registration without 
   const fromUserinfo = signedIn.oauth.state()
   ctx.check('/userinfo, read with an account token, gives the same person', fromUserinfo.kind === 'signed-in' && fromUserinfo.identity.sub === alice.userId && fromUserinfo.identity.name === alice.name)
 
-  ctx.step('alice registers a new host with an enrollment ticket; no link')
+  ctx.step('alice registers a new host with an enrollment ticket; it links')
   const host = await ctx.bootHost()
   const status = await registerHost(ctx.stack, host, signedIn)
   ctx.check('the host is registered', status.registration.registered)
@@ -33,7 +33,7 @@ export default cloudModeScenario('cloud sign-in: identity, registration without 
   const hostId = status.registration.registration.hostId
   ctx.defer('alice removes the host from her account', () => removeHost(ctx.stack, signedIn, hostId))
   ctx.check('the registration names the local cloud as issuer', status.registration.registration.issuer === ctx.stack.origin, status.registration.registration.issuer)
-  ctx.check('the host is not linked', !status.link.linked)
+  ctx.check('the new registration linked the host', status.link.linked)
 
   ctx.step('alice dials the host with an access token for its audience')
   const client = hostClient(host, signedIn, hostId, { asOwner: true })

@@ -432,14 +432,13 @@
   }
 
   // --- The branch's own pull request ---------------------------------------
-  // `prUrl` rides along on the detailed status for free, but provider discovery
-  // answers for closed and merged branches too — it only says "worth asking".
-  // The store's branch index is what decides whether the PR is still live, so
-  // the row reports from the match and stays quiet when the branch's PR landed.
+  // `prUrl` rides along on the detailed status for free. The host matched it
+  // to the checkout's own remotes, so it names the right pull request on a
+  // fork, where a branch name alone matches other contributors' forks. It
+  // answers for closed and merged branches too, so the store's record decides
+  // whether the PR is still live: the row stays quiet when the PR landed.
   const activePr = $derived.by(() => {
-    const pr = pullRequests.projects.at(prServerId, prProjectScope)?.prForBranch(
-      currentBranch,
-    );
+    const pr = pullRequests.projects.at(prServerId, prProjectScope)?.prForCheckout(prUrl);
     return pr?.state === "open" ? pr : null;
   });
   const activePrBadge = $derived(

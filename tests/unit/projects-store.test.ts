@@ -121,10 +121,6 @@ describe('the project of a folder', () => {
     expect(store.projectKeyFor('laptop', '/Users/me/notes')).toBe('laptop:/Users/me/notes')
     expect(store.projectKeyFor('box', '/Users/me/notes')).toBe('box:/Users/me/notes')
   })
-
-  test('a dispatch clone no host lists is the repository its path names', () => {
-    expect(store.projectKeyFor('box', '/home/me/projects/solus-remote/dev1/github.com/acme/web')).toBe('github.com/acme/web')
-  })
 })
 
 describe('the checkout a project is read from', () => {
@@ -188,8 +184,8 @@ describe('adding a project', () => {
     const host = fakeHost()
     store.addProject('local', host.api, `/repos/atlas${SOLUS_WORKTREE_PATH_MARKER}feature`)
     expect(store.addProject('local', host.api, '~')).toBeNull()
-    store.addProject('local', host.api, '/home/me/solus-remote/dev1/github.com/acme/web')
-    expect(host.tracked).toEqual(['/repos/atlas', '/home/me/solus-remote/dev1/github.com/acme/web'])
+    store.addProject('local', host.api, '/home/me/projects/web')
+    expect(host.tracked).toEqual(['/repos/atlas', '/home/me/projects/web'])
   })
 })
 

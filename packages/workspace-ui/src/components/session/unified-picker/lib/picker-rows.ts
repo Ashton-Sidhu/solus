@@ -8,14 +8,8 @@ import type { SidebarSessionChild } from '../../../../contexts/workspace/session
 import type { PreviewHitTarget } from '../../../../lib/preview.svelte'
 import { taskPickerSections } from '../../../tasks/lib/task-picker-sections'
 import { isDone } from '../../../tasks/lib/tasks-list-view'
-import {
-  firstWordIndex,
-  flattenedLower,
-  matchesEveryWord,
-  PICKER_SORT_HINTS,
-  queryWords,
-  type PickerSort,
-} from './picker-search'
+import { SearchQuery } from '@solus/contracts/search-query'
+import { flattenedLower, PICKER_SORT_HINTS, type PickerSort } from './picker-search'
 import { activityScore, compareRelevance, nameScore, topHits, type Relevance } from './picker-relevance'
 import { activeSince, keepsArchive, keepsHost, keepsSession, keepsTask, NO_PICKER_FILTERS, type PickerFilters } from './picker-filters'
 import {
@@ -28,6 +22,9 @@ import {
   type TaskSession,
 } from './picker-session-listings'
 import { hostPathBaseName } from '@solus/contracts/host-path'
+
+/** The empty query: lists that ignore what is typed. */
+const NO_QUERY = new SearchQuery('')
 
 export { sessionIdentity } from './picker-session-listings'
 
@@ -192,25 +189,25 @@ export function pickerProjectKeys(
  * the human `T-<n>`; a status or a project path matched every task that
  * shared it, which was noise, not a hit.
  */
-export function taskMatchField(task: Task, words: readonly string[], commentPassage?: string): TaskMatchField | null {
-  if (!words.length) return 'title'
-  if (matchesEveryWord(task.title, words)) return 'title'
-  if (task.body && matchesEveryWord(task.body, words)) return 'body'
+export function taskMatchField(task: Task, search: SearchQuery, commentPassage?: string): TaskMatchField | null {
+  if (search.isEmpty) return 'title'
+  if (search.matchName(task.title)) return 'title'
+  if (task.body && search.holdsEveryWord(task.body)) return 'body'
   const shortId = taskShortIdLabel(task)
-  if (shortId && matchesEveryWord(shortId, words)) return 'id'
+  if (shortId && search.matchName(shortId)) return 'id'
   // The hosts found the words across the task's comments (unified-search.md §7).
   return commentPassage ? 'comment' : null
 }
 
-export function sessionMatches(session: SidebarSessionChild, words: readonly string[]): boolean {
-  return !words.length || matchesEveryWord(session.label, words)
+export function sessionMatches(session: SidebarSessionChild, search: SearchQuery): boolean {
+  return search.isEmpty || !!search.matchName(session.label)
 }
 
 /** The passage of `text` around the earliest word of the query, whitespace
  *  collapsed, with ellipses where it was cut. The row's second line. */
-export function matchWindow(text: string, words: readonly string[]): string {
+export function matchWindow(text: string, search: SearchQuery): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  const at = firstWordIndex(flat, words)
+  const at = search.firstHit(flat)
   if (at < 0) return flat.slice(0, 100)
   const start = Math.max(0, at - 32)
   const end = Math.min(flat.length, at + 72)
@@ -232,8 +229,6 @@ export interface PickerRowsInput {
   sort?: PickerSort
   sessionsFor: (task: Task) => SidebarSessionChild[]
   expandedTaskIds: ReadonlySet<string>
-  /** Durable tasks currently visible in the session sidebar. */
-  openTaskIds?: ReadonlySet<string>
   /** Sessions that match the query, from every host searched, in the pages
    *  read so far. Only read under a query. */
   conversations?: readonly SessionSearchResult[]
@@ -312,12 +307,12 @@ interface KeptTask {
 }
 
 /** Where a kept task matched, as a tier and a score (`picker-relevance.ts`). */
-function taskRelevance(item: KeptTask, words: readonly string[], now: number): Relevance {
+function taskRelevance(item: KeptTask, search: SearchQuery, now: number): Relevance {
   const { task } = item
   const activity = activityScore(task.updatedAt, now, isDone(task))
-  if (item.matchedIn === 'title') return { tier: 'name', score: nameScore(task.title, words) + activity }
+  if (item.matchedIn === 'title') return { tier: 'name', score: nameScore(task.title, search) + activity }
   // "T-4" names T-4 itself; that T-40 also starts with it is incidental.
-  if (item.matchedIn === 'id' && flattenedLower(taskShortIdLabel(task)) === words.join(' ')) return { tier: 'id', score: activity }
+  if (item.matchedIn === 'id' && flattenedLower(taskShortIdLabel(task)) === search.words.join(' ')) return { tier: 'id', score: activity }
   return { tier: 'evidence', score: activity }
 }
 
@@ -339,7 +334,7 @@ function rememberOwners(owners: Map<string, SessionOwner>, task: Task, sessions:
 }
 
 /** The tasks the query and scope keep, and the sessions a query's words name. */
-function keepMatches(input: PickerRowsInput, words: readonly string[]) {
+function keepMatches(input: PickerRowsInput, search: SearchQuery) {
   const scope = input.projectKey ?? null
   const projectKeyOf = input.projectKeyOf ?? ((task: Task) => task.projectKey ?? null)
   const kept: KeptTask[] = []
@@ -355,9 +350,9 @@ function keepMatches(input: PickerRowsInput, words: readonly string[]) {
     rememberOwners(ownerBySessionId, task, sessions, inScope)
     const matchedIn = input.resultType === 'sessions' || !keepsTask(task, filters, since)
       ? null
-      : taskMatchField(task, words, input.commentPassages?.get(task.id))
-    const matchingSessions = input.resultType !== 'tasks' && (words.length || input.resultType === 'sessions')
-      ? sessions.filter((session) => sessionMatches(session, words) && keepsSession(session, session.lastActivityAt, filters, since))
+      : taskMatchField(task, search, input.commentPassages?.get(task.id))
+    const matchingSessions = input.resultType !== 'tasks' && (!search.isEmpty || input.resultType === 'sessions')
+      ? sessions.filter((session) => sessionMatches(session, search) && keepsSession(session, session.lastActivityAt, filters, since))
       : []
     if (!matchedIn && matchingSessions.length === 0) continue
     if (!inScope) {
@@ -382,7 +377,7 @@ function rowWriter(input: PickerRowsInput) {
     entries.push(row)
   }
 
-  const task = (item: KeptTask, expanded: boolean, words: readonly string[]) => {
+  const task = (item: KeptTask, expanded: boolean, search: SearchQuery) => {
     const { task } = item
     const row: PickerEntry = {
       kind: 'task',
@@ -390,13 +385,13 @@ function rowWriter(input: PickerRowsInput) {
       entryIndex: entries.length,
       task,
       sessions: input.resultType === 'tasks' ? [] : item.sessions,
-      expanded: !words.length && input.resultType !== 'tasks' && expanded,
+      expanded: search.isEmpty && input.resultType !== 'tasks' && expanded,
     }
-    if (words.length) row.matchedIn = item.matchedIn
-    if (words.length && item.matchedIn === 'body') row.bodySnippet = matchWindow(task.body ?? '', words)
-    if (words.length && item.matchedIn === 'comment') row.bodySnippet = matchWindow(plainSnippet(input.commentPassages?.get(task.id) ?? ''), words)
+    if (!search.isEmpty) row.matchedIn = item.matchedIn
+    if (!search.isEmpty && item.matchedIn === 'body') row.bodySnippet = matchWindow(task.body ?? '', search)
+    if (!search.isEmpty && item.matchedIn === 'comment') row.bodySnippet = matchWindow(plainSnippet(input.commentPassages?.get(task.id) ?? ''), search)
     push(row)
-    if (!expanded || words.length || input.resultType === 'tasks') return
+    if (!expanded || !search.isEmpty || input.resultType === 'tasks') return
     item.sessions.forEach((session, index) => {
       push({
         kind: 'session',
@@ -452,14 +447,14 @@ function rowWriter(input: PickerRowsInput) {
 }
 
 export function buildPickerRows(input: PickerRowsInput): PickerList {
-  const words = queryWords(input.query)
-  const matches = keepMatches(input, words)
+  const search = new SearchQuery(input.query)
+  const matches = keepMatches(input, search)
   const { kept, hiddenTaskCount } = matches
   const writer = rowWriter(input)
-  if (words.length || input.resultType === 'sessions') return queryList(input, words, matches, writer)
+  if (!search.isEmpty || input.resultType === 'sessions') return queryList(input, search, matches, writer)
   if (input.resultType !== 'tasks') return recentList(input, matches, writer)
 
-  for (const section of lifecycleSections(kept, input)) {
+  for (const section of lifecycleSections(kept)) {
     writer.header({
       kind: 'header',
       key: `header:${section.key}`,
@@ -468,7 +463,7 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
       hint: PICKER_SORT_HINTS.recency,
     })
     for (const item of section.items) {
-      writer.task(item, input.expandedTaskIds.has(item.task.id), [])
+      writer.task(item, input.expandedTaskIds.has(item.task.id), NO_QUERY)
     }
   }
   return {
@@ -501,7 +496,7 @@ function recentList(
     })
   }
   for (const { item, listing } of items) {
-    if (item) writer.task(item, input.expandedTaskIds.has(item.task.id), [])
+    if (item) writer.task(item, input.expandedTaskIds.has(item.task.id), NO_QUERY)
     else writer.listing(listing!)
   }
   return {
@@ -516,36 +511,36 @@ function recentList(
 /** The list under a query — or every session, when only sessions are listed. */
 function queryList(
   input: PickerRowsInput,
-  words: readonly string[],
+  search: SearchQuery,
   { kept, nameHits, ownerBySessionId, hiddenTaskCount }: ReturnType<typeof keepMatches>,
   writer: ReturnType<typeof rowWriter>,
 ): PickerList {
-  const sort = words.length ? input.sort ?? 'relevance' : 'recency'
+  const sort = !search.isEmpty ? input.sort ?? 'relevance' : 'recency'
   const now = input.now ?? Date.now()
   const { filters } = narrowing(input)
   // Input order is newest first. Relevance ranks with a stable sort, so
   // recency stays the tiebreak; recency keeps the input order as it is.
-  const scoredTasks: RankedTask[] = kept.map((item) => ({ ...item, relevance: taskRelevance(item, words, now) }))
+  const scoredTasks: RankedTask[] = kept.map((item) => ({ ...item, relevance: taskRelevance(item, search, now) }))
   const rankedTasks = sort === 'relevance'
     ? scoredTasks.toSorted((a, b) => compareRelevance(a.relevance, b.relevance))
     : scoredTasks
   const unclaimed = unclaimedSessions(input.recentSessions ?? [], ownerBySessionId, filters, now)
   const { named: listings, inMessages } = input.resultType === 'tasks' ? { named: [], inMessages: [] } : matchedSessions(
     nameHits,
-    words.length ? unclaimed : [],
+    !search.isEmpty ? unclaimed : [],
     // A host's record can open on another machine, so the Host filter is
     // checked against the machine each hit opens on.
-    words.length ? (input.conversations ?? []).filter((result) => keepsHost(result.session.serverId, filters) && keepsArchive(result.session.archived, filters)) : [],
+    !search.isEmpty ? (input.conversations ?? []).filter((result) => keepsHost(result.session.serverId, filters) && keepsArchive(result.session.archived, filters)) : [],
     ownerBySessionId,
     sort,
-    words,
+    search,
     now,
   )
-  if (!words.length) {
+  if (search.isEmpty) {
     listings.push(...unclaimed)
     listings.sort(compareListings(sort))
   }
-  const remaining = remainingSessions(input, words)
+  const remaining = remainingSessions(input, search)
 
   // Only rows this client found by name are ranked into Top hits and the two
   // sections under it: a host's answer comes later and must not move them.
@@ -560,7 +555,7 @@ function queryList(
       hint: PICKER_SORT_HINTS.relevance,
     })
     for (const hit of top.order) {
-      if ('matchedIn' in hit) writer.task(hit, false, words)
+      if ('matchedIn' in hit) writer.task(hit, false, search)
       else writer.listing(hit)
     }
   }
@@ -574,7 +569,7 @@ function queryList(
       count: restTasks.length,
       hint: PICKER_SORT_HINTS[sort],
     })
-    for (const item of restTasks) writer.task(item, false, words)
+    for (const item of restTasks) writer.task(item, false, search)
   }
 
   writeSessionsSection(writer, 'sessions', 'Sessions', listings.filter((listing) => !top.sessions.has(listing)), 0, sort)
@@ -590,8 +585,8 @@ function queryList(
 }
 
 /** Matching sessions the hosts hold beyond the pages read, when the list shows sessions under a query. */
-function remainingSessions(input: PickerRowsInput, words: readonly string[]): number {
-  if (input.resultType === 'tasks' || !words.length) return 0
+function remainingSessions(input: PickerRowsInput, search: SearchQuery): number {
+  if (input.resultType === 'tasks' || search.isEmpty) return 0
   return input.conversationsRemaining ?? 0
 }
 
@@ -624,27 +619,15 @@ interface LifecycleSection {
   items: KeptTask[]
 }
 
-/**
- * The sections of an unqueried list: what the sidebar has open, then every
- * other task by lifecycle, as the Tasks page names them.
- */
-function lifecycleSections(kept: readonly KeptTask[], input: PickerRowsInput): LifecycleSection[] {
-  const openTaskIds = input.openTaskIds ?? new Set<string>()
-  const open = kept.filter(
-    (item) => item.task.status === 'in_progress' && openTaskIds.has(item.task.id),
-  )
-  const liftedTaskIds = new Set(open.map((item) => item.task.id))
+/** The sections of an unqueried list: every task by lifecycle, as the Tasks
+ *  page names them. */
+function lifecycleSections(kept: readonly KeptTask[]): LifecycleSection[] {
   const byTaskId = new Map(kept.map((item) => [item.task.id, item]))
-  return [
-    ...(open.length ? [{ key: 'sidebar-open', label: 'Open', items: open }] : []),
-    ...taskPickerSections(
-      kept.map((item) => item.task).filter((task) => !liftedTaskIds.has(task.id)),
-    ).map((section) => ({
-      key: section.key,
-      label: section.label,
-      items: section.tasks.map((task) => byTaskId.get(task.id)!),
-    })),
-  ]
+  return taskPickerSections(kept.map((item) => item.task)).map((section) => ({
+    key: section.key,
+    label: section.label,
+    items: section.tasks.map((task) => byTaskId.get(task.id)!),
+  }))
 }
 
 /**

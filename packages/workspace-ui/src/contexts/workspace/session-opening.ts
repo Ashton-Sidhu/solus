@@ -25,8 +25,7 @@ import { readSessionMeta } from '@solus/client-core/session-meta'
 import { reviewGuideStore, sessionGuideIdentity } from '../../components/review/review-guide.store.svelte'
 import { ownedTaskId } from './session-draft.svelte'
 import { type GitRefreshResult } from '../git/session-environment.store.svelte'
-import { findLastUserIndex } from './session.utils'
-import { runOnModel } from './run-config'
+import { findLastUserIndex, parentSessionIdOf } from './session.utils'
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { SessionUnavailableError } from './session-errors'
 import { quotedReplyDraft } from '@solus/client-core/quoted-reply'
@@ -55,10 +54,7 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'drafts'
   | 'environment'
   | 'eventReducer'
-  | 'goToTask'
-  | 'hasCompanionPanes'
   | 'lifecycle'
-  | 'onTaskOpened'
   | 'openSessionRecord'
   | 'openChatSurface'
   | 'planStore'
@@ -73,7 +69,6 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'sessions'
   | 'setActiveTab'
   | 'settings'
-  | 'showExplicitSidebarTaskSession'
   | 'chatSurfaceTabId'
   | 'tabOrder'
   | 'tabs'
@@ -321,8 +316,6 @@ export class SessionOpening {
       intoTabId?: string
       /** False once the reader has moved on; the resume then stops before it opens a tab. */
       stillWanted?: () => boolean
-      /** Runs once the new conversation is the destination, before its transcript loads. */
-      onShown?: (tabId: string) => void
     },
   ): Promise<string> {
     // A session ref crossing the client names its host — there is no probe.
@@ -432,6 +425,7 @@ export class SessionOpening {
       session.title = title
       session.titleCustom = !!meta.customTitle
       session.startedBy = meta.startedBy
+      session.parentSessionId = parentSessionIdOf(meta)
       session.organizationId = meta.organizationId ?? null
       if (shouldActivate) {
         if (this.workspace.settings.activeAgent !== provider) {
@@ -455,6 +449,7 @@ export class SessionOpening {
       session.title = title
       session.titleCustom = !!meta.customTitle
       session.startedBy = meta.startedBy
+      session.parentSessionId = parentSessionIdOf(meta)
       session.organizationId = meta.organizationId ?? null
 
       if (!background && !intoTabId) {
@@ -465,10 +460,7 @@ export class SessionOpening {
       }
     }
     this.workspace.adoptSessionId(tabId, resumedSessionId)
-    if (!background && !intoTabId) {
-      this.workspace.revealConversation()
-      opts?.onShown?.(tabId)
-    }
+    if (!background && !intoTabId) this.workspace.revealConversation()
 
     // The watch also attaches to the live runtime, which is what a separate
     // bind used to do after it.
@@ -596,56 +588,27 @@ export class SessionOpening {
     return tabId
   }
 
-  /** Compose a fresh session bound to a task. The task target belongs to the
-   *  draft until Send creates the session, so leaving the composer does not
-   *  leave an empty tab behind. `role: 'lead'` composes the task's lead, with
-   *  the task page beside the draft: the prompt is about the task, so the
-   *  record is on screen while it is written (docs/plans/task-conversation.md).
-   *  The task surface is in the draft's strip, so Send keeps it. */
-  async openTaskSession(task: Task, options: { role?: 'lead' } = {}): Promise<void> {
-    this.taskOpenCount++
-    this.createTaskDraft(task, options.role, 'leading')
-    if (options.role === 'lead') this.openTaskAside(task.id)
-    requestInputFocus()
-  }
-
-  /** The task page in the companion pane, where there is one. The phone has
-   *  one pane and the conversation keeps it; there the page is a tap away on
-   *  the session's task chip. */
-  private openTaskAside(taskId: string): void {
-    if (!this.workspace.hasCompanionPanes) return
-    this.workspace.goToTask(taskId, 'click')
-  }
-
   /**
-   * Mint a draft bound to a task, in the task's own project and on the task's
-   * own host, and point `target` at it when one is given. The task page's
-   * conversation composer takes a draft with no pane of its own.
+   * Compose a fresh session bound to a task. The task target belongs to the
+   * draft until Send creates the session, so leaving the composer does not
+   * leave an empty tab behind.
    *
-   * The task's project, not the one on screen: the sidebar spans projects, so
-   * the row you clicked is often not in the one the status bar names. The
-   * task's host, not the focused tab's: the task's path names a folder on the
-   * host that holds it. A task in the cloud workspace service files there and
-   * runs on an execution host the run picker chooses.
+   * The draft opens in the task's own project and on the task's own host. The
+   * task's project, not the one on screen: the task page can be opened from
+   * any project. The task's host, not the focused tab's: the task's path names
+   * a folder on the host that holds it. A task in the cloud workspace service
+   * files there and runs on an execution host the run picker chooses.
    */
-  createTaskDraft(task: Task, role: 'lead' | undefined, target?: OpenTarget): SessionDraft {
-    const cwd = task.projectKey ?? '~'
+  async openTaskSession(task: Task): Promise<void> {
+    this.taskOpenCount++
     const taskServerId = this.workspace.tasksStore.get(task.id).serverId ?? undefined
-    const binding = { taskId: task.id, taskRole: role, taskServerId }
-    let draft: SessionDraft
+    const binding = { taskId: task.id, taskServerId }
     if (!taskServerId || hosts.hasExecution(taskServerId)) {
-      const options = { ...binding, target, serverId: taskServerId }
-      draft = target
-        ? this.workspace.drafts.openSessionDraft(options, cwd)
-        : this.workspace.drafts.createSessionDraft(options, cwd)
+      this.workspace.drafts.openSessionDraft({ ...binding, target: 'leading', serverId: taskServerId }, task.projectKey ?? '~')
     } else {
-      draft = this.openRepositoryDraft(this.workspace.tasksStore.projectKeyOf(task), { ...binding, taskServerId }, undefined, target)
+      this.openRepositoryDraft(this.workspace.tasksStore.projectKeyOf(task), { ...binding, taskServerId })
     }
-    // A lead starts on the lead model when the user set one. The draft's
-    // chip still changes it before Send.
-    const leadModel = this.workspace.settings.leadModel
-    if (role === 'lead' && leadModel) draft.applyRun(runOnModel(draft.run, leadModel))
-    return draft
+    requestInputFocus()
   }
 
   private get runOnHosts(): RunOnHost[] {
@@ -704,7 +667,7 @@ export class SessionOpening {
    */
   openRepositoryDraft(
     projectKey: string | null,
-    task?: { taskId: string; taskRole?: 'lead'; taskServerId: string },
+    task?: { taskId: string; taskServerId: string },
     preferredServerId?: string,
     target: OpenTarget | undefined = 'leading',
   ): SessionDraft {
@@ -720,45 +683,21 @@ export class SessionOpening {
     return draft
   }
 
-  /**
-   * Open a task as the split view: its lead's conversation in the leading pane
-   * and the task page beside it. A task with no lead gets one — a lead draft,
-   * whatever else has run on it — so opening a task always means talking to
-   * it (docs/plans/task-conversation.md, decision 6). A provider ticket
-   * becomes a native task first, because a session binds only to one. The
-   * task is open on this client from then on, so the sidebar lists it.
-   */
-  async openTask(ticket: Task): Promise<void> {
-    const task = ticket.providerId === 'local'
-      ? ticket
-      : await this.workspace.tasksStore.get(ticket.id, ticket.projectKey ?? undefined).promote()
-    this.workspace.onTaskOpened?.(task.id)
-    const links = this.workspace.tasksStore.get(task.id).sessions
-    const hasLead = links?.some((candidate) => candidate.role === 'lead') ?? false
-    if (hasLead) await this.openTaskLinkedSession(task)
-    else await this.openTaskSession(task, { role: 'lead' })
-  }
-
-  /** Jump back to the work happening on a task: its lead when it has one, else
-   *  the most-recently-linked session — focused if it's open, else resumed from
-   *  history. The back-link counterpart to openTaskSession, driven by the
-   *  persisted task↔session map. A lead comes with the task page beside it, as
-   *  its draft did; a task nothing has run on starts its lead. */
+  /** Jump back to the work happening on a task: the most-recently-linked
+   *  session — focused if it's open, else resumed from history. The back-link
+   *  counterpart to openTaskSession; a task nothing has run on gets a draft. */
   async openTaskLinkedSession(task: Task): Promise<void> {
     const opening = ++this.taskOpenCount
     const stillWanted = () => opening === this.taskOpenCount
     const links = this.workspace.tasksStore.get(task.id).sessions
-    const link = links?.find((candidate) => candidate.role === 'lead') ?? links?.[links.length - 1]
+    const link = links?.[links.length - 1]
     if (!link?.sessionId) {
-      await this.openTaskSession(task, { role: 'lead' })
+      await this.openTaskSession(task)
       return
     }
 
     const ownerServerId = await this.workspace.tasksStore.get(task.id).ownerHost()
     if (!ownerServerId || !stillWanted()) return
-    // A lead comes with its task page beside it. The page opens once the
-    // conversation is the destination, so it lands in that conversation's strip.
-    const opensTaskAside = link.role === 'lead'
     const sessionServerId = serverConnections.resolveId(link.executionServerId ?? ownerServerId)
     const openTab = findOpenTabForSession(
       link.sessionId,
@@ -768,11 +707,7 @@ export class SessionOpening {
       undefined,
       sessionServerId,
     )
-    if (openTab) {
-      this.workspace.showExplicitSidebarTaskSession(task.id, link.sessionId)
-      this.workspace.selectTab(openTab, 'click')
-      if (opensTaskAside) this.openTaskAside(task.id)
-    }
+    if (openTab) this.workspace.selectTab(openTab, 'click')
     else {
       // The task link stores a session id, not its agent backend. Resolve the
       // indexed record before resuming instead of assigning whichever provider
@@ -780,19 +715,7 @@ export class SessionOpening {
       // (or vice versa) returns an empty conversation.
       const meta = await readSessionMeta(sessionServerId, link.sessionId)
       if (!meta || !stillWanted()) return
-      this.workspace.showExplicitSidebarTaskSession(task.id, link.sessionId)
-      // The page opens as soon as the conversation is the destination, so it
-      // reads its details while the transcript loads rather than after it.
-      let asideOpened = false
-      const openAside = () => {
-        if (!opensTaskAside || asideOpened || !stillWanted()) return
-        asideOpened = true
-        this.openTaskAside(task.id)
-      }
-      await this.resumeSession(meta, { stillWanted, onShown: openAside })
-      // A resume that found the conversation already open selects it without
-      // showing a new one.
-      openAside()
+      await this.resumeSession(meta, { stillWanted })
     }
     if (stillWanted()) requestInputFocus()
   }

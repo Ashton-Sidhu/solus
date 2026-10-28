@@ -35,6 +35,13 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
   // must not start another run in the same provider thread.
   const controller = new AbortController()
   controllers.set(sessionId, controller)
+  const turn = rt.turnStops.begin(sessionId)
+  // Stop frees the reservation at once: a new command need not wait for the seat lookup.
+  const releaseLaunch = turn.onStop(() => {
+    controller.abort(new Error('Interrupted'))
+    if (controllers.get(sessionId) === controller) controllers.delete(sessionId)
+    return true
+  })
   rt.agentSessionToSession.set(threadId, sessionId)
   let session = rt.activeSessions.get(sessionId)
   if (!session) {
@@ -60,6 +67,8 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
       persistence: 'session', service: SPAN_SERVICES.sessions,
       conversation: { kind: 'resume', threadId }, seat: seat ?? undefined,
     }, { sessionId })
+    releaseLaunch()
+    rt.launcher.stopsWithTurn(turn, sessionId, backend, run.handle)
     // ProviderEvents owns terminal status and event delivery. Return at launch;
     // the client must not wait on a long compaction RPC.
     void run.done.catch(() => {})
@@ -68,8 +77,10 @@ export async function compactSession(rt: SessionRuntime, ctx: IpcContext, actor:
       rt.statuses.setStatus(sessionId, controller.signal.aborted ? 'interrupted' : 'failed')
       rt.activeSessions.delete(sessionId)
     }
+    rt.turnStops.end(sessionId, turn)
     throw error
   } finally {
+    releaseLaunch()
     if (controllers.get(sessionId) === controller) controllers.delete(sessionId)
   }
 }

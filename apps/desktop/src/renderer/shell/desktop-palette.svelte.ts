@@ -131,7 +131,7 @@ export function createDesktopPalette(
     sessionEnvironmentStore.refsFor(paletteGitServerId, paletteGitProjectRoot),
   );
   const worktrees = $derived(paletteGitRefs.worktrees);
-  const paletteBranches = $derived(paletteGitRefs.branches);
+  const paletteBranches = $derived(paletteGitRefs.branches.map((branch) => branch.name));
   // Open PRs for the "Review PR…" sub-page, loaded lazily alongside the git refs.
   let palettePrs = $state<PullRequest[]>([]);
   $effect(() => {
@@ -332,7 +332,7 @@ export function createDesktopPalette(
     },
     {
       id: "add-server",
-      label: "Add server",
+      label: "Add host",
       group: "Servers",
       icon: PlugsIcon,
       keywords: ["remote", "pair", "connect"],
@@ -686,17 +686,9 @@ export function createDesktopPalette(
     ).checkout;
     if (gitCtx) {
       const worktreeBranchNames = worktrees.map((wt) => wt.branch);
+      // Worktrees lead: a sub-page mounts its first rows only, and a large
+      // repository's branches would push every worktree out of view.
       const branchCommands: Command[] = [
-        ...paletteBranches
-          .filter((branch) => !worktreeBranchNames.includes(branch))
-          .map((branch) => ({
-            id: `branch:${branch}`,
-            label: branch,
-            group: "Git",
-            icon: GitBranchIcon,
-            keywords: ["git", "branch", "checkout", "switch", branch],
-            run: () => void switchPaletteBranch(branch),
-          })),
         ...worktrees
           .filter((wt) => wt.path !== gitCtx.worktreePath)
           .map((wt) => ({
@@ -707,6 +699,16 @@ export function createDesktopPalette(
             keywords: ["git", "worktree", "branch", "checkout", wt.branch],
             run: () =>
               void session.switchToWorktree(wt.path, undefined, "palette"),
+          })),
+        ...paletteBranches
+          .filter((branch) => !worktreeBranchNames.includes(branch))
+          .map((branch) => ({
+            id: `branch:${branch}`,
+            label: branch,
+            group: "Git",
+            icon: GitBranchIcon,
+            keywords: ["git", "branch", "checkout", "switch", branch],
+            run: () => void switchPaletteBranch(branch),
           })),
       ];
       const existingWorktreeChildren: Command[] = worktrees
@@ -737,8 +739,8 @@ export function createDesktopPalette(
           run: () => void switchPaletteBranch(branch),
         }));
       const newSessionInChildren: Command[] = [
-        ...newSessionBranchChildren,
         ...existingWorktreeChildren,
+        ...newSessionBranchChildren,
       ];
       const activeSess = session.activeSession;
       const canContinueWorktree =

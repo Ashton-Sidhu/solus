@@ -78,6 +78,9 @@ export const RPC_PLANES = {
   voiceModelRetry: 'execution',
   logVoiceTranscription: 'execution',
   searchFiles: 'execution',
+  listIgnoredProjectFiles: 'execution',
+  setWorktreeIncluded: 'execution',
+  readWorktreeIncludedFiles: 'execution',
   searchProjectContents: 'execution',
   listDirectory: 'execution',
   createDirectory: 'execution',
@@ -365,6 +368,7 @@ export const RPC_PLANES = {
   atlassianStatus: 'collaboration',
   atlassianStartOAuth: 'collaboration',
   atlassianCancelOAuth: 'collaboration',
+  atlassianConnectApiToken: 'collaboration',
   atlassianDisconnect: 'collaboration',
   atlassianJiraProjects: 'collaboration',
 

@@ -111,7 +111,7 @@ export class GitActions {
       if (options.commitMessage) request.commitMessage = options.commitMessage
       const result = await api.gitRunAction($state.snapshot(target.ctx), request)
       this.lastResult = result
-      this.refreshPushedPullRequest(api, target.ctx, target.gitContext.branch, result)
+      this.refreshPushedPullRequest(api, target.ctx, result)
       const pullRequest = result.pullRequest
       if (pullRequest.status !== 'skipped') {
         this.prUrl = pullRequest.url
@@ -162,11 +162,11 @@ export class GitActions {
   }
 
   /** A push moves the branch's pull request: read its mergeability again. */
-  private refreshPushedPullRequest(api: HostApi, ctx: IpcContext, branch: string | null, result: GitActionResult): void {
+  private refreshPushedPullRequest(api: HostApi, ctx: IpcContext, result: GitActionResult): void {
     if (result.push.status !== 'pushed') return
     void this.pullRequests
       .get(api, this.session.serverIdFor(this.sourceId), ctx)
-      .prForBranch(branch)
+      .prForCheckout(this.prUrl)
       ?.refreshDetail()
       .catch(() => {})
   }

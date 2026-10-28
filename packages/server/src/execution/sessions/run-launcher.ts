@@ -24,9 +24,11 @@ import { ANY_ORGANIZATION } from '../../admission/principal'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { ANSWERING_ANOTHER_SESSION } from '../orchestration/session-orchestrator'
-import type { RunHandle } from '../agents/agent-backend'
+import type { AgentBackend, RunHandle } from '../agents/agent-backend'
+import { hasOpenBackgroundQuery } from './background-work'
+import type { TurnStop } from './turn-stops'
 import type { BackendSession, SessionStatus, NormalizedEvent, GitCheckout, PromptOptions, PromptDelivery, SessionRunInput, StatusCardState, StatusCardStep, StatusCardStepStatus } from '@solus/contracts/types'
-import { gitCheckoutFromState, projectScopeOf } from '@solus/contracts/types'
+import { gitCheckoutFromState, isSessionBusyStatus, projectScopeOf } from '@solus/contracts/types'
 import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observability/session-emitter'
 import { shareTurnTranscripts } from '../seats/member-transcripts'
 import { SeatRequiredError } from '../seats/seat-manager'
@@ -37,8 +39,9 @@ import { withActorScope } from '../seats/acting-identity'
 import { userKey } from '@solus/contracts/user'
 import { AGENT_SETUP_STEP, WORKTREE_SETUP_STEPS, worktreeSetupCardId } from '@solus/contracts/setup-card'
 import { GithubConnectionRequiredError } from '../../providers/github/connection-required'
-import { getDefaultBranch } from '../../git/worktree-manager'
+import { getDefaultBranch, recreateMissingWorktree } from '../../git/worktree-manager'
 import { accountConnectionsUrl } from '../../vault/account-reads'
+import { writeMissingCopiedFiles } from '../../git/worktree-include'
 import { progressPercent, progressThrottle, type DispatchCheckoutPathOf, type PrepareDispatchCheckout } from './dispatch-repository'
 import { SPAN_SERVICES } from '../../data/insights/registries'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
@@ -213,8 +216,22 @@ export class RunLauncher {
   }
 
   private async startRunLifecycleInScope(request: SessionRunRequest): Promise<SessionRunLifecycle> {
+    const turn = this.rt.turnStops.begin(request.sessionId)
+    // Until the provider spawns, the launch is the turn's work: Stop ends it at
+    // its next check, so no provider starts for a stopped turn.
+    const releaseLaunch = turn.onStop(() => true)
+    try {
+      return await this.startRun(request, turn, releaseLaunch)
+    } catch (error) {
+      this.rt.turnStops.end(request.sessionId, turn)
+      throw error
+    } finally {
+      releaseLaunch()
+    }
+  }
+
+  private async startRun(request: SessionRunRequest, turn: TurnStop, releaseLaunch: () => void): Promise<SessionRunLifecycle> {
     if (request.actor) this.rt.rememberSessionActor(request.sessionId, request.actor)
-    await this.rt.useTaskLeadPreferences(request)
     await this.rt.settleRunOrganization(request)
     // Every prepared/initialized view of a run shares this one exchange array.
     // The request is copied while setup resolves, but ownership must not be.
@@ -263,7 +280,7 @@ export class RunLauncher {
         request.sessionId,
         'launch_run',
         { promptSource, fn: 'launchRun', file: 'run-launcher.ts' },
-        () => this.launchRun(request, turnTraceId),
+        () => this.launchRun(request, turnTraceId, turn, releaseLaunch),
       )
     } catch (error) {
       if (!this.rt.isShuttingDown) this.rt.restarts.restartRuns?.remove(request.sessionId, request.runId)
@@ -271,6 +288,8 @@ export class RunLauncher {
       this.rt.sessionEmitter.finishTurn(request.sessionId, interrupted ? 'interrupted' : 'failed', Date.now(), turnTraceId)
       this.rt.cancelRunExchanges(request, interrupted ? 'interrupted' : 'failed',
         interrupted ? undefined : `The turn could not start: ${error instanceof Error ? error.message : String(error)}`)
+      // No provider ran, so no provider exit starts the next queued prompt.
+      if (turn.signal.aborted) this.rt.scheduler.processQueueForSession(request.sessionId)
       throw error
     }
     const { handle, run } = startedRun
@@ -400,7 +419,34 @@ export class RunLauncher {
     }
   }
 
-  private async launchRun(request: SessionRunRequest, turnTraceId: string): Promise<StartedRun> {
+  /**
+   * The provider run is the turn's work from its spawn: Stop cancels it, before
+   * or after `session_init`. When the run exits and leaves background work, Stop
+   * cancels that work instead, until a later turn replaces this one.
+   */
+  stopsWithTurn(turn: TurnStop, sessionId: string, backend: AgentBackend, handle: RunHandle): void {
+    const releaseRun = turn.onStop(() => {
+      const session = this.rt.activeSessions.get(sessionId)
+      // Stop is the way out of a task that never settles: cancelling the query
+      // is what ends the work the agent left running, held or not.
+      if (session?.agentSessionId && (isSessionBusyStatus(session.status) || hasOpenBackgroundQuery(session))
+        && backend.cancelSession(session.agentSessionId)) return true
+      // Before `session_init` the run has no thread to cancel by.
+      if (!backend.getPendingHandles().includes(handle)) return false
+      handle.abortController.abort()
+      return true
+    })
+    const settle = (): void => {
+      releaseRun()
+      const session = this.rt.activeSessions.get(sessionId)
+      const threadId = session?.agentSessionId
+      if (session && threadId && hasOpenBackgroundQuery(session)) turn.onStop(() => backend.cancelSession(threadId))
+      else this.rt.turnStops.end(sessionId, turn)
+    }
+    void handle.runPromise.then(settle, settle)
+  }
+
+  private async launchRun(request: SessionRunRequest, turnTraceId: string, turn: TurnStop, releaseLaunch: () => void): Promise<StartedRun> {
     request = this.rt.sessionCheckouts.continueInMovedCheckout(request)
     await this.rt.handoffs.handOffForPrompt(request, request.actor ?? HOST_ACTOR)
     const { input, target, options, sessionId, sourceClientId } = request
@@ -413,6 +459,7 @@ export class RunLauncher {
       if (this.pendingSetupControllers.has(sessionId)) throw new Error('This session is already selecting a model.')
       const controller = new AbortController()
       this.pendingSetupControllers.set(sessionId, controller)
+      const releaseRouting = turn.onStop(() => { controller.abort(new Error('Interrupted')); return true })
       this.rt.statuses.setStatus(sessionId, 'connecting')
       try {
         // Auto's selection is Solus work the turn waits on before any provider
@@ -457,6 +504,7 @@ export class RunLauncher {
         if (!controller.signal.aborted) this.rt.statuses.setStatus(sessionId, 'failed')
         throw error
       } finally {
+        releaseRouting()
         if (this.pendingSetupControllers.get(sessionId) === controller) this.pendingSetupControllers.delete(sessionId)
       }
     }
@@ -570,6 +618,14 @@ export class RunLauncher {
       const setupController = new AbortController()
       this.pendingSetupControllers.get(sessionId)?.abort(new Error('Interrupted'))
       this.pendingSetupControllers.set(sessionId, setupController)
+      // The prompts queued behind a setup were written for the checkout it makes,
+      // which now never exists, so Stop drops them with it.
+      const releaseSetup = turn.onStop(() => {
+        this.rt.scheduler.drainQueue(sessionId)
+        setupController.abort(new Error('Interrupted'))
+        if (this.pendingSetupControllers.get(sessionId) === setupController) this.pendingSetupControllers.delete(sessionId)
+        return true
+      })
       setupCardActive = true
       setupOutput.push(`Preparing ${repositoryRun.repository.cloneUrl}`)
       setStep('repository', { status: 'active' })
@@ -605,8 +661,10 @@ export class RunLauncher {
         input.workingDirectory = path
         input.projectPath = checkout?.repoRoot ?? path
         effectiveGitCtx = checkout
-        // A run that names no base for its new worktree starts from the default branch.
-        if (makesWorktree && !worktreeBaseBranch) worktreeBaseBranch = checkout?.targetBranch ?? await getDefaultBranch(path)
+        // A new worktree starts from the branch the send named, else the default branch.
+        if (makesWorktree && !worktreeBaseBranch) {
+          worktreeBaseBranch = repositoryRun.repository.baseBranch ?? checkout?.targetBranch ?? await getDefaultBranch(path)
+        }
         // The client moves the run to the folder it reads here.
         if (checkout) this.rt.publish(sessionId, { type: 'git_context', gitContext: checkout })
         setupOutput.push(`Repository ready at ${path}`)
@@ -636,6 +694,7 @@ export class RunLauncher {
         this.rt.publish(sessionId, { type: 'status_card', card })
         throw e
       } finally {
+        releaseSetup()
         if (this.pendingSetupControllers.get(sessionId) === setupController) {
           this.pendingSetupControllers.delete(sessionId)
         }
@@ -671,6 +730,14 @@ export class RunLauncher {
       const setupController = new AbortController()
       this.pendingSetupControllers.get(sessionId)?.abort(new Error('Interrupted'))
       this.pendingSetupControllers.set(sessionId, setupController)
+      // The prompts queued behind a setup were written for the checkout it makes,
+      // which now never exists, so Stop drops them with it.
+      const releaseSetup = turn.onStop(() => {
+        this.rt.scheduler.drainQueue(sessionId)
+        setupController.abort(new Error('Interrupted'))
+        if (this.pendingSetupControllers.get(sessionId) === setupController) this.pendingSetupControllers.delete(sessionId)
+        return true
+      })
       this.worktreeSetupControllers.add(setupController)
       setupCardActive = true
       setupOutput.push(`Creating worktree from ${baseBranch}`)
@@ -712,6 +779,13 @@ export class RunLauncher {
         if (existingSession) existingSession.gitContext = gitContext
         effectiveGitCtx = gitContext
         createdWorktreePath = gitContext.worktreePath
+        // A dispatch's copied files go into its new worktree too: the checkout
+        // it was made from may be a person's own, which never gets them.
+        const copiedFiles = repositoryRun?.repository.files ?? []
+        if (copiedFiles.length > 0 && gitContext.worktreePath) {
+          const written = await writeMissingCopiedFiles(gitContext.worktreePath, copiedFiles)
+          setupOutput.push(`Copied ${written} of ${copiedFiles.length} files from .worktreeinclude`)
+        }
         stagesOpen = false
         setupOutput.push(`Branch: ${gitContext.branch}`, `Worktree: ${gitContext.worktreePath}`)
         log.info('worktree_created', { sessionId, branch: gitContext.branch, worktreePath: gitContext.worktreePath })
@@ -755,6 +829,7 @@ export class RunLauncher {
           throw e
         }
       } finally {
+        releaseSetup()
         if (this.pendingSetupControllers.get(sessionId) === setupController) {
           this.pendingSetupControllers.delete(sessionId)
         }
@@ -767,7 +842,12 @@ export class RunLauncher {
       void this.rt.checkouts.refresh(createdWorktreePath)
         .catch((error) => log.warn('checkout_refresh_failed', { sessionId, cwd: createdWorktreePath, error: String(error) }))
     } else if (effectiveGitCtx?.worktreePath) {
-      const current = await this.rt.checkouts.refresh(effectiveGitCtx.worktreePath)
+      let current = await this.rt.checkouts.refresh(effectiveGitCtx.worktreePath)
+      // A worktree folder deleted outside Solus comes back on the next turn.
+      if (!current.checkout && !existsSync(effectiveGitCtx.worktreePath)) {
+        await recreateMissingWorktree(effectiveGitCtx)
+        current = await this.rt.checkouts.refresh(effectiveGitCtx.worktreePath)
+      }
       if (!current.checkout) throw new Error('The session worktree is no longer available')
       effectiveGitCtx = current.checkout
     }
@@ -865,6 +945,8 @@ export class RunLauncher {
     const dispatchAgentSessionId = isForkingSession ? null : effectiveInput.agentSessionId
     const newStatus: SessionStatus = dispatchAgentSessionId ? 'running' : 'connecting'
     const activeTurnId = options.clientPromptId ?? crypto.randomUUID()
+    // Stopped during setup: publishing the dispatch now would open the stopped turn again.
+    turn.signal.throwIfAborted()
     if (dispatchAgentSessionId) this.rt.agentSessionToSession.set(dispatchAgentSessionId, sessionId)
 
     // Recorded at dispatch, not at session_init: the session exists — and is
@@ -947,7 +1029,7 @@ export class RunLauncher {
         fn: 'taskSystemContext',
         file: 'run-launcher.ts',
       }, async (annotate) => {
-        const composed = await taskSystemContext(options.taskId!, options.taskSnapshot ?? null, sessionId, options.taskRole, effectiveInput.executionPreferences)
+        const composed = await taskSystemContext(options.taskId!, options.taskSnapshot ?? null, sessionId, effectiveInput.executionPreferences)
         annotate({ contextChars: composed.length })
         return composed
       })
@@ -1014,6 +1096,9 @@ export class RunLauncher {
         return false
       })
       if (this.rt.isShuttingDown) throw new Error('Interrupted')
+      // The last check before the provider spawns; from here Stop cancels its run.
+      turn.signal.throwIfAborted()
+      releaseLaunch()
       const savedRestart = this.rt.restarts.restartRuns?.get(sessionId)
       if (savedRestart && savedRestart.runId === request.runId) {
         this.rt.restarts.restartRuns?.save({ ...savedRestart, input: effectiveInput, state: 'running' })
@@ -1071,6 +1156,7 @@ export class RunLauncher {
         turnTraceId: turnTraceId || undefined,
       }))
       handle = agentRun.handle
+      this.stopsWithTurn(turn, sessionId, backend, handle)
       const memberLaunch = seat?.launch?.user ? seat.launch : null
       if (memberLaunch) {
         const share = () => shareTurnTranscripts(memberLaunch, turnStartedAt)
@@ -1082,7 +1168,8 @@ export class RunLauncher {
       }
     } catch (err) {
       this.rt.activeRunRequests.delete(sessionId)
-      this.rt.statuses.setStatus(sessionId, 'failed')
+      // A stopped launch is already interrupted.
+      if (!turn.signal.aborted) this.rt.statuses.setStatus(sessionId, 'failed')
       this.rt.activeSessions.delete(sessionId)
       // A drained queue entry has no RPC caller to reject to: the refusal reaches
       // the transcript as an error so the connect card can stand in for the turn.

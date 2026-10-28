@@ -9,7 +9,7 @@ import { ANY_ORGANIZATION } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import { hostAttribution } from '../../data/stored-attribution'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
-import type { TaskSessionLink, TaskSessionRole, TaskSnapshot } from '@solus/contracts/task-types'
+import type { TaskSnapshot } from '@solus/contracts/task-types'
 import type { AgentId, PromptOptions, SessionRunInput } from '@solus/contracts/types'
 import { solusDir } from '../../platform/paths'
 import type { SessionRunRequest } from '../session-runtime'
@@ -70,7 +70,7 @@ export async function linkPreparedTask(run: SessionRunRequest, sessionId: string
   // host, where the dispatching client writes this link itself.
   if (run.options.taskSnapshot) return
   try {
-    await (await Task.byId(ANY_ORGANIZATION, taskId)).linkSession(sessionId, run.options.taskRole ?? 'working', {
+    await (await Task.byId(ANY_ORGANIZATION, taskId)).linkSession(sessionId, 'working', {
       originSessionId: sessionId,
       // A run with no actor is the host's own: its person started it.
       startedBy: run.actor ? attributionOf(run.actor) : hostAttribution(),
@@ -85,42 +85,31 @@ export async function linkPreparedTask(run: SessionRunRequest, sessionId: string
  * the work contract. The agent reads the task itself with `read_task`. When
  * the task is foreign, the snapshot the dispatching client shipped is held
  * for the session so `read_task` (and op overlays) answer from it.
- *
- * The session's role decides whether the lead contract is appended. On the
- * first prompt the link is not written yet, so the role rides the prompt;
- * on every later turn the session's own link answers.
+
  */
 export async function taskSystemContext(
   taskId: string,
   shipped: TaskSnapshot | null,
   sessionId: string,
-  promptRole: 'lead' | undefined,
   preferences: ExecutionPreferences | undefined,
 ): Promise<string> {
-  // The person's lead and lifecycle preferences.
   const lifecyclePolicy = preferences?.agentTaskLifecyclePolicy ?? DEFAULT_EXECUTION_PREFERENCES.agentTaskLifecyclePolicy
-  const lead = {
-    leadInstructions: preferences?.leadInstructions ?? DEFAULT_EXECUTION_PREFERENCES.leadInstructions,
-    workerModel: preferences?.workerModel ?? DEFAULT_EXECUTION_PREFERENCES.workerModel,
-  }
-  const roleOf = (sessions: readonly TaskSessionLink[]): TaskSessionRole =>
-    promptRole ?? sessions.find((link) => link.sessionId === sessionId)?.role ?? 'working'
   if (shipped && shipped.details.task.id === taskId) {
     setForeignTaskSnapshot(sessionId, shipped)
-    return formatTaskContext(shipped.details.task, lifecyclePolicy, roleOf(shipped.sessions), lead)
+    return formatTaskContext(shipped.details.task, lifecyclePolicy)
   }
   setForeignTaskSnapshot(sessionId, null)
   try {
     const local = await taskWithAttempts(ANY_ORGANIZATION, taskId)
     if (!local) throw new Error('task not found')
-    return formatTaskContext(local.task, lifecyclePolicy, roleOf(local.attempts), lead)
+    return formatTaskContext(local.task, lifecyclePolicy)
   } catch (err) {
     // On a dispatch this once failed silently — the task's row lives on
     // another host. A taskId this host cannot read now always names a defect:
     // either the snapshot was not shipped or the local row is gone. The id
     // and the contract still reach the agent; read_task will say what failed.
     log.warn('task_context_injection_failed', { taskId, sessionId, shippedSnapshot: !!shipped, error: String(err) })
-    return formatTaskContext({ id: taskId }, lifecyclePolicy, promptRole ?? 'working', lead)
+    return formatTaskContext({ id: taskId }, lifecyclePolicy)
   }
 }
 

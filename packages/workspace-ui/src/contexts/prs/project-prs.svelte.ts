@@ -13,6 +13,7 @@ import { hostKey } from '@solus/client-core/host-key'
 import type { GitPullRequestStep } from '@solus/contracts/git-types'
 import type * as Contracts from '@solus/contracts/providers'
 import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing } from '@solus/contracts/providers'
+import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
@@ -55,9 +56,6 @@ export class ProjectPrs {
    * answer from here, so an answer never depends on what the page is showing.
    */
   readonly prs = new SvelteMap<number, PullRequest>()
-
-  /** Head branch → number, for the git rail and session PR discovery. */
-  readonly byBranch = new SvelteMap<string, number>()
 
   // --- Where the list has got to ------------------------------------------
 
@@ -116,10 +114,15 @@ export class ProjectPrs {
     return pr?.isDescribed ? pr : null
   }
 
-  prForBranch(headRef: string | null | undefined): PullRequest | null {
-    if (!headRef) return null
-    const number = this.byBranch.get(headRef)
-    return number === undefined ? null : this.prFor(number)
+  /**
+   * The pull request a checkout's branch has, by the host's answer (`prUrl`).
+   * Only the host knows where the branch pushes, so a client never matches a
+   * branch by its name: the name is shared by every fork. The answer counts
+   * only when it names this repository.
+   */
+  prForCheckout(prUrl: string | null | undefined): PullRequest | null {
+    const hostAnswer = prUrl ? parseGitHubPullRequestUrl(prUrl) : null
+    return hostAnswer && repositoryKeyOf(hostAnswer.baseRepo) === this.repositoryKey ? this.prFor(hostAnswer.number) : null
   }
 
   /** Open pull requests, newest activity first — everything this project has
@@ -164,7 +167,6 @@ export class ProjectPrs {
     this.repositoryKey ??= repositoryKeyOf(source.baseRepo)
     const pr = this.get(source.number)
     pr.apply(source)
-    this.byBranch.set(source.headRef, source.number)
     return pr
   }
 
@@ -188,8 +190,6 @@ export class ProjectPrs {
 
   /** Drop a pull request from the lookups — merged, closed, or gone. */
   forget(number: number): void {
-    const headRef = this.prs.get(number)?.headRef
-    if (headRef) this.byBranch.delete(headRef)
     this.prs.delete(number)
   }
 
@@ -295,7 +295,7 @@ export class ProjectPrs {
       return
     }
     this.mirrors.list.seed(this.listKey(filter, from.page), listing.page)
-    this.absorbListed(filter, listing.page)
+    this.absorbListed(listing.page)
     this.acceptPage(listing.page, true)
   }
 
@@ -340,7 +340,7 @@ export class ProjectPrs {
     // the same question shares it rather than asking again.
     const key = this.listKey(filter)
     this.mirrors.list.seed(key, listing.page)
-    this.absorbListed(filter, listing.page)
+    this.absorbListed(listing.page)
     this.acceptPage(listing.page, false)
   }
 
@@ -409,16 +409,12 @@ export class ProjectPrs {
     const page = opts.page ?? 1
     const key = this.listKey(safeFilter, page)
     const result = await this.mirrors.list.read(key, !!opts.force, () => this.api.prList(ctx, safeFilter, page, opts.cursor))
-    if (this.mirrors.list.holds(key, result)) this.absorbListed(safeFilter, result)
+    if (this.mirrors.list.holds(key, result)) this.absorbListed(result)
     return result
   }
 
-  private absorbListed(filter: PrFilter, result: PrListPage): void {
-    // Keep the host's first branch match when several PRs reuse a branch.
+  private absorbListed(result: PrListPage): void {
     for (const item of result.items.toReversed()) this.absorb(item)
-    if (filter.head && !result.items.some((item) => item.headRef === filter.head)) {
-      this.byBranch.delete(filter.head)
-    }
   }
 
   /** The connected token's user — the identity comment composers post as, with

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { isAbsolute } from 'node:path'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
 import type { PrInterest, PrSyncChange, PullRequest, RepoRef } from '@solus/contracts/providers'
 import { getDatabase } from '../db/database'
@@ -15,10 +16,12 @@ import {
   sessionKnowsPullRequest,
 } from '../data/sessions/session-pull-requests'
 import { runAsync } from '../git/exec'
+import { getDefaultBranchLocal } from '../git/worktree-manager'
 import { attachReviewAttention } from '../transport/handlers/review-attention'
 import { GitHubRateLimitedError } from '../providers/github/rate-limit'
 import { asBackgroundWork } from '../providers/github/request-budget'
-import { codeHostFor, type CodeHost } from './code-host'
+import { PullRequestHead } from '@solus/contracts/repository-key'
+import { codeHostFor, pushHeadFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
 import { liveCheckouts, liveTaskSessions, sessionLinkInterests, type LiveCheckout, type LiveTaskSessions } from './pr-sync-interest'
 import { withBranchRules } from './pull-request'
@@ -63,14 +66,25 @@ interface TaskInterest {
   /** Numbers live work links that were seen merged, with the merge time. A
    *  task can still be waiting on a busy session. */
   merged: Map<number, string>
-  /** The sessions whose own worktree is on each branch, by branch. */
-  branches: Map<string, string[]>
+  /** The sessions on each head, by head key. */
+  heads: Map<string, HeadOwners>
 }
+
+/** The live sessions whose branch pushes to one head. */
+interface HeadOwners {
+  head: PullRequestHead
+  /** Each session, and the local branch it was on when interest was read. */
+  sessions: Array<{ sessionId: string; branch: string }>
+}
+
+/** What a client wants kept fresh. A branch is resolved to its head where the
+ *  checkout is (`prSetInterest`): a name alone matches every fork. */
+export type SyncInterest = Exclude<PrInterest, { kind: 'branch' }> | { kind: 'head'; head: PullRequestHead }
 
 /** What connected clients want kept fresh in one repository, by connection. */
 interface ClientInterest {
   host: CodeHost
-  owners: Map<string, PrInterest[]>
+  owners: Map<string, SyncInterest[]>
   /** Whom the repository is read as: the person who last said what they want from it (plans/019). */
   scope: ActingScope
 }
@@ -81,9 +95,9 @@ interface Wanted {
   numbers: Set<number>
   review: Set<number>
   needsReview: boolean
-  /** Branches with no open pull request whose lookup is due: new in the
-   *  interest, or a turn of their session ended. */
-  branches: Set<string>
+  /** Heads with no open pull request whose lookup is due: new in the
+   *  interest, or a turn of their session ended. By head key. */
+  heads: Map<string, PullRequestHead>
   /** A client holds this repository open, so it hears every change. */
   clientsListening: boolean
 }
@@ -92,11 +106,12 @@ interface Wanted {
 interface RepositorySync {
   host: CodeHost
   records: Map<number, PrRecord>
-  byBranch: Map<string, number>
-  /** Branch owners already linked, as `branch#number`. */
-  linkedBranches: Set<string>
-  /** When each branch was last looked up on the code host. */
-  branchesLookedUpAt: Map<string, number>
+  /** The pull request of each head, by head key. */
+  byHead: Map<string, number>
+  /** Head owners already linked, as `headKey#number`. */
+  linkedHeads: Set<string>
+  /** When each head was last looked up on the code host, by head key. */
+  headsLookedUpAt: Map<string, number>
   nextAt: number
   /** When the open pull requests are next read by number; 0 reads them on
    *  the next pass. */
@@ -166,6 +181,11 @@ export interface PrSyncDeps {
   /** A value that changes when the checkout's HEAD or a remote-tracking ref
    *  moves, as by a commit, a push, or a fetch; null when Git cannot say. */
   checkoutState?: (checkout: string) => Promise<string | null>
+  /** The default branch of the repository a checkout is in. A machine reads
+   *  it from Git; a session on it is not looked up by branch. */
+  defaultBranch?: (checkout: string) => Promise<string>
+  /** The head a session's branch pushes to (`pushHeadFor`). */
+  pushHead?: (host: CodeHost, scope: string, branch: string) => Promise<PullRequestHead>
   /** Interest can appear with no event this server hears, so the clock reads
    *  it each `TASK_INTEREST_MS` also while nothing is wanted. The Solus API
    *  sets this: its runners report sessions, and it hears no turn end. */
@@ -204,6 +224,8 @@ export class PrSync {
   private readonly liveCheckouts: NonNullable<PrSyncDeps['liveCheckouts']>
   private readonly sessionCheckout: NonNullable<PrSyncDeps['sessionCheckout']>
   private readonly checkoutState: NonNullable<PrSyncDeps['checkoutState']>
+  private readonly defaultBranch: NonNullable<PrSyncDeps['defaultBranch']>
+  private readonly pushHead: NonNullable<PrSyncDeps['pushHead']>
   private readonly now: () => number
   /** The state of each checkout at the last turn end in it (`checkoutState`). */
   private readonly checkoutStates = new Map<string, string>()
@@ -224,6 +246,8 @@ export class PrSync {
     this.liveCheckouts = deps.liveCheckouts ?? liveCheckouts
     this.sessionCheckout = deps.sessionCheckout ?? ((sessionId) => sessionRecordsFor([sessionId]).get(sessionId)?.checkout_path ?? null)
     this.checkoutState = deps.checkoutState ?? checkoutState
+    this.defaultBranch = deps.defaultBranch ?? getDefaultBranchLocal
+    this.pushHead = deps.pushHead ?? pushHeadFor
     this.now = deps.now ?? Date.now
   }
 
@@ -364,10 +388,10 @@ export class PrSync {
    * known about what it asked for. Anything not known yet makes the
    * repository due now; the answer arrives as `pr.changed`.
    */
-  setInterest(ownerId: string, host: CodeHost, interests: PrInterest[]): PrSyncChange {
+  setInterest(ownerId: string, host: CodeHost, interests: SyncInterest[]): PrSyncChange {
     const key = repoKeyOf(host.repo).toLowerCase()
     const scope = requireActingScope('pull request sync')
-    const entry = this.clientInterests.get(key) ?? { host, owners: new Map<string, PrInterest[]>(), scope }
+    const entry = this.clientInterests.get(key) ?? { host, owners: new Map<string, SyncInterest[]>(), scope }
     entry.scope = scope
     if (interests.length) {
       entry.owners.set(ownerId, interests)
@@ -451,7 +475,7 @@ export class PrSync {
     sync.nextAt = 0
     sync.numbersAt = 0
     sync.closedNumbersAt = 0
-    sync.branchesLookedUpAt.clear()
+    sync.headsLookedUpAt.clear()
     void this.tick()
   }
 
@@ -471,7 +495,7 @@ export class PrSync {
     let sync = this.repositories.get(key)
     if (!sync) {
       sync = {
-        host, records: new Map(), byBranch: new Map(), linkedBranches: new Set(), branchesLookedUpAt: new Map(),
+        host, records: new Map(), byHead: new Map(), linkedHeads: new Set(), headsLookedUpAt: new Map(),
         nextAt: 0, numbersAt: 0, closedNumbersAt: 0, reread: new Set(), checks: new Map(), checksInFlight: false, needsReview: null,
       }
       this.repositories.set(key, sync)
@@ -495,7 +519,8 @@ export class PrSync {
       const host = this.clientInterests.get(key)?.host ?? this.taskInterests.get(key)?.host
       if (!host) continue
       const sync = this.syncFor(key, host)
-      const turnEnded = [...this.taskInterests.get(key)?.branches.values() ?? []].some((owners) => owners.some((id) => endedTurns.has(id)))
+      const turnEnded = [...this.taskInterests.get(key)?.heads.values() ?? []]
+        .some(({ sessions }) => sessions.some(({ sessionId }) => endedTurns.has(sessionId)))
       if ((sync.nextAt > this.now() && !turnEnded) || (this.rateLimitedUntil.get(host.repo.host) ?? 0) > this.now()) continue
       runs.push({
         key, sync, wanted: this.wantedIn(key, sync, endedTurns), heldBefore: new Set(sync.records.keys()),
@@ -505,7 +530,7 @@ export class PrSync {
     // Each read of every repository goes at once, and the reads of one
     // account share its documents (docs/plans/pr-sync.md §11). A spent quota
     // fails the one document that found it, and every repository in it.
-    await Promise.all(runs.map((run) => this.step(run, () => this.readBranches(run))))
+    await Promise.all(runs.map((run) => this.step(run, () => this.readHeads(run))))
     await Promise.all(runs.map((run) => this.step(run, () => this.readNumbers(run))))
     await Promise.all(runs.map((run) => this.step(run, () => this.readChecks(run))))
     for (const run of runs) await this.step(run, () => this.readNeedsReview(run))
@@ -562,29 +587,31 @@ export class PrSync {
       numbers: new Set(task?.open),
       review: new Set(),
       needsReview: false,
-      branches: new Set(),
+      heads: new Map(),
       clientsListening: !!clients,
     }
-    /** A matched pull request is read by number; a branch with no open one is
+    /** A matched pull request is read by number; a head with no open one is
      *  looked up when it is new in the interest or its session's turn ended.
      *  A turn end reads its matched pull request now, past the minute cadence
      *  and the detail cache: the agent may have merged or closed it. */
-    const wantBranch = (branch: string, turnEnded: boolean): void => {
-      const number = sync.byBranch.get(branch)
+    const wantHead = (head: PullRequestHead, turnEnded: boolean): void => {
+      const number = sync.byHead.get(head.key)
       const record = number === undefined ? undefined : sync.records.get(number)
       if (number !== undefined) wanted.numbers.add(number)
       if (number !== undefined && turnEnded && record?.result === 'found' && record.pullRequest.state !== 'merged') sync.reread.add(number)
       if (record?.result === 'found' && record.pullRequest.state === 'open') return
-      if (!sync.branchesLookedUpAt.has(branch) || turnEnded) wanted.branches.add(branch)
+      if (!sync.headsLookedUpAt.has(head.key) || turnEnded) wanted.heads.set(head.key, head)
     }
-    for (const [branch, owners] of task?.branches ?? []) wantBranch(branch, owners.some((id) => endedTurns.has(id)))
+    for (const { head, sessions } of task?.heads.values() ?? []) {
+      wantHead(head, sessions.some(({ sessionId }) => endedTurns.has(sessionId)))
+    }
     for (const interests of clients?.owners.values() ?? []) {
       for (const interest of interests) {
         if (interest.kind === 'pull-request') wanted.numbers.add(interest.number)
         else if (interest.kind === 'review') {
           wanted.numbers.add(interest.number)
           wanted.review.add(interest.number)
-        } else if (interest.kind === 'branch') wantBranch(interest.head, false)
+        } else if (interest.kind === 'head') wantHead(interest.head, false)
         else wanted.needsReview = true
       }
     }
@@ -627,7 +654,7 @@ export class PrSync {
       this.deps.publish(change)
     }
     if (task) {
-      await this.linkBranches(sync, task)
+      await this.linkHeads(sync, task)
       await this.completeMerges(sync, task)
     }
   }
@@ -647,23 +674,22 @@ export class PrSync {
     this.taskInterestsAt = 0
   }
 
-  /** The pull requests of each branch whose lookup is due. The branch
-   *  matches its open pull request, or else its newest one. */
-  private async readBranches(run: RepositoryRun): Promise<void> {
+  /** The pull requests of each head whose lookup is due. The head matches
+   *  its open pull request, or else its newest one. */
+  private async readHeads(run: RepositoryRun): Promise<void> {
     const { sync, wanted } = run
-    if (!wanted.branches.size) return
+    if (!wanted.heads.size) return
     const { repo, provider } = sync.host
-    const heads = [...wanted.branches]
-    const found = await provider.review.getPullRequestsByHead(repo, heads)
-    for (const head of heads) {
-      const lookedUpBefore = sync.branchesLookedUpAt.has(head)
-      sync.branchesLookedUpAt.set(head, this.now())
-      const rows = found.get(head) ?? []
+    const found = await provider.review.getPullRequestsByHead(repo, [...wanted.heads.values()])
+    for (const key of wanted.heads.keys()) {
+      const lookedUpBefore = sync.headsLookedUpAt.has(key)
+      sync.headsLookedUpAt.set(key, this.now())
+      const rows = found.get(key) ?? []
       const pullRequest = rows.find(({ state }) => state === 'open') ?? rows[0]
       if (!pullRequest) continue
-      if (lookedUpBefore && sync.byBranch.get(head) !== pullRequest.number) run.listChanged = true
+      if (lookedUpBefore && sync.byHead.get(key) !== pullRequest.number) run.listChanged = true
       observe(run, pullRequest.number, pullRequest)
-      sync.byBranch.set(head, pullRequest.number)
+      sync.byHead.set(key, pullRequest.number)
     }
   }
 
@@ -744,13 +770,13 @@ export class PrSync {
     this.keepNeedsReview(sync, viewer, await prIndex.listNeedsReview(repo, provider, viewer))
   }
 
-  private async linkBranches(sync: RepositorySync, task: TaskInterest): Promise<void> {
-    for (const [branch, owners] of task.branches) {
-      const number = sync.byBranch.get(branch)
+  private async linkHeads(sync: RepositorySync, task: TaskInterest): Promise<void> {
+    for (const [key, owners] of task.heads) {
+      const number = sync.byHead.get(key)
       const record = number === undefined ? undefined : sync.records.get(number)
-      if (record?.result !== 'found' || sync.linkedBranches.has(`${branch}#${number}`)) continue
-      await this.linkBranchOwners(record.pullRequest, branch, owners)
-      sync.linkedBranches.add(`${branch}#${number}`)
+      if (record?.result !== 'found' || sync.linkedHeads.has(`${key}#${number}`)) continue
+      await this.linkHeadOwners(record.pullRequest, owners)
+      sync.linkedHeads.add(`${key}#${number}`)
     }
   }
 
@@ -775,17 +801,17 @@ export class PrSync {
   }
 
   /**
-   * Link a pull request found on a branch to each session whose own worktree
-   * is on that branch. The session owns the link; its task, when it has one,
-   * reads it (docs/plans/session-pull-requests.md). A session that already has
-   * a row for the pull request keeps it, a row a person dismissed included.
+   * Link a pull request found on a head to each session whose branch pushes
+   * to it. The session owns the link; its task, when it has one, reads it
+   * (docs/plans/session-pull-requests.md). A session that already has a row
+   * for the pull request keeps it, a row a person dismissed included.
    */
-  private async linkBranchOwners(pullRequest: PullRequest, branch: string, sessionIds: string[]): Promise<void> {
+  private async linkHeadOwners(pullRequest: PullRequest, owners: HeadOwners): Promise<void> {
     const repositoryKey = repoKeyOf(pullRequest.baseRepo)
-    const live = new Set((await this.liveCheckouts(this.now(), await liveTaskSessions())).flatMap((checkout) =>
-      checkout.branch === branch ? [checkout.sessionId] : []))
-    for (const sessionId of sessionIds) {
-      if (!live.has(sessionId)) continue
+    const live = new Set((await this.liveCheckouts(this.now(), await liveTaskSessions()))
+      .map((checkout) => `${checkout.sessionId}\0${checkout.branch}`))
+    for (const { sessionId, branch } of owners.sessions) {
+      if (!live.has(`${sessionId}\0${branch}`)) continue
       if (await sessionKnowsPullRequest(sessionId, repositoryKey, pullRequest.number)) continue
       await linkSessionPullRequest(sessionId, {
         url: pullRequest.url, title: pullRequest.title, source: 'branch', by: { kind: 'system' },
@@ -794,8 +820,8 @@ export class PrSync {
   }
 
   /** Interest from live work: the pull requests that tasks and sessions link,
-   *  and the branches of live isolated checkouts. A scope is resolved once per
-   *  read. */
+   *  and the heads the branches of live checkouts push to. A scope is resolved
+   *  once per read. */
   private async readTaskInterests(): Promise<Map<string, TaskInterest>> {
     const hosts = new Map<string, CodeHost | null>()
     const hostFor = async (scope: string): Promise<CodeHost | null> => {
@@ -816,7 +842,7 @@ export class PrSync {
       const key = repoKeyOf(host.repo).toLowerCase()
       let interest = interests.get(key)
       if (!interest) {
-        interest = { host, scopes: new Set([key]), linked: new Set(), open: new Set(), merged: new Map(), branches: new Map() }
+        interest = { host, scopes: new Set([key]), linked: new Set(), open: new Set(), merged: new Map(), heads: new Map() }
         interests.set(key, interest)
       }
       return interest
@@ -835,11 +861,38 @@ export class PrSync {
       if (link.state !== 'merged') interest.open.add(link.number)
       else if (link.updatedAt) interest.merged.set(link.number, link.updatedAt)
     }
+    const defaultBranches = new Map<string, Promise<string | null>>()
+    const defaultBranchFor = (scope: string): Promise<string | null> => {
+      if (!isAbsolute(scope)) return Promise.resolve(null)
+      let branch = defaultBranches.get(scope)
+      if (!branch) {
+        branch = this.defaultBranch(scope).catch(() => null)
+        defaultBranches.set(scope, branch)
+      }
+      return branch
+    }
+    // Several sessions share a checkout and branch: Git is asked once per read.
+    const pushHeads = new Map<string, Promise<PullRequestHead>>()
+    const headFor = (host: CodeHost, scope: string, branch: string): Promise<PullRequestHead> => {
+      const key = `${scope}\0${branch}`
+      let head = pushHeads.get(key)
+      if (!head) {
+        head = this.pushHead(host, scope, branch).catch(() => new PullRequestHead(host.repo, branch))
+        pushHeads.set(key, head)
+      }
+      return head
+    }
     for (const { projectScope, branch, sessionId } of await this.liveCheckouts(this.now(), ofLiveTasks)) {
+      // A session on the default branch works on the project, not on a pull
+      // request: any pull request opened from that name is someone else's.
+      if (branch === await defaultBranchFor(projectScope)) continue
       const host = await hostFor(projectScope)
       if (!host) continue
-      const owners = interestFor(host).branches
-      owners.set(branch, [...owners.get(branch) ?? [], sessionId])
+      const head = await headFor(host, projectScope, branch)
+      const heads = interestFor(host).heads
+      const owners = heads.get(head.key) ?? { head, sessions: [] }
+      owners.sessions.push({ sessionId, branch })
+      heads.set(head.key, owners)
     }
     // Links of finished work make no repository worth a tick, but an answer
     // PR sync reads anyway should still reach them.
@@ -882,9 +935,8 @@ function observe(run: RepositoryRun, number: number, row: PullRequest | null): v
   const previous = sync.records.get(number)
   run.seen.add(number)
   sync.records.set(number, pullRequest ? { result: 'found', pullRequest } : { result: 'missing' })
-  if (pullRequest && (!sync.byBranch.has(pullRequest.headRef) || pullRequest.state === 'open')) {
-    sync.byBranch.set(pullRequest.headRef, number)
-  }
+  const head = pullRequest && PullRequestHead.of(pullRequest).key
+  if (pullRequest && head && (!sync.byHead.has(head) || pullRequest.state === 'open')) sync.byHead.set(head, number)
   if (previous && !recordChanged(previous, pullRequest)) return
   if (pullRequest) seedIndex(sync.host, pullRequest)
   run.observations.set(number, { number, pullRequest, isNews: run.heldBefore.has(number) })
@@ -902,20 +954,20 @@ function cadenceOf(sync: RepositorySync, wanted: Wanted): number {
 }
 
 /** Whether PR sync already holds an answer for this interest. */
-function isAnswered(sync: RepositorySync, interest: PrInterest): boolean {
+function isAnswered(sync: RepositorySync, interest: SyncInterest): boolean {
   if (interest.kind === 'pull-request') return sync.records.has(interest.number)
   if (interest.kind === 'review') return sync.records.has(interest.number) && sync.checks.has(interest.number)
-  if (interest.kind === 'branch') return sync.byBranch.has(interest.head) || sync.branchesLookedUpAt.has(interest.head)
+  if (interest.kind === 'head') return sync.byHead.has(interest.head.key) || sync.headsLookedUpAt.has(interest.head.key)
   return sync.needsReview !== null
 }
 
 /** What is known about what one connection asked for. */
-function snapshotOf(key: string, sync: RepositorySync, interests: PrInterest[]): PrSyncChange {
+function snapshotOf(key: string, sync: RepositorySync, interests: SyncInterest[]): PrSyncChange {
   const numbers = new Set<number>()
   for (const interest of interests) {
     if (interest.kind === 'pull-request' || interest.kind === 'review') numbers.add(interest.number)
-    else if (interest.kind === 'branch') {
-      const number = sync.byBranch.get(interest.head)
+    else if (interest.kind === 'head') {
+      const number = sync.byHead.get(interest.head.key)
       if (number !== undefined) numbers.add(number)
     } else if (interest.kind === 'needs-review') for (const number of sync.needsReview ?? []) numbers.add(number)
   }

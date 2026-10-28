@@ -149,4 +149,23 @@ describe('restored tab metadata', () => {
     // Once read, the tab still says that work goes on, instead of nothing.
     expect(getAttentionState(session, makeTab(session.id))).toBe('background')
   })
+
+  test('a session an agent on another host started knows its parent, so the sidebar nests it', () => {
+    // WHY: a cross-host start sends only the origin, never a delegation record.
+    // Without the origin as the parent, the child lists as a peer of the session
+    // that started it.
+    const remoteChild = restoredSession()
+    applyRestoredSessionMeta(remoteChild, meta({ startedBy: { hostLabel: 'studio', sessionId: 'parent-on-studio' } }))
+    expect(remoteChild.parentSessionId).toBe('parent-on-studio')
+
+    const localChild = restoredSession()
+    applyRestoredSessionMeta(localChild, meta({
+      delegation: { parentSessionId: 'local-parent', rootSessionId: 'local-parent', messageId: 'm1', depth: 1, intent: 'delegate', createdAt: 1 },
+    }))
+    expect(localChild.parentSessionId).toBe('local-parent')
+
+    const rootSession = restoredSession()
+    applyRestoredSessionMeta(rootSession, meta())
+    expect(rootSession.parentSessionId).toBeUndefined()
+  })
 })

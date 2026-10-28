@@ -19,7 +19,7 @@ export function resolveSshTarget(
   server: DiscoveredServer | undefined,
   explicitTarget?: string,
 ): SshTargetResolution {
-  if (explicitTarget?.trim()) return { status: 'ready', target: parseSshTarget(explicitTarget) }
+  if (explicitTarget?.trim()) return { status: 'ready', target: withConfigAlias(parseSshTarget(explicitTarget)) }
 
   if (!server) throw new Error('SSH target is required.')
   const candidates = sshTargetCandidates(server)
@@ -35,6 +35,25 @@ export function resolveSshTarget(
     defaultTarget,
     message: `Enter the SSH target for ${server.name || server.host}.`,
   }
+}
+
+/**
+ * A target named by its address uses the `~/.ssh/config` alias for that address, so
+ * the key and options there apply: `ssh ada@10.0.0.5` offers only the default keys,
+ * while `Host box` with `HostName 10.0.0.5` names the key for that machine. Only an
+ * alias that is the one entry for the address, and that names no other user, counts.
+ */
+export function withConfigAlias(target: SshTarget, entries: SshConfigEntry[] = readSshConfigEntries()): SshTarget {
+  const at = target.destination.lastIndexOf('@')
+  const user = at >= 0 ? target.destination.slice(0, at) : undefined
+  const host = target.destination.slice(at + 1)
+  if (entries.some((entry) => entry.hosts.includes(host))) return target
+  const matches = entries.filter((entry) => entry.hostname === host && (!user || !entry.user || entry.user === user) && (!target.port || !entry.port || entry.port === target.port))
+  const alias = matches.length === 1 ? matches[0]!.hosts.find((name) => !hasSshPattern(name)) : undefined
+  if (!alias) return target
+  const aliased: SshTarget = { ...target, destination: user ? `${user}@${alias}` : alias }
+  if (!target.port) delete aliased.port
+  return aliased
 }
 
 export function parseSshTarget(input: string): SshTarget {
@@ -83,7 +102,7 @@ export function sshTargetCandidates(server: DiscoveredServer): SshTargetCandidat
   return [...candidates.values()]
 }
 
-interface SshConfigEntry {
+export interface SshConfigEntry {
   hosts: string[]
   hostname?: string
   user?: string

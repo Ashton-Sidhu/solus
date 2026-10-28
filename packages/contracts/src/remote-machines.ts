@@ -28,6 +28,8 @@ export interface SshAddLink {
 export interface SshAddRequest {
   /** An SSH alias or `user@host`, resolved with this host's SSH configuration. Absent with `discovered`: this host suggests one. */
   sshTarget?: string
+  /** A private key on the host that runs SSH (`ssh -i`), such as an AWS `.pem`. Absent: SSH's own keys and config. */
+  identityFile?: string
   /** A server found on the network, when the person added it from the nearby list. */
   discovered?: DiscoveredServer
   /** A password or key passphrase, read once through askpass. A forward needs key authentication. */
@@ -47,6 +49,8 @@ export interface SshAddProgress {
   requestId: string
   step: SshAddStep
   message: string
+  /** How far the install is, 0 to 100; absent while it cannot be told, as with an installer that does not report it. */
+  percent?: number
 }
 
 export type SshAddResult =

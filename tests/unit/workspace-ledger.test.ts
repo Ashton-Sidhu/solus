@@ -3,7 +3,16 @@ import type { Work } from '@solus/contracts/types'
 import {
   DEFAULT_FILTER,
   applyFilter,
+  applySessionFilter,
+  buildSharedSessionItems,
   buildWorkspaceItems,
+  groupSharedSessions,
+  groupSharedWorks,
+  isSharedWithMe,
+  roleLabel,
+  shareStateLabel,
+  splitByOwnership,
+  workspaceTabs,
   formatGeneratedDate,
   formatGeneratedFull,
   groupItems,
@@ -17,6 +26,7 @@ import {
   type WorkspaceItem,
   type WorkspaceProjects,
 } from '@solus/workspace-ui/components/workspace/lib/workspace-items'
+import type { ListedSession } from '@solus/workspace-ui/contexts/workspace/session-list.store.svelte'
 import { projectOptionsFor, type LogicalProject } from '@solus/workspace-ui/contexts/projects/project-catalog'
 import { localProjectKey } from '@solus/contracts/repository-key'
 import { highlightRuns } from '@solus/workspace-ui/lib/searchHighlight'
@@ -40,6 +50,9 @@ function item(over: Partial<WorkspaceItem> & { id: string; timestamp: number }):
     reviewState: null,
     reviewers: [],
     awaitingMyReview: false,
+    role: null,
+    ownerKey: null,
+    share: null,
     work: {} as never,
     ...over,
   }
@@ -262,5 +275,147 @@ describe('search highlighting marks what matched', () => {
     expect(highlightRuns('Session Sidebar', '  ')).toEqual([
       { text: 'Session Sidebar', hit: false },
     ])
+  })
+})
+
+// ─── The three groups (docs/workspace-page.md) ───
+
+function listed(over: Partial<ListedSession> & { sessionId: string }): ListedSession {
+  return {
+    serverId: 'host',
+    homeServerId: 'host',
+    runnerOffline: false,
+    title: over.sessionId,
+    projectPath: '/Users/ada/acme/solus',
+    createdAt: 1,
+    lastActivityAt: Date.now(),
+    status: 'idle',
+    branch: null,
+    ownerKey: 'account:ada',
+    opensWith: { provider: 'claude-code', projectPath: '-repo', cwd: '/repo' },
+    ...over,
+  }
+}
+
+describe('a record is shared with the reader when its host answered a role below owner', () => {
+  it('counts a viewer, a commenter, an editor and a custom role as shared, and nothing else', () => {
+    expect(isSharedWithMe('viewer')).toBe(true)
+    expect(isSharedWithMe('commenter')).toBe(true)
+    expect(isSharedWithMe('editor')).toBe(true)
+    expect(isSharedWithMe('custom')).toBe(true)
+    // The reader's own: the owner, or a record on a host that is theirs, which carries no role.
+    expect(isSharedWithMe('owner')).toBe(false)
+    expect(isSharedWithMe(null)).toBe(false)
+    expect(isSharedWithMe(undefined)).toBe(false)
+    // A record the reader cannot open is never listed, and is not "shared".
+    expect(isSharedWithMe('none')).toBe(false)
+  })
+
+  it('splits the ledger into the reader\'s own works and the ones shared with them', () => {
+    const items = [
+      item({ id: 'mine', timestamp: 3 }),
+      item({ id: 'owned', timestamp: 2, role: 'owner' }),
+      item({ id: 'theirs', timestamp: 1, role: 'editor' }),
+    ]
+    const { yours, shared } = splitByOwnership(items)
+    expect(yours.map((i) => i.id)).toEqual(['mine', 'owned'])
+    expect(shared.map((i) => i.id)).toEqual(['theirs'])
+  })
+
+  it('names the tabs with their counts, in the order the page draws them', () => {
+    expect(workspaceTabs({ yours: 3, 'shared-works': 1, 'shared-sessions': 0 }).map((tab) => [tab.id, tab.count])).toEqual([
+      ['yours', 3],
+      ['shared-works', 1],
+      ['shared-sessions', 0],
+    ])
+  })
+
+  it('names a role the way the share dialog does', () => {
+    expect(roleLabel('editor')).toBe('Can edit')
+    expect(roleLabel('commenter')).toBe('Can comment')
+    expect(roleLabel('viewer')).toBe('Can view')
+    expect(roleLabel('custom')).toBe('Custom')
+  })
+})
+
+describe('shared works lead with what needs the reader', () => {
+  it('lifts a work awaiting the reader\'s review above the date buckets, whatever its age', () => {
+    const now = Date.now()
+    const groups = groupSharedWorks([
+      item({ id: 'fresh', timestamp: now, role: 'viewer' }),
+      item({ id: 'old-review', timestamp: now - 40 * DAY, role: 'viewer', awaitingMyReview: true }),
+    ])
+    expect(groups[0]!.label).toBe('Needs you')
+    expect(groups[0]!.items.map((i) => i.id)).toEqual(['old-review'])
+    expect(groups[1]!.label).toBe('Today')
+  })
+
+  it('has no "Needs you" group when nothing waits, so an empty heading never leads the tab', () => {
+    const groups = groupSharedWorks([item({ id: 'a', timestamp: Date.now(), role: 'viewer' })])
+    expect(groups.map((g) => g.label)).toEqual(['Today'])
+  })
+})
+
+describe('shared sessions are the ones in the reader\'s list with a role below owner', () => {
+  it('keeps the shared ones, newest first, with what the card shows', () => {
+    const items = buildSharedSessionItems([
+      listed({ sessionId: 'own' }),
+      listed({ sessionId: 'older', role: 'viewer', lastActivityAt: 10, branch: 'fix/reconnect', status: 'running' }),
+      listed({ sessionId: 'newer', role: 'editor', lastActivityAt: 20, runnerOffline: true }),
+    ])
+    expect(items.map((i) => i.sessionId)).toEqual(['newer', 'older'])
+    expect(items[1]).toMatchObject({ role: 'viewer', branch: 'fix/reconnect', status: 'running', projectLabel: 'solus', ownerKey: 'account:ada' })
+    expect(items[0]!.runnerOffline).toBe(true)
+  })
+
+  it('falls back to the creation time for a session that never reported activity', () => {
+    const [only] = buildSharedSessionItems([listed({ sessionId: 's', role: 'viewer', lastActivityAt: 0, createdAt: 5 })])
+    expect(only!.timestamp).toBe(5)
+  })
+
+  it('leads with the sessions whose agent works now, then buckets the rest by date', () => {
+    const now = Date.now()
+    const groups = groupSharedSessions(buildSharedSessionItems([
+      listed({ sessionId: 'idle-today', role: 'viewer', lastActivityAt: now }),
+      listed({ sessionId: 'running-old', role: 'viewer', lastActivityAt: now - 40 * DAY, status: 'running' }),
+    ]))
+    expect(groups.map((g) => [g.label, g.items.map((i) => i.sessionId)])).toEqual([
+      ['Live now', ['running-old']],
+      ['Today', ['idle-today']],
+    ])
+  })
+
+  it('searches the title and the project, case-insensitively', () => {
+    const items = buildSharedSessionItems([
+      listed({ sessionId: 'a', title: 'Fix reconnect', role: 'viewer' }),
+      listed({ sessionId: 'b', title: 'Share sheet', role: 'viewer', projectPath: '/x/mobile' }),
+    ])
+    expect(applySessionFilter(items, 'RECONNECT').map((i) => i.sessionId)).toEqual(['a'])
+    expect(applySessionFilter(items, 'mobile').map((i) => i.sessionId)).toEqual(['b'])
+    expect(applySessionFilter(items, '  ')).toBe(items)
+  })
+})
+
+describe('a card says who else may open the reader\'s own work', () => {
+  const HOUR = 3_600_000
+  it('leads with the widest reach: the link, then the organization, then the people named', () => {
+    expect(shareStateLabel({ named: 0, organization: false, link: null })).toEqual({ glyph: 'private', label: 'Only you' })
+    expect(shareStateLabel({ named: 1, organization: false, link: null })).toEqual({ glyph: 'people', label: '1 person' })
+    expect(shareStateLabel({ named: 3, organization: false, link: null })).toEqual({ glyph: 'people', label: '3 people' })
+    expect(shareStateLabel({ named: 0, organization: true, link: null })).toEqual({ glyph: 'organization', label: 'Organization' })
+    expect(shareStateLabel({ named: 2, organization: true, link: null })?.label).toBe('Organization · 2 named')
+    expect(shareStateLabel({ named: 2, organization: true, link: { role: 'viewer', expiresAt: null } })).toEqual({ glyph: 'link', label: 'Anyone with link' })
+  })
+
+  it('says how long a link has left in the unit that fits, and that it expired', () => {
+    const now = 1_000_000
+    expect(shareStateLabel({ named: 0, organization: false, link: { role: 'viewer', expiresAt: now + 6 * HOUR } }, now)?.label).toBe('Anyone with link · 6h left')
+    expect(shareStateLabel({ named: 0, organization: false, link: { role: 'viewer', expiresAt: now + 72 * HOUR } }, now)?.label).toBe('Anyone with link · 3d left')
+    expect(shareStateLabel({ named: 0, organization: false, link: { role: 'viewer', expiresAt: now + 10 * 60_000 } }, now)?.label).toBe('Anyone with link · under an hour left')
+    expect(shareStateLabel({ named: 0, organization: false, link: { role: 'viewer', expiresAt: now - 1 } }, now)?.label).toBe('Anyone with link · expired')
+  })
+
+  it('says nothing for a host that did not say, rather than guessing "Only you"', () => {
+    expect(shareStateLabel(null)).toBeNull()
   })
 })

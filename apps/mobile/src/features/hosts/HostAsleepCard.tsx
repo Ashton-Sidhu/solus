@@ -1,7 +1,7 @@
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
 import { hostDiagnosticRows, hostDiagnosticsText } from "@solus/client-core/host-diagnostics";
 import { HOST_READINESS_ACTION_LABELS, type HostReadinessAction } from "@solus/client-core/host-readiness";
 
@@ -10,18 +10,19 @@ import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import type { RootStackParamList } from "../../navigation/routes";
-import { hostAsleepVeilCopy } from "../threads/lib/thread-host-chrome";
+import { hostAsleepCardCopy } from "../threads/lib/thread-host-chrome";
 
 const COPY_FEEDBACK_DURATION_MS = 1200;
 const MINUTE_MS = 60_000;
 
 /**
- * What lies over a thread while its host is away (docs/plans/host-readiness.md):
- * the thread sleeps under one statement of what happened and the one thing to
- * do. The facts to find the cause or to send to support wait behind Details,
- * which starts closed. `bottomInset` keeps the content clear of the home indicator.
+ * What takes the composer's place while a thread's host is away
+ * (docs/plans/host-readiness.md): one statement of what happened and the one
+ * thing to do, with the thread above it still readable. The facts to find the
+ * cause or to send to support wait behind Details, which starts closed.
+ * `bottomInset` keeps the card clear of the home indicator.
  */
-export function HostAsleepVeil(props: { readonly hostId: string; readonly bottomInset: number }) {
+export function HostAsleepCard(props: { readonly hostId: string; readonly bottomInset: number }) {
   const { hostId } = props;
   const app = useApp();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -38,7 +39,7 @@ export function HostAsleepVeil(props: { readonly hostId: string; readonly bottom
     const timer = setInterval(() => setNow(Date.now()), MINUTE_MS);
     return () => clearInterval(timer);
   }, [isFocused]);
-  const copy = hostAsleepVeilCopy(diagnostics.state, diagnostics.label, isStarting, now);
+  const copy = hostAsleepCardCopy(diagnostics.state, diagnostics.label, isStarting, now);
   const runAction = (next: HostReadinessAction) => {
     if (next === "retry") {
       app.connections.retry(hostId);
@@ -52,20 +53,10 @@ export function HostAsleepVeil(props: { readonly hostId: string; readonly bottom
     }
   };
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      className="flex-1"
-      contentContainerClassName="grow items-center justify-center px-6 py-10"
-      contentContainerStyle={{ paddingBottom: props.bottomInset + 40 }}
-    >
-      {/* A plate in the canvas colour: on the scrim its edge barely shows, and
-          nothing in the sleeping thread reads through the statement or its details. */}
-      <View
-        className={
-          Platform.OS === "android"
-            ? "w-full max-w-md items-center gap-2 rounded-3xl bg-thread-canvas p-6"
-            : "w-full max-w-md items-center gap-2 rounded-3xl bg-screen p-6"
-        }
+    <View className="px-3" style={{ paddingBottom: props.bottomInset + 8 }}>
+      <ScrollView
+        className="max-h-[60vh] rounded-3xl border border-border bg-card"
+        contentContainerClassName="items-center gap-2 p-6"
         accessibilityLiveRegion="polite"
       >
         <View className="flex-row items-center justify-center gap-2.5">
@@ -137,8 +128,8 @@ export function HostAsleepVeil(props: { readonly hostId: string; readonly bottom
             </View>
           </View>
         ) : null}
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

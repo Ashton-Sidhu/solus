@@ -424,7 +424,7 @@ describe('host administration', () => {
     process.env.SOLUS_API = '1'
     resetApiModeForTests()
     try {
-      for (const method of ['googleConnect', 'googleDisconnect', 'atlassianStartOAuth', 'atlassianCancelOAuth', 'atlassianDisconnect', 'providerConnect', 'providerCancelConnect', 'providerDisconnect'] as const) {
+      for (const method of ['googleConnect', 'googleDisconnect', 'atlassianStartOAuth', 'atlassianCancelOAuth', 'atlassianConnectApiToken', 'atlassianDisconnect', 'providerConnect', 'providerCancelConnect', 'providerDisconnect'] as const) {
         await expect(assertRpcAccess(method, MEMBER, [ctx('s1')], undefined, true)).resolves.toBeUndefined()
         await expect(assertRpcAccess(method, GUEST, [ctx('s1')], undefined, true)).rejects.toThrow(/not available to a guest/)
       }

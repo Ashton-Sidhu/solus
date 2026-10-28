@@ -9,9 +9,10 @@
   import PendingHandoffDivider from "./PendingHandoffDivider.svelte";
   import { revealTranscriptMatch } from "./lib/transcript-navigation";
   import { SearchMessageNavigation } from "./lib/search-message-navigation.svelte";
-  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
+  import { Skeleton } from "../ui/skeleton";
   import { tick, untrack } from "svelte";
   import { modelLabelFor } from "@solus/contracts/types";
+  import { setupActivityLabel } from "@solus/contracts/setup-card";
   import {
     FileText as FileTextIcon,
   } from "@lucide/svelte";
@@ -40,7 +41,6 @@
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import SuggestionGroup from "./suggestions/SuggestionGroup.svelte";
   import StatusCard from "./StatusCard.svelte";
-  import HostUnavailable from "./HostUnavailable.svelte";
 
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import DiffSummaryCard from "./DiffSummaryCard.svelte";
@@ -457,6 +457,8 @@
   const activityLabel = $derived(
     isAwaitingPlan ? "Awaiting plan approval" : currentActivity || undefined,
   );
+  // While setup runs, the status row names its step, as the setup card does.
+  const setupLabel = $derived(setupActivityLabel(sess?.statusCard) ?? undefined);
   // Running, stopped and failed are all reported by the turn's own activity row
   // (§16, §17) — the strip only carries what no turn can express.
   const showActivityStrip = $derived(!!sess && isAwaitingPlan);
@@ -683,10 +685,10 @@
 <!-- No container: assistant prose sits directly on the canvas. Cards, code and
      tables are the only boxes it may draw. -->
 
-<!-- A host that is away has nothing to load: the pane sleeps under its
-     state rather than a skeleton that never ends. -->
-{#if tab && sess && sessionHostId && sess.messages.length === 0 && isHostAway}
-  <HostUnavailable serverId={sessionHostId} variant="veil" />
+<!-- A host that is away has nothing to load: the pane stays empty rather than
+     a skeleton that never ends. Its state is in the composer's place. -->
+{#if tab && sess && sess.messages.length === 0 && isHostAway}
+  <div class="h-full"></div>
 {:else if tab && sess && sess.loadingHistory}
   <ConversationSkeleton />
 {:else if tab && sess}
@@ -698,14 +700,6 @@
     class="flex h-full min-h-0 flex-col"
   >
     <div class="cv-root relative min-h-0 flex-1">
-      <!-- Past the grace the conversation sleeps: it dims under the host's state. -->
-      {#if sessionHostId && isHostAway}
-        <!-- A scrim in the page colour: the transcript sleeps under it, and the
-             statement on it always reads cleanly over whatever text is below. -->
-        <div class="absolute inset-0 z-10 bg-background/90">
-          <HostUnavailable serverId={sessionHostId} variant="veil" />
-        </div>
-      {/if}
       {#if find.isOpen}
         <div
           class="absolute right-3 z-20"
@@ -731,8 +725,6 @@
         data-conversation-tab-id={tabId}
         class:outer-scroll-source={!!outerScrollbar}
         class="conversation-selectable h-full overflow-y-auto overflow-x-hidden px-4 pt-1 pb-[var(--solus-composer-inset,0px)] transition-opacity duration-300 motion-reduce:transition-none"
-        class:host-asleep={isHostAway}
-        inert={isHostAway}
         style="overscroll-behavior-y:contain"
         onscroll={handleScroll}
       >
@@ -746,24 +738,35 @@
             ? `;padding-top:${CRUMB_OFFSET}px`
             : ''}"
         >
-          {#if expandingHistory}
-            <ContentSkeleton label="Loading earlier messages" />
-          {:else if historyError}
-            <div role="alert" class="py-2 text-sm">
-              {historyError}
-              <button type="button" class="underline" onclick={() => void maybeLoadOlder({ force: true })}>Retry</button>
-            </div>
-          {:else if runtime.isTouchDevice && hasOlderTurnsToLoad}
-            <!-- Touch clients can request earlier turns with a button as well
-                 as the automatic paging available when scrolling up. -->
-            <div class="flex justify-center pt-1 pb-2">
-              <button
-                type="button"
-                class="flex h-8 cursor-pointer items-center rounded-full border-0 bg-(--card) px-3.5 text-xs font-medium text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
-                onclick={() => void maybeLoadOlder({ force: true })}
-              >
-                Load earlier turns
-              </button>
+          <!-- One row of fixed height while older history exists. Its states
+               swap inside it, so the rows below never move: the virtualizer
+               holds the reader's place when rows change, not when content
+               above the list grows mid-scroll. The row leaves in the same
+               update that renders the last page, which the virtualizer
+               corrects. -->
+          {#if hasOlderTurnsToLoad || historyError}
+            <div class="flex h-12 items-center justify-center">
+              {#if expandingHistory}
+                <div class="flex w-full flex-col gap-2 px-3" role="status" aria-busy="true" aria-label="Loading earlier messages">
+                  <Skeleton class="h-3 w-3/4" />
+                  <Skeleton class="h-3 w-1/2" />
+                </div>
+              {:else if historyError}
+                <div role="alert" class="flex min-w-0 items-center gap-2 text-sm">
+                  <span class="truncate">{historyError}</span>
+                  <button type="button" class="shrink-0 underline" onclick={() => void maybeLoadOlder({ force: true })}>Retry</button>
+                </div>
+              {:else if runtime.isTouchDevice}
+                <!-- Touch clients can request earlier turns with a button as
+                     well as the automatic paging available when scrolling up. -->
+                <button
+                  type="button"
+                  class="flex h-8 cursor-pointer items-center rounded-full border-0 bg-(--card) px-3.5 text-xs font-medium text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
+                  onclick={() => void maybeLoadOlder({ force: true })}
+                >
+                  Load earlier turns
+                </button>
+              {/if}
             </div>
           {/if}
 
@@ -781,12 +784,13 @@
             {#snippet children(turn: Turn, turnIdx: number)}
               <ConversationTurn {turn} index={turnIdx} total={turns.length}
                 expanded={turnExpansion.get(turn.id) ?? (turnIdx === turns.length - 1 && turn.end?.kind === "failed" && hasVisibleTurnBody(turn))}
-                {isAwaitingInput} {activityLabel} turnStart={sess.currentTurnStart}
+                {isAwaitingInput} {activityLabel} {setupLabel} turnStart={sess.currentTurnStart}
                 hasBackgroundWork={showsBackgroundWork(sess.status, !!sess.backgroundWorkRunning)}
                 onStopBackgroundWork={stopBackgroundWork}
                 attempt={sess.retryAttempt ?? 1} history={session.toolHistory}
                 onToggle={(expanded) => toggleTurn(turn.id, expanded)} onRetry={handleRetry}
-                serverId={runHost(sess.run)} {transcriptItem} />
+                serverId={runHost(sess.run)} {transcriptItem}
+                settledSetupCard={turnIdx === turns.length - 1 && sess.statusCard?.status === "done" ? sess.statusCard : undefined} />
             {/snippet}
           </VirtualTranscript>
 
@@ -801,7 +805,9 @@
           <!-- Every card below asks the host for something. While the host is
                away none of them can work, so the host panel stands alone. -->
           {#if !isHostAway}
-          {#if sess.statusCard}
+          <!-- A finished setup card belongs to the turn its send started, so the
+               last turn draws it; this slot is for setup that runs or failed. -->
+          {#if sess.statusCard && sess.statusCard.status !== "done"}
             <StatusCard
               card={sess.statusCard}
               onRetry={() => session.controls.recoverWorktreeSetup(tabId, false)}
@@ -953,11 +959,6 @@
 {/if}
 
 <style>
-  /* The conversation asleep under its host's state: still there, plainly not live. */
-  .host-asleep {
-    filter: saturate(0.4);
-  }
-
   /* Match the scroll area's 1rem side gutters before applying the reading
      width cap. This keeps the activity label and orb on the same horizontal
      bounds as the message column in narrow split panes. */

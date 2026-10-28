@@ -1,10 +1,11 @@
 import { defaultDeviceLabel } from '@solus/client-core/device-label'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { serverFromSshAdd } from '@solus/client-core/server-registry'
+import { sshAddStatusCard } from '@solus/client-core/ssh-progress'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import type { SshAddProgress } from '@solus/contracts/remote-machines'
+import type { StatusCardState } from '@solus/contracts/types'
 import { hosts, serversStore, uplinkStore } from '../../contexts'
-import { requestInputFocus } from '../../lib/inputFocus'
 import { sshAddOutcome, sshAddRequest } from './lib/add-over-ssh'
 import { messageFor } from './lib/setup-rpc'
 
@@ -15,10 +16,11 @@ export type AddOverSshPhase = 'form' | 'running' | 'done'
  * "Add a machine over SSH" for a machine that was not discovered (docs/plans/host-routes.md
  * D6). The SSH runs on this client's own machine when it has one (the desktop), else on
  * the host the client is connected to (web): that host holds the SSH keys and the forward.
+ * The form is the SSH tab of the add-host dialog, which `serversStore` opens and closes.
  */
 class AddOverSshStore {
-  isOpen = $state(false)
   sshTarget = $state('')
+  identityFile = $state('')
   linkToAccount = $state(false)
   password = $state('')
   phase = $state<AddOverSshPhase>('form')
@@ -34,6 +36,8 @@ class AddOverSshStore {
   private attempt = 0
   /** The host a host's own settings page named; null for this client's default. */
   private chosenHostId = $state<string | null>(null)
+  /** The draft belongs to the open dialog. False after a close, so the next open starts clean. */
+  private hasDraft = false
 
   /** The host the SSH runs on, or null when this client has no host. */
   get sshHostId(): string | null {
@@ -50,15 +54,44 @@ class AddOverSshStore {
     return uplinkStore.canLink
   }
 
+  /** The add as a setup card, once it has started; null before. */
+  get statusCard(): StatusCardState | null {
+    if (this.progress.length === 0 && this.phase !== 'running') return null
+    return sshAddStatusCard(this.progress, {
+      target: this.sshTarget.trim(),
+      standing: this.phase === 'running' ? 'running' : this.phase === 'done' ? 'done' : 'failed',
+      resultMessage: this.resultMessage,
+      error: this.error,
+    })
+  }
+
   get canSubmit(): boolean {
     return this.phase === 'form' && !!this.sshTarget.trim() && !!this.sshHostId
   }
 
-  /** `sshHostId` names the host that runs the SSH and holds the forward; omitted, this client's default. */
+  /** Opens the add-host dialog on its SSH tab. `sshHostId` names the host that runs the SSH and holds the forward; omitted, this client's default. */
   open(sshHostId: string | null = null): void {
+    this.startDraft(sshHostId)
+    serversStore.openAddServer('', 'ssh')
+  }
+
+  /** The dialog switched to the SSH tab: keep the draft of this open, or start one. */
+  ensureDraft(): void {
+    if (!this.hasDraft) this.startDraft(null)
+  }
+
+  /** The dialog closed. An add in flight still lands: the host finishes it, and its host is saved. */
+  releaseDraft(): void {
+    this.hasDraft = false
+    this.password = ''
+  }
+
+  private startDraft(sshHostId: string | null): void {
     this.attempt++
+    this.hasDraft = true
     this.chosenHostId = sshHostId
     this.sshTarget = ''
+    this.identityFile = ''
     this.password = ''
     this.linkToAccount = this.canLink
     this.phase = 'form'
@@ -66,14 +99,6 @@ class AddOverSshStore {
     this.error = ''
     this.resultMessage = ''
     this.isPasswordRequested = false
-    this.isOpen = true
-  }
-
-  /** An add in flight still lands after a close: the host finishes it, and its host is saved. */
-  close(): void {
-    this.isOpen = false
-    this.password = ''
-    requestInputFocus()
   }
 
   setLinkToAccount(next: boolean): void {
@@ -106,7 +131,7 @@ class AddOverSshStore {
         if (!link) throw new Error('Solus Cloud did not give a link ticket. Sign in and try again.')
       }
       const request = sshAddRequest(
-        { sshTarget: this.sshTarget, linkToAccount, password, deviceLabel: defaultDeviceLabel(), requestId },
+        { sshTarget: this.sshTarget, identityFile: this.identityFile, linkToAccount, password, deviceLabel: defaultDeviceLabel(), requestId },
         link,
       )
       const result = await serverConnections.apiFor(hostId).hostsAddOverSsh(request)

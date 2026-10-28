@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
 import type { ForwardedHost, SshAddProgress, SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
 import { ForwardedHosts, forwardedHostRow, forwardedRemoveChoice, type ForwardedHostsConnection } from '../../apps/mobile/src/features/hosts/forwarded-hosts'
-import { runSshAdd, sshAddFormIssue, sshAddOutcome, sshProgressLines, sshRunnerChoices, type SshAddForm } from '../../apps/mobile/src/features/hosts/lib/ssh-add'
+import { runSshAdd, sshAddFormIssue, sshAddOutcome, sshRunnerChoices, type SshAddForm } from '../../apps/mobile/src/features/hosts/lib/ssh-add'
 
 // A phone cannot run SSH: it asks a connected host to (docs/plans/host-routes.md D6).
 // A machine linked to the account is reachable from the phone; a forwarded one only
@@ -42,7 +42,7 @@ class FakeEvents {
   }
 }
 
-const FORM: SshAddForm = { runnerHostId: 'inst-mac', sshTarget: ' me@box ', shouldLink: true, authSecret: 'pw' }
+const FORM: SshAddForm = { runnerHostId: 'inst-mac', sshTarget: ' me@box ', identityFile: '', shouldLink: true, authSecret: 'pw' }
 
 describe('the host that runs SSH for the phone', () => {
   const hosts = [
@@ -107,6 +107,12 @@ describe('one add over SSH', () => {
     expect(requests[0]!.authSecret).toBeUndefined()
   })
 
+  test('an identity file goes to the host without a link, so a forward can use an AWS key', async () => {
+    const { connection, requests } = runner(() => ({ status: 'forwarded', host: forwarded(), sessionToken: 'st' }))
+    await runSshAdd(connection, { ...FORM, shouldLink: false, identityFile: ' ~/.ssh/aws.pem ' }, { requestId: 'r5', deviceLabel: 'Phone', issueTicket: async () => TICKET, onProgress: () => {} })
+    expect(requests[0]!.identityFile).toBe('~/.ssh/aws.pem')
+  })
+
   test('a link while signed out fails before the host is asked', async () => {
     const { connection, requests } = runner(() => ({ status: 'linked', installationId: 'x', label: 'x' }))
     await expect(runSshAdd(connection, FORM, { requestId: 'r3', deviceLabel: 'Phone', issueTicket: async () => null, onProgress: () => {} })).rejects.toThrow('Sign in')
@@ -143,15 +149,6 @@ describe('what the phone shows for each answer', () => {
   test('a missing target offers the suggestions', () => {
     const outcome = sshAddOutcome({ status: 'needs-target', candidates: [{ target: 'box', label: 'box', source: 'ssh-config' }], defaultTarget: 'box', message: 'Pick one.' }, 'Mac', true)
     expect(outcome).toMatchObject({ kind: 'ask-target', defaultTarget: 'box' })
-  })
-
-  test('progress shows one line per step, the newest current', () => {
-    const lines = sshProgressLines([
-      { requestId: 'r', step: 'connect', message: 'a' },
-      { requestId: 'r', step: 'install', message: 'b' },
-      { requestId: 'r', step: 'install', message: 'c' },
-    ])
-    expect(lines.map((line) => [line.step, line.message, line.isCurrent])).toEqual([['connect', 'a', false], ['install', 'c', true]])
   })
 })
 

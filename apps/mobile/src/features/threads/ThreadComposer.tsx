@@ -100,6 +100,8 @@ export interface ThreadComposerProps {
   readonly connected: boolean;
   /** Why sending is blocked right now (the send button's label), or null. */
   readonly sendBlockedReason?: string | null;
+  /** The host is reconnecting: the draft stays, but takes no input until it is back. */
+  readonly disabled?: boolean;
   readonly canStopThread: boolean;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
   readonly onStopThread: () => void;
@@ -323,13 +325,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     restoreToConversationDraft,
   });
   const editing = queuedEdit !== null;
-  const { text, onChangeText, hasContent, stripAttachments, stripUploading, attachmentsFull, queuedAttachments, locked } =
+  const { text, onChangeText, hasContent, stripAttachments, stripUploading, attachmentsFull, queuedAttachments, locked: draftLocked } =
     composerDraftView(queuedEdit, {
       text: draftMessage,
       onChangeText: onChangeDraftMessage,
       attachments: meta.attachments,
       uploading: meta.uploading,
     });
+  const locked = draftLocked || props.disabled === true;
   // Stopping the agent is not what the send button means in edit mode.
   const showStopAction = !hasContent && props.canStopThread && !editing;
   const running = isSessionBusyStatus(meta.status);

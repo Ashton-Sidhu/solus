@@ -96,7 +96,8 @@ export class SshProvisioner {
     private readonly place: RemoteInstallPlace = {},
   ) {}
 
-  async add(request: ProvisionRequest, progress: (step: SshAddStep, message: string) => void): Promise<ProvisionOutcome> {
+  /** `progress` gets each step as it starts, then the install again each time its percentage moves. */
+  async add(request: ProvisionRequest, progress: (step: SshAddStep, message: string, percent?: number) => void): Promise<ProvisionOutcome> {
     const name = formatSshTarget(request.target)
     try {
       progress('connect', `Connecting to ${name}`)
@@ -105,8 +106,17 @@ export class SshProvisioner {
       const code = request.link ? formatLinkCode(request.link.ticket, request.link.directoryUrl) : null
       let startedBySolus = false
       if (!machine.cli) {
-        progress('install', `Installing Solus on ${machine.name}`)
-        await this.runStep(request, machine, 'install', code ? ['--link', code] : ['--setup'], INSTALL_TIMEOUT_MS)
+        const message = `Installing Solus on ${machine.name}`
+        progress('install', message)
+        // Only the installer's progress lines leave this host; its other output, which can hold the link code, does not.
+        let lastPercent = -1
+        const onOutput = (line: string) => {
+          const percent = installPercent(line)
+          if (percent === null || percent === lastPercent) return
+          lastPercent = percent
+          progress('install', message, percent)
+        }
+        await this.runStep(request, machine, 'install', code ? ['--link', code] : ['--setup'], INSTALL_TIMEOUT_MS, onOutput)
         startedBySolus = true
       } else if (machine.port === null) {
         progress('start', `Starting Solus on ${machine.name}`)
@@ -173,10 +183,10 @@ export class SshProvisioner {
     return session
   }
 
-  private async runStep(request: ProvisionRequest, machine: RemoteMachine, step: RemoteStep, args: string[], timeoutMs: number): Promise<DeviceCommandResult> {
+  private async runStep(request: ProvisionRequest, machine: RemoteMachine, step: RemoteStep, args: string[], timeoutMs: number, onOutput?: (line: string) => void): Promise<DeviceCommandResult> {
     const result = machine.shell === 'sh'
-      ? await this.run(request, 'sh', unixScript(step, this.place), [machine.cli, ...args], timeoutMs)
-      : await this.run(request, 'powershell', windowsScript(step, this.place, [machine.cli, ...args]), [], timeoutMs)
+      ? await this.run(request, 'sh', unixScript(step, this.place), [machine.cli, ...args], timeoutMs, onOutput)
+      : await this.run(request, 'powershell', windowsScript(step, this.place, [machine.cli, ...args]), [], timeoutMs, onOutput)
     if (step === 'install' && machine.os === 'windows' && /\(404\)/.test(result.stderr)) {
       throw new Error(`The latest Solus release has no Windows installer. Install Solus on ${machine.name} by hand, then add it again.`)
     }
@@ -184,14 +194,15 @@ export class SshProvisioner {
     return result
   }
 
-  private async run(request: Pick<ProvisionRequest, 'target' | 'authSecret'>, shell: RemoteMachine['shell'], script: string, args: string[], timeoutMs: number): Promise<DeviceCommandResult> {
+  private async run(request: Pick<ProvisionRequest, 'target' | 'authSecret'>, shell: RemoteMachine['shell'], script: string, args: string[], timeoutMs: number, onOutput?: (line: string) => void): Promise<DeviceCommandResult> {
     const options: SshRunOptions = { acceptNewHostKey: true, timeoutMs }
     if (request.authSecret) options.authSecret = request.authSecret
+    if (onOutput) options.onOutput = onOutput
     const result = shell === 'sh'
       ? await this.ssh.run(request.target, script, args, { ...options, command: unixCommand(this.place) })
       : await this.ssh.run(request.target, undefined, [], { ...options, command: powerShellCommand(script) })
     if (result.code !== 0 && isSshAuthFailure(`${result.stderr}\n${result.stdout}`)) {
-      throw new AuthNeeded(`SSH refused the key for ${formatSshTarget(request.target)}.`)
+      throw new AuthNeeded(`${formatSshTarget(request.target)} refused the SSH keys this computer offered. Name the machine as in ~/.ssh/config, where its key is set, or add the key to ssh-agent.`)
     }
     return result
   }
@@ -222,6 +233,24 @@ function parseSession(line: string): z.infer<typeof sessionSchema> | null {
   } catch {
     return null
   }
+}
+
+/** Where the install stands at each stage the installer reports; the download fills the space before unpacking. */
+const INSTALL_STAGE_PERCENT = { download: 5, unpack: 85, setup: 92 } as const
+const DOWNLOAD_SHARE = INSTALL_STAGE_PERCENT.unpack - INSTALL_STAGE_PERCENT.download
+
+/**
+ * The whole install's percentage from one installer line, or null for any other
+ * line. With SOLUS_INSTALL_PROGRESS set, the installer prints
+ * `solus-progress <stage> [percent]` (scripts/install.sh, scripts/install.ps1).
+ */
+export function installPercent(line: string): number | null {
+  const match = /^solus-progress (download|unpack|setup)(?: (\d{1,3}))?\s*$/.exec(line.trim())
+  if (!match) return null
+  if (match[1] === 'unpack') return INSTALL_STAGE_PERCENT.unpack
+  if (match[1] === 'setup') return INSTALL_STAGE_PERCENT.setup
+  const downloaded = Math.min(100, Number(match[2] ?? 0))
+  return INSTALL_STAGE_PERCENT.download + Math.round((downloaded * DOWNLOAD_SHARE) / 100)
 }
 
 function failUnless(result: DeviceCommandResult, message: string): void {
@@ -296,8 +325,9 @@ function unixScript(step: RemoteStep, place: RemoteInstallPlace): string {
       'set -eu',
       'shift',
       `url=${quoteRemoteArg(INSTALL_SCRIPT_URLS.unix)}`,
-      'if command -v curl >/dev/null 2>&1; then curl -fsSL "$url" | sh -s -- "$@"',
-      'elif command -v wget >/dev/null 2>&1; then wget -qO- "$url" | sh -s -- "$@"',
+      // The installer prints its progress lines only when asked.
+      'if command -v curl >/dev/null 2>&1; then curl -fsSL "$url" | SOLUS_INSTALL_PROGRESS=1 sh -s -- "$@"',
+      'elif command -v wget >/dev/null 2>&1; then wget -qO- "$url" | SOLUS_INSTALL_PROGRESS=1 sh -s -- "$@"',
       'else echo "Install curl or wget on this machine." >&2; exit 1; fi',
     ].join('\n')
     case 'setup': return 'set -eu\ncli="$1"; shift\nexec "$cli" setup "$@"'
@@ -336,7 +366,7 @@ function windowsScript(step: RemoteStep, place: RemoteInstallPlace, args: string
       ].join('\n')
       case 'install': {
         const flags = rest[0] === '--link' ? `-Link ${powerShellLiteral(rest[1] ?? '')}` : '-Setup'
-        return `$ProgressPreference = 'SilentlyContinue'\n& ([scriptblock]::Create((Invoke-RestMethod ${powerShellLiteral(INSTALL_SCRIPT_URLS.windows)}))) ${flags}\nexit $LASTEXITCODE`
+        return `$ProgressPreference = 'SilentlyContinue'\n$env:SOLUS_INSTALL_PROGRESS = '1'\n& ([scriptblock]::Create((Invoke-RestMethod ${powerShellLiteral(INSTALL_SCRIPT_URLS.windows)}))) ${flags}\nexit $LASTEXITCODE`
       }
       case 'setup': return call('setup')
       case 'connect': return call('connect --no-open')

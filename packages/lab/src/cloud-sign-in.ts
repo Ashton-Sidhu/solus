@@ -100,9 +100,10 @@ export function localOwnerClient(host: HostAddress, persona: CloudPersona): LabC
 }
 
 /**
- * What a signed-in owner client does for a host it manages (ADR 0001 "Registration apart
- * from link"): an enrollment ticket with its own account token, handed to the host over
- * the trusted local connection (`uplinkRegister`). Answers the host's status.
+ * What a signed-in owner client does for a host it manages (ADR 0001 rules 8 and 9): an
+ * enrollment ticket with its own account token, handed to the host over the trusted
+ * local connection (`uplinkRegister`). The host links its new registration. Answers the
+ * host's status.
  */
 export async function registerHost(stack: LocalCloudStack, host: HostAddress, owner: SignedIn): Promise<UplinkStatus> {
   const accountToken = await owner.oauth.accessToken({ kind: 'account' })

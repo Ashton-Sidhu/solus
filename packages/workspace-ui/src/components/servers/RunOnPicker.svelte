@@ -3,7 +3,7 @@
     Check as CheckIcon,
     HardDrive as DesktopTowerIcon,
     Plus as PlusIcon,
-    SquareTerminal as TerminalIcon,
+    FileKey as CopiedFilesIcon,
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
@@ -29,18 +29,17 @@
     listRunOnHosts,
     runHasProject,
     runOnHostAction,
-    runOnHostNote,
+    hostOrganizationMarks,
     type RunOnHostAction,
   } from "./lib/run-on-hosts";
   import {
     canRunOnHost,
     hostIsManaged,
     isManagedHost,
-    managedHostStateLabel,
   } from "./lib/managed-host";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
-  import { addOverSshStore } from "./add-over-ssh.store.svelte";
-  import { checkoutGit, checkoutPlace, dispatchTo, openFolder, projectHome, projectRoot, runHost } from "../../contexts/workspace/run-location";
+  import CopiedFilesDialog from "./CopiedFilesDialog.svelte";
+  import { checkoutGit, checkoutPlace, dispatchTo, openFolder, pendingClone, projectHome, projectRoot, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** Where the next session will run. A started session and a session draft
@@ -172,6 +171,21 @@
     listRunOnHosts(serversStore.executionServers, actionFor, hasProject),
   );
 
+  // A run that clones, or could, also chooses the files the clone gets from
+  // the project's home checkout (docs/run-on.md#copied-files).
+  const copiedFilesHome = $derived(
+    sourceRepoKey && projectRoot(run) &&
+      (pendingClone(run) || runOnHosts.some((server) => actionFor(server).kind === "clone"))
+      ? projectHome(run)
+      : null,
+  );
+  let copiedFilesOpen = $state(false);
+
+  function configureCopiedFiles() {
+    open = false;
+    copiedFilesOpen = true;
+  }
+
   $effect(() => {
     // Retargeting clears gitContext, so retain the last repo key while selection finishes.
     if (detectedRepoKey) sourceRepoKey = detectedRepoKey;
@@ -256,13 +270,6 @@
     serversStore.openAddServer();
   }
 
-  function addOverSsh() {
-    open = false;
-    // A machine this computer forwards to is saved as paired, and comes back to this picker.
-    serversStore.pairForRunOn(requesterId);
-    addOverSshStore.open();
-  }
-
   function handleOpenChange(next: boolean) {
     open = next;
     if (next) {
@@ -286,6 +293,8 @@
     // bits-ui also fires this when the open list's focus scope mounts again;
     // moving the caret then would close the list (see ProjectChip).
     if (open) return;
+    // The dialog the list opened takes the focus; it gives it back on close.
+    if (copiedFilesOpen) return;
     if (onDismiss) onDismiss();
     else requestInputFocus();
   }
@@ -303,15 +312,13 @@
   {@const action = actionFor(server)}
   {@const isSelectedHost = action.kind === "current"}
   {@const affinity = hostAffinityGlyph(server, serversStore.readinessFor(server.id))}
-  <!-- A managed host that is not ready says its state and takes no work;
-       every other row says what that host will use for this project. -->
-  {@const subtitle =
-    managedHostStateLabel(server.uplink) ?? runOnHostNote(action)}
+  <!-- One line per host: its name, then a mark for each organization it
+       belongs to. A host that cannot take work is disabled. -->
+  {@const organizationMarks = hostOrganizationMarks(server.uplink?.organizationIds, serversStore.organizations)}
   <DropdownMenu.Item
     data-menu-current={isSelectedHost ? "" : undefined}
     disabled={!canRunOnHost(server.uplink) || (!!identitiesLoadingHostId && action.kind !== "current")}
     onSelect={() => chooseServer(server)}
-    class={subtitle ? "h-auto min-h-8 py-1.5" : undefined}
   >
     {#if affinity}
       {@const HostIcon = affinity.icon}
@@ -329,24 +336,17 @@
         class="shrink-0 text-(--solus-text-tertiary)"
       />
     {/if}
-    {#if subtitle}
-      <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
-        <span class="truncate">{hostLabel(server)}</span>
-        <span class="truncate text-[0.875em] text-(--solus-text-tertiary)"
-          >{subtitle}</span
-        >
-      </span>
-    {:else}
-      <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
-    {/if}
+    <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
+    {#each organizationMarks as organization (organization.organizationId)}
+      <span
+        title={organization.name}
+        aria-label={organization.name}
+        class="flex size-4 shrink-0 items-center justify-center rounded-[4px] bg-(--solus-surface-hover) text-[10px] font-medium leading-none text-(--solus-text-secondary)"
+        >{organization.initial}</span
+      >
+    {/each}
     {#if isSelectedHost}
       <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
-    {:else if affinity && server.readiness !== "checking" && server.readiness !== "ready"}
-      <!-- Online is the unmarked case; the glyph already reads it. Only a
-           state worth stopping for is printed. -->
-      <span class="shrink-0 text-[0.875em] text-(--solus-text-tertiary)"
-        >{affinity.statusLabel}</span
-      >
     {/if}
   </DropdownMenu.Item>
 {/snippet}
@@ -504,16 +504,27 @@
             {@render serverRow(server)}
           {/each}
           <DropdownMenu.Separator />
+          {#if copiedFilesHome}
+            <DropdownMenu.Item onSelect={configureCopiedFiles}>
+              <CopiedFilesIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
+              <span class="min-w-0 flex-1 truncate">Configure copied files…</span>
+            </DropdownMenu.Item>
+          {/if}
           <DropdownMenu.Item onSelect={addHost}>
             <PlusIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
             <span class="min-w-0 flex-1 truncate">Add a host…</span>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item onSelect={addOverSsh}>
-            <TerminalIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
-            <span class="min-w-0 flex-1 truncate">Add a machine over SSH…</span>
           </DropdownMenu.Item>
         </div>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   {/if}
+{/if}
+
+{#if copiedFilesHome}
+  <CopiedFilesDialog
+    bind:open={copiedFilesOpen}
+    serverId={copiedFilesHome.serverId}
+    cwd={copiedFilesHome.path}
+    onClose={() => (onDismiss ? onDismiss() : requestInputFocus())}
+  />
 {/if}

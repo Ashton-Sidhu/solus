@@ -28,6 +28,7 @@ export interface ThreadListConnection {
   readonly api: Pick<
     HostApi,
     | "sessionPullRequests"
+    | "sessionPullRequestDelete"
     | "sessionPullRequestWatch"
     | "sessionUpdate"
     | "setSessionTitle"
@@ -158,6 +159,20 @@ export class ThreadListState {
     const outcome = await connection.api.sessionPullRequestWatch(sessionId, target.repository, target.number, watching);
     await this.refreshPullRequests(hostId, sessionId);
     return outcome;
+  }
+
+  /** Remove a pull request from a session. PR sync does not link it again
+      (docs/plans/session-pull-requests.md). */
+  async unlinkPullRequest(
+    hostId: string,
+    sessionId: string,
+    target: { readonly repository: string; readonly number: number },
+  ): Promise<void> {
+    await this.requireConnection(hostId).api.sessionPullRequestDelete(sessionId, {
+      repository: target.repository,
+      number: target.number,
+    });
+    await this.refreshPullRequests(hostId, sessionId);
   }
 
   /** Name a session; an empty name goes back to the derived title. */

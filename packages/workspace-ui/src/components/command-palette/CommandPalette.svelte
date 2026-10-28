@@ -17,7 +17,7 @@
   import { sanitizeCommandId } from "@solus/contracts/analytics-events";
   import { cn } from "../../lib/utils";
   import {
-    filterCommands,
+    commandsShown,
     groupCommands,
     moveCommandSelection,
     retainCommandSelection,
@@ -57,7 +57,9 @@
     if (!page) return commands;
     return commands.find((c) => c.id === page!.id)?.children ?? [];
   });
-  const filtered = $derived(filterCommands(activeCommands, query));
+  const shownCommands = $derived(commandsShown(activeCommands, query, page !== null));
+  const filtered = $derived(shownCommands.shown);
+  const hiddenMatchCount = $derived(shownCommands.hiddenCount);
   const groups = $derived(groupCommands(filtered));
   const ordered = $derived(groups.flatMap((group) => group.items));
   const orderedCommandIds = $derived(
@@ -370,6 +372,11 @@
                 {/each}
               </div>
             {/each}
+            {#if hiddenMatchCount > 0}
+              <p class="px-3 pt-2 pb-3 text-chrome-dense text-(--solus-text-tertiary)">
+                {hiddenMatchCount} more. Type to narrow the list.
+              </p>
+            {/if}
           {/if}
         </div>
       </div>

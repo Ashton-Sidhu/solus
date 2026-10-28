@@ -1,5 +1,4 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { HOST_ACTOR } from '@solus/server/admission/actor'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { EventEmitter } from 'node:events'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
@@ -100,24 +99,5 @@ describe('SessionRuntime.runAgent', () => {
     expect(plane.statuses.hasActiveWork()).toBe(false)
     fake.complete()
     await run.done
-  })
-})
-
-describe('SessionRuntime setup cancellation', () => {
-  test('cancels setup before an agent handle exists', () => {
-    // WHY: worktree setup starts before the backend creates a RunHandle. Stop
-    // must still own that phase or Ctrl-C lets setup continue into a live run.
-    const plane = new SessionRuntime(new Map())
-    planes.push(plane)
-    const setupController = new AbortController()
-    plane.launcher.pendingSetupControllers.set('session-1', setupController)
-
-    // A session with setup in flight is addressable before any run exists.
-    plane.watchers.watchSession({ sessionId: 'session-1' }, 'ws:a')
-    const cancelled = plane.stopSession('session-1', HOST_ACTOR)
-
-    expect(cancelled).toBe(true)
-    expect(setupController.signal.aborted).toBe(true)
-    expect(plane.launcher.pendingSetupControllers.has('session-1')).toBe(false)
   })
 })

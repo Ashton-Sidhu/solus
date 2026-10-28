@@ -37,7 +37,6 @@
     isTaskRailFolded,
     taskDetailsSummary,
     linkedWorkProvider,
-    taskLeadSession,
     taskPageCapabilities,
     taskRef,
   } from "./lib/task-page";
@@ -138,7 +137,6 @@
   // The task's lead, when one is linked. The conversation with it is the
   // lead's own tab, opened with this page beside it; the page only offers to
   // start one while there is none (docs/plans/task-conversation.md).
-  const hasLead = $derived(taskLeadSession(sessions) !== null);
 
   // The pinned render is open by default, so its body is fetched as soon as the
   // page is visible rather than on a disclosure the reader never has to press.
@@ -565,12 +563,11 @@
   }
 
   /** Compose a new session already bound to this task. The link lands when the
-   *  draft is sent, so an abandoned composer leaves nothing behind. The lead's
-   *  draft opens with this page beside it. */
-  function startSession(record: Task, role?: "lead") {
+   *  draft is sent, so an abandoned composer leaves nothing behind. */
+  function startSession(record: Task) {
     void session.workspace
-      ?.opening.openTaskSession(record, { role })
-      .catch((err) => toastError(role ? "start the lead" : "start a session", err));
+      ?.opening.openTaskSession(record)
+      .catch((err) => toastError("start a session", err));
   }
 
   function unlinkSession(sessionId: string) {
@@ -1017,7 +1014,6 @@
               onStop={stopSession}
               onUnlink={unlinkSession}
               onNewSession={canStartSession ? () => startSession(task) : null}
-              onStartLead={canStartSession && !hasLead ? () => startSession(task, "lead") : null}
             />
           </div>
 

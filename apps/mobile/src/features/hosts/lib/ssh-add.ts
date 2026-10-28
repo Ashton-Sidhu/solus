@@ -1,5 +1,5 @@
 import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
-import type { ForwardedHost, SshAddLink, SshAddProgress, SshAddResult, SshAddStep, SshTargetCandidate, SshAddRequest } from '@solus/contracts/remote-machines'
+import type { ForwardedHost, SshAddLink, SshAddProgress, SshAddResult, SshTargetCandidate, SshAddRequest } from '@solus/contracts/remote-machines'
 import type { HostApi } from '@solus/client-core/host-api'
 
 /**
@@ -42,6 +42,8 @@ export function sshRunnerChoices(
 export interface SshAddForm {
   readonly runnerHostId: string | null
   readonly sshTarget: string
+  /** A private key on the runner host (`ssh -i`), or empty for its SSH keys and config. */
+  readonly identityFile: string
   /** Link the new machine to the person's Solus account. Possible only while signed in. */
   readonly shouldLink: boolean
   /** A password or key passphrase, sent only with a link: a forward needs a key. */
@@ -58,6 +60,8 @@ export function sshAddFormIssue(form: SshAddForm): string | null {
 /** The request one add sends. The secret goes only with a link, as the host requires. */
 export function sshAddRequest(form: SshAddForm, requestId: string, deviceLabel: string, link: SshAddLink | null): SshAddRequest {
   const request: SshAddRequest = { sshTarget: form.sshTarget.trim(), requestId, deviceLabel }
+  const identityFile = form.identityFile.trim()
+  if (identityFile) request.identityFile = identityFile
   if (link) {
     request.link = link
     if (form.authSecret) request.authSecret = form.authSecret
@@ -140,27 +144,4 @@ export function linkedNote(label: string): string {
 
 export function forwardedReachNote(label: string, runnerLabel: string): string {
   return `${label} is reachable only from ${runnerLabel}. Link it to your account to reach it from this phone.`
-}
-
-const STEP_LABELS = {
-  connect: 'Connecting',
-  check: 'Checking the machine',
-  install: 'Installing Solus',
-  start: 'Starting Solus',
-  identity: 'Reading its identity',
-  link: 'Linking to your account',
-  forward: 'Opening the SSH forward',
-} satisfies Record<SshAddStep, string>
-
-/** One line per step, newest message last: a step that repeats shows only its latest message. */
-export function sshProgressLines(progress: readonly SshAddProgress[]): { step: SshAddStep; title: string; message: string; isCurrent: boolean }[] {
-  const lines: { step: SshAddStep; title: string; message: string; isCurrent: boolean }[] = []
-  for (const event of progress) {
-    const line = { step: event.step, title: STEP_LABELS[event.step], message: event.message, isCurrent: false }
-    const index = lines.findIndex((existing) => existing.step === event.step)
-    if (index >= 0) lines.splice(index, 1)
-    lines.push(line)
-  }
-  if (lines.length > 0) lines[lines.length - 1]!.isCurrent = true
-  return lines
 }

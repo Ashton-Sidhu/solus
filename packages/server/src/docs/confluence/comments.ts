@@ -5,6 +5,7 @@ import type { DocCommentAction, DocCommentMutationResult, DocCommentMutation, Do
 import type { DocRef } from '@solus/contracts/docs'
 import { atlassianRequest, IGNORED_RESPONSE } from '../../atlassian/api'
 import { currentCredential } from '../../atlassian/oauth'
+import { grantsScope } from '../../atlassian/token-store'
 import { DocCommentRequestError, type DocCommentsAdapter } from '../types'
 import { markdownToStorage, storageToMarkdown } from './storage-format'
 
@@ -83,7 +84,7 @@ export class ConfluenceDocComments implements DocCommentsAdapter {
     if (!credential || credential.cloudId !== cloudId || !credential.products.includes('confluence')) {
       throw new DocCommentRequestError('Connect the Atlassian site that owns this page.', false)
     }
-    if (!credential.scopes.includes(scope)) throw new DocCommentRequestError(`Reconnect Atlassian to grant ${scope}.`, false)
+    if (!grantsScope(credential, scope)) throw new DocCommentRequestError(`Reconnect Atlassian to grant ${scope}.`, false)
     return cloudId
   }
 

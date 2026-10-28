@@ -62,7 +62,7 @@ export function pickedMethod(detail: PullRequest, picked: MergeMethod | null): M
 
 const MOVE_TITLES = {
   merge: 'Merge this pull request now',
-  'enable-auto-merge': 'Ask the host to merge this once its requirements pass',
+  'enable-auto-merge': 'Turn on auto-merge',
   'mark-ready': 'Mark the pull request ready for review',
   'update-branch': 'Bring the base branch into this branch on the host',
   'resolve-conflicts': 'Open an agent session to resolve the merge conflicts',
@@ -117,7 +117,7 @@ export function prPrimaryAction(
       short: 'Auto-merge on',
       glyph: 'auto-merge',
       tone: 'positive',
-      title: `${armed}: the host merges this once its requirements pass`,
+      title: armed,
     }
   }
   return {

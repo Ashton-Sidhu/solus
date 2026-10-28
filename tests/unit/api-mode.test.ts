@@ -10,7 +10,7 @@ import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
 import { resetTestDatabase } from './helpers/test-db'
-import { searchText } from '@solus/contracts/session-search'
+import { searchText } from '@solus/contracts/search-query'
 import { installTestIdentities } from './helpers/acting-identities'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))

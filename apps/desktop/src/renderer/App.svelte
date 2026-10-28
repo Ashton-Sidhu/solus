@@ -15,7 +15,6 @@
   import { Download as DownloadSimpleIcon } from "@lucide/svelte";
   import FatalErrorScene from "@solus/workspace-ui/components/servers/FatalErrorScene.svelte";
   import LazyDialog from "@solus/workspace-ui/components/pickers/LazyDialog.svelte";
-  import { addOverSshStore } from "@solus/workspace-ui/components/servers/add-over-ssh.store.svelte";
   import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
   import { createProjectPicker } from "@solus/workspace-ui/components/servers/project-picker.svelte";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
@@ -436,24 +435,12 @@
     <LazyDialog
       open={serversStore.addServerOpen}
       load={() => import("@solus/workspace-ui/components/servers/AddServerModal.svelte")}
-      title="Add server"
-      class="w-[28rem]"
+      title="Add host"
+      class="w-[44rem]"
       onclose={() => serversStore.closeAddServer()}
     >
       {#snippet children(AddServerModal)}
         <AddServerModal />
-      {/snippet}
-    </LazyDialog>
-
-    <LazyDialog
-      open={addOverSshStore.isOpen}
-      load={() => import("@solus/workspace-ui/components/servers/AddOverSshDialog.svelte")}
-      title="Add a machine over SSH"
-      class="w-[28rem]"
-      onclose={() => addOverSshStore.close()}
-    >
-      {#snippet children(AddOverSshDialog)}
-        <AddOverSshDialog />
       {/snippet}
     </LazyDialog>
 

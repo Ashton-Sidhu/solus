@@ -1,7 +1,7 @@
 import { writeFile } from 'fs/promises'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import type { IpcContext, GitCheckoutBranchResult } from '@solus/contracts/types'
-import { discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
+import { discardChanges, syncWithOrigin, listBranches, listBranchRefs, listProjectWorktrees, getWorkingBranch, getDefaultBranch, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT } from '../../git/worktree-manager'
 import { runGitAction } from '../../git/git-action-manager'
 import { runAsync } from '../../git/exec'
 import { GitUnavailableError } from '../../git/git-availability'
@@ -16,7 +16,7 @@ import { providerForRepo } from '../../providers/registry'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { assertPathInScope } from '../../data/sessions/guest-path-scope'
 import { prIndex } from '../../prs/pr-index'
-import { pullRequestForBranch } from '../../prs/code-host'
+import { pullRequestForHead, pushHeadFor, type CodeHost } from '../../prs/code-host'
 import type { SolusServer } from '../server'
 import { attributionOf } from '../../admission/actor'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -175,6 +175,9 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       || request.action === 'commit_push_pull_request'
     const githubRepo = pullRequestRequested ? await resolveRepoRef(cwd) : null
     const githubProvider = githubRepo ? providerForRepo(githubRepo) : null
+    const githubHost: CodeHost | null = githubRepo && githubProvider
+      ? { repo: githubRepo, provider: githubProvider }
+      : null
     const result = await runGitAction(request, gitContext, ctx.session.workingDirectory, {
       writer: {
         backend: writerBackend,
@@ -187,20 +190,20 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         writerBackend,
         policy.commitInstructions,
       ),
-      findPullRequest: githubRepo && githubProvider
-        ? async (branch) => await pullRequestForBranch({ repo: githubRepo, provider: githubProvider }, branch) ?? null
+      findPullRequest: githubHost
+        ? async (branch) => await pullRequestForHead(githubHost, await pushHeadFor(githubHost, cwd, branch)) ?? null
         : undefined,
-      createPullRequest: githubRepo && githubProvider
+      createPullRequest: githubHost
         ? async (input) => {
-          const pullRequest = await githubProvider.review.createPullRequest(githubRepo, {
+          const pullRequest = await githubHost.provider.review.createPullRequest(githubHost.repo, {
             ...input,
             // The checkout's delegated credential leads, followed by the host
             // OAuth token and then the gh credential.
             credentialCwd: cwd,
           })
-          prIndex.invalidate(githubRepo)
+          prIndex.invalidate(githubHost.repo)
           // Open lists of the repository show it now, not at their next read.
-          await deps.prSync.apply({ repo: githubRepo, provider: githubProvider }, pullRequest)
+          await deps.prSync.apply(githubHost, pullRequest)
           return pullRequest
         }
         : undefined,
@@ -252,15 +255,25 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
   })
 
   server.register('gitCheckoutBranch', async (args): Promise<GitCheckoutBranchResult> => {
-    const [ctx, branch] = args
-    log.info('rpc_git_checkout_branch', { sessionId: ctx.session.sessionId, branch })
+    const [ctx, branch, options] = args
+    log.info('rpc_git_checkout_branch', { sessionId: ctx.session.sessionId, branch, create: options?.create === true })
     try {
       const cwd = ctx.session.workingDirectory
       if (!cwd || cwd === '~') return { success: false, error: 'No active git repository for this tab' }
-      if (!branch || !listBranches(cwd).includes(branch)) {
-        return { success: false, error: `Branch not found: ${branch}` }
+      if (options?.create) {
+        // check-ref-format rejects a name git could not create, and one that
+        // reads as an option.
+        const valid = !!branch && !branch.startsWith('-') &&
+          await runAsync('git', ['check-ref-format', '--branch', branch], cwd).then(() => true, () => false)
+        if (!valid) return { success: false, error: `Not a valid branch name: ${branch}` }
+        if (listBranches(cwd).includes(branch)) return { success: false, error: `Branch already exists: ${branch}` }
+        await runAsync('git', ['checkout', '-b', branch], cwd)
+      } else {
+        if (!branch || !listBranches(cwd).includes(branch)) {
+          return { success: false, error: `Branch not found: ${branch}` }
+        }
+        await runAsync('git', ['checkout', branch], cwd)
       }
-      await runAsync('git', ['checkout', branch], cwd)
       const gitContext = (await sessionRuntime.checkouts.refresh(cwd)).checkout
       if (!gitContext) return { success: false, error: 'Checkout succeeded but branch status could not be resolved' }
       sessionRuntime.sessionCheckouts.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
@@ -275,11 +288,13 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const cwd = ctx.session.workingDirectory
     if (!cwd || cwd === '~') return []
     assertPathInScope('worktreeBranches', handlerCtx.principal, cwd)
-    await runAsync('git', ['fetch', '--all', '--prune'], cwd).catch((err) => {
-      if (err instanceof GitUnavailableError) return
-      log.warn('branch_fetch_before_list_failed', { error: err instanceof Error ? err.message : String(err) })
-    })
-    return listBranches(cwd, options)
+    if (!options?.skipFetch) {
+      await runAsync('git', ['fetch', '--all', '--prune'], cwd).catch((err) => {
+        if (err instanceof GitUnavailableError) return
+        log.warn('branch_fetch_before_list_failed', { error: err instanceof Error ? err.message : String(err) })
+      })
+    }
+    return listBranchRefs(cwd, { remoteOnly: options?.remoteOnly })
   })
 
   server.register('worktreeRestore', async (args) => {
@@ -322,16 +337,13 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     assertPathInScope('gitRefreshState', handlerCtx.principal, cwd)
     if (!options?.includeRefs) return computeGitState(cwd, options)
     // Refs ride along with the status scan so a full environment refresh is
-    // one round trip. Same reads as `worktreeListProject` and `worktreeBranches`.
+    // one round trip. They are the refs on disk: a fetch from a large remote
+    // can take a minute, and status must not wait for it. The branch picker
+    // fetches behind its list (`worktreeBranches`).
     const [state, worktrees, branches] = await Promise.all([
       computeGitState(cwd, options),
       Promise.resolve().then(() => listProjectWorktrees(cwd)),
-      runAsync('git', ['fetch', '--all', '--prune'], cwd)
-        .catch((err) => {
-          if (err instanceof GitUnavailableError) return
-          log.warn('branch_fetch_before_list_failed', { error: err instanceof Error ? err.message : String(err) })
-        })
-        .then(() => listBranches(cwd)),
+      listBranchRefs(cwd),
     ])
     return state ? { ...state, refs: { worktrees, branches } } : null
   })

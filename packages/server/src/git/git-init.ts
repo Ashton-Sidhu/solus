@@ -30,9 +30,8 @@ export async function hasAnyCommit(cwd: string): Promise<boolean> {
 
 /**
  * Whether `cwd` is a Git repository, and if so whether it has any commits and
- * a primary remote. `GitState`/`GitIdentity` collapse "no repository" and "a
- * repository with an unborn HEAD" into the same null answer; this is the
- * distinction the Initialize Git / Publish to GitHub empty states need.
+ * a primary remote. `GitState` answers null for "no repository"; this is the
+ * answer the Initialize Git empty state and the publish readiness need.
  */
 export async function computeGitRepositoryStatus(cwd: string): Promise<GitRepositoryStatus> {
   const repoRoot = await resolveRepoRoot(cwd)

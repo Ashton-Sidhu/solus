@@ -18,8 +18,19 @@ import { directoriesHoldingFiles } from '../../files/project-listing'
 import { applyProjectFileMutation } from '../../files/project-mutations'
 import { applyHostPathMutation } from '../../files/host-path-mutations'
 import { openInFileManager } from '../../platform/file-manager'
+import { listIgnoredProjectFiles, readWorktreeIncludedFiles, setWorktreeIncluded } from '../../git/worktree-include'
+import { gitOutputPath, runAsync } from '../../git/exec'
 
 const log = createLogger('main', 'filesystem-handlers')
+
+const worktreeIncludeChangesSchema = z.array(z.object({ path: z.string(), included: z.boolean() }).strict()).max(500)
+
+/** The top of the checkout `cwd` is in: `.worktreeinclude` lives there, and its
+ *  paths are relative to it. */
+async function checkoutRootOf(cwd: string): Promise<string> {
+  const resolved = expandHome(cwd)
+  return gitOutputPath(resolved, await runAsync('git', ['rev-parse', '--show-toplevel'], resolved))
+}
 
 /**
  * Filesystem browsing, registered unconditionally so a `--headless` host can
@@ -246,6 +257,28 @@ export function registerFilesystemHandlers(server: SolusServer): void {
       return { ok: false, error: 'The project directory is no longer reachable.' } satisfies ProjectFileMutationResult
     }
     return await applyProjectFileMutation(root, request.mutation)
+  })
+
+  server.register('listIgnoredProjectFiles', async (args, handlerCtx) => {
+    const [cwd] = args
+    assertPathInScope('listIgnoredProjectFiles', handlerCtx.principal, cwd)
+    return listIgnoredProjectFiles(await checkoutRootOf(cwd))
+  })
+
+  server.register('setWorktreeIncluded', async (args, handlerCtx) => {
+    const [cwd, rawChanges] = args
+    assertPathInScope('setWorktreeIncluded', handlerCtx.principal, cwd)
+    const changes = worktreeIncludeChangesSchema.parse(rawChanges)
+    const root = await checkoutRootOf(cwd)
+    const result = await setWorktreeIncluded(root, changes)
+    log.info('worktree_include_changed', { root, changeCount: changes.length })
+    return result
+  })
+
+  server.register('readWorktreeIncludedFiles', async (args, handlerCtx) => {
+    const [cwd] = args
+    assertPathInScope('readWorktreeIncludedFiles', handlerCtx.principal, cwd)
+    return readWorktreeIncludedFiles(await checkoutRootOf(cwd))
   })
 
   server.register('searchFiles', async (args, handlerCtx) => {

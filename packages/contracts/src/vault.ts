@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { integrationAuthSchema } from './integration-types'
 import { oauthClientSchema, oauthTokenSchema } from './integrations/oauth-protocol'
+import { atlassianApiTokenCredentialSchema } from './atlassian-api-token'
 
 /**
  * The cloud vault (docs/plans/cloud-vault.md): one store for a person's
@@ -135,6 +136,14 @@ export const cliLoginFileSchema = z.string().max(MAX_CLI_LOGIN_BYTES).refine((te
 export const cliLoginMaterialSchema = z.object({ kind: z.literal('cli-login'), file: cliLoginFileSchema }).strict()
 export type CliLoginMaterial = z.infer<typeof cliLoginMaterialSchema>
 
+/** Atlassian's fallback: an API token the person pasted on the website, checked
+ *  with Atlassian before it was sealed, with the site it reaches. */
+export const atlassianKeyMaterialSchema = z.object({
+  kind: z.literal('key'),
+  credential: atlassianApiTokenCredentialSchema,
+}).strict()
+export type AtlassianKeyMaterial = z.infer<typeof atlassianKeyMaterialSchema>
+
 /** What an executor may upload: never a provider token (§2.2). */
 export const uploadMaterialSchema = z.union([mcpOAuthMaterialSchema, keyMaterialSchema, cliLoginMaterialSchema])
 export type UploadMaterial = z.infer<typeof uploadMaterialSchema>
@@ -143,7 +152,7 @@ export type UploadMaterial = z.infer<typeof uploadMaterialSchema>
 export function materialKindsOf(ref: CredentialRef): readonly VaultMaterialKind[] {
   switch (ref.kind) {
     case 'provider':
-      return ['oauth']
+      return ref.provider === 'atlassian' ? ['oauth', 'key'] : ['oauth']
     case 'mcp':
       return ['oauth', 'key']
     case 'typesafe':
@@ -169,6 +178,10 @@ export const atlassianDeliverySchema = googleDeliverySchema.extend({
   siteName: z.string(),
   products: z.array(z.enum(['jira', 'confluence'])),
 })
+/** Atlassian connected with a pasted API token: the token itself, which does not expire on Solus's side. */
+export const atlassianTokenDeliverySchema = atlassianApiTokenCredentialSchema
+/** An Atlassian delivery is either an OAuth access token or a pasted API token. */
+export const atlassianProviderDeliverySchema = z.union([atlassianTokenDeliverySchema, atlassianDeliverySchema])
 /** The header value to send to the server, and when it stops working. */
 export const mcpDeliverySchema = z.object({ authorization: z.string().min(1), expiresAt: z.number().nullable(), label: z.string().nullable() })
 export const typesafeDeliverySchema = z.object({ key: z.string().min(1) })
@@ -177,13 +190,15 @@ export const seatDeliverySchema = z.object({ file: cliLoginFileSchema, version: 
 export type GithubDelivery = z.infer<typeof githubDeliverySchema>
 export type GoogleDelivery = z.infer<typeof googleDeliverySchema>
 export type AtlassianDelivery = z.infer<typeof atlassianDeliverySchema>
+export type AtlassianTokenDelivery = z.infer<typeof atlassianTokenDeliverySchema>
 export type McpDelivery = z.infer<typeof mcpDeliverySchema>
 export type TypesafeDelivery = z.infer<typeof typesafeDeliverySchema>
 export type SeatDelivery = z.infer<typeof seatDeliverySchema>
-export type ProviderDelivery = GithubDelivery | GoogleDelivery | AtlassianDelivery
+export type ProviderDelivery = GithubDelivery | GoogleDelivery | AtlassianDelivery | AtlassianTokenDelivery
 
 /** `POST /v1/vault`'s answer: its shape is the ref's (`deliverySchemaOf`). */
 export const vaultDeliverySchema = z.union([
+  atlassianTokenDeliverySchema,
   atlassianDeliverySchema,
   googleDeliverySchema,
   githubDeliverySchema,
@@ -197,7 +212,7 @@ export type VaultDelivery = z.infer<typeof vaultDeliverySchema>
 export function deliverySchemaOf(ref: CredentialRef): z.ZodType<VaultDelivery> {
   switch (ref.kind) {
     case 'provider':
-      return { github: githubDeliverySchema, google: googleDeliverySchema, atlassian: atlassianDeliverySchema }[ref.provider]
+      return { github: githubDeliverySchema, google: googleDeliverySchema, atlassian: atlassianProviderDeliverySchema }[ref.provider]
     case 'mcp':
       return mcpDeliverySchema
     case 'typesafe':

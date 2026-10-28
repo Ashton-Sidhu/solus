@@ -33,6 +33,7 @@ const recordSchema = z.object({
   installationId: z.string().min(1),
   label: z.string(),
   sshTarget: z.string().min(1),
+  identityFile: z.string().min(1).optional(),
   os: z.enum(['macos', 'windows', 'linux']).optional(),
   remotePort: z.number().int().positive(),
   localPort: z.number().int().positive().optional(),
@@ -103,6 +104,7 @@ export class ForwardedHosts {
       startedBySolus: host.startedBySolus,
       isLinked: false,
     }
+    if (host.target.identityFile) record.identityFile = host.target.identityFile
     if (host.os) record.os = host.os
     this.close(host.installationId)
     this.save([...stored, record])
@@ -118,8 +120,9 @@ export class ForwardedHosts {
   }
 
   /** The SSH target and system of a forwarded host, for the steps that reach it again. */
-  record(installationId: string): Pick<ForwardRecord, 'sshTarget' | 'os' | 'startedBySolus' | 'label'> | null {
-    return this.find(installationId) ?? null
+  record(installationId: string): (Pick<ForwardRecord, 'os' | 'startedBySolus' | 'label'> & { target: SshTarget }) | null {
+    const record = this.find(installationId)
+    return record ? { target: recordTarget(record), os: record.os, startedBySolus: record.startedBySolus, label: record.label } : null
   }
 
   /** The host is linked too: its forward stays as a route, and a failure is no longer an error (D9). */
@@ -155,7 +158,7 @@ export class ForwardedHosts {
     const fresh: LiveForward = { forward: null, state: 'reconnecting', retryMs: FIRST_RETRY_MS, timer: null }
     const live = this.live.get(record.installationId) ?? fresh
     this.live.set(record.installationId, live)
-    const target = parseSshTarget(record.sshTarget)
+    const target = recordTarget(record)
     try {
       // The server there can listen on another port after a restart: read it again first.
       const remotePort = await this.deps.remotePort(target).catch(() => null) ?? record.remotePort
@@ -249,6 +252,12 @@ export class ForwardedHosts {
   private save(hosts: ForwardRecord[]): void {
     secretStore().saveJson(SECRET_KEY, secretFile(), { hosts })
   }
+}
+
+function recordTarget(record: ForwardRecord): SshTarget {
+  const target = parseSshTarget(record.sshTarget)
+  if (record.identityFile) target.identityFile = record.identityFile
+  return target
 }
 
 function secretFile(): string {

@@ -7,6 +7,7 @@ import type { Db } from './database'
 import { sanitizeFtsQuery } from './fts'
 import { works } from '../data/works/schema'
 import { searchMirroredSessions } from './mirrored-session-search'
+import type { SearchQuery } from '@solus/contracts/search-query'
 import type { SessionSearchReason, SessionSearchTarget } from '@solus/contracts/session-search'
 
 /**
@@ -47,8 +48,7 @@ export type WorkSearchRow = z.infer<typeof workSearchRowSchema>
  * output. One page at a time.
  */
 export interface SessionMatchQuery {
-  /** The query's words, as `queryWords` reads them. */
-  words: string[]
+  query: SearchQuery
   metadata?: ReadonlyMap<string, string>
   /** Match names and branches only; read no message. */
   namesOnly: boolean

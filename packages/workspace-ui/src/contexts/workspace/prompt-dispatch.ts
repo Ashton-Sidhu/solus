@@ -8,7 +8,7 @@ import { hosts } from '../hosts/hosts.svelte'
 import { hostIsManaged } from '../../components/servers/lib/managed-host'
 import { type TaskSnapshot } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
-import { ownedTaskId, taskRoleOf } from './session-draft.svelte'
+import { ownedTaskId } from './session-draft.svelte'
 import { nextMsgId } from './session.utils'
 import { uuid } from '@solus/contracts/uuid'
 import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@solus/contracts/types'
@@ -28,7 +28,7 @@ import { clearSettledCards } from './settled-cards'
 import { showPendingWorktreeSetup } from './pending-setup-card'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
-import { delegatedGithubCredential, dispatchRepository } from '../../components/servers/run-on'
+import { copiedProjectFiles, delegatedGithubCredential, dispatchRepository } from '../../components/servers/run-on'
 import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
 import { reviewGuideStore } from '../../components/review/review-guide.store.svelte'
 import { directReviewRequest } from '../../components/review/lib/direct-review-command'
@@ -151,7 +151,7 @@ export class PromptDispatch {
     requestConversationScrollToBottom(tabId)
   }
 
-  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; queueAttachments?: QueueAttachment[]; queueAttachmentContext?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; taskRole?: 'lead'; goalObjective?: string }): void {
+  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; queueAttachments?: QueueAttachment[]; queueAttachmentContext?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; goalObjective?: string }): void {
     const api = this.workspace.apiFor(tabId)
     const promptSession = this.workspace.sessionFor(tabId)
     const watchedSessionId = promptSession?.id
@@ -275,7 +275,8 @@ export class PromptDispatch {
 
   /**
    * The context of one prompt send to a tab's host. A Run on send also carries
-   * the client machine's GitHub credential for the clone. Every send reads it
+   * the client machine's GitHub credential for the clone, and the files the
+   * project's `.worktreeinclude` names. Every send reads it
    * again from this device's own host — the first send, a retry, and an outbox
    * redelivery — because it is never stored: not in the outbox, not in the
    * session. When the read fails, the send goes without it and the run host
@@ -287,8 +288,12 @@ export class PromptDispatch {
     // `ctxFor` builds a new repository object for each call, so the credential
     // stays on this one context.
     if (!ctx.session.repository || !session) return ctx
-    const credential = await delegatedGithubCredential(runHost(session.run))
+    const [credential, files] = await Promise.all([
+      delegatedGithubCredential(runHost(session.run)),
+      copiedProjectFiles(session.run),
+    ])
     if (credential) ctx.session.repository.credential = credential
+    if (files.length > 0) ctx.session.repository.files = files
     return ctx
   }
 
@@ -303,9 +308,9 @@ export class PromptDispatch {
    * an agent.
    *
    * A failure here is not allowed to swallow the prompt. The send then runs
-   * with no task, except for a lead, which exists only as its task's lead.
+   * with no task.
    */
-  private async resolveTaskOnItsHost<T extends { taskId?: string; taskRole?: 'lead'; taskSnapshot?: TaskSnapshot }>(
+  private async resolveTaskOnItsHost<T extends { taskId?: string; taskSnapshot?: TaskSnapshot }>(
     tabId: string,
     options: T,
   ): Promise<T> {
@@ -325,7 +330,6 @@ export class PromptDispatch {
         taskId: options.taskId,
         projectKey: project.path,
         includeSnapshot: isDispatch(session.run),
-        role: options.taskRole,
       })
       if (!task) return options
       let preparedSnapshot = snapshot
@@ -350,11 +354,6 @@ export class PromptDispatch {
       // The snapshot tells the execution host that the task lives elsewhere.
       return preparedSnapshot ? { ...options, taskSnapshot: preparedSnapshot } : options
     } catch (error) {
-      // A lead exists only as its task's lead: a run that went ahead unbound
-      // would be an ordinary session with the lead's prompt. The refusal — the
-      // task already has a lead, or its host is away — fails the send instead,
-      // and the transcript shows why.
-      if (options.taskRole === 'lead') throw error
       console.warn('[Solus] Task host binding failed; the prompt will run without a task.', error)
       return { ...options, taskId: undefined }
     }
@@ -576,7 +575,6 @@ export class PromptDispatch {
       imageAttachments: imagePayload.inline,
       imageAttachmentRefs: imagePayload.refs,
       taskId: promptTaskId,
-      taskRole: taskRoleOf(session.task),
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
     })
     requestConversationScrollToBottom(targetTabId)

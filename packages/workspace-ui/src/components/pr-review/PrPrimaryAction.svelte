@@ -10,7 +10,6 @@
     Hammer as HammerIcon,
     LoaderCircle as CircleNotchIcon,
     RefreshCw as RefreshIcon,
-    Timer as TimerIcon,
     TriangleAlert as TriangleAlertIcon,
   } from "@lucide/svelte";
   import type { MergeMethod } from "@solus/contracts/types";
@@ -178,10 +177,8 @@
     {:else if layout === "band" && action}
       <!-- The glyph is what survives once the label drops, so it names the
            move, not the pull request. -->
-      {#if action.glyph === "merge"}
+      {#if action.glyph === "merge" || action.glyph === "auto-merge"}
         <GitMergeIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
-      {:else if action.glyph === "auto-merge"}
-        <TimerIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
       {:else if action.glyph === "ready"}
         <CircleCheckIcon class="size-[15px] shrink-0" strokeWidth={1.5} aria-hidden="true" />
       {:else if action.glyph === "update"}
@@ -301,7 +298,7 @@
 <PrActionConfirm
   bind:open={confirmOpen}
   title="Enable auto-merge?"
-  description="This merges #{number} using {methodLabel} as soon as the host considers it ready, which may be immediately."
+  description="This merges #{number} using {methodLabel} as soon as it is ready."
   confirmLabel="Enable auto-merge"
   onConfirm={runConfirmedAutoMerge}
 />

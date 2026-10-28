@@ -29,10 +29,10 @@ import { completeTasksForMergedPullRequest } from '../../data/tasks/sync-engine'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
 import { emitPullRequestTasksChanged } from '../../data/tasks/task-links'
 import { prIndex, repoKeyOf, type PageReads } from '../../prs/pr-index'
-import { noRemoteError, PrUnavailableError, repoForScope, type CodeHost } from '../../prs/code-host'
+import { noRemoteError, PrUnavailableError, pushHeadFor, repoForScope, type CodeHost } from '../../prs/code-host'
 import { createGithubMediaUrl } from '../../providers/github/media'
 import type { PullRequest } from '../../prs/pull-request'
-import type { PrSync } from '../../prs/pr-sync'
+import type { PrSync, SyncInterest } from '../../prs/pr-sync'
 
 const log = createLogger('main', 'provider-handlers')
 const checkoutRequests = new Map<string, Promise<PrCheckoutContext>>()
@@ -536,7 +536,14 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     // One set per connection and project: two checkouts of one repository on
     // one client are two sets, and neither replaces the other.
     const ownerId = `${clientKey(handlerCtx)}#${projectScopeOf(ctx.session)}`
-    return deps.prSync.setInterest(ownerId, await reviewTargetFor(ctx), interests)
+    const host = await reviewTargetFor(ctx)
+    // A branch is the head it pushes to from this checkout: the name alone
+    // matches every fork's branch of that name.
+    const checkout = ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory
+    const resolved = await Promise.all(interests.map(async (interest): Promise<SyncInterest> => interest.kind === 'branch'
+      ? { kind: 'head', head: await pushHeadFor(host, checkout, interest.head) }
+      : interest))
+    return deps.prSync.setInterest(ownerId, host, resolved)
   })
 
   server.register('prGuideMetadata', async (args) => {

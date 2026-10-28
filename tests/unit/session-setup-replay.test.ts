@@ -50,11 +50,13 @@ test('only the host worktree setup takes the worktree setup card', async () => {
   expect(isWorktreeSetupCard(buildConflictResolverCard(7, 'worktree'))).toBe(false)
 })
 
-test('a finished turn settles setup as ready, and output keeps a fixed window', async () => {
-  const { settleSetupCard, setupOutputWindow } = await import('@solus/contracts/setup-card')
+test('a finished turn settles setup as ready, and the terminal shows the end of the output', async () => {
+  const { settleSetupCard, setupOutputTail } = await import('@solus/contracts/setup-card')
   const card = { id: 'worktree-s', title: 'Preparing', icon: 'git-branch' as const, status: 'active' as const, steps: [{ id: 'session', label: 'Starting agent session', status: 'active' as const }] }
   expect(settleSetupCard(card, 'completed')).toMatchObject({ status: 'done', title: 'Worktree ready', steps: [{ status: 'done' }] })
   expect(settleSetupCard(card, 'failed')).toMatchObject({ status: 'error', steps: [{ status: 'error' }] })
-  expect(setupOutputWindow(['a', '', 'b'])).toEqual([' ', 'a', ' ', 'b'])
-  expect(setupOutputWindow(['1', '2', '3', '4', '5'])).toEqual(['2', '3', '4', '5'])
+  // WHY: git prints the reason for a failure last; the tail must keep it.
+  expect(setupOutputTail(['a', '', 'b'])).toBe('a\n\nb')
+  expect(setupOutputTail(['1', '2', '3', 'fatal: no'], 2)).toBe('3\nfatal: no')
+  expect(setupOutputTail(undefined)).toBe('')
 })

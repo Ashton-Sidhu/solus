@@ -71,4 +71,12 @@ describe('searchTaskComments', () => {
     expect((await search('local', { query: 'elican' }))).toEqual([])
     expect((await search('local', { query: 'pelican', projectKey: '/repo' })).map((hit) => hit.taskId)).toEqual([here.id])
   })
+
+  test('a comment is read by the rule sessions are: camelCase words and identifiers typed as one word', async () => {
+    // WHY: one query means one thing everywhere. Comments were lower-cased
+    // before they were split, so "connections" missed "serverConnections".
+    const found = await taskWithComments('local', 'Store', ['check the serverConnections store'])
+    expect((await search('local', { query: 'connections store' })).map((hit) => hit.taskId)).toEqual([found.id])
+    expect((await search('local', { query: 'serverconnections' })).map((hit) => hit.taskId)).toEqual([found.id])
+  })
 })

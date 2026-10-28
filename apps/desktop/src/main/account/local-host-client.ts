@@ -12,7 +12,8 @@ const log = createLogger('main', 'local-host-client')
  * in, it presents its access token for this host, and the host makes the owner's
  * delegations from it, as at the ticket door. A host that is not registered yet is
  * registered first (§2.2 rule 8): main gets a one-time ticket with its own account
- * token and hands it to the host, which registers with its own key. No tunnel is made.
+ * token and hands it to the host, which registers with its own key and links, so the
+ * owner reaches it from every device they sign in on (rule 9).
  * It presents on sign-in, at start, and when the host asks again (its registration or
  * organizations changed, or an owner's delegation ended because another client signed out).
  * While signed in, its identity is the host's user, so the host shows the account, not

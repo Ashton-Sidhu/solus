@@ -55,6 +55,18 @@ describe('activity in the reducer', () => {
     expect(session.messages.at(-1)).toMatchObject({ id: `activity:${renamed.id}`, role: 'system', timestamp: 5, activity: renamed })
   })
 
+  test('a replay of activity from before the loaded window is left to the older page, so it is drawn once', () => {
+    const { session, reducer, rows } = roomFixture()
+    session.historyTruncated = true
+    // The window opens at 1; the offer at 0 is in the page before it.
+    reducer.apply('session', { type: 'activity', activity: activity({ kind: 'worktree_offered', path: '/wt' }, null, 0) })
+    expect(rows()).toEqual([])
+    // With the whole history loaded, nothing older is coming: it is appended.
+    session.historyTruncated = false
+    reducer.apply('session', { type: 'activity', activity: activity({ kind: 'worktree_offered', path: '/wt' }, null, 0) })
+    expect(rows()).toEqual(['worktree_offered'])
+  })
+
   test('the reader\'s own notices are not drawn; a stop always is, for the turn\'s end to name', () => {
     const { reducer, rows } = roomFixture({ self: 'bob' })
     reducer.apply('session', { type: 'activity', activity: activity({ kind: 'permission_decided', questionId: 'q1', tool: 'Bash', decision: 'approved' }) })

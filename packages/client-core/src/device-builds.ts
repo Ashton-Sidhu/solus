@@ -1,4 +1,5 @@
 import { isDeviceRunActive, parseDeviceError, type DeviceRunStartRequest, type DeviceRun, type DeviceRunProfile, type DeviceBuild, type DeviceControlState, type DeviceSummary, type DeviceTarget } from '@solus/contracts/device-types'
+import { parseBranchRefs } from '@solus/contracts/git-types'
 import type { HostApi } from './host-api'
 
 /**
@@ -90,7 +91,7 @@ export interface DeviceRunBranches {
 /** Read the host's branch names. Prefer main when it exists, else the current branch. */
 export async function loadDeviceRunBranches(api: Pick<HostApi, 'gitRefreshState'>, projectPath: string): Promise<DeviceRunBranches> {
   const state = await api.gitRefreshState(projectPath, { includeRefs: true, includeDetails: false })
-  const branches = state?.refs?.branches ?? []
+  const branches = parseBranchRefs(state?.refs?.branches ?? []).map((branch) => branch.name)
   return { branches, defaultBranch: branches.includes('main') ? 'main' : state?.branch ?? branches[0] ?? '' }
 }
 

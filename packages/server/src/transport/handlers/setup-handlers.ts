@@ -14,6 +14,8 @@ import { usesAccountIntegration } from '../../vault/vault'
 import type { SolusServer, HandlerCtx } from '../server'
 import type { Principal } from '../../admission/principal'
 import type { HostEventPublisher } from '../events/host-event-publisher'
+import { writeMissingCopiedFiles } from '../../git/worktree-include'
+import { COPIED_FILE_MAX_BYTES, COPIED_FILES_MAX_TOTAL_BYTES } from '@solus/contracts/types'
 import type { DispatchCheckoutPathOf, PrepareDispatchCheckout, RepositoryProgress } from '../../execution/sessions/dispatch-repository'
 import { findOnPath, launchedProcess, launchProcess, warmCliPath } from '../../cli-env'
 import { runAsync } from '../../git/exec'
@@ -48,7 +50,7 @@ import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import { initRepository } from '../../git/git-init'
 import { getDefaultBranch } from '../../git/worktree-manager'
 import { GITHUB_CREDENTIAL_KEY, solusGitHelper } from '../../providers/github/git-credential'
-import { dispatchCheckoutOwnerKey, dispatchCheckoutPath, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
+import { DELEGATION_OWNER_CONFIG_KEY, DISPATCH_CLONE_CONFIG_KEY, dispatchCheckoutOwnerKey, dispatchCheckoutPath, isDispatchClone, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
 import type { CheckoutService } from '../../git/checkout-service'
 import { PARTIAL_CLONE_ARGS, ensureFullHistory } from '../../git/partial-clone'
 import { hostFileManager } from '../../platform/file-manager'
@@ -73,6 +75,13 @@ const dispatchRepositorySchema = z.object({
   worktreePath: z.string().trim().min(1).optional(),
   baseBranch: z.string().trim().min(1).optional(),
   newWorktree: z.boolean().optional(),
+  // Base64 grows a file by a third.
+  files: z.array(z.object({
+    path: z.string().min(1),
+    contentBase64: z.string().max(Math.ceil(COPIED_FILE_MAX_BYTES / 3) * 4),
+  }).strict()).max(500)
+    .refine((files) => files.reduce((total, file) => total + file.contentBase64.length, 0) <= Math.ceil(COPIED_FILES_MAX_TOTAL_BYTES / 3) * 4, 'The copied files are too large.')
+    .optional(),
 }).strict()
 const setupCloneProjectSchema = z.object({
   cloneUrl: z.string(),
@@ -335,13 +344,12 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   })
 
   server.register('resolveDispatchHistoryRoots', async (args, ctx): Promise<DispatchHistoryRoot[]> => {
-    const ownerKey = dispatchCheckoutOwnerKey(ctx.principal, requireDispatchDevice(ctx.deviceId))
     const [requestRepoKeys] = args
     const repoKeys = z.array(z.string()).parse(requestRepoKeys)
     if (repoKeys.length > MAX_DISPATCH_HISTORY_REPO_KEYS) {
       throw new Error(`Dispatch history is limited to ${MAX_DISPATCH_HISTORY_REPO_KEYS} repositories per request.`)
     }
-    return resolveDispatchHistoryRoots(projectsRootOf(ctx), ownerKey, repoKeys)
+    return resolveDispatchHistoryRoots(projectsRootOf(ctx), repoKeys)
   })
 
   server.register('setProjectsBaseDirectory', (args, ctx) => {
@@ -519,16 +527,16 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
 
   /**
    * The one place a dispatch checkout's folder is decided: the caller's projects
-   * folder, their owner key, and the repository. Turn admission reads it before
-   * the copy, and the copy writes to it, so the two cannot disagree.
+   * folder and the repository. Turn admission reads it before the copy, and the
+   * copy writes to it, so the two cannot disagree.
    */
   const dispatchCheckoutPathOf: DispatchCheckoutPathOf = (repository, caller) => {
-    // The owner key is the key the checkout path and the delegated token are both
-    // stored and read back under: the device, or the member on a managed host.
-    const ownerKey = dispatchCheckoutOwnerKey(caller.principal, requireDispatchDevice(caller.deviceId))
+    // The copy acts with the paired device's delegated token, so a send with no
+    // device is refused here, at admission, not later at the copy.
+    requireDispatchDevice(caller.deviceId)
     const repoKey = cloneRepoKey(validateCloneUrl(dispatchRepositorySchema.parse(repository).cloneUrl).cloneUrl)
     if (!repoKey) throw new Error('The clone URL must name both an owner and repository.')
-    return dispatchCheckoutPath(projectsRootFor(caller.principal, projectsRoot()), ownerKey, repoKey)
+    return dispatchCheckoutPath(projectsRootFor(caller.principal, projectsRoot()), repoKey)
   }
 
   /**
@@ -539,17 +547,18 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   const prepareDispatchCheckout: PrepareDispatchCheckout = async (repository, caller, progress) => {
     const checkoutPath = dispatchCheckoutPathOf(repository, caller)
     const ownerKey = dispatchCheckoutOwnerKey(caller.principal, requireDispatchDevice(caller.deviceId))
-    const { cloneUrl, credential: rawCredential, worktreePath, baseBranch, newWorktree } = dispatchRepositorySchema.parse(repository)
+    const { cloneUrl, credential: rawCredential, worktreePath, baseBranch, newWorktree, files = [] } = dispatchRepositorySchema.parse(repository)
     if (!worktreePath && !newWorktree && !checkouts) throw new Error('The checkout service is not available')
     const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(cloneUrl)
 
     // Only the host's own work keeps an identity in checkout config (the paired
     // device's helper and author); a member's processes act from their own home.
+    // A checkout a person made keeps their own config (docs/plans/dispatch-clone-folder.md).
     const configure = (path: string) => {
-      if (credential && currentIdentity().isHost) configureDelegatedCheckout(path, ownerKey, credential)
+      if (credential && currentIdentity().isHost && isDispatchClone(path)) configureDelegatedCheckout(path, ownerKey, credential)
     }
-    const prepare = async (path: string): Promise<string> => {
+    const choose = async (path: string): Promise<string> => {
       // A checkout cloned with `--depth=1` before partial clones gets its full history once, here.
       await ensureFullHistory(path)
       if (worktreePath) return resolveDispatchWorktree(path, worktreePath)
@@ -559,6 +568,18 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       // checkout when it holds that branch, else where the branch is held.
       const branch = baseBranch ?? await getDefaultBranch(path)
       return (await checkouts!.ensureBranch(path, branch)).worktreePath ?? path
+    }
+    // A clone Solus made gets the copied files and `.worktreeinclude` first, so
+    // a worktree made from it later copies them too; a worktree that exists
+    // already gets the ones it lacks. A person's own checkout gets none: the
+    // new worktree the run gets there is given them by the launcher.
+    const prepare = async (path: string): Promise<string> => {
+      if (files.length === 0) return choose(path)
+      let written = isDispatchClone(path) ? await writeMissingCopiedFiles(path, files) : 0
+      const runPath = await choose(path)
+      if (runPath !== path) written += await writeMissingCopiedFiles(runPath, files)
+      progress.onOutput(`Copied ${written} of ${files.length} files from .worktreeinclude`, false)
+      return runPath
     }
 
     if (runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
@@ -578,6 +599,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       emitLog: (event: SetupLogEvent) => progress.onOutput(event.line, false),
     }
     const result = await cloneProject(cloneRequest, projectsRootFor(caller.principal, projectsRoot()), sink, progress)
+    setLocalGitConfig(result.path, DISPATCH_CLONE_CONFIG_KEY, 'true')
     configure(result.path)
     return prepare(result.path)
   }
@@ -700,14 +722,12 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     githubCredentials().delegate(ownerKey, credential)
     const helper = solusGitHelper(['--delegation', ownerKey])
     if (!helper) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
-    const config = (key: string, value: string) => {
-      const run = launchProcess('git', withBareRepositoryGuard('git', ['-C', checkoutPath, 'config', '--local', key, value]))
-      execFileSync(run.file, run.args, { env: run.env, timeout: PROBE_TIMEOUT_MS })
-    }
     // Local config is shared by linked worktrees, so every dispatched worktree inherits the caller's identity and helper.
-    config(GITHUB_CREDENTIAL_KEY, helper)
-    config('user.name', credential.login)
-    config('user.email', `${credential.login}@users.noreply.github.com`)
+    setLocalGitConfig(checkoutPath, GITHUB_CREDENTIAL_KEY, helper)
+    setLocalGitConfig(checkoutPath, 'user.name', credential.login)
+    setLocalGitConfig(checkoutPath, 'user.email', `${credential.login}@users.noreply.github.com`)
+    // The GitHub API reads the owner from here, as git reads it from the helper.
+    setLocalGitConfig(checkoutPath, DELEGATION_OWNER_CONFIG_KEY, ownerKey)
   }
 
   server.register('setupSyncProject', async (args): Promise<SetupAdoptProjectResult> => {
@@ -864,13 +884,20 @@ function coerceConfigValue(value: string, label: string): string {
   return trimmed
 }
 
-/** `host/owner/repo`, independent of whether git stored SSH or HTTPS as origin. */
+/** `host/owner/repo` in lower case, independent of whether git stored SSH or
+ *  HTTPS as origin. GitHub and GitLab names ignore case, and a client sends
+ *  the key in lower case, so `Hello-World` and `hello-world` are one repository. */
 function cloneRepoKey(cloneUrl: string): string | null {
   const parts = parseCloneUrlParts(cloneUrl)
   if (!parts) return null
   const repoPath = parts.repoPath.replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '')
   if (!repoPath.includes('/')) return null
-  return `${parts.host.toLowerCase()}/${repoPath}`
+  return `${parts.host}/${repoPath}`.toLowerCase()
+}
+
+function setLocalGitConfig(checkoutPath: string, key: string, value: string): void {
+  const run = launchProcess('git', withBareRepositoryGuard('git', ['-C', checkoutPath, 'config', '--local', key, value]))
+  execFileSync(run.file, run.args, { env: run.env, timeout: PROBE_TIMEOUT_MS })
 }
 
 /** Runs a short read-only command and returns its trimmed output, or null if it can't. */

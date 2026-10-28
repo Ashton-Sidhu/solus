@@ -6,8 +6,6 @@ import type { PersistedStrip } from './routing/router.store.svelte'
 // tab set spanning hosts, and each persisted tab names its own host.
 const TABS_KEY = 'solus-open-tabs'
 const DRAFTS_KEY = 'solus-tab-drafts'
-const DISMISSED_SIDEBAR_TASKS_KEY = 'solus-dismissed-sidebar-tasks'
-const OPEN_SIDEBAR_TASKS_KEY = 'solus-open-sidebar-tasks'
 // Last successful start() payload, scoped to the server installation exactly
 // like the tab snapshot so a different server never reads a stale
 // environment. Applied optimistically on boot, then reconciled with fresh data.
@@ -270,64 +268,6 @@ export function removePersistedTab(tabId: string, activeTabId: string): void {
     // SAFETY: The versioned persisted-tab envelope has the routing fields required by remove().
     const snapshot = parsed.data as PersistedTabs
     localStorage.setItem(key, JSON.stringify(remove(snapshot)))
-  } catch {}
-}
-
-/** Durable tasks outlive their tabs, so closing a task row needs its own persisted
- *  view-state marker or the task and its linked child sessions return on refresh. */
-export function loadDismissedSidebarRowKeys(): string[] {
-  try {
-    const raw = localStorage.getItem(DISMISSED_SIDEBAR_TASKS_KEY)
-    if (!raw) return []
-    const parsed = z.array(z.string()).safeParse(JSON.parse(raw))
-    return parsed.success ? parsed.data : []
-  } catch {
-    return []
-  }
-}
-
-/** Persist a dismissal synchronously because closing is destructive view state and
- *  must survive a refresh before Svelte's structural persistence effect runs. */
-export function persistDismissedSidebarRow(rowKey: string): void {
-  try {
-    const rowKeys = new Set(loadDismissedSidebarRowKeys())
-    rowKeys.add(rowKey)
-    localStorage.setItem(DISMISSED_SIDEBAR_TASKS_KEY, JSON.stringify([...rowKeys]))
-  } catch {}
-}
-
-/** Restore selected rows without clearing unrelated sidebar dismissals. */
-export function removeDismissedSidebarRows(rowKeys: Iterable<string>): void {
-  try {
-    const dismissed = new Set(loadDismissedSidebarRowKeys())
-    for (const rowKey of rowKeys) dismissed.delete(rowKey)
-    localStorage.setItem(DISMISSED_SIDEBAR_TASKS_KEY, JSON.stringify([...dismissed]))
-  } catch {}
-}
-
-export function clearDismissedSidebarRowKeys(): void {
-  try {
-    localStorage.removeItem(DISMISSED_SIDEBAR_TASKS_KEY)
-  } catch {}
-}
-
-/** Root task rows this client has opened. The host owns task data; each client
- * owns which of those tasks are present in its sidebar. Null means the client
- * has not seeded its migration snapshot yet. */
-export function loadOpenSidebarTaskIds(): string[] | null {
-  try {
-    const raw = localStorage.getItem(OPEN_SIDEBAR_TASKS_KEY)
-    if (!raw) return null
-    const parsed = z.array(z.string()).safeParse(JSON.parse(raw))
-    return parsed.success ? parsed.data : null
-  } catch {
-    return null
-  }
-}
-
-export function persistOpenSidebarTaskIds(taskIds: Iterable<string>): void {
-  try {
-    localStorage.setItem(OPEN_SIDEBAR_TASKS_KEY, JSON.stringify([...taskIds]))
   } catch {}
 }
 

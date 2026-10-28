@@ -153,9 +153,13 @@ Seat, turn refusal, and finished sign-in cards of that conversation. When the
 person sends a new prompt, these cards leave (`clearSettledCards`). Two kinds
 of card stay because their work is still in progress: an active setup card and
 a sign-in that waits on the browser. If the new prompt still needs a card, the
-host refuses the prompt again and the card comes back. When a run fails or
-dies, a setup card that did not fail leaves at once, because no setup continues
-after the run ends. A failed setup card stays for its recovery actions.
+host refuses the prompt again and the card comes back. When the run starts, a
+setup card that the host reported on settles to "Worktree ready" and stays. It
+is folded to one line in the turn its send started, after the prompt. It opens
+by itself when a step has a warning. The card that the client shows at Send,
+which the host did not confirm, leaves. When a run fails or dies, a setup card
+that did not fail leaves at once, because no setup continues after the run
+ends. A failed setup card stays for its recovery actions.
 
 ### Agent rows
 
@@ -318,9 +322,9 @@ card shell. See [the capability and protocol rules](plans/conversation-card-pari
 
 On desktop and web, the host's worktree setup uses the setup card shell, the
 same as a pull request checkout or a continue-in-worktree card. It adds Work
-locally and Cancel while the host makes the worktree, and the last four output
-lines when setup fails. The phone keeps the T3 stage rows and Details sheet,
-with the same actions.
+locally and Cancel while the host makes the worktree. When setup fails, it
+shows the last eight output lines in the terminal panel (`ui/terminal-output`).
+The phone keeps the T3 stage rows and Details sheet, with the same actions.
 
 A step can be pending, active, done, skipped, warning, or failed. A skipped step
 had no work to do, for example no submodules. A warning step shows an amber

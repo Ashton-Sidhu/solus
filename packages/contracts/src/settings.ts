@@ -183,10 +183,10 @@ export const PERSONAL_SETTING_SCHEMAS = {
   tabGroupMode: z.enum(TAB_GROUP_MODES).describe('The order that the next-tab and previous-tab keys follow. flat: tab order. status: grouped by waiting, rate-limited, running, completed, error, idle. unread: unread tabs first.'),
   sidebarCompletedRetentionDays: z.number().int().min(1).max(365),
   sidebarMotionMs: z.number().int().min(0).max(MAX_SIDEBAR_MOTION_MS),
-  /** The agent and model a new task lead starts on. Null means the default for new sessions. */
+  /** The agent and model a lead starts on. Null means the default for new sessions. No session is a lead now (docs/plans/task-conversation.md). */
   leadModel: leadModelSelectionSchema.nullable().describe('The agent, model, and reasoning level that a new task lead session starts on. Null uses the default for new sessions.'),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).describe('What agents can do to the status of a task. none: no status changes. moderate: any status except done. autonomous: any status, done included.'),
-  /** Rules added after the built-in lead contract (docs/plans/task-conversation.md). */
+  /** Rules added after the built-in lead contract (docs/plans/task-conversation.md, Orchestrator). */
   leadInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Rules from the person that are added after the built-in contract of a task lead.'),
   /** The model a lead names for a worker when its instructions name none. Null leaves it to the lead. */
   workerModel: leadModelSelectionSchema.nullable().describe('The agent and model that a task lead starts workers on when its instructions name none. Null lets the lead choose.'),

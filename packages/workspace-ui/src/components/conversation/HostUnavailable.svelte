@@ -17,13 +17,13 @@
    * A conversation's host, when it is not ready (docs/plans/host-readiness.md).
    *
    * - `whisper`: inside the grace. One quiet line over the composer, which stays.
-   * - `veil`: past the grace. The conversation sleeps under one statement of
-   *   what happened and the one thing to do. The details to debug the host or
-   *   send to support wait behind Details.
+   * - `card`: past the grace. One statement of what happened and the one thing
+   *   to do takes the composer's place; the transcript above stays readable.
+   *   The details to debug the host or send to support wait behind Details.
    */
   interface Props {
     serverId: string;
-    variant: "whisper" | "veil";
+    variant: "whisper" | "card";
   }
 
   let { serverId, variant }: Props = $props();
@@ -36,7 +36,7 @@
   // "Last seen 4 min ago" must not go stale while the host stays away.
   let now = $state(Date.now());
   $effect(() => {
-    if (variant !== "veil") return;
+    if (variant !== "card") return;
     const timer = setInterval(() => (now = Date.now()), 60_000);
     return () => clearInterval(timer);
   });
@@ -70,14 +70,13 @@
     {copy.headline}…
   </p>
 {:else}
-  <div class="flex h-full flex-col items-center justify-center overflow-y-auto px-6 py-10 text-center" data-testid="host-unavailable">
-    <!-- A halo in the page colour, so nothing in the sleeping transcript reads through the statement. -->
+  <div class="flex justify-center" data-testid="host-unavailable">
     <div
-      class="flex w-full max-w-lg flex-col items-center gap-2 p-10 bg-[radial-gradient(closest-side,var(--color-background)_72%,transparent)]"
+      class="flex max-h-[60vh] w-full flex-col items-center gap-2 overflow-y-auto rounded-2xl bg-(--solus-input-pill-bg) px-6 py-6 text-center shadow-[shadow:0_0_0_0.0625rem_var(--solus-container-border)]"
       role="status"
       aria-live="polite"
     >
-      <h2 class="text-2xl font-medium tracking-tight text-balance text-(--solus-text-primary)">
+      <h2 class="text-xl font-medium tracking-tight text-balance text-(--solus-text-primary)">
         {isWaiting ? `Trying ${label} again…` : `${copy.headline}.`}
       </h2>
       {#if copy.detail && !isWaiting}

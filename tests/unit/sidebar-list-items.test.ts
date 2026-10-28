@@ -20,13 +20,10 @@ function draft(draftId: string): DraftRow {
 function list(overrides: Partial<SidebarListInput> = {}) {
   return buildSidebarListItems({
     drafts: [],
-    tasks: [],
     sessions: [],
     working: [],
     snoozed: [],
     completed: [],
-    isTasksOpen: true,
-    isSessionsOpen: true,
     isWorkingOpen: true,
     isSnoozedOpen: true,
     isCompletedOpen: true,
@@ -36,20 +33,16 @@ function list(overrides: Partial<SidebarListInput> = {}) {
 }
 
 describe('the sidebar as one list', () => {
-  test('busy rows sit in a Working section between Sessions and the shelves', () => {
+  test('busy rows sit in a Working section between the sessions and the shelves', () => {
     // WHY: a row whose agent is busy without you does not ask for anything, so
-    // it leaves the live sections until it comes back with a question, a plan,
-    // an error, or a finished turn.
+    // it leaves the sessions until it comes back with a question, a plan, an
+    // error, or a finished turn.
     const items = list({
-      tasks: [row('t1')],
       sessions: [row('a1')],
       working: [row('w1'), row('w2')],
       snoozed: [row('s1', 'snoozed')],
     })
     expect(items.map((item) => item.key)).toEqual([
-      'header:tasks',
-      't1:card',
-      'header:sessions',
       'a1:card',
       'header:working',
       'w1:card',
@@ -57,7 +50,7 @@ describe('the sidebar as one list', () => {
       'header:snoozed',
       's1:slim',
     ])
-    expect(items[4]).toMatchObject({ section: 'working', count: 2, isOpen: true })
+    expect(items[1]).toMatchObject({ section: 'working', count: 2, isOpen: true })
   })
 
   test('a closed Working section still shows the row on screen', () => {
@@ -71,20 +64,18 @@ describe('the sidebar as one list', () => {
 
   test('a row that starts or finishes a turn keeps its card, so it slides between sections', () => {
     // WHY: a remount would fade the row out and in instead of moving it.
-    const idle = list({ tasks: [row('t1')], sessions: [row('a1')] })
-    const busy = list({ tasks: [row('t1')], working: [row('a1')] })
+    const idle = list({ sessions: [row('s1'), row('a1')] })
+    const busy = list({ sessions: [row('s1')], working: [row('a1')] })
     expect(idle.find((item) => item.kind === 'task' && item.task.id === 'a1')?.key)
       .toBe(busy.find((item) => item.kind === 'task' && item.task.id === 'a1')?.key)
     expect(sidebarListOrderKey(idle)).not.toBe(sidebarListOrderKey(busy))
   })
 
-  test('drafts lead, then Tasks, Sessions and each shelf under its header', () => {
-    // WHY: a task is talked to through its lead with its page beside it; a
-    // session is a conversation on its own. The column keeps the two apart
-    // (docs/plans/task-conversation.md, decision 5).
+  test('drafts lead, then the sessions, then each shelf under its header', () => {
+    // WHY: tasks have no place in the sidebar. Every row is one session, and a
+    // session linked to a task names it on a chip; there is no Tasks section.
     const items = list({
       drafts: [draft('d1')],
-      tasks: [row('t1')],
       sessions: [row('a1')],
       snoozed: [row('s1', 'snoozed')],
       completed: [row('c1', 'completed')],
@@ -92,47 +83,25 @@ describe('the sidebar as one list', () => {
     expect(items.map((item) => item.key)).toEqual([
       'draft:d1',
       'drafts-divider',
-      'header:tasks',
-      't1:card',
-      'header:sessions',
       'a1:card',
       'header:snoozed',
       's1:slim',
       'header:completed',
       'c1:slim',
     ])
-    expect(items[2]).toMatchObject({ section: 'tasks', count: 1, isOpen: true })
-    expect(items[4]).toMatchObject({ section: 'sessions', count: 1, isOpen: true })
+    expect(items.some((item) => item.kind === 'header' && item.section === 'sessions')).toBe(false)
   })
 
   test('a section with no rows has no header', () => {
-    expect(list({ tasks: [row('t1')] }).map((item) => item.key)).toEqual(['header:tasks', 't1:card'])
+    expect(list({ working: [row('w1')] }).map((item) => item.key)).toEqual(['header:working', 'w1:card'])
+    expect(list({}).map((item) => item.key)).toEqual([])
   })
 
-  test('with no tasks, sessions stand without a header and never collapse', () => {
-    // WHY: a Sessions header only separates sessions from tasks. Alone, it is
-    // a divider between the search bar and the list that divides nothing.
-    expect(list({ sessions: [row('a1'), row('a2')], isSessionsOpen: false }).map((item) => item.key))
+  test('sessions stand without a header and never collapse', () => {
+    // WHY: a Sessions header would only divide the sessions from nothing, and
+    // a collapsed one would hide the work in front of the user.
+    expect(list({ sessions: [row('a1'), row('a2')] }).map((item) => item.key))
       .toEqual(['a1:card', 'a2:card'])
-    expect(list({ tasks: [row('t1')], sessions: [row('a1')] }).map((item) => item.key))
-      .toEqual(['header:tasks', 't1:card', 'header:sessions', 'a1:card'])
-  })
-
-  test('a session that becomes a task keeps its card, so it slides up into Tasks', () => {
-    // WHY: the row is the same open work with the same shape; only its place
-    // changes. A remount here would fade the row out and in instead of moving it.
-    const before = list({ sessions: [row('t'), row('u')] })
-    const after = list({ tasks: [row('t')], sessions: [row('u')] })
-    const keyOf = (items: typeof before) => items.find((item) => item.kind === 'task' && item.task.id === 't')?.key
-    expect(keyOf(after)).toBe(keyOf(before))
-    expect(sidebarListOrderKey(after)).not.toBe(sidebarListOrderKey(before))
-  })
-
-  test('a collapsed Tasks or Sessions section keeps the row you are reading', () => {
-    expect(list({ tasks: [row('t1'), row('t2')], isTasksOpen: false, shelfRevealTaskId: 't2' }).map((item) => item.key))
-      .toEqual(['header:tasks', 't2:card'])
-    expect(list({ tasks: [row('t1')], sessions: [row('a1'), row('a2')], isSessionsOpen: false, shelfRevealTaskId: 'a1' }).map((item) => item.key))
-      .toEqual(['header:tasks', 't1:card', 'header:sessions', 'a1:card'])
   })
 
   test('a row moving from Snoozed to Completed keeps its key, so it slides', () => {

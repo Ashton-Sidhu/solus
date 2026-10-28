@@ -239,19 +239,22 @@ describe('read_session of a session this host does not hold', () => {
     const result = await sessionTools.executeSessionTool('read_session', { session_id: 'thread-on-b' }, { ctx })
     turnApis = []
     expect(result.ok).toBe(true)
-    expect(result.text).toContain('found on: Host B')
-    expect(result.text).toContain('sessionId=solus-on-b&serverId=install-b')
-    expect(result.text).toContain('[assistant] It ran without full access.')
+    const read = JSON.parse(result.text)
+    expect(read.session.foundOn).toBe('Host B')
+    expect(read.session.link).toContain('sessionId=solus-on-b&serverId=install-b')
+    expect(read.items.map((item: { text: string }) => item.text)).toContain('It ran without full access.')
   })
 
   test('reads it from an organization\'s Solus API when no host has it', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
     turnApis = [organizationApi]
-    const result = await sessionTools.executeSessionTool('read_session', { session_id: 'solus-in-org', match: 'ship it' }, { ctx })
+    // The item id a search names opens that message, here one the API stored in two parts.
+    const result = await sessionTools.executeSessionTool('read_session', { session_id: 'solus-in-org', item_id: 'm1' }, { ctx })
     turnApis = []
     expect(result.ok).toBe(true)
-    expect(result.text).toContain('found on: the Solus API of organization org-1')
-    expect(result.text).toContain('» [user] Ship it.')
+    const read = JSON.parse(result.text)
+    expect(read.session.foundOn).toBe('the Solus API of organization org-1')
+    expect(read.items).toEqual([expect.objectContaining({ itemId: 'm1', type: 'user_message', text: 'Ship it.' })])
   })
 
   test('says where it looked when no one has it', async () => {

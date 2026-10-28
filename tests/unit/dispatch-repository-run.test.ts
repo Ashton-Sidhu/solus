@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import type { NormalizedEvent, SessionRunInput, StatusCardState, WireNormalizedEvent } from '@solus/contracts/types'
+import type { DispatchRepository, NormalizedEvent, SessionRunInput, StatusCardState, WireNormalizedEvent } from '@solus/contracts/types'
 import { progressPercent, progressThrottle } from '@solus/server/execution/sessions/dispatch-repository'
 
 /**
@@ -44,6 +44,12 @@ beforeAll(async () => {
   writeFileSync(join(source, 'README.md'), 'hello\n')
   fixtureGit(['add', 'README.md'], source)
   fixtureGit(['commit', '-q', '-m', 'Initial'], source)
+  // A second branch, for a new worktree that names its base.
+  fixtureGit(['checkout', '-q', '-b', 'feature'], source)
+  writeFileSync(join(source, 'feature.txt'), 'feature\n')
+  fixtureGit(['add', 'feature.txt'], source)
+  fixtureGit(['commit', '-q', '-m', 'Feature'], source)
+  fixtureGit(['checkout', '-q', 'main'], source)
   remote = join(base, 'remote.git')
   fixtureGit(['clone', '-q', '--bare', source, remote], base)
   fixtureGit(['config', 'uploadpack.allowFilter', 'true'], remote)
@@ -77,8 +83,10 @@ describe('git transfer progress', () => {
   })
 })
 
-/** A host whose setup clones `CLONE_URL` from the local bare repository. */
-async function hostFor(cloneExitCode?: number) {
+/** A host whose setup clones `CLONE_URL` from the local bare repository into
+ *  `projectsFolder`. One person's devices share a clone there, so a test that
+ *  needs a fresh clone names its own folder. */
+async function hostFor(cloneExitCode?: number, projectsFolder = 'projects') {
   const { SessionRuntime } = await import('@solus/server/execution/session-runtime')
   const { registerSetupHandlers } = await import('@solus/server/transport/handlers/setup-handlers')
   const { SolusServer } = await import('@solus/server/transport/server')
@@ -102,7 +110,7 @@ async function hostFor(cloneExitCode?: number) {
   })
   const setup = registerSetupHandlers(new SolusServer(), {
     checkouts: runtime.checkouts,
-    projectsRoot: () => join(base, 'projects'),
+    projectsRoot: () => join(base, projectsFolder),
     registerProject: async (path) => path,
     loadGithubToken: async () => null,
     hasCommand: () => false,
@@ -125,9 +133,9 @@ async function hostFor(cloneExitCode?: number) {
     permissionMode: 'supervised', rateLimitBehavior: 'queue', extraInstructions: '',
   }
   // Each case is its own device, so it has its own dispatch checkout.
-  const send = (sessionId: string, deviceId: string) => runtime.runTurn({
+  const send = (sessionId: string, deviceId: string, start: Omit<DispatchRepository, 'cloneUrl'> = { newWorktree: true }) => runtime.runTurn({
     target: { kind: 'new-session' }, sessionId, tools: [], input, options: { prompt: 'go' },
-    repository: { repository: { cloneUrl: CLONE_URL, newWorktree: true }, deviceId },
+    repository: { repository: { cloneUrl: CLONE_URL, ...start }, deviceId },
   }).then((lifecycle) => lifecycle.agentSessionId)
   return { runtime, cards, gitContexts, starts, send }
 }
@@ -143,7 +151,7 @@ describe('a prompt that carries its repository', () => {
     const { runtime, cards, gitContexts, starts, send } = await hostFor()
     try {
       await send('session-clone', 'device-1').catch(() => {})
-      const checkout = join(base, 'projects', 'solus-remote', 'device-1', 'github.com', 'owner', 'repo')
+      const checkout = join(base, 'projects', 'repo')
       expect(existsSync(join(checkout, 'README.md'))).toBe(true)
       expect(new Set(cards.map((card) => card.id))).toEqual(new Set(['worktree-session-clone']))
       expect(cards[0].steps.map((step) => step.id)).toEqual(['repository', 'fetch', 'checkout', 'submodules', 'agent'])
@@ -158,6 +166,21 @@ describe('a prompt that carries its repository', () => {
       // The agent starts in the new worktree, not in the checkout or the client's folder.
       expect(gitContexts[1]).toStartWith(join(checkout, '.git', 'solus', 'worktrees'))
       expect(starts[0].cwd).toBe(gitContexts[1])
+    } finally { runtime.shutdown() }
+  })
+
+  test('makes the new worktree from the branch the send names', async () => {
+    // WHY: "new worktree from feature" must not work in the checkout on
+    // feature, and must not start from the default branch.
+    const { runtime, cards, gitContexts, starts, send } = await hostFor()
+    try {
+      await send('session-named-base', 'device-4', { newWorktree: true, baseBranch: 'feature' }).catch(() => {})
+      expect(cards[0].steps.map((step) => step.id)).toEqual(['repository', 'fetch', 'checkout', 'submodules', 'agent'])
+      const checkout = join(base, 'projects', 'repo')
+      expect(starts).toHaveLength(1)
+      expect(starts[0].cwd).toStartWith(join(checkout, '.git', 'solus', 'worktrees'))
+      expect(starts[0].cwd).toBe(gitContexts[1])
+      expect(existsSync(join(starts[0].cwd, 'feature.txt'))).toBe(true)
     } finally { runtime.shutdown() }
   })
 
@@ -184,7 +207,7 @@ describe('a prompt that carries its repository', () => {
   })
 
   test('a failed clone marks the repository step and starts nothing', async () => {
-    const { runtime, cards, starts, send } = await hostFor(128)
+    const { runtime, cards, starts, send } = await hostFor(128, 'projects-failed')
     try {
       await expect(send('session-failed', 'device-2')).rejects.toThrow()
       const last = cards.at(-1)!
@@ -193,7 +216,7 @@ describe('a prompt that carries its repository', () => {
       expect(last.steps[0].detail).toContain('Exited with code 128')
       expect(last.steps.slice(1).every((step) => step.status === 'pending')).toBe(true)
       expect(starts).toHaveLength(0)
-      expect(existsSync(join(base, 'projects', 'solus-remote', 'device-2', 'github.com', 'owner', 'repo', '.git', 'solus'))).toBe(false)
+      expect(existsSync(join(base, 'projects-failed', 'repo', '.git', 'solus'))).toBe(false)
     } finally { runtime.shutdown() }
   })
 })

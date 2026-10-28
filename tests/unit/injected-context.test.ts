@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { stripInjectedContext } from '@solus/server/execution/agents/utils'
 import { stripAttachedFileLines } from '@solus/contracts/injected-context'
-import { formatTaskContext } from '@solus/server/data/tasks/task-context'
+import { formatLeadContract, formatTaskContext } from '@solus/server/data/tasks/task-context'
 
 const task = { id: '01KZ4TSYMQRX31D1DK5AAEW5TR', title: 'Task System Testing' }
 
@@ -112,27 +112,26 @@ describe('task lifecycle work contracts', () => {
 })
 
 describe('the lead contract', () => {
-  test('a lead session gets the lead contract after the work contract', () => {
-    // WHY: the lead coordinates workers and must keep its own thread small; a
-    // packet without these rules lets it implement the task itself and fill a
-    // long-lived context window (docs/plans/task-conversation.md).
-    const packet = formatTaskContext(task, 'moderate', 'lead')
-    const lines = packet.split('\n')
-    expect(lines.indexOf('Lead contract:')).toBeGreaterThan(lines.indexOf('Work contract:'))
-    expect(packet).toContain('you do not implement beyond very small edits')
-    expect(packet).toContain("start_session (task='attempt'")
-    expect(packet).toContain('Keep this thread small')
-    expect(packet).toContain('call read_task_sessions first')
-    // Reports reach the lead together, when its workers are done; re-reading
-    // the task after them only grows the thread.
-    expect(packet).toContain('You are woken once, when every worker you wait on has finished')
-    expect(packet).toContain('After session reports, do not')
+  test('a task packet carries no lead contract', () => {
+    // WHY: tasks have no lead session. A session linked to a task works on
+    // it; it does not coordinate workers for it.
+    expect(formatTaskContext(task)).not.toContain('Lead contract:')
   })
 
-  test('a working attempt and a referenced session get no lead contract', () => {
-    expect(formatTaskContext(task, 'moderate', 'working')).not.toContain('Lead contract:')
-    expect(formatTaskContext(task, 'moderate', 'referenced')).not.toContain('Lead contract:')
-    expect(formatTaskContext(task)).not.toContain('Lead contract:')
+  test('holds the coordination rules', () => {
+    // WHY: the lead coordinates workers and must keep its own thread small; a
+    // contract without these rules lets it implement the work itself and fill
+    // a long-lived context window.
+    const contract = formatLeadContract({ leadInstructions: '', workerModel: null })
+    expect(contract.split('\n')[0]).toBe('Lead contract:')
+    expect(contract).toContain('you do not implement beyond very small edits')
+    expect(contract).toContain("start_session (task='attempt'")
+    expect(contract).toContain('Keep this thread small')
+    expect(contract).toContain('call read_task_sessions first')
+    // Reports reach the lead together, when its workers are done; re-reading
+    // the task after them only grows the thread.
+    expect(contract).toContain('You are woken once, when every worker you wait on has finished')
+    expect(contract).toContain('After session reports, do not')
   })
 
   test("the user's lead settings follow the lead contract and do not replace it", () => {
@@ -143,12 +142,10 @@ describe('the lead contract', () => {
       leadInstructions: 'Send frontend work to Claude Opus.',
       workerModel: { provider: 'codex' as const, model: 'gpt-6', reasoningEffort: 'xhigh' as const },
     }
-    const lines = formatTaskContext(task, 'moderate', 'lead', lead).split('\n')
-    const contract = lines.indexOf('Lead contract:')
+    const lines = formatLeadContract(lead).split('\n')
     const workerDefault = lines.findIndex((line) => line.includes("agent_provider 'codex', model_id 'gpt-6' and reasoning_effort 'xhigh'"))
     const instructions = lines.indexOf('Send frontend work to Claude Opus.')
-    expect(contract).toBeGreaterThan(-1)
-    expect(workerDefault).toBeGreaterThan(contract)
+    expect(workerDefault).toBeGreaterThan(0)
     expect(instructions).toBeGreaterThan(workerDefault)
     expect(lines).toContain('- Keep this thread small: short reads, short replies. Say what happened, what was produced with its link, and what is open.')
   })
@@ -156,21 +153,14 @@ describe('the lead contract', () => {
   test('a worker model saved without a reasoning level leaves the level to the model', () => {
     // WHY: a selection saved before reasoning was configurable must still
     // parse, and start_session then uses the model's default level.
-    const packet = formatTaskContext(task, 'moderate', 'lead', { leadInstructions: '', workerModel: { provider: 'codex', model: 'gpt-6', reasoningEffort: undefined } })
-    expect(packet).toContain("agent_provider 'codex', model_id 'gpt-6'.")
-    expect(packet).not.toContain('reasoning_effort')
+    const contract = formatLeadContract({ leadInstructions: '', workerModel: { provider: 'codex', model: 'gpt-6', reasoningEffort: undefined } })
+    expect(contract).toContain("agent_provider 'codex', model_id 'gpt-6'.")
+    expect(contract).not.toContain('reasoning_effort')
   })
 
-  test('a worker never receives the lead settings', () => {
-    const lead = { leadInstructions: 'Send frontend work to Claude Opus.', workerModel: { provider: 'codex' as const, model: 'gpt-6', reasoningEffort: undefined } }
-    const packet = formatTaskContext(task, 'moderate', 'working', lead)
-    expect(packet).not.toContain('Send frontend work to Claude Opus.')
-    expect(packet).not.toContain('gpt-6')
-  })
-
-  test('empty lead settings add nothing to the lead packet', () => {
-    expect(formatTaskContext(task, 'moderate', 'lead', { leadInstructions: '  ', workerModel: null }))
-      .toBe(formatTaskContext(task, 'moderate', 'lead'))
+  test('empty lead settings add nothing to the contract', () => {
+    expect(formatLeadContract({ leadInstructions: '  ', workerModel: null }))
+      .toBe(formatLeadContract({ leadInstructions: '', workerModel: null }))
   })
 })
 

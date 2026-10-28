@@ -139,6 +139,112 @@ Large touched files remain flagged for review: `session-indexer.ts` (980 lines),
 `ThreadNavigationSidebar.tsx` (860). The extracted reader, window and message-row
 modules keep each below 1,000 lines without changing adjacent behavior.
 
+## Ranking changes from t3code's search (2026-10-27)
+
+These changes come from a comparison with t3code's palette search
+(pingdotgg/t3code#24343). Each rule is in the shared matcher, so the host,
+the workspace service, desktop/web and mobile apply it the same way.
+
+- **Filler words are optional in names.** "fix the sidebar" names "Fix
+  sidebar". A query of filler words only still needs them. The host and the
+  service do not read the postings of an optional filler word; only the
+  phrase pass keeps it.
+- **Identifiers typed as one word.** "defaultmergemethod" finds
+  `defaultMergeMethod`. Names match runs of their words typed together.
+  The indexed text adds each run of several words written together as one
+  more word, after the words, so phrases are not split. The snippet marks the
+  whole identifier. This changes the indexed text: the host rebuilds its
+  index once (`session-search-normalized-v2`). Workspace-service rows filled
+  before this change keep their older text until they are backfilled again.
+- **Pull request references.** "pr 22889", "pull request 22889" and a pasted
+  `.../pull/22889` link name the pull request. A cut number ("2288") does not.
+- **Worktree prefix.** `solus/` at the start of a branch does not match, so
+  "solus" does not name every worktree branch.
+- **Recent use lifts message matches.** A session found by its messages gets
+  up to 6 points from its last activity or the last time a person read it
+  (`session_states.viewed_at`), whichever is later, with a 14-day half-life.
+  The gap between message tiers is 50, so use never turns a weaker match into
+  a better one. Name matches do not take it: on real transcripts it lowered
+  title matches.
+
+Not done: hex IDs as one word (it breaks typing a SHA prefix with the current
+word rule), open counts and picked queries (no offline signal to measure, and
+they need per-person storage and a new client call), a bounded read of the
+newest hits, and a trigram index.
+
+### One query, one ranking
+
+- `SearchQuery` (`packages/contracts/src/search-query.ts`) reads a query
+  once. It answers for each text: `matchName`, `holdsEveryWord`,
+  `heldWords`, `hits`, `firstHit` and `passage`. Session names, task titles,
+  bodies and comments, the snippets and the marks in a row all use it.
+  Comments used an older rule that lower-cased the text first, so
+  "connections" missed `serverConnections` there.
+- `rankSessions` (`session-search.ts`) is the one ordering of sessions. The
+  host index and the workspace service read only their own message counts.
+- On the real corpus the ranking is the same before and after this change.
+  The picker list build stays at about 2.5 ms per keystroke. Folding skips
+  Unicode normalization for ASCII words.
+
+### Measuring picks before building them
+
+The desktop and web picker sends `session_search_picked` through the existing
+opt-in analytics when a person chooses a row under a query. It holds the row's
+position, its section, what kind of row it is, what it matched, the number of
+query words, the sort, how it was chosen, and `repeat`. It holds no query text
+and no ids. To fill in `repeat`, the device keeps hashes of its last 200
+queries, for 21 days, with the row chosen for each. Those hashes never leave
+the device.
+
+Saved picks would help only in one case: `repeat = same_choice` and position
+above 1. If that share is small, picks are not worth their storage and sync.
+Mobile has no analytics pipeline, so it does not send the event.
+
+### Real transcripts
+
+`session-search-real.ts` reads `~/.claude/projects` read-only into a
+disposable data directory: 709 sessions and 22,955 messages, frozen at
+2026-10-26 00:00 EDT. Each set has 150 queries drawn with a fixed seed: two
+neighbouring words that the person wrote in the session, or two words of its
+title. Recent sets weight targets with a 14-day half-life. The labels come
+from a rule, not from a person, so they show differences between versions;
+they are not an absolute measure. One query is 0.007 of hit@1.
+
+| Set | MRR before | MRR after | hit@1 before | hit@1 after | not in top 50, before → after |
+|---|---:|---:|---:|---:|---:|
+| message, recent | 0.489 | 0.520 | 0.400 | 0.427 | 33 → 28 |
+| message, uniform | 0.527 | 0.547 | 0.433 | 0.460 | 32 → 28 |
+| title, recent | 0.861 | 0.863 | 0.807 | 0.800 | 2 → 0 |
+| title, uniform | 0.883 | 0.886 | 0.833 | 0.827 | 2 → 0 |
+| title with "the", recent | 0.186 | 0.896 | 0.087 | 0.847 | 31 → 0 |
+
+Ablations on the same corpus:
+- Joined identifiers alone raised message MRR by about 0.015. They also
+  removed every case that did not match at all.
+- Use on name matches lowered title MRR (uniform 0.886 → 0.868), so names do
+  not take it.
+- A use weight of 6 was better than 2 for message matches.
+- A log count of hits instead of the saturating count changed nothing that
+  could be measured, so it was not kept.
+
+Open counts, reads and picks cannot be measured on transcripts. Tests cover
+reads (`viewedAt`).
+
+### Cost
+
+- **Host search** (`picker-search.ts`, 67,547 messages, two alternating runs
+  each): every query is within run-to-run noise, for example "pelican"
+  4.55–4.74 ms before and 4.47–4.49 ms after.
+- **Client list build per keystroke:** mean 2.29–2.41 ms before and 2.50 ms
+  after.
+- **Indexed text:** grows by 6.2% (12.8 MB to 13.6 MB) on the real corpus.
+- The existing regression corpus stays at 11/11, and the picker corpus stays
+  at 19/19.
+
+```sh
+bun tests/benchmarks/session-search-real.ts --output /tmp/search-real.json
+```
+
 ## Reproduce
 
 Run on the desired source version. Every command creates disposable fixture

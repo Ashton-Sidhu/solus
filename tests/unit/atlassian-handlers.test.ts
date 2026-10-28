@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { SecretStore } from '@solus/server/platform/secrets'
 
@@ -24,9 +24,11 @@ mock.module('@solus/server/atlassian/client-secret', () => ({ ATLASSIAN_CLIENT_S
 
 let SolusServer: typeof import('@solus/server/transport/server')['SolusServer']
 let registerAtlassianHandlers: typeof import('@solus/server/transport/handlers/atlassian-handlers')['registerAtlassianHandlers']
+let connectWithApiToken: typeof import('@solus/server/atlassian/api-token')['connectWithApiToken']
 beforeAll(async () => {
   ;({ SolusServer } = await import('@solus/server/transport/server'))
   ;({ registerAtlassianHandlers } = await import('@solus/server/transport/handlers/atlassian-handlers'))
+  ;({ connectWithApiToken } = await import('@solus/server/atlassian/api-token'))
 })
 
 beforeEach(() => {
@@ -37,6 +39,7 @@ function server(): InstanceType<typeof SolusServer> {
   const instance = new SolusServer()
   registerAtlassianHandlers(instance, {
     cancelOAuthFlow: () => {},
+    connectWithApiToken,
     isOAuthConfigured: () => true,
     startOAuthFlow: async () => ({
       authUrl: 'https://auth.atlassian.com/authorize?state=test-state',
@@ -62,6 +65,7 @@ describe('Atlassian RPC handlers', () => {
     await expect(server().handle('atlassianStatus', [], TEST_HANDLER_CTX)).resolves.toEqual({
       connected: false,
       oauthAvailable: true,
+      apiTokenAvailable: true,
     })
   })
 
@@ -74,6 +78,8 @@ describe('Atlassian RPC handlers', () => {
       siteName: 'Acme',
       products: ['jira', 'confluence'],
       oauthAvailable: true,
+      apiTokenAvailable: true,
+      authMethod: 'oauth',
     })
   })
 
@@ -109,5 +115,80 @@ describe('Atlassian RPC handlers', () => {
     await instance.handle('atlassianStartOAuth', [], TEST_HANDLER_CTX)
     await instance.handle('atlassianCancelOAuth', [], TEST_HANDLER_CTX)
     await expect(instance.handle('atlassianStartOAuth', [], TEST_HANDLER_CTX)).resolves.toMatchObject({ ok: true })
+  })
+})
+
+/**
+ * The fallback: a token the user pastes. It is kept only once Atlassian accepts
+ * it, and it must be spent the way it was accepted — a classic token against
+ * the site, a scoped one through the gateway.
+ */
+describe('Atlassian API token connection', () => {
+  const originalFetch = globalThis.fetch
+  const basic = `Basic ${Buffer.from('me@acme.com:token-1').toString('base64')}`
+  const input = { siteUrl: 'acme', email: ' me@acme.com ', apiToken: 'token-1\n' }
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  /** Answers tenant_info, and 200 for the probe URLs in `accepted` sent with the right header. */
+  function stubAtlassian(accepted: string[]): string[] {
+    const calls: string[] = []
+    // SAFETY: the connect step calls fetch only as `fetch(url, init)` and reads `ok` and `json()`.
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const href = String(url)
+      calls.push(href)
+      if (href === 'https://acme.atlassian.net/_edge/tenant_info') return Response.json({ cloudId: 'cloud-9' })
+      const authorized = new Headers(init?.headers).get('authorization') === basic
+      return authorized && accepted.some((prefix) => href.startsWith(prefix))
+        ? Response.json({ values: [{ key: 'ACME', name: 'Acme' }] })
+        : new Response(null, { status: 401 })
+    }) as typeof fetch
+    return calls
+  }
+
+  test('a classic token connects against the site and is spent there', async () => {
+    const calls = stubAtlassian(['https://acme.atlassian.net/rest/'])
+    const instance = server()
+
+    await expect(instance.handle('atlassianConnectApiToken', [input], TEST_HANDLER_CTX)).resolves.toEqual({ ok: true })
+    const status = await instance.handle('atlassianStatus', [], TEST_HANDLER_CTX)
+    expect(status).toMatchObject({ connected: true, cloudId: 'cloud-9', products: ['jira'], authMethod: 'apiToken' })
+    expect(JSON.stringify(status)).not.toContain('token-1')
+
+    await expect(instance.handle('atlassianJiraProjects', [], TEST_HANDLER_CTX)).resolves.toEqual([{ key: 'ACME', name: 'Acme' }])
+    expect(calls.at(-1)).toStartWith('https://acme.atlassian.net/rest/api/3/project/search')
+  })
+
+  test('a scoped token falls through to the gateway', async () => {
+    const calls = stubAtlassian(['https://api.atlassian.com/ex/confluence/cloud-9/wiki/', 'https://api.atlassian.com/ex/jira/cloud-9/rest/'])
+    const instance = server()
+
+    await expect(instance.handle('atlassianConnectApiToken', [input], TEST_HANDLER_CTX)).resolves.toEqual({ ok: true })
+    await expect(instance.handle('atlassianStatus', [], TEST_HANDLER_CTX)).resolves.toMatchObject({ products: ['jira', 'confluence'] })
+
+    await instance.handle('atlassianJiraProjects', [], TEST_HANDLER_CTX)
+    expect(calls.at(-1)).toStartWith('https://api.atlassian.com/ex/jira/cloud-9/rest/api/3/project/search')
+  })
+
+  // A token Atlassian refuses must not replace a grant that works.
+  test('a refused token answers why and keeps the grant there was', async () => {
+    stubAtlassian([])
+    records.set('atlassian-oauth', storedGrant)
+
+    await expect(server().handle('atlassianConnectApiToken', [input], TEST_HANDLER_CTX)).resolves.toEqual({
+      ok: false,
+      error: 'Atlassian did not accept this email and API token for https://acme.atlassian.net.',
+    })
+    expect(records.get('atlassian-oauth')).toEqual(storedGrant)
+  })
+
+  // The token is sent to the address the user typed; plain http would expose it.
+  test('refuses a site that is not https before sending the token', async () => {
+    const calls = stubAtlassian(['http://acme.example.com/'])
+    await expect(server().handle('atlassianConnectApiToken', [{ ...input, siteUrl: 'http://acme.example.com' }], TEST_HANDLER_CTX))
+      .resolves.toEqual({ ok: false, error: 'The Atlassian site address must use https.' })
+    expect(calls).toEqual([])
   })
 })

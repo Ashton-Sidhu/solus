@@ -413,6 +413,8 @@ export class TranscriptModel {
         const item: TranscriptItem = { kind: 'setup', id, card: event.card }
         if (this.items.has(id)) this.replace(item)
         else this.append(item)
+        // The status pill names the setup step that runs now.
+        this.metaChanged = true
         return true
       }
       case 'status_change':
@@ -708,6 +710,15 @@ export class TranscriptModel {
   }
 
   /** The open plan awaiting this session's decision, if any. */
+  /** The setup card that runs now, newest first. */
+  activeSetupCard(): StatusCardState | null {
+    for (let index = this.order.length - 1; index >= 0; index -= 1) {
+      const item = this.items.get(this.order[index] ?? '')
+      if (item?.kind === 'setup' && item.card.status === 'active') return item.card
+    }
+    return null
+  }
+
   pendingPlan(): Extract<TranscriptItem, { kind: 'plan' }> | null {
     for (let index = this.order.length - 1; index >= 0; index -= 1) {
       const item = this.items.get(this.order[index] ?? '')

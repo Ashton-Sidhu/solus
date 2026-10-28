@@ -113,6 +113,15 @@ standard exists.
    itself advertises and the ones its own network finds, and sends a credential on an
    `http:` route only after the host proves its identity key
    (docs/plans/host-routes.md D1–D3).
+   **A new registration links the host** (amended 2026-10-27). A person who links a
+   device to Solus cloud reaches it from every device they sign in on, with no
+   second step. The host itself does the link after its first registration
+   (`registerAndLink` in `transport/uplink/link.ts`), so the desktop, a paired client,
+   and `solus connect` all get the same result. A host that is registered already
+   keeps the link state that its owner chose, so an unlink stays an unlink. A link
+   that fails keeps the registration, and the link status shows why. Reach for an
+   organization is a separate choice: the owner shares the host with the
+   organization (a host share, docs/plans/organization-scope.md).
    Deleting a host (the Devices page) removes its registration: its client, key,
    and delegations.
 10. **The account adds reach; it never gates local access.** The desktop window

@@ -2,6 +2,8 @@ import { z } from 'zod'
 import type { AtlassianProduct } from '@solus/contracts/atlassian'
 import { createLogger } from '../logger'
 import { currentCredential } from './oauth'
+import type { AtlassianStoredCredential } from './token-store'
+import { atlassianApiTokenAuthorization, atlassianApiTokenBaseUrl } from '@solus/contracts/atlassian-api-token'
 
 const log = createLogger('main', 'atlassian-api')
 
@@ -135,6 +137,15 @@ function cooldownFor(response: Response): number {
   return DEFAULT_COOLDOWN_MS
 }
 
+function productBaseUrl(credential: AtlassianStoredCredential, product: AtlassianProduct): string {
+  if (credential.kind === 'apiToken') return atlassianApiTokenBaseUrl(credential, product)
+  return `https://api.atlassian.com/ex/${product}/${credential.cloudId}`
+}
+
+function authorizationOf(credential: AtlassianStoredCredential): string {
+  return credential.kind === 'apiToken' ? atlassianApiTokenAuthorization(credential) : `Bearer ${credential.accessToken}`
+}
+
 export async function atlassianRequest<Schema extends z.ZodType>(
   request: AtlassianRequest,
   schema: Schema,
@@ -154,11 +165,11 @@ export async function atlassianRequest<Schema extends z.ZodType>(
     throw fail(403, `The connected Atlassian site (${credential.siteUrl}) does not grant ${request.product} access.`)
   }
 
-  const url = new URL(`https://api.atlassian.com/ex/${request.product}/${request.cloudId}${request.path}`)
+  const url = new URL(`${productBaseUrl(credential, request.product)}${request.path}`)
   for (const [key, value] of Object.entries(request.query ?? {})) url.searchParams.set(key, value)
 
   const headers = new Headers({
-    authorization: `Bearer ${credential.accessToken}`,
+    authorization: authorizationOf(credential),
     accept: 'application/json',
   })
   const multipart = request.body instanceof FormData
@@ -208,7 +219,8 @@ export async function atlassianRequest<Schema extends z.ZodType>(
         path: request.path,
         status: response.status,
         detail,
-        grantedScopes: credential.scopes,
+        auth: credential.kind ?? 'oauth',
+        grantedScopes: credential.kind === 'apiToken' ? undefined : credential.scopes,
       })
     }
     throw fail(response.status, detail)

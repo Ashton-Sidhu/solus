@@ -181,7 +181,7 @@ describe('PrsStore lookups are scoped to one project', () => {
     expect((store.at(null, '/repos/a')?.prFor(65) ?? null)).toBeNull()
   })
 
-  test('a branch resolves to its pull request without another request', async () => {
+  test("the host's answer for a checkout resolves to its pull request without another request", async () => {
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
@@ -196,8 +196,8 @@ describe('PrsStore lookups are scoped to one project', () => {
     })
     await store.get(api, 'host-a', ctxFor('/repos/a')).query({ state: 'open' })
 
-    expect((store.at('host-a', '/repos/a')?.prForBranch('feature/login') ?? null)?.number).toBe(7)
-    expect((store.at('host-a', '/repos/a')?.prForBranch('feature/other') ?? null)).toBeNull()
+    expect((store.at('host-a', '/repos/a')?.prForCheckout('https://github.com/acme/a/pull/7') ?? null)?.number).toBe(7)
+    expect((store.at('host-a', '/repos/a')?.prForCheckout(null) ?? null)).toBeNull()
   })
 })
 
@@ -217,8 +217,8 @@ describe('branch discovery shared by mobile and the git rail', () => {
       await store.get(api, serverId, ctxFor('/repos/a')).query({ state: 'all', head: 'feature/x' })
     }
     expect(reads).toEqual(['host-a', 'host-b'])
-    expect(store.at('host-a', '/repos/a')?.prForBranch('feature/x')?.title).toBe('host-a')
-    expect(store.at('host-b', '/repos/a')?.prForBranch('feature/x')?.title).toBe('host-b')
+    expect(store.at('host-a', '/repos/a')?.prFor(7)?.title).toBe('host-a')
+    expect(store.at('host-b', '/repos/a')?.prFor(7)?.title).toBe('host-b')
   })
 
   test('mounted surfaces share the request and cached answer without changing the list filter', async () => {
@@ -241,9 +241,33 @@ describe('branch discovery shared by mobile and the git rail', () => {
     await Promise.all([first, second])
     await project.query({ state: 'all', head: 'feature/x' })
     expect(reads).toBe(1)
-    expect(project.prForBranch('feature/x')?.number).toBe(7)
+    expect(project.prFor(7)?.number).toBe(7)
     expect(project.filter).toEqual({ state: 'closed' })
     expect(project.items).toEqual([])
+  })
+
+  test("a checkout's pull request comes only from the host's answer, never from a branch name", async () => {
+    // WHY: `main` names a branch in every contributor's fork. The client cannot
+    // tell which fork a checkout pushes to; the host can, and says so with
+    // `prUrl`. A list row from a stranger's fork must not become the pull
+    // request of the person's own `main`.
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const api = asHostApi({ prList: async (): Promise<PrListPage> => ({
+      items: [
+        pr(7, { headRef: 'main', headRepo: { owner: 'stranger', repo: 'a', isFork: true } }),
+        pr(8, { headRef: 'fix', headRepo: { owner: 'me', repo: 'a', isFork: true } }),
+      ],
+      page: 1,
+      hasMore: false,
+    }) })
+    const project = new PrsStore().get(api, 'host-a', ctxFor('/repos/a'))
+    await project.query({ state: 'open' })
+
+    expect(project.prForCheckout(null)).toBeNull()
+    expect(project.prForCheckout('https://github.com/acme/a/pull/8')?.number).toBe(8)
+    // A pull request on the fork itself has a number that means nothing here.
+    expect(project.prForCheckout('https://github.com/me/a/pull/7')).toBeNull()
   })
 
   test('a failed branch read can retry when the environment is read again', async () => {
@@ -258,7 +282,7 @@ describe('branch discovery shared by mobile and the git rail', () => {
     await expect(project.query({ state: 'all', head: 'feature/x' })).rejects.toThrow('Host disconnected')
     await project.query({ state: 'all', head: 'feature/x' })
     expect(reads).toBe(2)
-    expect(project.prForBranch('feature/x')?.number).toBe(7)
+    expect(project.prFor(7)?.number).toBe(7)
   })
 
 })
@@ -545,7 +569,7 @@ describe('PrsStore learns about a pull request Solus just created', () => {
     // The rail names it on this frame, with what the provider said — not with a
     // placeholder that a later read has to correct. `viewerPermissions` is the
     // proof: a fabricated row could not know them.
-    expect((store.at('host-a', '/repos/a')?.prForBranch('feature/new') ?? null)?.title).toBe('Real title')
+    expect((store.at('host-a', '/repos/a')?.prFor(42) ?? null)?.title).toBe('Real title')
     expect((store.at('host-a', '/repos/a')?.prFor(42) ?? null)?.viewerPermissions.actions).toContain('merge')
 
     await Bun.sleep(5)
@@ -575,7 +599,7 @@ describe('PrsStore learns about a pull request Solus just created', () => {
 
     await Bun.sleep(5)
     expect(detailReads).toBe(1)
-    expect((store.at('host-a', '/repos/a')?.prForBranch('feature/new') ?? null)?.title).toBe('Real title')
+    expect((store.at('host-a', '/repos/a')?.prFor(42) ?? null)?.title).toBe('Real title')
   })
 
   test('a step with neither a pull request nor a number indexes nothing', async () => {
@@ -599,7 +623,7 @@ describe('PrsStore learns about a pull request Solus just created', () => {
       pullRequest: null,
     })
 
-    expect((store.at('host-a', '/repos/a')?.prForBranch('feature/new') ?? null)).toBeNull()
+    expect(store.at('host-a', '/repos/a')?.prs.size ?? 0).toBe(0)
     expect(detailReads).toBe(0)
   })
 })

@@ -417,19 +417,20 @@
      Derived from the on-brand sage (--solus-art-3) and stop red, which are
      already mode-aware — so unlike the tokens above these are declared once and
      the .dark block does not restate them.
-     The percentages are deliberately ~2x the design's flat 9%/7% row tints:
-     @pierre/diffs treats these as a *mix target*, blending only 12% (light) /
-     20% (dark) of them into the surface, so the rendered wash lands back near
-     the design's value. Tune these, not diffTheme.ts. */
+     The row and gutter fills are a *mix target*: @pierre/diffs blends only 12%
+     (light) / 20% (dark) of them into the surface, and a translucent target
+     shrinks that again. Light mode therefore starts near opaque, so the rows
+     land on the design's flat 9%/7% tints (70% × 12%, 60% × 12%). Dark mode
+     keeps its own values in the .dark block. Tune these, not diffTheme.ts. */
   /* Diff text and +N/−N counts. Light mode needs darker inks than the fills
      they share a hue with: a count must read at 4.5:1 on the canvas. */
   --solus-diff-added-text-vivid: #047857;
-  --solus-diff-added-bg-vivid: color-mix(in oklab, var(--solus-art-3) 18%, transparent);
-  --solus-diff-added-number-vivid: color-mix(in oklab, var(--solus-art-3) 18%, transparent);
+  --solus-diff-added-bg-vivid: color-mix(in oklab, var(--solus-art-3) 70%, transparent);
+  --solus-diff-added-number-vivid: color-mix(in oklab, var(--solus-art-3) 70%, transparent);
   --solus-diff-added-emphasis-vivid: color-mix(in oklab, var(--solus-art-3) 16%, transparent);
   --solus-diff-removed-text-vivid: #b91c1c;
-  --solus-diff-removed-bg-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
-  --solus-diff-removed-number-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
+  --solus-diff-removed-bg-vivid: color-mix(in oklab, var(--solus-stop-bg) 60%, transparent);
+  --solus-diff-removed-number-vivid: color-mix(in oklab, var(--solus-stop-bg) 60%, transparent);
   --solus-diff-removed-emphasis-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
   --solus-diff-gutter-text-vivid: rgba(42, 38, 24, 0.6);
   /* Find-in-diff highlight (CSS Custom Highlight API; see diffTheme.ts). Active
@@ -698,6 +699,10 @@
   --solus-diff-gutter-text-vivid: rgba(240, 237, 229, 0.58);
   --solus-diff-added-text-vivid: var(--solus-art-3);
   --solus-diff-removed-text-vivid: var(--solus-stop-bg);
+  --solus-diff-added-bg-vivid: color-mix(in oklab, var(--solus-art-3) 18%, transparent);
+  --solus-diff-added-number-vivid: color-mix(in oklab, var(--solus-art-3) 18%, transparent);
+  --solus-diff-removed-bg-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
+  --solus-diff-removed-number-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
   /* Find-in-diff highlight — see light-mode block above. */
   --solus-diff-find-bg: rgba(230, 184, 64, 0.30);
   --solus-diff-find-text: inherit;
@@ -1534,9 +1539,12 @@ button.solus-token {
 /* Inline and zero-size: it must stay an inline box, because a block one would
    put the rest of the chip on its own line in a copy. `display: none` and
    `visibility: hidden` are both dropped by the clipboard serializer; a zero
-   font size is not, so the text copies while taking no space. */
+   font size is not, so the text copies while taking no space. Prose sets an
+   inherited `font-size-adjust`, which scales a zero size back up to a visible
+   one, so the chip showed the whole path; it is turned off here. */
 .solus-token__copy-only {
   font-size: 0;
+  font-size-adjust: none;
 }
 /* The top match completed ahead of the caret in grey, with the key that takes
    it. Not selectable and not part of the value — purely a preview. */

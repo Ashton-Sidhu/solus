@@ -21,6 +21,14 @@ export function checkPullRequestUrl(text: string): PullRequestUrlCheck {
   }
 }
 
+/** What a linked pull request's row reads: its title, else its repository
+ *  as the URL spells it (`BerriAI/litellm`) until PR sync reads the title. */
+export function linkedPullRequestTitle(link: { title: string; url: string; repository: string }): string {
+  if (link.title.trim()) return link.title
+  const parsed = parseGitHubPullRequestUrl(link.url)
+  return parsed ? `${parsed.baseRepo.owner}/${parsed.baseRepo.repo}` : link.repository
+}
+
 /** The link a task makes to a pull request on the task itself. */
 export function taskPullRequestLink(url: string): TaskLinkInput | null {
   const parsed = parseGitHubPullRequestUrl(url)

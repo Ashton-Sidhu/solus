@@ -1,5 +1,6 @@
 import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEffort, SessionOrigin, SessionStatus } from '@solus/contracts/types'
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
+import { setupActivityLabel } from '@solus/contracts/setup-card'
 import { Listeners } from '../../lib/listeners'
 import { ConversationController, type ConversationDeps, type ConversationPhase, type ConversationTarget } from './conversation-controller'
 import type { UploadedAttachment } from './lib/attachments'
@@ -29,6 +30,8 @@ export interface ConversationMeta {
   /** The agent session on another host that started this one. */
   startedBy: SessionOrigin | null
   pendingPlan: Extract<TranscriptItem, { kind: 'plan' }> | null
+  /** The setup step that runs now, as the status pill says it. */
+  setupStep: string | null
   /** Plans of sessions this one sent work to, waiting on its decision. */
   agentPlans: readonly AgentPlanAwaiting[]
   /** Uploaded and waiting for the next prompt, and how many are still uploading. */
@@ -140,6 +143,7 @@ export class ConversationStore {
       loadingOlder: this.controller.loadingOlder,
       startedBy: this.controller.startedBy,
       pendingPlan: model.pendingPlan(),
+      setupStep: setupActivityLabel(model.activeSetupCard()),
       agentPlans: model.agentPlans.awaiting(),
       attachments: this.controller.attachments,
       uploading: this.controller.uploading,

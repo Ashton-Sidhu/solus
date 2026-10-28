@@ -13,6 +13,8 @@
 // how a page header knows not to draw a control that would do nothing.
 class FrameChromeStore {
   sidebarOpen = $state(true)
+  /** False only when the rail is off screen and the column has room to show
+   *  it, including a rail a narrow column hid on its own. */
   projectPanelOpen = $state(false)
   expandSidebar = $state<(() => void) | null>(null)
   toggleProjectPanelFromFrame = $state<(() => void) | null>(null)

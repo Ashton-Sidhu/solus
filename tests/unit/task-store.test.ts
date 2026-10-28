@@ -230,43 +230,6 @@ describe('native task CRUD', () => {
     }
   })
 
-  test('a task has at most one lead session', async () => {
-    // WHY: the lead owns the task page's conversation. A second lead would
-    // change that conversation under the person reading it, so it is refused
-    // rather than demoting the first (docs/plans/task-conversation.md).
-    const task = await taskStore.createTask('local', { title: 'Led', projectKey: '/workspace/solus' })
-    await (await tasks.Task.byId('local', task.id)).linkSession('lead-session', 'lead')
-    await expect((await tasks.Task.byId('local', task.id)).linkSession('another-session', 'lead'))
-      .rejects.toThrow('already has a lead session')
-    // Re-linking the same lead, and adding workers, are both fine.
-    await (await tasks.Task.byId('local', task.id)).linkSession('lead-session', 'lead')
-    await (await tasks.Task.byId('local', task.id)).linkSession('worker-session', 'working')
-    const links = (await taskSessions.taskSessions('local', task.id))[task.id]
-    expect(links.map((link) => [link.sessionId, link.role])).toEqual([
-      ['lead-session', 'lead'],
-      ['worker-session', 'working'],
-    ])
-    // A lead owns its session like a working attempt: the session answers
-    // for the task it leads.
-    expect((await taskSessions.tasksForSession('local', 'lead-session'))?.task.id).toBe(task.id)
-  })
-
-  test('the first-dispatch bind refuses a lead for a task that has one', async () => {
-    // WHY: the refusal must reach the client that asked, before any session
-    // exists, so the composer can say so instead of a link failing later.
-    const task = await taskStore.createTask('local', { title: 'Led', projectKey: '/workspace/solus' })
-    await (await tasks.Task.byId('local', task.id)).linkSession('lead-session', 'lead')
-    await expect(taskSessions.prepareSessionTask('local', { taskId: task.id, role: 'lead' }))
-      .rejects.toThrow('already has a lead session')
-
-    const fresh = await taskStore.createTask('local', { title: 'Unled', projectKey: '/workspace/solus' })
-    await taskSessions.prepareSessionTask('local', { taskId: fresh.id, role: 'lead', sessionId: 'its-lead' })
-    expect((await taskSessions.taskSessions('local', fresh.id))[fresh.id]?.[0]).toMatchObject({
-      sessionId: 'its-lead',
-      role: 'lead',
-    })
-  })
-
   test('files a worktree session under its base project', async () => {
     // WHY: conflict-resolution sessions execute in a managed PR worktree, but
     // the project-scoped sidebar must still include their task row.

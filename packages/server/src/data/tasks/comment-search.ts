@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import type { TaskCommentHit, TaskCommentSearchQuery } from '@solus/contracts/task-types'
-import { holdsEveryWord, markedPassage, queryWords, wordStartIndex } from '@solus/contracts/word-match'
+import { SearchQuery } from '@solus/contracts/search-query'
 import type { RecordScope } from '../../admission/principal'
 import { getDatabase } from '../../db/database'
 import { scopeClause } from '../scope'
@@ -28,10 +28,11 @@ const MAX_HITS = 200
  * are stored on the host; an upstream provider's comments are not searched.
  */
 export async function searchTaskComments(scope: RecordScope, input: TaskCommentSearchQuery): Promise<TaskCommentHit[]> {
-  const words = queryWords(input.query)
-  if (!words.length) return []
+  const query = new SearchQuery(input.query)
+  if (query.isEmpty) return []
   const like = (word: string) => `%${word.replace(/[\\%_]/g, (character) => `\\${character}`)}%`
-  const anyWord = sql.join(words.map((word) => sql`LOWER(${taskComments}.body) LIKE ${like(word)} ESCAPE '\\'`), sql` OR `)
+  // A coarse first pass in SQL; the word rule decides below.
+  const anyWord = sql.join(query.required.map((word) => sql`LOWER(${taskComments}.body) LIKE ${like(word)} ESCAPE '\\'`), sql` OR `)
   const project = input.projectKey ? sql` AND ${tasks}.project_key = ${input.projectKey}` : sql``
   const rows = commentRowSchema.array().parse(await getDatabase().all(sql`
     SELECT ${taskComments}.id, ${taskComments}.task_id, ${taskComments}.body, ${taskComments}.created_at
@@ -49,20 +50,20 @@ export async function searchTaskComments(scope: RecordScope, input: TaskCommentS
   }
   const hits: TaskCommentHit[] = []
   for (const [taskId, comments] of byTask) {
-    const lowered = comments.map((comment) => comment.body.toLocaleLowerCase())
-    if (!holdsEveryWord(lowered.join('\n'), words)) continue
+    // Read in their own case: lower-casing first would hide camelCase words.
+    if (!query.holdsEveryWord(comments.map((comment) => comment.body).join('\n'))) continue
     // Newest first already; the first comment with the most words wins.
     let best = 0
     let bestCount = -1
-    lowered.forEach((body, index) => {
-      const count = words.filter((word) => wordStartIndex(body, word) >= 0).length
+    comments.forEach((comment, index) => {
+      const count = query.heldWords(comment.body)
       if (count > bestCount) { best = index; bestCount = count }
     })
     const comment = comments[best]!
     hits.push({
       taskId,
       commentId: comment.id,
-      snippet: markedPassage(comment.body, words, SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE),
+      snippet: query.passage(comment.body, SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE),
       createdAt: comment.created_at,
     })
     if (hits.length >= MAX_HITS) break

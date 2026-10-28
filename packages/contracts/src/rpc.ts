@@ -135,6 +135,9 @@ export const RPC_INVOKE_METHODS = [
   'voiceModelRetry',
   'logVoiceTranscription',
   'searchFiles',
+  'listIgnoredProjectFiles',
+  'setWorktreeIncluded',
+  'readWorktreeIncludedFiles',
   'searchProjectContents',
   'listDirectory',
   'createDirectory',
@@ -427,6 +430,7 @@ export const RPC_INVOKE_METHODS = [
   'atlassianStatus',
   'atlassianStartOAuth',
   'atlassianCancelOAuth',
+  'atlassianConnectApiToken',
   'atlassianDisconnect',
   'atlassianJiraProjects',
 

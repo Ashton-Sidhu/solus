@@ -26,10 +26,8 @@ describe('the task a new session files under', () => {
     expect(requestedTaskTarget({}, 'task-1')).toEqual({ kind: 'existing', taskId: 'task-1' })
   })
 
-  test('a named task wins, and carries the lead role when asked', () => {
+  test('a named task wins', () => {
     expect(requestedTaskTarget({ taskId: 'task-2' }, 'task-1')).toEqual({ kind: 'existing', taskId: 'task-2' })
-    expect(requestedTaskTarget({ taskId: 'task-2', taskRole: 'lead' }, null))
-      .toEqual({ kind: 'existing', taskId: 'task-2', role: 'lead' })
   })
 
   test('a restored tab files under the task it was saved with, or under none', () => {

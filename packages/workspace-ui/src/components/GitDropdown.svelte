@@ -12,7 +12,8 @@
   import { MenuFooter, MenuSearch } from "./ui/menu";
   import { MiddleTruncate } from "./ui/middle-truncate";
   import { requestInputFocus } from "../lib/inputFocus";
-  import { worktreeDisplayName } from "../lib/git-context";
+  import { BRANCH_ROWS_SHOWN, branchesMatching, newBranchFromSearch, pickerBranches, worktreeDisplayName } from "../lib/git-context";
+  import { threadTime } from "../lib/relative-time";
   import {
     worktreeProjectRoot,
     type IpcContext,
@@ -40,7 +41,8 @@
     /** The composer's trigger sits at the bottom of the window and the project
      *  panel's at the right edge, so each list opens away from its own edge. */
     side?: "top" | "bottom" | "left";
-    onSelectBranch: (branch: string) => void;
+    /** `create` asks for a new branch named by the search. */
+    onSelectBranch: (branch: string, options?: { create?: boolean }) => void;
     onSelectWorktree: (worktree: WorktreeEntry) => void;
     onSelectNewWorktree?: (baseBranch?: string) => void;
     /** Whether the next session branches its own worktree. Set with
@@ -77,6 +79,8 @@
 
   let view = $state<View>("branches");
   let query = $state("");
+  // Ages read against the moment the list opened, so they hold still while open.
+  let openedAt = $state(Date.now());
 
   const projectRoot = $derived(
     workingDirectory && workingDirectory !== "~"
@@ -116,16 +120,26 @@
   const refsLoading = $derived(
     !pendingDispatch && environmentStore.refsLoadingFor(gitServerId, projectRoot),
   );
-  const worktreeBranches = $derived(worktrees.map((w) => w.branch));
-  // The branch you are on leads the list in its own right, so it must not also
-  // appear under "Checked out".
-  const otherWorktreeBranches = $derived(
-    worktreeBranches.filter((branch) => branch !== displayBranch),
+  const refsFetching = $derived(
+    !pendingDispatch && environmentStore.refsFetchingFor(gitServerId, projectRoot),
   );
+  const worktreeBranches = $derived(worktrees.map((w) => w.branch));
+  const branchRefByName = $derived(new Map(gitRefs.branches.map((ref) => [ref.name, ref])));
   const branches = $derived([
     ...worktreeBranches,
-    ...gitRefs.branches.filter((branch) => !worktreeBranches.includes(branch)),
+    ...gitRefs.branches.map((ref) => ref.name).filter((branch) => !worktreeBranches.includes(branch)),
   ]);
+  // The branch you are on leads the list; the default branch follows, then
+  // every other checkout and branch, most recently active first.
+  const listedBranches = $derived(pickerBranches(gitRefs.branches, new Set([displayBranch])));
+  // Mounting every branch of a large repository stalls the menu, so only the
+  // first matches mount; the rest stay one search away.
+  const shownBranches = $derived(branchesMatching(listedBranches, query, BRANCH_ROWS_SHOWN));
+  const hasMoreBranches = $derived(
+    shownBranches.length === BRANCH_ROWS_SHOWN && listedBranches.length > BRANCH_ROWS_SHOWN,
+  );
+  // Only a switch in place can create a branch here; a dispatch picks from origin.
+  const newBranch = $derived(pendingDispatch ? null : newBranchFromSearch(query, branches));
 
   function handleOpenAutoFocus() {
     if (pendingDispatch) {
@@ -142,6 +156,7 @@
     if (open) {
       view = pendingDispatch ? "worktrees" : initialView;
       query = "";
+      openedAt = Date.now();
     }
   });
 
@@ -165,6 +180,18 @@
     onSelectStartIn?.(worktree);
   }
 
+  // The current branch is where a session starts by default; picking it
+  // also leaves a new-worktree start.
+  function selectCurrentBranch() {
+    open = false;
+    if (startsNewWorktree) onSelectStartIn?.(false);
+  }
+
+  function createBranch(branch: string) {
+    open = false;
+    onSelectBranch(branch, { create: true });
+  }
+
   function selectDispatchBranch(branch: string) {
     open = false;
     onSelectNewWorktree?.(branch);
@@ -176,17 +203,25 @@
   }
 </script>
 
-{#snippet branchItem(branch: string, isWorktree = false)}
+<!-- A branch name truncates at its end: a kept tail beside the age column
+     read as a second column. The full name is in the title. -->
+{#snippet branchItem(branch: string, isCurrent = false)}
+  {@const ref = branchRefByName.get(branch)}
+  {@const isWorktree = worktreeBranches.includes(branch)}
+  {@const isSelected = !startsNewWorktree && branch === selectedBranch}
+  {@const Icon = isWorktree ? TreeStructureIcon : GitBranchIcon}
   <Command.Item
     value={branch}
-    onSelect={() => selectBranch(branch)}
-    data-menu-current={branch === selectedBranch ? "" : undefined}
+    onSelect={() => (isCurrent ? selectCurrentBranch() : selectBranch(branch))}
+    data-menu-current={isSelected ? "" : undefined}
     class="menu-item-stagger"
   >
-    <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-    <MiddleTruncate value={isWorktree ? worktreeDisplayName(branch) : branch} class="flex-1" />
-    {#if branch === selectedBranch}
+    <Icon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+    <span class="min-w-0 flex-1 truncate" title={branch}>{isWorktree ? worktreeDisplayName(branch) : branch}</span>
+    {#if isSelected}
       <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+    {:else if ref?.activeAt}
+      <span class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary) opacity-70">{threadTime(ref.activeAt, openedAt)}</span>
     {/if}
   </Command.Item>
 {/snippet}
@@ -347,29 +382,28 @@
           <Command.List class="max-h-[288px] overflow-y-auto p-1.5">
             <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">No branches found</Command.Empty>
 
-            {@render startIn()}
-
-            <!--
-              Where you already are leads the list: selecting it starts from the
-              checkout as it stands, carrying whatever is uncommitted here, which
-              no branch below it would.
-            -->
             <Command.Group>
-              {@render branchItem(displayBranch, worktreeBranches.includes(displayBranch))}
+              {@render branchItem(displayBranch, true)}
+              {#if onSelectStartIn}
+                <Command.Item
+                  value="New worktree"
+                  disabled={!!worktreeBlockedNote}
+                  title={worktreeBlockedNote ?? undefined}
+                  onSelect={() => selectStartIn(true)}
+                  data-menu-current={startsNewWorktree ? "" : undefined}
+                  class="menu-item-stagger"
+                >
+                  <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+                  <span class="min-w-0 flex-1 truncate">New worktree</span>
+                  {#if startsNewWorktree}
+                    <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+                  {/if}
+                </Command.Item>
+              {/if}
             </Command.Group>
-
-            <!-- Branches already checked out somewhere are worth telling apart:
-                 cutting a worktree from one of them lands on a tree in use. -->
-            {#if otherWorktreeBranches.length > 0}
-              <Command.Group heading="Checked out">
-                {#each otherWorktreeBranches as branch (branch)}
-                  {@render branchItem(branch, true)}
-                {/each}
-              </Command.Group>
-            {/if}
             <Command.Group heading="Branches">
-              {#each branches.filter((branch) => branch !== displayBranch && !worktreeBranches.includes(branch)) as branch (branch)}
-                {@render branchItem(branch)}
+              {#each shownBranches as ref (ref.name)}
+                {@render branchItem(ref.name)}
               {/each}
               {#if refsLoading && branches.length === 0}
                 <Command.Item
@@ -382,13 +416,30 @@
                 </Command.Item>
               {/if}
             </Command.Group>
+            {#if newBranch}
+              <Command.Group>
+                <Command.Item
+                  value={`create branch ${newBranch}`}
+                  keywords={[newBranch]}
+                  onSelect={() => createBranch(newBranch)}
+                  class="menu-item-stagger"
+                >
+                  <PlusIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+                  <span class="min-w-0 flex-1 truncate">Create branch <span class="font-medium">{newBranch}</span></span>
+                </Command.Item>
+              </Command.Group>
+            {/if}
           </Command.List>
         </Command.Root>
         <MenuFooter
           hints={[["⏎", "check out"]]}
           summary={refsLoading && branches.length === 0
             ? "Loading branches…"
-            : `${branches.length} branches`}
+            : refsFetching
+              ? `${branches.length} branches · fetching`
+              : hasMoreBranches
+                ? `${branches.length} branches · search for more`
+                : `${branches.length} branches`}
         />
       {/if}
     </Popover.Content>

@@ -5,7 +5,8 @@ import type { SidebarSessionChild } from '../../../../contexts/workspace/session
 import { isDone } from '../../../tasks/lib/tasks-list-view'
 import { activeSince, keepsArchive, keepsHost, type PickerFilters } from './picker-filters'
 import { activityScore, compareRelevance, nameScore, type Relevance } from './picker-relevance'
-import { matchesEveryWord, type PickerSort } from './picker-search'
+import type { SearchQuery } from '@solus/contracts/search-query'
+import type { PickerSort } from './picker-search'
 import type { ConversationHit } from './picker-rows'
 
 /**
@@ -94,14 +95,14 @@ export function matchedSessions(
   conversations: readonly SessionSearchResult[],
   ownerBySessionId: ReadonlyMap<string, SessionOwner>,
   sort: PickerSort,
-  words: readonly string[],
+  search: SearchQuery,
   now: number,
 ): MatchedSessions {
   const byKey = new Map<string, SessionListing>()
   for (const { task, session } of nameHits) {
     const key = sessionIdentity(session)
     const ts = session.lastActivityAt || task.updatedAt
-    const score = nameScore(session.label, words) + activityScore(ts, now, isDone(task))
+    const score = nameScore(session.label, search) + activityScore(ts, now, isDone(task))
     if (!byKey.has(key)) byKey.set(key, { kind: 'session', task, session, ts: session.lastActivityAt, relevance: { tier: 'name', score } })
   }
   // A session no task claims is still called something. When the words are in
@@ -110,9 +111,9 @@ export function matchedSessions(
   for (const listing of unclaimed) {
     if (listing.kind !== 'conversation') continue
     const title = listing.meta.customTitle ?? ''
-    if (!matchesEveryWord(title, words)) continue
+    if (!search.matchName(title)) continue
     const key = sessionIdentity(listing.meta)
-    if (!byKey.has(key)) byKey.set(key, { ...listing, relevance: { tier: 'name', score: nameScore(title, words) + activityScore(listing.ts, now) } })
+    if (!byKey.has(key)) byKey.set(key, { ...listing, relevance: { tier: 'name', score: nameScore(title, search) + activityScore(listing.ts, now) } })
   }
   // Ranked before any host evidence is merged, so a passage cannot move a row.
   const named = [...byKey.values()].sort(compareListings(sort))
@@ -123,7 +124,7 @@ export function matchedSessions(
     if (owner && !owner.inScope) continue
     let listing = byKey.get(key) ?? found.get(key)
     if (!listing) {
-      listing = foundListing(result, owner, words, now)
+      listing = foundListing(result, owner, search, now)
       found.set(key, listing)
     }
     mergeSessionPassages(listing, result, owner?.session.serverId ?? '')
@@ -133,15 +134,16 @@ export function matchedSessions(
 
 /** A listing for a session only a host found: by its words, or by a title or
  *  metadata this client does not hold. */
-function foundListing(result: SessionSearchResult, owner: SessionOwner | undefined, words: readonly string[], now: number): SessionListing {
+function foundListing(result: SessionSearchResult, owner: SessionOwner | undefined, search: SearchQuery, now: number): SessionListing {
   if (owner) {
     const ts = owner.session.lastActivityAt
     return { kind: 'session', task: owner.task, session: owner.session, ts, relevance: { tier: 'evidence', score: activityScore(ts || owner.task.updatedAt, now, isDone(owner.task)) } }
   }
   const ts = Date.parse(result.session.lastTimestamp) || result.ts
   const title = result.session.customTitle ?? ''
-  const relevance: Relevance = matchesEveryWord(title, words)
-    ? { tier: 'name', score: nameScore(title, words) + activityScore(ts, now) }
+  const name = search.matchName(title)
+  const relevance: Relevance = name
+    ? { tier: 'name', score: name.score + activityScore(ts, now) }
     : { tier: 'evidence', score: activityScore(ts, now) }
   return { kind: 'conversation', meta: result.session, hit: conversationHit(result), ts, relevance }
 }

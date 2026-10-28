@@ -2,13 +2,19 @@ import type { SessionRuntime } from '../session-runtime'
 import { HOST_ACTOR, type AgentVia } from '../../admission/actor'
 import { getIndexedSession } from '../../db/session-indexer'
 import { ANY_ORGANIZATION } from '../../admission/principal'
-import { sessionIsLead, taskIdForSession } from '../../data/tasks/task-sessions'
-import { codeHostFor, pullRequestForBranch } from '../../prs/code-host'
+import { taskIdForSession } from '../../data/tasks/task-sessions'
+import { codeHostFor, pullRequestForHead, pushHeadFor } from '../../prs/code-host'
 import { SessionOrchestrator, turnEnding } from './session-orchestrator'
 
 /** The host's session orchestrator, running its turns on `sessionRuntime` and
- *  hearing back from it through the control plane's hooks. */
-export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrchestrator {
+ *  hearing back from it through the control plane's hooks. `isLead` names the
+ *  sessions whose reports are held until their last open message settles. No
+ *  session is a lead now: tasks lost their lead role, and the lead contract
+ *  waits for a new trigger. */
+export function orchestrateSessions(
+  sessionRuntime: SessionRuntime,
+  isLead: (sessionId: string) => Promise<boolean> = async () => false,
+): SessionOrchestrator {
   const orchestrator = new SessionOrchestrator({
     activeExchangeIdsFor: (sessionId) => sessionRuntime.activeExchangeIdsFor(sessionId),
     queuedExchanges: () => sessionRuntime.scheduler.queuedExchanges(),
@@ -35,7 +41,7 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
     },
     turnOrganization: (sessionId) => sessionRuntime.turnOrganization(sessionId),
     taskIdFor: async (sessionId) => (await taskIdForSession(ANY_ORGANIZATION, sessionId)) ?? undefined,
-    isLead: (sessionId) => sessionIsLead(ANY_ORGANIZATION, sessionId),
+    isLead,
     emit: (sessionId, event) => sessionRuntime.publish(sessionId, event),
     invalidatePlanCaches: (sessionId) => sessionRuntime.history.invalidatePlanCaches(sessionId),
     recordActivity: (subject, actor, kind) => sessionRuntime.recordActivity(subject, actor, kind),
@@ -43,8 +49,9 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
   }, {
     findPullRequest: async (checkout, projectScope) => {
       if (!checkout.branch) return null
-      const host = await codeHostFor(checkout.repoRoot ?? projectScope)
-      const pullRequest = host ? await pullRequestForBranch(host, checkout.branch) : undefined
+      const scope = checkout.repoRoot ?? projectScope
+      const host = await codeHostFor(scope)
+      const pullRequest = host ? await pullRequestForHead(host, await pushHeadFor(host, scope, checkout.branch)) : undefined
       return pullRequest ? { number: pullRequest.number, url: pullRequest.url } : null
     },
   }, sessionRuntime.runLedger)

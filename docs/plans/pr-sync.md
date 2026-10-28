@@ -133,11 +133,18 @@ with a 304, which does not count against the quota.
 
 A tick:
 
-1. **Branch lookups — shared GraphQL documents, only when due.** A branch in
-   interest that has no open pull request is looked up by name:
-   `h0: pullRequests(headRefName: "topic", first: 5, orderBy: CREATED_AT DESC)`
-   in all states. The lookups of every repository on one account share one
-   `PrSyncByHead` document (§11, item 4). The branch matches its open pull
+1. **Head lookups — shared GraphQL documents, only when due.** A branch in
+   interest is keyed by its head, the repository and branch it pushes to
+   (`PullRequestHead`, `resolvePushHead`); GitHub's `headRefName` matches the
+   name in every fork. A head that has no open pull request is read from its
+   own repository's ref:
+   `h0: ref(qualifiedName: "refs/heads/topic") { associatedPullRequests(first: 20, orderBy: CREATED_AT DESC) }`,
+   keeping the pull requests into the base repository. The reads of every
+   repository on one account share one `PrSyncByHeadRef` document (§11, item 4).
+   A head whose ref is gone (deleted after a merge) or not readable is read
+   from the base repository by name, `pullRequests(headRefName:, first: 50)`
+   in a `PrSyncByHead` document, and only rows of the exact head are kept. A
+   session on the default branch is not looked up. The head matches its open pull
    request, or else its newest one. A lookup is due when the branch joins the
    interest, when a turn of a session on that branch ends (§3.4), and on a
    person's refresh. No clock looks a branch up (2026-10-14, after T3 Code's

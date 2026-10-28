@@ -1,4 +1,4 @@
-import { worktreeProjectRoot, type GitCheckout } from '@solus/contracts/types'
+import { worktreeProjectRoot, type BranchRef, type GitCheckout } from '@solus/contracts/types'
 
 /**
  * The three facts a pre-session surface needs about a working directory: the
@@ -60,4 +60,41 @@ export function formatBranchDisplayName(branch: string, targetBranch: string, is
   }
 
   return formatFriendlyBranchName(branch)
+}
+
+/**
+ * The branches a picker lists below the ones it shows on their own: the
+ * default branch first, as the usual place to start, then the rest most
+ * recently active first, as the host orders them.
+ */
+export function pickerBranches(branches: readonly BranchRef[], shownApart: ReadonlySet<string>): BranchRef[] {
+  const listed = branches.filter((branch) => !shownApart.has(branch.name))
+  const defaultIndex = listed.findIndex((branch) => branch.isDefault)
+  if (defaultIndex > 0) listed.unshift(...listed.splice(defaultIndex, 1))
+  return listed
+}
+
+/** A large repository has tens of thousands of branches. The picker mounts
+ *  at most this many rows; a search reaches the rest. */
+export const BRANCH_ROWS_SHOWN = 100
+
+/** The first `limit` branches whose names hold every word of the search, in
+ *  list order. It stops at `limit`, so a short search over a huge list is cheap. */
+export function branchesMatching(branches: readonly BranchRef[], search: string, limit: number): BranchRef[] {
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
+  const matches: BranchRef[] = []
+  for (const branch of branches) {
+    if (matches.length === limit) break
+    const name = branch.name.toLowerCase()
+    if (words.every((word) => name.includes(word))) matches.push(branch)
+  }
+  return matches
+}
+
+/** The branch a search would create, or null when the search is empty or
+ *  already names a branch. */
+export function newBranchFromSearch(search: string, existing: readonly string[]): string | null {
+  const name = search.trim()
+  if (!name || /\s/.test(name) || existing.includes(name)) return null
+  return name
 }

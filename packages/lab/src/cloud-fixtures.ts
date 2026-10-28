@@ -124,7 +124,7 @@ export interface OwnedHost {
 }
 
 /**
- * alice signs in, a new host boots, she registers it (no link), and dials it with her
+ * alice signs in, a new host boots, she registers it (which links it), and dials it with her
  * host token, so the host holds her personal delegation. At the end the owner removes
  * the host from her account.
  */

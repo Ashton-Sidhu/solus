@@ -39,6 +39,7 @@ import {
   createTaskAgentTool,
   linkAgentTool,
   listSessionPullRequestsAgentTool,
+  unlinkPullRequestAgentTool,
   listTasksAgentTool,
   readTaskAgentTool,
   updateTaskStatusAgentTool,
@@ -181,6 +182,7 @@ export const solusToolbox = {
     comment: commentTaskAgentTool,
     link: linkAgentTool,
     listSessionPullRequests: listSessionPullRequestsAgentTool,
+    unlinkPullRequest: unlinkPullRequestAgentTool,
     watchPullRequest: watchPullRequestAgentTool,
   },
   config: {

@@ -1,5 +1,5 @@
 import { clip } from '@solus/contracts/session-exchange'
-import type { TaskEpic, TaskLink, TaskSessionRole } from '@solus/contracts/task-types'
+import type { TaskEpic, TaskLink } from '@solus/contracts/task-types'
 import type { AgentTaskLifecyclePolicy } from '@solus/contracts/types'
 import type { PersonalSettings } from '@solus/contracts/settings'
 
@@ -8,10 +8,10 @@ import type { PersonalSettings } from '@solus/contracts/settings'
 const EPIC_BODY_LIMIT = 2000
 
 /**
- * The rules appended to the packet of the task's lead: the one session the task
- * is talked to through (docs/plans/task-conversation.md). The lead
- * coordinates workers and keeps its own thread small, so a cache miss on a long
- * thread does not spend the user's limits.
+ * The rules of an orchestrator session: it coordinates workers and keeps its
+ * own thread small, so a cache miss on a long thread does not spend the user's
+ * limits. No run receives it now; tasks no longer have a lead session, and the
+ * contract waits for a new trigger (docs/plans/task-conversation.md).
  */
 const LEAD_CONTRACT = [
   'Lead contract:',
@@ -25,41 +25,14 @@ const LEAD_CONTRACT = [
   '- When the user writes to you, call read_task_sessions first. After session reports, do not: they already say what each worker did.',
 ]
 
-/** The user's settings for a task's lead (Settings → Tasks). They extend the
- *  lead contract; they never replace it. */
+/** The user's lead settings (Settings → Tasks). They extend the lead
+ *  contract; they never replace it. */
 export type LeadSettings = Pick<PersonalSettings, 'leadInstructions' | 'workerModel'>
 
-const NO_LEAD_SETTINGS: LeadSettings = { leadInstructions: '', workerModel: null }
-
-/** Render the task packet appended to the system prompt of every run on a
- *  task-backed session. It names the task and the rules the agent works under,
- *  and nothing that changes while the agent works: the status, body, comments
- *  and links come from read_task, once, into the transcript. A packet that
- *  changed on every status move or comment would re-send the whole cached
- *  prompt. The title is absent when the task cannot be read; the id still
- *  names it. `role` is the session's own link role; the lead's packet ends
- *  with the lead contract and then the user's lead settings. */
-export function formatTaskContext(
-  task: { id: string; title?: string },
-  lifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate',
-  role: TaskSessionRole = 'working',
-  lead: LeadSettings = NO_LEAD_SETTINGS,
-): string {
-  const title = task.title ? ` — "${task.title}"` : ''
-  return [
-    `[Working On Task${title} (task_id: ${task.id})]`,
-    `Call read_task with task_id "${task.id}" before you start work. It returns the description, comments, epic, and linked items. Call it again only to refresh them. Call read_task_sessions to see prior attempts.`,
-    '',
-    'Work contract:',
-    ...workContract(lifecyclePolicy, role),
-    ...(role === 'lead' ? leadSettingsLines(lead) : []),
-  ].join('\n')
-}
-
-/** The user's lead settings, after the lead contract. A worker model is a
+/** The lead contract, then the user's lead settings. A worker model is a
  *  default only: the user's instructions can route work elsewhere. */
-function leadSettingsLines(lead: LeadSettings): string[] {
-  const lines: string[] = []
+export function formatLeadContract(lead: LeadSettings): string {
+  const lines = [...LEAD_CONTRACT]
   if (lead.workerModel) {
     const { provider, model, reasoningEffort } = lead.workerModel
     const reasoning = reasoningEffort ? ` and reasoning_effort '${reasoningEffort}'` : ''
@@ -67,12 +40,32 @@ function leadSettingsLines(lead: LeadSettings): string[] {
   }
   const instructions = lead.leadInstructions.trim()
   if (instructions) lines.push('', 'User lead instructions:', instructions)
-  return lines
+  return lines.join('\n')
 }
 
-/** The rules the agent works under: the lifecycle policy's, then the lead's
- *  for the task's lead. */
-function workContract(lifecyclePolicy: AgentTaskLifecyclePolicy, role: TaskSessionRole): string[] {
+/** Render the task packet appended to the system prompt of every run on a
+ *  task-backed session. It names the task and the rules the agent works under,
+ *  and nothing that changes while the agent works: the status, body, comments
+ *  and links come from read_task, once, into the transcript. A packet that
+ *  changed on every status move or comment would re-send the whole cached
+ *  prompt. The title is absent when the task cannot be read; the id still
+ *  names it. */
+export function formatTaskContext(
+  task: { id: string; title?: string },
+  lifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate',
+): string {
+  const title = task.title ? ` — "${task.title}"` : ''
+  return [
+    `[Working On Task${title} (task_id: ${task.id})]`,
+    `Call read_task with task_id "${task.id}" before you start work. It returns the description, comments, epic, and linked items. Call it again only to refresh them. Call read_task_sessions to see prior attempts.`,
+    '',
+    'Work contract:',
+    ...workContract(lifecyclePolicy),
+  ].join('\n')
+}
+
+/** The rules the agent works under, from the lifecycle policy. */
+function workContract(lifecyclePolicy: AgentTaskLifecyclePolicy): string[] {
   const lines: string[] = []
   if (lifecyclePolicy === 'none') {
     lines.push(
@@ -95,7 +88,6 @@ function workContract(lifecyclePolicy: AgentTaskLifecyclePolicy, role: TaskSessi
       '- Use comment_task and update_task_status for durable write-back.',
     )
   }
-  if (role === 'lead') lines.push('', ...LEAD_CONTRACT)
   return lines
 }
 

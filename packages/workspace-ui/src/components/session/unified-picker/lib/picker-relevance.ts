@@ -1,4 +1,5 @@
-import { searchName, searchActivityScore } from '@solus/contracts/session-search'
+import type { SearchQuery } from '@solus/contracts/search-query'
+import { searchActivityScore } from '@solus/contracts/session-search'
 
 /**
  * How well a row answers a query, so the row the reader meant is one of the
@@ -32,8 +33,8 @@ export interface Relevance {
 }
 
 /** Names use the same word quality as the host's pre-page ranking. */
-export function nameScore(name: string, words: readonly string[]): number {
-  return searchName(name, words)?.score ?? 0
+export function nameScore(name: string, search: SearchQuery): number {
+  return search.matchName(name)?.score ?? 0
 }
 
 /** The small lift of recent, open work: halves every two weeks, and a closed

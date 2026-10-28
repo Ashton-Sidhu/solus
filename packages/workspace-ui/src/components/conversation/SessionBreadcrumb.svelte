@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { localApi } from "@solus/client-core/local-api";
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import {
     BAND_ACTION,
@@ -13,12 +12,10 @@
     ROW_STATUS,
     TASK_MENU_ROW,
   } from "./lib/breadcrumb-styles";
-  import type { TaskStatus } from "@solus/contracts/task-types";
   import {
     Undo2 as ArrowUUpLeftIcon,
     ExternalLink as ArrowSquareOutIcon,
     ChevronDown as CaretDownIcon,
-    Check as CheckIcon,
     FolderOpen as FolderOpenIcon,
     Plus as PlusIcon,
     PanelLeft as SidebarSimpleIcon,
@@ -59,9 +56,7 @@
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { needsLabel } from "../presence/lib/actor-name";
   import SessionNameInput from "../session/SessionNameInput.svelte";
-  import TaskContextMenu from "../session/TaskContextMenu.svelte";
   import { taskStatusFor, type SidebarTask } from "../session/lib/task-list";
-  import { taskRef } from "../tasks/task-page/lib/task-page";
   import {
     breadcrumbLeafLabels,
     breadcrumbTaskGroups,
@@ -147,13 +142,10 @@
   // A draft is in no list, so its task crumb is the record it names — nothing
   // when it names none — and its session crumb has no siblings to offer.
   const draftTaskId = $derived(draft ? existingTaskId(draft.task) : null);
-  const task = $derived(
-    draft
-      ? ((draftTaskId
-          ? sidebarStore.allTasks.find((item) => item.taskId === draftTaskId)
-          : null) ?? null)
-      : sidebarStore.taskForTab(tabId),
-  );
+  const task = $derived(draft ? null : sidebarStore.taskForTab(tabId));
+  // The task the crumb names: the one the draft is aimed at, or the one the
+  // session is linked to. A task has no row of its own.
+  const crumbTaskId = $derived(draft ? draftTaskId : (task?.linkedTask?.taskId ?? null));
   const sessions = $derived(draft ? [] : sidebarStore.sessionsForTab(tabId));
   // The project the band stands in: a draft names its own, so the crumb reads
   // off the run it will use rather than off a task row it does not have.
@@ -205,11 +197,13 @@
     if (!draft && hasSessionStarted(displayedSession)) return null;
     return target?.kind === "existing" ? "existing-task" : "no-task";
   });
-  // A session with no task has no task crumb. A session linked to a task that
-  // has no row here still names that task.
+  // A session with no task has no task crumb. A session linked to a task
+  // names that task.
   const leafLabels = $derived(
     breadcrumbLeafLabels(
-      task?.taskId ? task.title : (task?.linkedTask?.title ?? null),
+      draft
+        ? ((draftTaskId ? session.tasksStore.peek(draftTaskId)?.title : null) ?? null)
+        : (task?.linkedTask?.title ?? null),
       current?.label ?? "Session",
       draftMode,
     ),
@@ -218,19 +212,11 @@
   // crumb carries a dot, because the board the user files this task on is
   // behind by exactly that much.
   const taskSyncOps = $derived(
-    task?.taskId ? session.outboxStore.pendingOpsFor("tasks", task.taskId) : [],
+    crumbTaskId ? session.outboxStore.pendingOpsFor("tasks", crumbTaskId) : [],
   );
   const taskSyncFailed = $derived(
     taskSyncOps.some((op) => op.state === "failed"),
   );
-  // The durable record behind the task crumb. Loose session rows have none, and
-  // the controls that act on a task have nothing to act on until one exists.
-  const taskRecord = $derived(
-    task?.taskId
-      ? session.tasksStore.tasks.find((record) => record.id === task.taskId)
-      : undefined,
-  );
-  const taskDone = $derived(taskRecord?.status === "done");
   const currentStatus = $derived(taskStatusFor(current?.attention ?? null));
   const statusIcon = $derived(getAttentionIcon(current?.attention ?? null));
   const currentStatusColor = $derived(statusColor(currentStatus));
@@ -283,29 +269,24 @@
   let renamingTabId = $state<string | null>(null);
   let sessionMenuAnchor = $state<HTMLElement | null>(null);
   let contextMenu = $state<
-    | { kind: "task"; item: SidebarTask; x: number; y: number }
     | { kind: "session"; child: SidebarSessionChild; x: number; y: number }
     | null
   >(null);
 
-  function openTaskContextMenu(event: MouseEvent, item: SidebarTask) {
+  function openRowContextMenu(event: MouseEvent, item: SidebarTask) {
     event.preventDefault();
     event.stopPropagation();
     menu = null;
-    if (!item.taskId) {
-      const child = sidebarStore
-        .sessionsFor(item)
-        .find((candidate) => candidate.tabId === tabId);
-      if (child)
-        contextMenu = {
-          kind: "session",
-          child,
-          x: event.clientX,
-          y: event.clientY,
-        };
-      return;
-    }
-    contextMenu = { kind: "task", item, x: event.clientX, y: event.clientY };
+    const child = sidebarStore
+      .sessionsFor(item)
+      .find((candidate) => candidate.tabId === tabId);
+    if (child)
+      contextMenu = {
+        kind: "session",
+        child,
+        x: event.clientX,
+        y: event.clientY,
+      };
   }
 
   function openChildContextMenu(event: MouseEvent, child: SidebarSessionChild) {
@@ -320,22 +301,14 @@
     };
   }
 
-  /** The task code is a click menu, and it drops from the button rather than
-   *  from the pointer so it opens in the same place every time. */
-  function openTaskActions(event: MouseEvent, item: SidebarTask) {
-    if (!(event.currentTarget instanceof HTMLElement)) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    menu = null;
-    contextMenu = { kind: "task", item, x: rect.left, y: rect.bottom + 4 };
-  }
-
-  /** Picking a task on a draft files it there rather than navigating away —
-   *  the draft is what is being aimed, and its prompt comes with it. */
+  /** Picking a session on a draft files the draft under that session's task
+   *  rather than navigating away — the draft is what is being aimed, and its
+   *  prompt comes with it. */
   function selectTask(next: SidebarTask) {
     menu = null;
     if (draft) {
-      draft.task = next.taskId
-        ? { kind: "existing", taskId: next.taskId }
+      draft.task = next.linkedTask
+        ? { kind: "existing", taskId: next.linkedTask.taskId }
         : { kind: "none" };
     } else {
       void sidebarStore.selectTask(next);
@@ -377,19 +350,7 @@
     try {
       await sidebarStore.completeTask(item);
     } catch (error) {
-      toasts.error("Couldn't complete task", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      requestInputFocus();
-    }
-  }
-
-  async function setTaskStatus(taskId: string, status: TaskStatus) {
-    try {
-      await session.tasksStore.get(taskId).setStatus(status);
-    } catch (error) {
-      toasts.error("Couldn't update task status", {
+      toasts.error("Couldn't complete session", {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -403,22 +364,22 @@
     requestInputFocus();
   }
 
-  /** Choosing a project lands on its most urgent task — or, on a draft, moves
-   *  the draft itself into that project. */
+  /** Choosing a project lands on its most urgent session — or, on a draft,
+   *  moves the draft itself into that project. */
   function pickProject(leadTaskKey: string, nextGroupKey: string) {
     menu = null;
     // A draft moves to the project's checkout on its own host; with none
-    // there, it lands on the project's task like any other crumb.
+    // there, it lands on the project's session like any other crumb.
     const host = draft ? checkoutPlace(draft.run).serverId : null;
     const nextPath = draft && host ? projectsStore.checkoutPathOn(host, nextGroupKey) : null;
     if (draft && host && nextPath) {
       draft.moveTo(openFolder(draft.run.location, { serverId: host, path: nextPath }));
       void session.environment.refresh(host, nextPath);
     } else {
-      const lead = sidebarStore.allTasks.find(
+      const mostUrgent = sidebarStore.allTasks.find(
         (item) => item.key === leadTaskKey,
       );
-      if (lead) void sidebarStore.selectTask(lead);
+      if (mostUrgent) void sidebarStore.selectTask(mostUrgent);
     }
     requestInputFocus();
   }
@@ -468,11 +429,11 @@
   {@const note = statusNote(item.status)}
   <div class="group/row relative">
     <Command.Item
-      value="{item.title} {item.taskId ?? item.id}"
+      value="{item.title} {item.id}"
       class={TASK_MENU_ROW}
       data-menu-current={item.key === task?.key ? "" : undefined}
       onSelect={() => selectTask(item)}
-      oncontextmenu={(event) => openTaskContextMenu(event, item)}
+      oncontextmenu={(event) => openRowContextMenu(event, item)}
     >
       <span class={MENU_LABEL}>{item.title}</span>
       {#if item.status === "running"}
@@ -494,8 +455,8 @@
     <button
       type="button"
       class={ROW_CLOSE}
-      title={item.taskId ? "Close task" : "Archive session"}
-      aria-label="{item.taskId ? 'Close' : 'Archive'} {item.title}"
+      title="Archive session"
+      aria-label="Archive {item.title}"
       onclick={() => closeTask(item)}
     >
       <XIcon size={14} weight="bold" />
@@ -645,7 +606,7 @@
                   title={leafLabels.task}
                   onclick={toggleTaskPicker}
                   oncontextmenu={(event) =>
-                    task && openTaskContextMenu(event, task)}
+                    task && openRowContextMenu(event, task)}
                 >
                   <span
                     class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground"
@@ -852,7 +813,7 @@
               <div
                 class="menu-surface w-[min(18rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense"
               >
-                {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
+                {#each sessions as child (child.sessionId ?? child.tabId)}
                   <!-- The crumb already shows the current session's status. -->
                   {@const status =
                     child.tabId === tabId
@@ -928,47 +889,6 @@
 
     <span class="min-w-4 flex-1 self-stretch" aria-hidden="true"></span>
 
-    <!-- The task's own controls, right of the crumb and before the session
-         cluster: the code is a menu of everything you can do to the task, with
-         the two moves you make most — mark done, open the task page — also
-         standing on their own. Done tints the code and its wash. -->
-    {#if taskRecord && task}
-      {@const record = taskRecord}
-      <button
-        type="button"
-        class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
-          ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
-          : ''}"
-        title="Task actions"
-        aria-haspopup="menu"
-        onclick={(event) => openTaskActions(event, task)}
-      >
-        {#if taskDone}
-          <CheckIcon size={14} weight="bold" class="shrink-0 text-chart-3" />
-        {/if}
-        <span
-          class="text-xs whitespace-nowrap {taskDone
-            ? 'text-chart-3'
-            : 'opacity-75'}">{taskRef(record)}</span
-        >
-        <CaretDownIcon
-          size={14}
-          weight="bold"
-          class="shrink-0 text-muted-foreground opacity-60"
-        />
-      </button>
-
-      <button
-        type="button"
-        class="{BAND_ACTION} @max-[36rem]:hidden"
-        title="Open task page"
-        aria-label="Open task page"
-        onclick={() => session.goToTask(record.id, "click")}
-      >
-        <ArrowSquareOutIcon size={14} />
-      </button>
-    {/if}
-
     {#if draft}
       <TaskPicker
         task={draft.task}
@@ -980,9 +900,7 @@
         onDismiss={() => requestInputFocus()}
         {paneId}
       />
-    {:else if bandSession && !taskRecord && (linkedTask || canDrive)}
-      <!-- In task mode the task's own code and open-page control already stand
-           to the left, so linking to a task is not offered again. -->
+    {:else if bandSession && (linkedTask || canDrive)}
       <button
         type="button"
         class={BAND_ACTION}
@@ -1016,7 +934,7 @@
     {/if}
 
 
-    {#if (taskRecord || bandSession?.id) && hasTrailingActions}
+    {#if bandSession?.id && hasTrailingActions}
       <span
         class="mx-[0.4375rem] h-4 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] @max-[36rem]:hidden"
         aria-hidden="true"
@@ -1096,6 +1014,10 @@
 
   {#if contextMenu?.kind === "session"}
     {@const menuChild = contextMenu.child}
+    <!-- Completion belongs to a session's own row, as in the sidebar. -->
+    {@const menuSessionRow = menuChild.tabId
+      ? sidebarStore.taskForTab(menuChild.tabId)
+      : null}
     <SessionContextMenu
       x={contextMenu.x}
       y={contextMenu.y}
@@ -1114,51 +1036,13 @@
           menuChild.tabId && menuChild.attention === "running"
             ? () => session.controls.interruptTabSession(menuChild.tabId!)
             : undefined,
+        done: menuSessionRow?.status === "done",
+        onToggleDone: menuSessionRow
+          ? () => void completeTask(menuSessionRow)
+          : undefined,
       }}
       onClose={() => (contextMenu = null)}
     />
-  {:else if contextMenu?.kind === "task"}
-    {@const menuSidebarTask = contextMenu.item}
-    {@const menuTask = menuSidebarTask.taskId
-      ? session.tasksStore.tasks.find(
-          (record) => record.id === menuSidebarTask.taskId,
-        )
-      : undefined}
-    {#if menuTask}
-      {@const hasLinkedSession =
-        menuSidebarTask.tabIds.length > 0 ||
-        session.tasksStore.get(menuTask.id).sessions.length > 0}
-      <TaskContextMenu
-        x={contextMenu.x}
-        y={contextMenu.y}
-        task={menuTask}
-        {hasLinkedSession}
-        isRunning={menuSidebarTask.status === "running"}
-        onLinkPr={() =>
-          (session.ui.linkPrompt = {
-            kind: "task-pull-request",
-            taskId: menuTask.id,
-          })}
-        onStart={() => void session.opening.openTaskSession(menuTask)}
-        onResume={hasLinkedSession
-          ? () => void session.opening.openTaskLinkedSession(menuTask)
-          : undefined}
-        onStop={menuSidebarTask.status === "running"
-          ? () => {
-              for (const taskTabId of menuSidebarTask.tabIds) {
-                session.controls.interruptTabSession(taskTabId);
-              }
-            }
-          : undefined}
-        onOpenTask={() => session.goToTask(menuTask.id, "click")}
-        onOpenSource={menuTask.url
-          ? () => void localApi.openExternal(menuTask.url!)
-          : undefined}
-        onSetStatus={(status) => void setTaskStatus(menuTask.id, status)}
-        onRemove={() => closeTask(menuSidebarTask)}
-        onClose={() => (contextMenu = null)}
-      />
-    {/if}
   {/if}
 {/if}
 

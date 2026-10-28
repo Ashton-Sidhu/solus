@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import type { Session } from '@solus/contracts/types'
 import { makeSession, makeTab } from '@solus/workspace-ui/contexts/workspace/session.factories'
-import { existingTaskId, ownedTaskId, taskRoleOf } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
+import { existingTaskId, ownedTaskId } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
 import { sessionTitleRegenerationInput } from '@solus/workspace-ui/contexts/workspace/session-title-regeneration'
 import { checkoutPlace, folderLocation, projectHome, runHost } from '@solus/workspace-ui/contexts/workspace/run-location'
 
@@ -23,20 +23,20 @@ function transpile(code: string) {
 const settings = { rateLimitBehavior: 'ask' } as Parameters<typeof makeSession>[0]
 // The fork lives in SessionOpening and the naming in SessionMetadata; each
 // reaches the workspace through `this.workspace`, as in production.
-const { Opening, Metadata } = new Function('makeSession', 'makeTab', 'uuid', 'existingTaskId', 'ownedTaskId', 'requestInputFocus', 'findLastUserIndex', 'sessionTitleRegenerationInput', 'serverConnections', 'hasHostCapability', 'taskRoleOf', 'UNTITLED_TASK_TITLE', 'checkoutPlace', 'runHost', transpile(`
+const { Opening, Metadata } = new Function('makeSession', 'makeTab', 'uuid', 'existingTaskId', 'ownedTaskId', 'requestInputFocus', 'findLastUserIndex', 'sessionTitleRegenerationInput', 'serverConnections', 'hasHostCapability', 'checkoutPlace', 'runHost', transpile(`
 class Opening {
   ${methodCode('session-opening.ts', ['forkTab'])}
 }
 class Metadata {
   metadataFinalizedTabs = new Set()
   regeneratingTitleSessionIds = new Set()
-  ${methodCode('session-metadata.svelte.ts', ['renameTab', 'generateSessionMetadata', 'regenerateTabTitle', 'untitledLeadTask'])}
+  ${methodCode('session-metadata.svelte.ts', ['renameTab', 'generateSessionMetadata', 'regenerateTabTitle'])}
 }
 return { Opening, Metadata }
 `))(makeSession, makeTab, crypto.randomUUID.bind(crypto), existingTaskId, ownedTaskId, () => {}, (messages: Session['messages']) => messages.findLastIndex((message) => message.role === 'user'), sessionTitleRegenerationInput, {
   resolveId: (serverId: string) => serverId,
   cachedCapabilitiesFor: () => ({}),
-}, () => false, taskRoleOf, 'Untitled task', checkoutPlace, runHost)
+}, () => false, checkoutPlace, runHost)
 
 function fixture() {
   const original = makeSession(settings, {
@@ -82,38 +82,6 @@ describe('fork session ownership and identity', () => {
     fork.forked = false
     await context.metadata.generateSessionMetadata(tabId)
     expect(writes).toEqual([{ sessionId: 'fork-provider', title: 'Generated fork name' }])
-  })
-
-  test('a lead names its untitled task from its first prompt, even with session auto-rename off', async () => {
-    // WHY: New task opens a lead draft beside an "Untitled task". The lead's
-    // first prompt is the only place its name comes from; the session setting
-    // governs session names, not whether the task gets one.
-    const { context } = fixture()
-    const lead = makeSession(settings, {
-      id: 'lead', agentSessionId: 'lead-provider', task: { kind: 'existing', taskId: 'new-task', role: 'lead' },
-      messages: [{ id: 'prompt', role: 'user', content: 'Fix the login redirect', timestamp: 0 }],
-    })
-    context.sessions.byId.lead = lead
-    context.tabs.leadTab = makeTab(lead.id, { id: 'leadTab' })
-    context.promptComposer = { composeSessionMetadataContext: () => undefined }
-    const metadata = { title: 'Fix login redirect', description: 'Redirect after login drops the query.' }
-    const named: unknown[] = []
-    const sessionWrites: unknown[] = []
-    context.tasksStore = {
-      get: (taskId: string) => ({
-        title: 'Untitled task',
-        nameFromLeadPrompt: async (value: unknown) => { named.push({ taskId, value }) },
-      }),
-    }
-    context.apiFor = () => ({
-      generateSessionMetadata: async () => metadata,
-      setSessionTitle: async (...args: unknown[]) => { sessionWrites.push(args) },
-    })
-
-    await context.metadata.generateSessionMetadata('leadTab')
-
-    expect(named).toEqual([{ taskId: 'new-task', value: metadata }])
-    expect(sessionWrites).toEqual([])
   })
 
   test('a fork rename waits for its own provider identity before saving', async () => {

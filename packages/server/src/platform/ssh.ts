@@ -139,6 +139,8 @@ export interface SshRunOptions {
   /** Accept the key of a host this machine has not seen. A changed key still fails. */
   acceptNewHostKey?: boolean
   timeoutMs?: number
+  /** Each line of the remote command's output as it arrives. */
+  onOutput?: (line: string) => void
 }
 
 export interface SshClientDeps {
@@ -183,6 +185,7 @@ export class SshClient {
       const connection = sshArgs(target, { batchMode: !askpass, acceptNewHostKey: options.acceptNewHostKey === true, extra: askpass ? ['-o', 'NumberOfPasswordPrompts=1'] : [] })
       const runOptions: DeviceCommandOptions = { timeoutMs: options.timeoutMs ?? RUN_TIMEOUT_MS }
       if (script !== undefined) runOptions.stdin = script
+      if (options.onOutput) runOptions.onOutput = options.onOutput
       if (askpass) runOptions.env = { ...process.env, ...askpassEnv(process.platform, askpass.path, options.authSecret ?? '', process.env) }
       return await this.deps.run('ssh', [...connection, remote], runOptions)
     } finally {

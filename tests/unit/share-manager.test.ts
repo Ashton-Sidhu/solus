@@ -199,8 +199,10 @@ describe('ownership', () => {
     expect(await shares.roleFor(eve, work)).toBe('none')
     expect(await shares.filterVisible(eve, 'work', [{ id: 'w1' }], (row) => row.id)).toEqual([])
     // A listed page carries each reader's role, the same answer `roleFor` gives (access-model.md §2.7).
-    expect(await shares.accessOf(bob, 'work', ['w1'])).toEqual(new Map([['w1', { ownerKey: 'bob', role: 'owner' }]]))
-    expect(await shares.accessOf(eve, 'work', ['w1'])).toEqual(new Map([['w1', { ownerKey: 'bob', role: 'none' }]]))
+    // It also says at a glance who else may open it (docs/workspace-page.md): here the organization, nobody named, no link.
+    const share = { named: 0, organization: true, link: null }
+    expect(await shares.accessOf(bob, 'work', ['w1'])).toEqual(new Map([['w1', { ownerKey: 'bob', role: 'owner', share }]]))
+    expect(await shares.accessOf(eve, 'work', ['w1'])).toEqual(new Map([['w1', { ownerKey: 'bob', role: 'none', share }]]))
     expect((await shares.accessOf(member('dan'), 'work', ['w1'])).get('w1')?.role).toBe('viewer')
     // A member of org1 on a managed host holds what the organization entry gives, and no more.
     expect(await shares.roleFor(member('dan'), work)).toBe('viewer')
@@ -416,6 +418,25 @@ describe('the link and guests', () => {
     // Changing the role keeps the secret, and the answer is the link as it now stands.
     expect(await shares.setLink({ resource: session, role: 'editor' }, member('alice'))).toEqual({ role: 'editor', expiresAt: LINK_EXPIRES_AT, secret: link.secret })
     expect((await shares.resolveLinkSecret(link.secret))?.role).toBe('editor')
+  })
+
+  test('a listing summarizes the sharing: the named, the organization, and the link while it opens', async () => {
+    // WHY (docs/workspace-page.md): a card says "Only you", "3 people", or "Anyone with
+    // link · expires in 6 hours" without reading the list of every work on the page.
+    const { shares } = manager()
+    const work = { kind: 'work', id: 'w1' } as const
+    await seed('work', 'w1', 'alice', 'org1')
+    expect((await shares.accessOf(member('alice'), 'work', ['w1'])).get('w1')?.share).toEqual({ named: 0, organization: false, link: null })
+    await shares.setEntries({ resource: work, entries: [
+      { subject: { kind: 'user', id: 'bob' }, role: 'viewer' },
+      { subject: { kind: 'team', id: 'core' }, role: 'editor' },
+    ] }, member('alice'))
+    await shares.setLink({ resource: work, role: 'viewer' }, member('alice'))
+    // A named share on a record in the organization's space brings the organization's own entry with it.
+    expect((await shares.accessOf(member('alice'), 'work', ['w1'])).get('w1')?.share).toEqual({ named: 2, organization: true, link: { role: 'viewer', expiresAt: LINK_EXPIRES_AT } })
+    // An expired link no longer opens, so the summary does not name it.
+    const later = new ShareManager({ db: database.getDatabase(), now: () => LINK_EXPIRES_AT })
+    expect((await later.accessOf(member('alice'), 'work', ['w1'])).get('w1')?.share.link).toBeNull()
   })
 
   test('a link opens in one read that answers every role as roleFor does, and names the runner', async () => {

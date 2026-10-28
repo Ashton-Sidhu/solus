@@ -25,8 +25,8 @@
   const siteDescription = $derived.by(() => {
     if (!atlassianStore.statusLoaded(serverId)) return "Checking…";
     if (atlassianStore.connected(serverId))
-      return `${atlassianStore.siteName(serverId)} · ${atlassianStore.productSummary(serverId)}`;
-    if (!atlassianStore.oauthAvailable(serverId))
+      return `${atlassianStore.siteName(serverId)} · ${atlassianStore.productSummary(serverId)}${atlassianStore.connectedWithApiToken(serverId) ? " · API token" : ""}`;
+    if (!atlassianStore.oauthAvailable(serverId) && !atlassianStore.apiTokenAvailable(serverId))
       return "Unavailable in this build of Solus.";
     return "Read and write Confluence pages and Jira issues on one Atlassian site.";
   });

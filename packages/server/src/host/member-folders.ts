@@ -162,21 +162,14 @@ export function memberFolderFor(userId: string, name?: string): string {
 }
 
 /**
- * The folder a member already has, for a path that only reads one back (a
- * dispatch checkout, a Git credential file); any other key, such as a paired
- * device's, is returned as it is.
+ * The folder a member already has, for a path that only reads one back (a Git
+ * credential file); any other key, such as a paired device's, is returned as
+ * it is.
  */
 export function recordedMemberFolder(key: string): string {
   const users = memberUsers()
   if (users) return users.userOf(key)?.username ?? key
   return current?.recordedFolderOf(key) ?? key
-}
-
-/** The inverse of `memberFolderFor`: a folder no member holds reads back as itself. */
-export function memberUserIdOf(folder: string): string {
-  const users = memberUsers()
-  if (users) return users.userNamed(folder)?.userId ?? folder
-  return current?.userIdOf(folder) ?? folder
 }
 
 /** Whether a folder belongs to a member, rather than naming a project. */

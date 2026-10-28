@@ -27,7 +27,7 @@ import { buildHttpServer } from './transport/http'
 import { answerSocketRequest } from './transport/solus-api/router'
 import { AccessTokenVerifier, type TokenVerdict } from './admission/access-tokens'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
-import { readStoredTunnel, splitLegacyLinkRecord, UplinkLinkManager } from './transport/uplink/link'
+import { readStoredTunnel, registerAndLink, splitLegacyLinkRecord, UplinkLinkManager } from './transport/uplink/link'
 import { HostRegistrar, readStoredRegistration } from './host/host-registration'
 import { RunnerDelivery } from './sync/runner-delivery'
 import type { TurnOrganizationDeps } from './execution/sessions/turn-organization'
@@ -890,7 +890,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const localClient = new LocalClientDoor({
     hostId: () => registrar.current()?.hostId ?? null,
     needsRegistration: () => !apiMode && registrar.needsRegistration(),
-    register: async (request) => { await registrar.register(request) },
+    register: (request) => registerAndLink(registrar, uplinkManager, request),
     verify: (token) => verifyHostAccessToken(token),
     delegations: () => apiMode ? null : delegations,
     organizationIds: () => hostOrganizations.organizations().map((entry) => entry.organizationId),

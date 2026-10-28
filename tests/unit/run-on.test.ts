@@ -8,7 +8,7 @@ import {
 } from '@solus/workspace-ui/components/servers/run-on'
 import type { RunConfig, RunLocation } from '@solus/contracts/types'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
-import { listRunOnHosts, runHasProject, runOnHostAction } from '@solus/workspace-ui/components/servers/lib/run-on-hosts'
+import { listRunOnHosts, runHasProject, runOnHostAction, hostOrganizationMarks } from '@solus/workspace-ui/components/servers/lib/run-on-hosts'
 import { projectChipOptions } from '@solus/workspace-ui/components/input/lib/project-chip-options'
 import { canRunOnHost, managedHostStateLabel } from '@solus/workspace-ui/components/servers/lib/managed-host'
 import { hostRowLabel } from '@solus/workspace-ui/contexts/connections/host-label'
@@ -448,5 +448,24 @@ describe('which host the project chip lists', () => {
 
   test('a project that already lives on a remote lists that remote', () => {
     expect(projectHome(located(folderLocation({ serverId: 'studio', path: '/srv/solus' }))).serverId).toBe('studio')
+  })
+})
+
+describe('hostOrganizationMarks', () => {
+  const organizations = [
+    { organizationId: 'org-acme', name: 'acme' },
+    { organizationId: 'org-fierce', name: 'Fierce' },
+  ]
+
+  test('a host is marked with each organization of the account it belongs to', () => {
+    expect(hostOrganizationMarks(['org-fierce'], organizations)).toEqual([
+      { organizationId: 'org-fierce', name: 'Fierce', initial: 'F' },
+    ])
+    expect(hostOrganizationMarks(['org-acme', 'org-fierce'], organizations).map((mark) => mark.initial)).toEqual(['A', 'F'])
+  })
+
+  test('a personal host, or one shared only with organizations the account is not in, has no mark', () => {
+    expect(hostOrganizationMarks(undefined, organizations)).toEqual([])
+    expect(hostOrganizationMarks(['org-other'], organizations)).toEqual([])
   })
 })

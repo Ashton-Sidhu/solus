@@ -8,6 +8,7 @@ import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { Provider } from '@solus/server/providers/types'
 import { GitHubRateLimitedError } from '@solus/server/providers/github/rate-limit'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
+import { PullRequestHead } from '@solus/contracts/repository-key'
 
 /** The person every change in this file is made by. */
 const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
@@ -76,11 +77,11 @@ function codeHost(name: string) {
     if (host.limited) throw host.limited
   }
   providers.set(name, { review: {
-    getPullRequestsByHead: async (_repo: RepoRef, heads: string[]) => {
-      host.branchLookups.push(heads)
+    getPullRequestsByHead: async (_repo: RepoRef, heads: PullRequestHead[]) => {
+      host.branchLookups.push(heads.map((head) => head.branch))
       answer()
       const newestFirst = [...host.known.values()].sort((a, b) => b.number - a.number)
-      return new Map(heads.map((head) => [head, newestFirst.filter((row) => row.headRef === head)]))
+      return new Map(heads.map((head) => [head.key, newestFirst.filter((row) => head.isHeadOf(row))]))
     },
     getPullRequests: async (_repo: RepoRef, numbers: number[]) => {
       host.numberReads.push(numbers)
@@ -89,10 +90,12 @@ function codeHost(name: string) {
     },
   } } as unknown as Provider)
   const pullRequest = (number: number, overrides: Partial<PullRequest> = {}) => pullRequestFixture(number, {
-    baseRepo, url: `https://github.com/owner/${name}/pull/${number}`, ...overrides,
+    baseRepo, headRepo: { owner: 'owner', repo: name, isFork: false }, url: `https://github.com/owner/${name}/pull/${number}`, ...overrides,
   })
   return { scope: `github.com/owner/${name}`, host, pullRequest }
 }
+
+const repoOf = (name: string) => ({ host: 'github.com', owner: 'owner', repo: name })
 
 async function taskLinking(scope: string, numbers: number[], status: 'todo' | 'in_review' = 'in_review') {
   const created = await taskStore.createTask('local', { title: 'Linked work', status: 'todo' })
@@ -241,14 +244,13 @@ describe('closed pull requests', () => {
     expect(host.numberReads).toHaveLength(reads + 1)
     expect(host.numberReads.at(-1)).toEqual([1])
     expect(sync.setInterest('closed-reopened-client', { repo: { host: 'github.com', owner: 'owner', repo: 'closed-reopened' }, provider: providers.get('closed-reopened')! },
-      [{ kind: 'branch', head: 'again' }]).pullRequests.map(({ number, state }) => [number, state])).toEqual([[1, 'open']])
+      [{ kind: 'head', head: new PullRequestHead(repoOf('closed-reopened'), 'again') }]).pullRequests.map(({ number, state }) => [number, state])).toEqual([[1, 'open']])
     // A matched open pull request needs no lookup.
     expect(host.branchLookups).toEqual([['again']])
   })
 })
 
 describe('needs review', () => {
-  const repoOf = (name: string) => ({ host: 'github.com', owner: 'owner', repo: name })
   /** A code host that also answers who the viewer is and what waits on them. */
   function reviewHost(name: string) {
     const made = codeHost(name)
@@ -608,6 +610,50 @@ describe('branch discovery', () => {
     expect(await sessionLinks('pr-sync-solo')).toEqual([])
   })
 
+  test("a session's pull request is the one from the head its branch pushes to", async () => {
+    // WHY: a code host matches a branch by name in every fork. A session on
+    // `fix` in a fork of a busy repository would claim the pull request some
+    // other contributor opened from their own `fix`, or one from upstream's
+    // own `fix`. Only the head the branch pushes to names its pull request,
+    // also when it pushes under another name.
+    const { host, pullRequest } = codeHost('fork-heads')
+    const mine = { host: 'github.com', owner: 'me', repo: 'fork-heads' }
+    host.known.set(2, pullRequest(2, { headRef: 'fix' }))
+    host.known.set(3, pullRequest(3, { headRef: 'fix', headRepo: { owner: 'stranger', repo: 'fork-heads', isFork: true } }))
+    host.known.set(4, pullRequest(4, { headRef: 'fix-2', headRepo: { owner: 'me', repo: 'fork-heads', isFork: true } }))
+    await worktreeSession('pr-sync-fork', 'fix', '/work/fork-heads')
+
+    await new PrSync({
+      publish: () => {},
+      liveCheckouts: async () => [{ projectScope: '/work/fork-heads', branch: 'fix', sessionId: 'pr-sync-fork' }],
+      codeHost: async () => ({ repo: repoOf('fork-heads'), provider: providers.get('fork-heads')! }),
+      pushHead: async () => new PullRequestHead(mine, 'fix-2'),
+      defaultBranch: async () => 'main',
+    }).tick()
+
+    expect(host.branchLookups).toEqual([['fix-2']])
+    expect((await sessionLinks('pr-sync-fork')).map((link) => link.number)).toEqual([4])
+  })
+
+  test('a session on the default branch is not looked up by branch', async () => {
+    // WHY: a session on `main` works on the project, not on a pull request.
+    // A pull request opened from a branch of that name is someone else's.
+    const { host, pullRequest } = codeHost('default-branch')
+    const repo = { host: 'github.com', owner: 'owner', repo: 'default-branch' }
+    host.known.set(6, pullRequest(6, { headRef: 'main' }))
+    await worktreeSession('pr-sync-default', 'main', '/work/default-branch')
+
+    await new PrSync({
+      publish: () => {},
+      liveCheckouts: async () => [{ projectScope: '/work/default-branch', branch: 'main', sessionId: 'pr-sync-default' }],
+      codeHost: async () => ({ repo, provider: providers.get('default-branch')! }),
+      defaultBranch: async () => 'main',
+    }).tick()
+
+    expect(host.branchLookups).toEqual([])
+    expect(await sessionLinks('pr-sync-default')).toEqual([])
+  })
+
   test("a merged pull request of a task's session completes the task", async () => {
     // WHY: the task reads the link from its session and holds no copy, so the
     // merge must find the task through the session.
@@ -767,12 +813,12 @@ describe('client interest', () => {
     let now = Date.now()
     const sync = new PrSync({ publish: (change) => { published.push(...change.pullRequests.map(({ number }) => number)) }, now: () => now })
 
-    const first = sync.setInterest(owner, hostOf('client-branch'), [{ kind: 'branch', head: 'topic' }])
+    const first = sync.setInterest(owner, hostOf('client-branch'), [{ kind: 'head', head: new PullRequestHead(repoOf('client-branch'), 'topic') }])
     expect(first.pullRequests).toEqual([])
     await sync.tick()
     expect(published).toContain(3)
 
-    const second = sync.setInterest(owner, hostOf('client-branch'), [{ kind: 'branch', head: 'topic' }])
+    const second = sync.setInterest(owner, hostOf('client-branch'), [{ kind: 'head', head: new PullRequestHead(repoOf('client-branch'), 'topic') }])
     expect(second.pullRequests.map(({ number }) => number)).toEqual([3])
     now += 10 * 60_000
     await sync.tick()
@@ -852,7 +898,6 @@ test('a write reaches clients and the task links without a read', async () => {
 })
 
 describe('turn ends', () => {
-  const repoOf = (name: string) => ({ host: 'github.com', owner: 'owner', repo: name })
   /** A code host that also answers list and detail reads, and counts them. */
   function listedHost(name: string) {
     const made = codeHost(name)
@@ -978,7 +1023,7 @@ describe('turn ends', () => {
     sync.start()
     try {
       // A client opens a pane on a branch: a person waits.
-      sync.setInterest('client', { repo, provider }, [{ kind: 'branch', head: 'pane' }])
+      sync.setInterest('client', { repo, provider }, [{ kind: 'head', head: new PullRequestHead(repo, 'pane') }])
       await sync.tick()
       host.known.set(2, pullRequest(2, { headRef: 'bg' }))
       await sync.turnEnded('background-session')

@@ -52,9 +52,6 @@
   // host refuses an attachment, a screenshot, or a run change from them. A guest
   // who may only suggest types and pastes, but changes nothing about the run.
   const composerMode = $derived(sess ? sessionComposerMode(runHost(sess.run), sess.id) : "prompt");
-  const effectiveReadOnlyReason = $derived(
-    readOnlyReason ?? (composerMode === "view" ? VIEW_ONLY_REASON : null),
-  );
   let prompt = $derived(session.inputFor(targetTabId));
   const hostState = $derived(sess ? serversStore.readinessFor(runHost(sess.run)) : null);
   const awayHostId = $derived(sess && hostState?.away ? runHost(sess.run) : null);
@@ -71,6 +68,13 @@
       ? runHost(sess.run)
       : null,
   );
+  // While the whisper says the host is reconnecting, the composer is inert: the
+  // draft stays, and typing comes back with the host.
+  const effectiveReadOnlyReason = $derived(
+    readOnlyReason ??
+      (graceHostId ? "Waiting for the host to reconnect…" : null) ??
+      (composerMode === "view" ? VIEW_ONLY_REASON : null),
+  );
 
   // The workspace dock (no tab of its own) steps aside while a draft holds the
   // leading pane: the draft's composer is the primary then, and it — not this
@@ -84,9 +88,11 @@
 </script>
 
 <div class={cn("flex flex-col", className)}>
-  <!-- A host past its grace cannot take a prompt: the conversation above shows
-       its state, and the composer steps aside. -->
-  {#if !awayHostId}
+  <!-- A host past its grace cannot take a prompt: its state takes the
+       composer's place, and the transcript above stays readable. -->
+  {#if awayHostId}
+    <HostUnavailable serverId={awayHostId} variant="card" />
+  {:else}
     {#if graceHostId}
       <HostUnavailable serverId={graceHostId} variant="whisper" />
     {/if}

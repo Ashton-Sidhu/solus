@@ -34,12 +34,6 @@ export const tasks = defineTable('tasks', {
   triaged_at: bigint(),
   done_at: bigint(),
   last_read_at: bigint(),
-  /**
-   * The lead preferences captured when the task was first led
-   * (`ExecutionPreferenceSnapshot`; plans/018 §3.1): later lead and worker runs
-   * use them, so a person's changed default does not change an existing task.
-   */
-  lead_preferences: json(),
   /** `TaskLocation` JSON: the organization a shared task is in now
    * (cloud-sharing.md §3a). Null while the task is on this host; a row with a
    * location keeps its id, title, and links, and nothing else. */

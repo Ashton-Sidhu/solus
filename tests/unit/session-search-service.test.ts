@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { searchText, searchWords } from '@solus/contracts/session-search'
+import { SearchQuery, searchText } from '@solus/contracts/search-query'
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 let directory: string
 let database: typeof import('@solus/server/db/database')
@@ -28,7 +28,7 @@ async function seed(sessionId: string, title: string, texts: string[], organizat
 }
 const find = (query: string, offset = 0, limit = 30) => {
   const db = database.getDatabase()
-  return search.searchIndexFor(db.engine).searchSessions(db, { words: searchWords(query), namesOnly: false, records: sql`session_records.organization_id = 'org1'`, offset, limit })
+  return search.searchIndexFor(db.engine).searchSessions(db, { query: new SearchQuery(query), namesOnly: false, records: sql`session_records.organization_id = 'org1'`, offset, limit })
 }
 
 test('service search has the host word rule, cross-message matches and portable targets', async () => {

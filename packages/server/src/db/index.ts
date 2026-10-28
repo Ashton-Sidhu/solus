@@ -1,7 +1,8 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
-import { searchText, searchableMessageText } from '@solus/contracts/session-search'
+import { searchText } from '@solus/contracts/search-query'
+import { searchableMessageText } from '@solus/contracts/session-search'
 import { z } from 'zod'
 import { solusDir } from '../platform/paths'
 import { resolveEngine } from './engine'
@@ -55,7 +56,7 @@ export function getDb(): DatabaseSync {
     openedDb.exec('PRAGMA synchronous = NORMAL')
     runMigrations(openedDb)
     // Rebuild only the derived index. Original messages and identities stay intact.
-    if (!openedDb.prepare("SELECT 1 FROM kv WHERE key = 'session-search-normalized-v1'").get()) {
+    if (!openedDb.prepare("SELECT 1 FROM kv WHERE key = 'session-search-normalized-v2'").get()) {
       openedDb.exec('BEGIN IMMEDIATE')
       try {
         openedDb.exec("DROP TABLE session_fts; CREATE VIRTUAL TABLE session_fts USING fts5(text, content='', contentless_delete=1, tokenize='unicode61')")
@@ -66,7 +67,7 @@ export function getDb(): DatabaseSync {
           if (!rows.length) break
           for (const row of rows) { insert.run(Number(row.id), searchText(String(row.text ?? ''))); after = Number(row.id) }
         }
-        openedDb.exec("INSERT INTO kv(key, value) VALUES ('session-search-normalized-v1', '1')")
+        openedDb.exec("INSERT INTO kv(key, value) VALUES ('session-search-normalized-v2', '1')")
         openedDb.exec('COMMIT')
       } catch (error) { openedDb.exec('ROLLBACK'); throw error }
     }

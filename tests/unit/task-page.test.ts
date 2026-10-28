@@ -10,8 +10,6 @@ import {
   linkedArtifactForActivity,
   linkedTableLinks,
   linkedWorkProvider,
-  orderTaskSessions,
-  taskLeadSession,
   taskPageCapabilities,
   taskProviderLabel,
   taskDetailsSummary,
@@ -154,24 +152,6 @@ describe('the task conversation', () => {
     lastActivityAt: linkedAt,
     linkedAt,
     role,
-  })
-
-  test('the page offers Start lead until the task has one', () => {
-    // WHY: the Sessions section branches on exactly this answer. A `working`
-    // attempt or a `referenced` session is not a lead, so a task with only
-    // those still offers to start one (docs/plans/task-conversation.md).
-    expect(taskLeadSession([])).toBeNull()
-    expect(taskLeadSession([link('w', 'working'), link('r', 'referenced')])).toBeNull()
-    const lead = link('l', 'lead')
-    expect(taskLeadSession([link('w', 'working'), lead])).toBe(lead)
-  })
-
-  test('the Sessions list pins the lead first and marks it', () => {
-    const lead = link('l', 'lead', 3)
-    const ordered = orderTaskSessions([link('w1', 'working', 1), lead, link('w2', 'working', 2)])
-    expect(ordered.map((entry) => entry.sessionId)).toEqual(['l', 'w1', 'w2'])
-    expect(taskSessionRow(lead, null, null, false, 3).isLead).toBe(true)
-    expect(taskSessionRow(link('w1', 'working'), null, null, false, 3).isLead).toBe(false)
   })
 
   test('a session row names who started it, and says "you" for the reader', () => {

@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { existsSync, realpathSync, statSync } from 'fs'
 import { copyFile, mkdir, stat as fsStat } from 'fs/promises'
 import path from 'path'
-import { isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitDiscardResult, type GitSyncResult, type WorktreeEntry } from '@solus/contracts/types'
+import { isSolusWorktreePath, worktreeProjectRoot, type BranchRef, type GitCheckout, type GitDiscardResult, type GitSyncResult, type WorktreeEntry } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import { dispatchStep } from '../execution/observability/session-emitter'
 import { git, gitCommitExists, gitOutputPath, runAsync, runStreamed } from './exec'
@@ -10,13 +10,10 @@ import { progressPercent } from '../execution/sessions/dispatch-repository'
 import type { StatusCardStep, StatusCardStepStatus } from '@solus/contracts/types'
 import type { WORKTREE_SETUP_STEPS } from '@solus/contracts/setup-card'
 import { currentIdentity } from '../vault/acting-scope'
-// `git-helpers` imports this module back for the branch and default-branch
-// helpers. Both sides only reach across inside function bodies, so the cycle
-// resolves at call time.
-import { resolveRepoRef } from './git-helpers'
 import { generatedWorktreeBranchName, initialWorktreeBranchName, temporaryWorktreeBranchId, type WorktreeBranchNaming } from '@solus/contracts/worktree-branch-naming'
 import { captureWorktreeBranchNaming, capturedWorktreeBranchNamer, resolveWorktreeBranchNamer } from './worktree-branch-name'
 import { worktreePathFor } from './worktree-path'
+import { worktreeIncludedPaths } from './worktree-include'
 
 const log = createLogger('WorktreeManager', 'worktree-manager.ts')
 
@@ -515,18 +512,7 @@ async function copyIncludedWorktreeFiles(
   signal?: AbortSignal,
 ): Promise<number> {
   throwIfAborted(signal)
-  const includePath = path.join(projectPath, '.worktreeinclude')
-  if (!existsSync(includePath)) return 0
-
-  const ignoredFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'], projectPath, { signal }))
-    .split('\0')
-    .filter(Boolean)
-  if (ignoredFiles.length === 0) return 0
-
-  const ignoredFileSet = new Set(ignoredFiles)
-  const matchedFiles = (await runAsync('git', ['ls-files', '--others', '--ignored', `--exclude-from=${includePath}`, '-z'], projectPath, { signal }))
-    .split('\0')
-    .filter((relativePath) => relativePath && ignoredFileSet.has(relativePath))
+  const matchedFiles = await worktreeIncludedPaths(projectPath, signal)
 
   let copied = 0
   for (const relativePath of matchedFiles) {
@@ -635,12 +621,10 @@ async function queryExistingPR(branch: string, cwd: string): Promise<string | nu
   try {
     // The provider registry stays lazy: it pulls in every code-host client and
     // only a branch that already has a pull request needs one.
-    const { providerForRepo } = await import('../providers/registry')
-    const { pullRequestForBranch } = await import('../prs/code-host')
-    const repo = await resolveRepoRef(cwd)
-    const provider = repo ? providerForRepo(repo) : null
-    if (!repo || !provider) return null
-    return (await pullRequestForBranch({ repo, provider }, branch))?.url ?? null
+    const { codeHostFor, pullRequestForHead, pushHeadFor } = await import('../prs/code-host')
+    const host = await codeHostFor(cwd)
+    if (!host) return null
+    return (await pullRequestForHead(host, await pushHeadFor(host, cwd, branch)))?.url ?? null
   } catch {
     return null
   }
@@ -677,6 +661,37 @@ export async function restoreWorktree(worktreePath: string): Promise<GitCheckout
   }
 }
 
+/** Make a Solus worktree again after its folder was deleted, so the session's
+ *  next turn starts instead of failing. A branch that still exists comes back
+ *  with its commits. A deleted branch is made again from the branch the
+ *  project folder is on now; its earlier commits are not restored. The error
+ *  names the branch and path, not git's output, which goes to the log. */
+export async function recreateMissingWorktree(checkout: GitCheckout): Promise<GitCheckout> {
+  const { repoRoot, branch, worktreePath } = checkout
+  if (!worktreePath || !branch || !isSolusWorktreePath(worktreePath) || !existsSync(repoRoot)) {
+    throw new Error(`The working directory ${worktreePath ?? repoRoot} no longer exists. Its worktree was probably removed; start a new session.`)
+  }
+  const gitOrFail = (args: string[]) => runAsync('git', args, repoRoot).catch((error: Error) => {
+    log.error('worktree_recreate_failed', { worktreePath, branch, error: error.message })
+    throw new Error(`Could not recreate the worktree for branch '${branch}' at ${worktreePath}.`)
+  })
+  await gitOrFail(['worktree', 'prune'])
+  const branchExists = await runAsync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], repoRoot)
+    .then(() => true, () => false)
+  let baseBranch: string | null = null
+  if (branchExists) {
+    await gitOrFail(['worktree', 'add', worktreePath, branch])
+  } else {
+    baseBranch = await getWorkingBranch(repoRoot)
+    if (!baseBranch) {
+      throw new Error(`Could not recreate branch '${branch}' at ${worktreePath}: the project folder has no current branch to start it from (detached HEAD?).`)
+    }
+    await gitOrFail(['worktree', 'add', '-b', branch, worktreePath, `refs/heads/${baseBranch}`])
+  }
+  log.info('worktree_recreated', { worktreePath, branch, baseBranch })
+  return checkout
+}
+
 export function listBranches(projectPath: string, options: { remoteOnly?: boolean } = {}): string[] {
   try {
     const output = git(['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'], projectPath)
@@ -695,6 +710,50 @@ export function listBranches(projectPath: string, options: { remoteOnly?: boolea
   } catch {
     return []
   }
+}
+
+/**
+ * Every branch, most recently active first. A branch is active when it gets a
+ * commit or when this checkout moves onto it, so a branch you only looked at
+ * still rises. A remote branch with a local twin is one entry.
+ */
+export async function listBranchRefs(projectPath: string, options: { remoteOnly?: boolean } = {}): Promise<BranchRef[]> {
+  const [refsOutput, reflogOutput] = await Promise.all([
+    runAsync('git', ['for-each-ref', '--format=%(refname)%09%(committerdate:unix)%09%(symref)', 'refs/heads', 'refs/remotes'], projectPath).catch(() => ''),
+    runAsync('git', ['reflog', '--date=unix', '--format=%gd%x09%gs', '-n', '500'], projectPath).catch(() => ''),
+  ])
+  const byName = new Map<string, BranchRef>()
+  let defaultBranch: string | null = null
+  for (const line of refsOutput.split('\n').filter(Boolean)) {
+    const [ref, seconds, symref] = line.split('\t')
+    const activeAt = Number(seconds) * 1000 || 0
+    if (ref.startsWith('refs/heads/')) {
+      if (options.remoteOnly) continue
+      const name = ref.slice('refs/heads/'.length)
+      const known = byName.get(name)
+      byName.set(name, { name, activeAt: Math.max(activeAt, known?.activeAt ?? 0), remoteOnly: false, isDefault: false })
+      continue
+    }
+    const remoteBranch = ref.slice('refs/remotes/'.length)
+    const remote = remoteBranch.split('/')[0]
+    if (remoteBranch.endsWith('/HEAD')) {
+      if (symref && (remote === 'origin' || !defaultBranch)) defaultBranch = symref.slice(`refs/remotes/${remote}/`.length)
+      continue
+    }
+    const name = remoteBranch.slice(remote.length + 1)
+    const known = byName.get(name)
+    if (known) known.activeAt = Math.max(known.activeAt, activeAt)
+    else byName.set(name, { name, activeAt, remoteOnly: true, isDefault: false })
+  }
+  // `HEAD@{<seconds>}\tcheckout: moving from <a> to <b>`
+  for (const line of reflogOutput.split('\n')) {
+    const match = /^HEAD@\{(\d+)\}\tcheckout: moving from .+ to (.+)$/.exec(line)
+    const entry = match && byName.get(match[2])
+    if (entry) entry.activeAt = Math.max(entry.activeAt, Number(match[1]) * 1000)
+  }
+  const defaultEntry = defaultBranch ? byName.get(defaultBranch) : undefined
+  if (defaultEntry) defaultEntry.isDefault = true
+  return [...byName.values()].sort((a, b) => b.activeAt - a.activeAt || a.name.localeCompare(b.name))
 }
 
 export interface PrWorktree {

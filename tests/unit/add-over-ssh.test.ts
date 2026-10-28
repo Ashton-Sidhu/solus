@@ -5,6 +5,7 @@ import {
   forwardedRowStatus,
   sshAddOutcome,
   sshAddRequest,
+  sshBridgePhase,
 } from '@solus/workspace-ui/components/servers/lib/add-over-ssh'
 
 const LINK = { ticket: 'ticket-1', directoryUrl: 'https://app.solus.sh' }
@@ -23,7 +24,7 @@ function forwardedHost(overrides: Partial<ForwardedHost> = {}): ForwardedHost {
   }
 }
 
-const form = { sshTarget: '  me@box  ', deviceLabel: 'Mac', requestId: 'req-1' }
+const form = { sshTarget: '  me@box  ', identityFile: '', deviceLabel: 'Mac', requestId: 'req-1' }
 
 describe('the SSH add request', () => {
   test('a password goes to the host only with a link: a forward needs an SSH key (D6, D7)', () => {
@@ -33,6 +34,12 @@ describe('the SSH add request', () => {
 
     const withLink = sshAddRequest({ ...form, linkToAccount: true, password: 'hunter2' }, LINK)
     expect(withLink).toEqual({ sshTarget: 'me@box', deviceLabel: 'Mac', requestId: 'req-1', link: LINK, authSecret: 'hunter2' })
+  })
+
+  test('an identity file goes with or without a link, because a forward signs in with that key too', () => {
+    expect(sshAddRequest({ ...form, identityFile: ' ~/.ssh/aws.pem ', linkToAccount: false, password: '' }, null).identityFile).toBe('~/.ssh/aws.pem')
+    expect(sshAddRequest({ ...form, identityFile: '~/.ssh/aws.pem', linkToAccount: true, password: '' }, LINK).identityFile).toBe('~/.ssh/aws.pem')
+    expect(sshAddRequest({ ...form, identityFile: '  ', linkToAccount: false, password: '' }, null)).not.toHaveProperty('identityFile')
   })
 
   test('a link choice without a ticket sends no link, so the host never links with nothing', () => {
@@ -89,5 +96,15 @@ describe('a forwarded row', () => {
     expect(forwardedReachNote(forwardedHost(), true, 'Studio Mac')).toBeNull()
     expect(forwardedReachNote(forwardedHost(), false, 'Studio Mac')).toBe('Reachable only from Studio Mac')
     expect(forwardedReachNote(forwardedHost({ isLinked: true }), false, 'Studio Mac')).toBeNull()
+  })
+})
+
+describe('the pairing bridge on the SSH tab', () => {
+  test('the bridge follows the add, so the SSH tab moves like pairing does', () => {
+    expect(sshBridgePhase({ phase: 'form', sshTarget: '  ', error: '' })).toBe('empty')
+    expect(sshBridgePhase({ phase: 'form', sshTarget: 'me@box', error: '' })).toBe('found')
+    expect(sshBridgePhase({ phase: 'running', sshTarget: 'me@box', error: '' })).toBe('pairing')
+    expect(sshBridgePhase({ phase: 'form', sshTarget: 'me@box', error: 'SSH refused the key.' })).toBe('error')
+    expect(sshBridgePhase({ phase: 'done', sshTarget: 'me@box', error: '' })).toBe('paired')
   })
 })

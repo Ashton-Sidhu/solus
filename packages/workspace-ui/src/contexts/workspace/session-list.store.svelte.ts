@@ -1,6 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionState, SessionView } from '@solus/contracts/session-state'
-import type { SessionMeta, SessionRecord } from '@solus/contracts/types'
+import type { SessionMeta, SessionRecord, SessionRecordStatus } from '@solus/contracts/types'
+import type { ResourceRole } from '@solus/contracts/sharing'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { connectedRunnerFor } from '@solus/client-core/session-runner'
 import { sessionHomeId } from '@solus/client-core/session-home'
@@ -28,6 +29,14 @@ export interface ListedSession {
   /** The project the session belongs to, as its host names it. */
   projectPath: string | null
   createdAt: number
+  lastActivityAt: number
+  /** Whether the agent works, rests, or was cut off, as the home last reported. */
+  status: SessionRecordStatus
+  branch: string | null
+  /** The person the session belongs to (docs/plans/access-model.md §2.2). */
+  ownerKey: string
+  /** The reader's role on the session; absent on a host that is theirs. */
+  role?: ResourceRole
   /** What its first history page is read with, so a click can ask for the
    *  page before the session's metadata arrives. */
   opensWith: Pick<SessionMeta, 'provider' | 'projectPath' | 'cwd'>
@@ -124,13 +133,34 @@ export class SessionListStore {
         title: record.customTitle ?? record.title ?? record.slug,
         projectPath: record.projectRoot ?? record.projectPath,
         createdAt: record.createdAt,
+        lastActivityAt: record.lastActivityAt,
+        status: record.status,
+        branch: record.branch,
+        ownerKey: record.ownerKey,
         opensWith: { provider: record.provider, projectPath: record.projectPath, cwd: record.cwd ?? '' },
       }
+      if (record.role) listed.role = record.role
       this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))
       this.writeState(record.sessionId, record.state)
       this.writeView(record.sessionId, record.view)
     }
     sessionPullRequestsStore.adopt(serverId, records)
+  }
+
+  /** A forgotten host's sessions leave the list. One its Solus API keeps stays,
+   *  and is read again so it opens from the Solus API. */
+  forgetHost(serverId: string): void {
+    const homes = new Set<string>()
+    for (const [sessionId, listed] of this.listedBySession) {
+      if (listed.homeServerId === serverId) {
+        this.listedBySession.delete(sessionId)
+        this.statesBySession.delete(sessionId)
+        this.viewsBySession.delete(sessionId)
+      } else if (listed.serverId === serverId) {
+        homes.add(listed.homeServerId)
+      }
+    }
+    for (const home of homes) void this.loadHost(home)
   }
 
   private homeOf(serverId: string, record: Pick<SessionRecord, 'organizationId' | 'publication'>): string {

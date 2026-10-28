@@ -12,7 +12,7 @@ import type { DeviceRunProfile } from './device-types'
 import type { WorkExternalLink } from './docs'
 import type { Attribution, User } from './user'
 import type { Activity } from './activity'
-import type { ResourceRole } from './sharing'
+import type { ResourceRole, ShareSummary } from './sharing'
 import type { SessionState, SessionView } from './session-state'
 import type { SessionPullRequestLink } from './session-pull-requests'
 import type { MediaType } from './media-types'
@@ -187,6 +187,44 @@ export interface DispatchRepository {
   /** The run starts a new worktree in the checkout. Its base is the run's
    *  `worktreeBaseBranch`, or the default branch when the run names none. */
   newWorktree?: boolean
+  /** Files git ignores that the project's `.worktreeinclude` names, read from
+   *  the project's home checkout. The host writes each one the copy lacks. */
+  files?: CopiedProjectFile[]
+}
+
+/** A larger file stays behind: the send carries every copied file in its prompt. */
+export const COPIED_FILE_MAX_BYTES = 1024 * 1024
+/** The most all copied files of one send may hold together. */
+export const COPIED_FILES_MAX_TOTAL_BYTES = 4 * 1024 * 1024
+
+/** One file a Run on send copies into the clone, when the clone lacks it. */
+export interface CopiedProjectFile {
+  /** Relative to the repository root, with `/` separators. */
+  path: string
+  contentBase64: string
+}
+
+/** A file git ignores in a checkout (docs/run-on.md#copied-files). */
+export interface IgnoredProjectFile {
+  /** Relative to the repository root, with `/` separators. */
+  path: string
+  byteLength: number
+  /** The project's `.worktreeinclude` names it, so worktrees and Run on copies get it. */
+  included: boolean
+}
+
+export interface IgnoredProjectFiles {
+  files: IgnoredProjectFile[]
+  /** More files are ignored than the list holds. */
+  truncated: boolean
+  /** The checkout has a `.worktreeinclude`. */
+  hasIncludeFile: boolean
+}
+
+/** One file to add to or take out of a checkout's `.worktreeinclude`. */
+export interface WorktreeIncludeChange {
+  path: string
+  included: boolean
 }
 
 /** Fast-forwards a checkout that already exists on the selected host. */
@@ -936,9 +974,7 @@ export type CloneStart =
  * membership is a `task_session_links` row written once the session exists.
  */
 export type TaskTarget =
-  /** `role: 'lead'` starts the session as the task's lead: the one session
-   *  that owns the task page's conversation. Absent, an ordinary attempt. */
-  | { kind: 'existing'; taskId: string; role?: 'lead' }
+  | { kind: 'existing'; taskId: string }
   | { kind: 'none' }
 
 /**
@@ -1019,6 +1055,9 @@ export interface Session {
   run: RunConfig
   /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
   startedBy?: SessionOrigin
+  /** The session that delegated this one, from its host's `delegation` record.
+   *  The sidebar nests this session under its parent's row. */
+  parentSessionId?: string
   agentSessionId: string | null
   /** A handoff the host began waits for the new provider's first thread: the
    *  host holds the session although it has no thread now. */
@@ -1480,6 +1519,16 @@ export interface WorkMeta {
   mirroredDoc?: WorkExternalLink
   /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
   role?: ResourceRole
+}
+
+/** A work as a host lists it: its metadata, and what the host knows of its
+ *  owner and its sharing. Both are absent from a host older than the fields. */
+export interface WorkListingMeta extends WorkMeta {
+  id: string
+  /** The person the work belongs to (docs/plans/access-model.md §2.2). */
+  ownerKey?: string
+  /** Who else may open it (docs/workspace-page.md). */
+  share?: ShareSummary
 }
 
 export interface Work extends WorkMeta {
@@ -2039,11 +2088,6 @@ export interface PromptOptions {
    *  `read_task` from the same shape; without it a foreign `taskId` is
    *  unreadable — hosts never talk to each other. */
   taskSnapshot?: TaskSnapshot
-  /** The role this session's task link is written with. Only `lead` is ever
-   *  sent: the session started from a task page's conversation composer. The
-   *  execution host writes the link once the session id exists, so the role
-   *  has to ride the first prompt. Absent means a `working` attempt. */
-  taskRole?: 'lead'
   /** Goal objective attached to a fresh session dispatch. Main persists it as
    *  soon as the provider issues the session id, before a fast turn can finish. */
   goalObjective?: string
@@ -3269,32 +3313,6 @@ export function isSolusWorktreePath(path: string): boolean {
   return hostPathKey(path).includes(SOLUS_WORKTREE_PATH_MARKER)
 }
 
-/**
- * Marker segment of a delegated remote-dispatch checkout
- * (`<projects root>/solus-remote/<owner key>/<host>/<owner>/<repo>`). The owner
- * key is the paired device, or the member on a Solus-provisioned machine
- * (`dispatchCheckoutOwnerKey`). These clones are created to
- * run a session on another machine. The host lists each one as a project, so
- * a client can find the sessions that ran there.
- */
-export const SOLUS_REMOTE_DISPATCH_DIR = 'solus-remote'
-export const SOLUS_REMOTE_DISPATCH_PATH_MARKER = `/${SOLUS_REMOTE_DISPATCH_DIR}/`
-
-/**
- * The repository a remote-dispatch checkout holds, read from its path:
- * `<projects root>/solus-remote/<owner>/<host>/<owner>/<repo>`, the layout
- * `dispatchCheckoutPath` writes. A dispatch clone has only its clone source
- * as a remote, so this is the key its host would read from git.
- * Null for any other path.
- */
-export function remoteDispatchRepositoryKey(path: string): string | null {
-  const root = hostPathKey(worktreeProjectRoot(path))
-  const markerIndex = root.indexOf(SOLUS_REMOTE_DISPATCH_PATH_MARKER)
-  if (markerIndex === -1) return null
-  const segments = root.slice(markerIndex + SOLUS_REMOTE_DISPATCH_PATH_MARKER.length).split('/').filter(Boolean).slice(1)
-  return segments.length >= 3 ? segments.join('/').toLowerCase() : null
-}
-
 /** The base project root for a worktree path, or `path` unchanged when it isn't a worktree. */
 export function worktreeProjectRoot(path: string): string {
   // The key has the path's length, so its index is the path's.
@@ -3330,7 +3348,7 @@ export function gitCheckoutFromState(
     branch: status.branch,
     targetBranch: status.targetBranch,
   }
-  if (status.branch === null) checkoutIdentity.detachedHeadSha = status.headSha
+  if (status.branch === null && status.headSha) checkoutIdentity.detachedHeadSha = status.headSha
   return worktreePath
     ? {
         ...checkoutIdentity,

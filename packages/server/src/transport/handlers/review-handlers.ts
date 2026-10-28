@@ -8,6 +8,7 @@ import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { IpcContext } from '@solus/contracts/types'
 import type { ReviewGuideRequestOptions, ReviewGuideStatusEvent, ReviewTarget } from '@solus/contracts/review'
 import { reviewSessionStatus } from '../../review/session-lifecycle'
+import { reviewedSessionId } from '../../review/review-target'
 import type { ReviewGuideJobs } from '../../review/guide-jobs'
 import { readPrGuide } from '../../review/pr-guide-store'
 import { ReviewLensJobs } from '../../review/lens-jobs'
@@ -39,7 +40,7 @@ export function registerReviewHandlers(
   }
   server.register('getReviewContext', async (args) => {
     const [ctx] = args
-    return resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+    return resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   })
 
   /** A PR review session asks about its own pull request when it names no target. */

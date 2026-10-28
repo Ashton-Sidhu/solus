@@ -1,4 +1,5 @@
 import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult } from '@solus/contracts/remote-machines'
+import type { PairingPhase } from './pairing-bridge'
 
 /**
  * Adding a machine over SSH that was not discovered on the network, and the
@@ -8,6 +9,8 @@ import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult } from '@so
 
 export interface SshAddForm {
   sshTarget: string
+  /** A private key on the SSH host (`ssh -i`), or empty for SSH's own keys and config. */
+  identityFile: string
   /** The person chose to link the new host to their Solus account. */
   linkToAccount: boolean
   password: string
@@ -25,6 +28,8 @@ export function sshAddRequest(form: SshAddForm, link: SshAddLink | null): SshAdd
     deviceLabel: form.deviceLabel,
     requestId: form.requestId,
   }
+  const identityFile = form.identityFile.trim()
+  if (identityFile) request.identityFile = identityFile
   if (form.linkToAccount && link) {
     request.link = link
     if (form.password) request.authSecret = form.password
@@ -72,6 +77,17 @@ export function sshAddOutcome(result: SshAddResult, context: SshAddContext): Ssh
       // Only a discovered server gives a session, and this flow names none.
       return { kind: 'failed', message: 'The host answered for a discovered server. Add it from the Nearby list.' }
   }
+}
+
+/**
+ * Where the pairing bridge stands for an SSH add, so the SSH tab draws the same
+ * bridge as pairing: the target stands in for the host until the add ends.
+ */
+export function sshBridgePhase(state: { phase: 'form' | 'running' | 'done'; sshTarget: string; error: string }): PairingPhase {
+  if (state.phase === 'running') return 'pairing'
+  if (state.phase === 'done') return 'paired'
+  if (state.error) return 'error'
+  return state.sshTarget.trim() ? 'found' : 'empty'
 }
 
 export type ForwardedRowTone = 'ok' | 'pending' | 'muted' | 'error'

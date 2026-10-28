@@ -3,7 +3,7 @@ import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import { z } from 'zod'
-import { searchText } from '@solus/contracts/session-search'
+import { searchText } from '@solus/contracts/search-query'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { AgentId, ReasoningEffort, SessionMeta, SessionOrigin } from '@solus/contracts/types'
 import {

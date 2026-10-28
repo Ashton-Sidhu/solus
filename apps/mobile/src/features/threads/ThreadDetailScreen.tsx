@@ -69,7 +69,7 @@ import { endQueuedMessageEdit, useQueuedMessageEdit } from "./queued-message-edi
 import { agentsPillLabel } from "./agent-card-presentation";
 import { threadHostChrome } from "./lib/thread-host-chrome";
 import { HostGraceWhisper } from "./ThreadHostLines";
-import { HostAsleepVeil } from "../hosts/HostAsleepVeil";
+import { HostAsleepCard } from "../hosts/HostAsleepCard";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
 import { IntegrationConnectSheet } from "../conversation/components/IntegrationConnectSheet";
 
@@ -233,6 +233,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     }
     if (contentPresentationKind === "loading") {
       return { kind: "syncing", label: "Loading messages..." };
+    }
+    if (meta.setupStep !== null && contentPresentationKind === "ready") {
+      return { kind: "preparing", label: meta.setupStep };
     }
     if (activeWorkStartedAt !== null && contentPresentationKind === "ready") {
       return { kind: "working", startedAt: activeWorkStartedAt };
@@ -496,14 +499,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               : "absolute inset-0 bg-screen"
           }
         />
-        {/* While the host is away the thread sleeps under a scrim: it takes no
-            touch and no screen reader focus. */}
-        <View
-          className="flex-1"
-          pointerEvents={hostChrome.isAsleep ? "none" : "auto"}
-          accessibilityElementsHidden={hostChrome.isAsleep}
-          importantForAccessibility={hostChrome.isAsleep ? "no-hide-descendants" : "auto"}
-        >
+        {/* While the host is away the thread stays readable and scrolls; its
+            state takes the composer's place below. */}
+        <View className="flex-1">
           <RenderErrorBoundary
             key={props.threadKey}
             renderFallback={(fallback) => (
@@ -539,21 +537,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             </QuoteInReplyContext>
           </RenderErrorBoundary>
         </View>
-        {hostChrome.isAsleep ? (
-          <View className="absolute inset-0">
-            {/* A scrim in the canvas colour: a faint trace of the thread stays,
-                and nothing in it reads through the statement or its details. */}
-            <View
-              pointerEvents="none"
-              className={
-                Platform.OS === "android"
-                  ? "absolute inset-0 bg-thread-canvas opacity-90"
-                  : "absolute inset-0 bg-screen opacity-90"
-              }
-            />
-            <HostAsleepVeil hostId={store.controller.hostId} bottomInset={composerBottomInset} />
-          </View>
-        ) : null}
       </View>
 
       {/* Floating composer — sticks to keyboard via KeyboardStickyView */}
@@ -662,16 +645,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 editorRef={composerEditorRef}
                 placeholder={permissionForFeedback(meta.permissions) ? "Send feedback to deny this request" : "Ask the repo agent, or run a command…"}
                     connected={isHostReady}
+                disabled={hostChrome.showsGraceWhisper}
                 sendBlockedReason={
-                  meta.phase.kind === "error"
-                    ? "Conversation unavailable"
-                    : meta.phase.kind === "loading"
-                      ? "Loading conversation"
-                      : props.hostReadiness.readiness === "refused"
-                        ? "Host unavailable"
-                        : mayDrive
-                          ? null
-                          : "Shared with you to view"
+                  hostChrome.showsGraceWhisper
+                    ? "Reconnecting"
+                    : meta.phase.kind === "error"
+                      ? "Conversation unavailable"
+                      : meta.phase.kind === "loading"
+                        ? "Loading conversation"
+                        : props.hostReadiness.readiness === "refused"
+                          ? "Host unavailable"
+                          : mayDrive
+                            ? null
+                            : "Shared with you to view"
                 }
                 canStopThread={canStop}
                 bottomInset={composerBottomInset}
@@ -681,6 +667,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 onEditorFocusChange={handleComposerFocusChange}
               />
             </View>
+            {hostChrome.isAsleep ? (
+              <HostAsleepCard hostId={store.controller.hostId} bottomInset={composerBottomInset} />
+            ) : null}
           </View>
         </Animated.View>
       </KeyboardStickyView>

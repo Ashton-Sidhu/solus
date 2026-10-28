@@ -10,7 +10,6 @@ import { type ReviewTarget } from '@solus/contracts/review'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { uuid } from '@solus/contracts/uuid'
 import { resolveArtifactTitle, workPreview } from '@solus/contracts/work-preview'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
@@ -155,9 +154,6 @@ export interface CreateTabOptions {
   freshTask?: boolean
   withoutTask?: boolean
   taskId?: string
-  /** With `taskId`: start the session as that task's lead, the one session
-   *  that owns the task page's conversation. */
-  taskRole?: 'lead'
   workId?: string
   gitContext?: GitCheckout | null
   /** `skip` when the caller resolves the environment itself — a resume reads
@@ -206,13 +202,6 @@ export class WorkspaceContext implements SurfaceContext {
   /** The outbox courier: drains cross-host writes recorded on any connected
    *  host to the host that owns each resource (ADR-0007). */
   outboxStore = new OutboxStore()
-  /** Task/session pairs the user explicitly opened. Automatic task refreshes do
-   *  not add entries here, so one provider session stays in its first sidebar
-   *  position unless the user asks to see another task-scoped occurrence. */
-  readonly explicitSidebarTaskSessions = new SvelteSet<string>()
-  /** The task-scoped occurrence selected for a mounted session. A session may be
-   *  linked to several tasks, but only this occurrence leads the active path. */
-  private readonly sidebarTaskContextBySessionId = new SvelteMap<string, string>()
   /** Where the workspace is: which routes are in which panes, plus history.
    *  Global — not per-tab. */
   router = new RouterStore()
@@ -225,8 +214,6 @@ export class WorkspaceContext implements SurfaceContext {
   config: SessionConfigController
   onTurnSettled?: (sessionId: string, cwd: string | null) => void
   onTabClosing?: (tabId: string) => void
-  /** A task was opened as the split view. The sidebar lists it from then on. */
-  onTaskOpened?: (taskId: string) => void
 
   settings: SettingsContext
   private shell: ClientShellContext
@@ -968,8 +955,8 @@ export class WorkspaceContext implements SurfaceContext {
 
   // ─── Static info ───
 
-  async switchToBranch(branch: string, sourceId?: string, via: Via = 'click'): Promise<boolean> {
-    const switched = await this.config.switchToBranch(branch, sourceId)
+  async switchToBranch(branch: string, sourceId?: string, via: Via = 'click', options?: { create?: boolean }): Promise<boolean> {
+    const switched = await this.config.switchToBranch(branch, sourceId, options)
     if (switched) track('branch_switched', { via })
     return switched
   }
@@ -1887,37 +1874,6 @@ export class WorkspaceContext implements SurfaceContext {
 
   // ─── Tasks page ───
 
-  /** Record the task-scoped occurrence the user selected. This controls the
-   * active path only; it does not create another automatic sidebar row. */
-  selectSidebarTaskOccurrence(taskId: string, sessionId: string): void {
-    this.sidebarTaskContextBySessionId.set(sessionId, taskId)
-  }
-
-  /** Materialize the one permitted duplicate: a task/session pair the user
-   * explicitly opened rather than one discovered by background reconciliation. */
-  showExplicitSidebarTaskSession(taskId: string, sessionId: string): void {
-    this.explicitSidebarTaskSessions.add(`${taskId}:${sessionId}`)
-    this.sidebarTaskContextBySessionId.set(sessionId, taskId)
-  }
-
-  hasExplicitSidebarTaskSession(taskId: string, sessionId: string): boolean {
-    return this.explicitSidebarTaskSessions.has(`${taskId}:${sessionId}`)
-  }
-
-  sidebarTaskContextForTab(tabId: string): string | null {
-    const sessionId = this.tabs[tabId]?.sessionId
-    return sessionId ? this.sidebarTaskContextBySessionId.get(sessionId) ?? null : null
-  }
-
-  clearSidebarTaskOccurrences(taskId: string): void {
-    for (const key of this.explicitSidebarTaskSessions) {
-      if (key.startsWith(`${taskId}:`)) this.explicitSidebarTaskSessions.delete(key)
-    }
-    for (const [sessionId, contextTaskId] of this.sidebarTaskContextBySessionId) {
-      if (contextTaskId === taskId) this.sidebarTaskContextBySessionId.delete(sessionId)
-    }
-  }
-
   toggleTasks(via: Via = 'click'): void {
     // The page's own $effect loads on open (it needs the active project's cwd),
     // so there's nothing to kick off here — toggling just flips the route.
@@ -1967,10 +1923,9 @@ export class WorkspaceContext implements SurfaceContext {
     this.showPage({ name: 'tasks', params: {} }, via, 'tasks')
   }
 
-  /** New task: file an untitled task and open it as the split view, its lead
-   * draft beside the task page. The lead's first prompt names the task
-   * (`SessionMetadata`). Current-project entry points may preserve the active
-   * tab's branch/worktree; explicit project picks do not. */
+  /** New task: file an untitled task and open its page. Current-project entry
+   * points may preserve the active tab's branch/worktree; explicit project
+   * picks do not. */
   async startNewTask(serverId: string, cwd: string, useActiveEnvironment = false): Promise<void> {
     const activeContext = this.taskCreationContext
     const chosen = this.taskContextForCheckout(serverId, cwd)
@@ -1986,7 +1941,7 @@ export class WorkspaceContext implements SurfaceContext {
         { title: UNTITLED_TASK_TITLE, projectKey: context.projectKey },
         context.serverId,
       )
-      await this.opening.openTask(task)
+      this.goToTask(task.id, 'click')
     } catch (error) {
       toasts.error("Couldn't create task", {
         description: error instanceof Error ? error.message : String(error),

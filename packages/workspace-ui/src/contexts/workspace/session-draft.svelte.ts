@@ -102,15 +102,11 @@ export class SessionDraft {
  * asks for a fresh one. A session with nothing to join has no task.
  */
 export function requestedTaskTarget(
-  options: { freshTask?: boolean; withoutTask?: boolean; taskId?: string; taskRole?: 'lead' },
+  options: { freshTask?: boolean; withoutTask?: boolean; taskId?: string },
   rootTaskId: string | null,
 ): TaskTarget {
   if (options.withoutTask) return { kind: 'none' }
-  if (options.taskId) {
-    return options.taskRole
-      ? { kind: 'existing', taskId: options.taskId, role: options.taskRole }
-      : { kind: 'existing', taskId: options.taskId }
-  }
+  if (options.taskId) return { kind: 'existing', taskId: options.taskId }
   if (!options.freshTask && rootTaskId) return { kind: 'existing', taskId: rootTaskId }
   return { kind: 'none' }
 }
@@ -118,11 +114,6 @@ export function requestedTaskTarget(
 /** The task named, when the target names an existing one. */
 export function existingTaskId(task: TaskTarget): string | null {
   return task.kind === 'existing' ? task.taskId : null
-}
-
-/** `lead` when the session is to be its task's lead; undefined for an attempt. */
-export function taskRoleOf(task: TaskTarget): 'lead' | undefined {
-  return task.kind === 'existing' ? task.role : undefined
 }
 
 /** Read the field a persisted tab stores back into a target. */

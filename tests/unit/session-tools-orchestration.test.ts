@@ -272,49 +272,35 @@ describe('list_agent_targets', () => {
 })
 
 // WHY: a parent following a long-running child reads it again and again. Reading
-// the whole transcript each time fills the parent's context; a cursor lets it
-// read only what is new, and a page must never skip a message by ending inside
-// a run of messages that share one timestamp.
-describe('read_session with a cursor', () => {
-  const read = async (args: Record<string, unknown>) => (await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', ...args }, deps())).text
-  const cursorOf = (text: string) => Number(/cursor: (\d+)/.exec(text)?.[1])
+// the whole transcript each time fills the parent's context; a position lets it
+// read only what comes after, and two messages that share one timestamp are
+// still two positions, so neither is skipped.
+describe('read_session paging', () => {
+  const read = async (args: Record<string, unknown>) => JSON.parse((await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', ...args }, deps())).text)
+  const texts = (result: { items: Array<{ text: string }> }) => result.items.map((item) => item.text)
 
-  test('a plain read ends with the cursor after the last message', async () => {
-    const text = await read({ tail: 2 })
-    expect(text).toContain('message 6')
-    expect(cursorOf(text)).toBe(6000)
+  test('reads from the start and continues from nextPosition', async () => {
+    const first = await read({ limit: 3 })
+    expect(texts(first)).toEqual(['message 1', 'message 2', 'message 3'])
+    expect(first.hasMore).toBe(true)
+    expect(first.session).toMatchObject({ sessionId: 'solus-peer', status: 'running', itemCount: 6 })
+    const second = await read({ after_position: first.nextPosition })
+    expect(texts(second)).toEqual(['message 4', 'message 5', 'message 6'])
+    expect(second.hasMore).toBe(false)
   })
 
-  test('a tail above the page limit reads the limit instead of failing', async () => {
+  test('a limit above the bound reads the bound instead of failing', async () => {
     // WHY: Codex drops `maximum` from the tool declaration, so an agent cannot see the bound. A
     // refused call only costs it a retry; reading the largest page gives it what it asked for.
-    const result = await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', tail: 60_000 }, deps())
+    const result = await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', limit: 60_000 }, deps())
     expect(result.ok).toBe(true)
-    expect(result.text).toContain('message 1')
-    expect(result.text).toContain('message 6')
-    expect((await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', tail: 0 }, deps())).ok).toBe(false)
+    expect(texts(JSON.parse(result.text))).toHaveLength(6)
+    expect((await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', limit: 0 }, deps())).ok).toBe(false)
   })
 
-  test('since returns only what came after, oldest first, and continues where it stopped', async () => {
-    const first = await read({ since: 1000, tail: 2 })
-    // Two asked for; the page runs on to the end of the equal-timestamp run.
-    expect(first).toContain('message 2')
-    expect(first).toContain('message 3')
-    expect(first).toContain('message 4')
-    expect(first).not.toContain('message 1')
-    expect(first).not.toContain('message 5')
-    expect(first).toContain('2 more after these')
-    expect(cursorOf(first)).toBe(3000)
-
-    const second = await read({ since: cursorOf(first), tail: 10 })
-    expect(second).toContain('message 5')
-    expect(second).toContain('message 6')
-    expect(second).not.toContain('message 4')
-    expect(cursorOf(second)).toBe(6000)
-
-    const none = await read({ since: 6000 })
-    expect(none).toContain('(nothing new)')
-    expect(cursorOf(none)).toBe(6000)
+  test('an item id that is not in the session is an error, not an empty page', async () => {
+    const result = await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', item_id: 'missing' }, deps())
+    expect(result).toEqual({ ok: false, text: 'Session solus-peer has no item missing.' })
   })
 })
 

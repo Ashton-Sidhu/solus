@@ -13,8 +13,6 @@ import {
   formatElapsed,
   formatWakeIn,
   filterSidebarTasks,
-  disclosedSession,
-  maxTaskAttention,
   hasGlyph,
   shouldEmphasizeTitle,
   shouldLeadTitle,
@@ -26,11 +24,9 @@ import {
   resolveSidebarRowMark,
   resolveTaskSidebarLifecycle,
   shouldRecedeRow,
-  shouldShowDurableSidebarTask,
   showsUnreadIndicator,
   isCompletedTaskSession,
   sessionRowLifecycle,
-  shouldShelveCompletedTask,
   projectFilterChoices,
   resolveProjectFilter,
   sortTasks,
@@ -53,7 +49,6 @@ describe('sidebar task search', () => {
     projectLabel,
     branchName: null,
     serverId: null,
-    prNumber: null,
     status: 'idle',
     attention: null,
     unread: false,
@@ -189,20 +184,6 @@ describe('sidebar lifecycle resolution', () => {
   })
 })
 
-function durableTask(status: Task['status'], overrides: Partial<Task> = {}): Task {
-  return {
-    id: `task-${status}`,
-    providerId: 'local',
-    title: status,
-    body: '',
-    status,
-    url: null,
-    labels: [],
-    updatedAt: 0,
-    ...overrides,
-  }
-}
-
 function task(
   key: string,
   status: TaskStatus,
@@ -227,64 +208,6 @@ function task(
     ...overrides,
   }
 }
-
-describe('shouldShowDurableSidebarTask', () => {
-  it('keeps completed and dropped tasks until the user explicitly removes them', () => {
-    // Status and age describe the task lifecycle, not whether its sidebar row
-    // exists. The explicit remove action is the only way a root row leaves —
-    // completing one is that same action, which is why nothing here reads status.
-    expect(shouldShowDurableSidebarTask(false, false, true)).toBe(true)
-    expect(shouldShowDurableSidebarTask(false, false, true)).toBe(true)
-  })
-
-  it('restores a completed task when one of its sessions is reopened', () => {
-    // WHY: completion removes the row by dismissing it, so reopening a session
-    // has to bring the task back. Hiding a finished task on status instead left
-    // the reopened conversation mounted with no row — and unloaded again.
-    expect(shouldShowDurableSidebarTask(true, true, true)).toBe(true)
-  })
-
-  it('restores an open task when a new session explicitly reopens it', () => {
-    expect(shouldShowDurableSidebarTask(true, false, true)).toBe(false)
-    expect(shouldShowDurableSidebarTask(true, true, true)).toBe(true)
-  })
-
-  it('keeps every host task closed until this client opens it', () => {
-    // WHY: connecting a host must not copy any part of its task list into the
-    // session sidebar. Status alone is not an open action.
-    expect(shouldShowDurableSidebarTask(false, false, false)).toBe(false)
-    expect(shouldShowDurableSidebarTask(false, false, true)).toBe(true)
-    expect(shouldShowDurableSidebarTask(false, true, false)).toBe(true)
-  })
-})
-
-describe('shouldShelveCompletedTask', () => {
-  it('shelves finished work this client never had open', () => {
-    // WHY: the whole defect. The active column only lists tasks this client has
-    // open, and gating the Completed shelf on that same membership erased every
-    // task the user finished and put away — the exact ones they go back for.
-    for (const status of ['done', 'dropped'] as const) {
-      expect(shouldShelveCompletedTask(durableTask(status), false)).toBe(true)
-    }
-  })
-
-  it('shelves a task the row control dropped, not only one the check marked done', () => {
-    // WHY: the sidebar's close control writes `dropped`, and the row already
-    // draws it with the finished glyph. Leaving it out of Completed stranded it
-    // in the active column with no way to move it.
-    expect(shouldShelveCompletedTask(durableTask('dropped'), false)).toBe(true)
-  })
-
-  it('leaves unfinished work to the active column', () => {
-    for (const status of ['todo', 'in_progress', 'in_review', 'inbox'] as const) {
-      expect(shouldShelveCompletedTask(durableTask(status), false)).toBe(false)
-    }
-  })
-
-  it('never doubles a row the column is already showing', () => {
-    expect(shouldShelveCompletedTask(durableTask('done'), true)).toBe(false)
-  })
-})
 
 describe('sessionRowLifecycle', () => {
   const NOW = 10_000
@@ -746,20 +669,6 @@ describe('taskStatusFor', () => {
   })
 })
 
-describe('task attention aggregation', () => {
-  it('keeps a failed turn on its session instead of marking the task as failed', () => {
-    // WHY: a task can have several attempts. One failed provider resume does
-    // not mean that the durable task itself failed.
-    expect(maxTaskAttention(null, 'error')).toBeNull()
-    expect(maxTaskAttention('running', 'error')).toBe('running')
-  })
-
-  it('still raises attention that applies to the whole task row', () => {
-    expect(maxTaskAttention(null, 'running')).toBe('running')
-    expect(maxTaskAttention('running', 'awaiting')).toBe('awaiting')
-  })
-})
-
 describe('title emphasis', () => {
   it('leaves unread output to the margin instead of the title weight', () => {
     // Unread used to bold the title, which put it in the same channel as
@@ -800,32 +709,6 @@ describe('title emphasis', () => {
     expect(shouldEmphasizeTitle('question', false, false)).toBe(true)
     expect(shouldEmphasizeTitle('plan', false, false)).toBe(true)
     expect(shouldEmphasizeTitle('limit', false, false)).toBe(true)
-  })
-})
-
-describe('disclosedSession', () => {
-  const lead = { tabId: 'lead-tab', isLead: true }
-  const worker = { tabId: 'worker-tab' }
-  const closedWorker = {}
-
-  it('lists the session on screen under its task, and only that one', () => {
-    // WHY: a task's sessions are on its page. The list names the one being
-    // read, so the reader sees which task the conversation belongs to.
-    expect(disclosedSession([lead, worker, closedWorker], 'worker-tab')).toBe(worker)
-  })
-
-  it('lists nothing while the lead is on screen: the task row stands for it', () => {
-    expect(disclosedSession([lead, worker], 'lead-tab')).toBeNull()
-  })
-
-  it('lists nothing under a task whose sessions are not on screen', () => {
-    expect(disclosedSession([lead, worker], 'other-tab')).toBeNull()
-    expect(disclosedSession([lead, worker], null)).toBeNull()
-  })
-
-  it('lists the only attempt of a task that has no lead', () => {
-    // The task row opens a lead draft, so it does not stand for this session.
-    expect(disclosedSession([worker], 'worker-tab')).toBe(worker)
   })
 })
 
@@ -1117,14 +1000,13 @@ describe('isWorkingStatus', () => {
 })
 
 describe('isInWorkingSection', () => {
-  it('folds a busy session row and never a task row', () => {
-    // WHY: the user decided a task keeps its place in Tasks while its lead or
-    // workers run. Only a session that no task row stands for folds away.
-    expect(isInWorkingSection({ status: 'running' })).toBe(true)
-    expect(isInWorkingSection({ status: 'question' })).toBe(false)
+  it('folds a busy row away and keeps a row that came back to the user', () => {
+    // WHY: every row is one session, so a session linked to a task folds into
+    // Working like any other while its agent is busy without the user.
     for (const status of ['running', 'background', 'limit'] satisfies TaskStatus[]) {
-      expect(isInWorkingSection({ taskId: 'task-1', status })).toBe(false)
+      expect(isInWorkingSection({ status })).toBe(true)
     }
+    expect(isInWorkingSection({ status: 'question' })).toBe(false)
   })
 })
 

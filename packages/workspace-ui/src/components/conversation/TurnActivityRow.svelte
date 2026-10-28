@@ -38,6 +38,8 @@
     live: boolean;
     /** Session lifecycle label while no tool is reporting more specific work. */
     activityLabel?: string;
+    /** The setup step that runs now. It speaks before the lifecycle label. */
+    setupLabel?: string;
     turnStart?: TurnStartKind | null;
     expanded: boolean;
     /** A command this turn launched into the background and is still running.
@@ -54,6 +56,7 @@
     turn,
     live,
     activityLabel,
+    setupLabel,
     turnStart = null,
     expanded,
     backgroundWait = null,
@@ -104,12 +107,13 @@
   // foreground tool is the more immediate thing to say. So it speaks in the
   // gaps — exactly where the row used to claim it was planning.
   const showsBackgroundWait = $derived(
-    live && !runningTool && backgroundWait !== null,
+    live && !runningTool && !setupLabel && backgroundWait !== null,
   );
   const liveLabel = $derived(
     runningTool
       ? participleFor(runningTool.toolName)
-      : (backgroundWait?.label ??
+      : (setupLabel ??
+        backgroundWait?.label ??
         liveActivityLabel(
           activityLabel,
           durationMs ?? 0,

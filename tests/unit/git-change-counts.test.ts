@@ -81,3 +81,21 @@ test('the status scan reports whitespace in file names exactly', async () => {
 
   expect(status?.uncommittedChanges.files.map((file) => file.path).sort()).toEqual([' leading.txt', 'trailing.txt '])
 })
+
+test('a repository with no commit yet is a checkout on its unborn branch', async () => {
+  // A new project is `git init` alone. The composer's branch chip and the Git
+  // rows read this status, so a null answer here hides them until a commit.
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'solus-git-unborn-')))
+  directories.push(directory)
+  git(['init', '-b', 'trunk'], directory)
+  writeFileSync(join(directory, 'draft.ts'), 'x\n')
+
+  const status = await computeGitState(directory, { includeDetails: true })
+
+  expect(status?.repoRoot).toBe(directory)
+  expect(status?.branch).toBe('trunk')
+  expect(status?.headSha).toBeNull()
+  // The default-branch probe needs a commit, so the unborn branch is its own target.
+  expect(status?.targetBranch).toBe('trunk')
+  expect(status?.uncommittedChanges.fileCount).toBe(1)
+})

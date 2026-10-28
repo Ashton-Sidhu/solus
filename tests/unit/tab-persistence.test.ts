@@ -2,14 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   flushDrafts,
   initDraftState,
-  loadDismissedSidebarRowKeys,
-  loadOpenSidebarTaskIds,
   loadDrafts,
   loadPersistedTabs,
   patchActiveDraft,
-  persistDismissedSidebarRow,
-  persistOpenSidebarTaskIds,
-  removeDismissedSidebarRows,
   removePersistedTab,
   savePersistedTabsDebounced,
   type PersistedTabs,
@@ -152,39 +147,5 @@ describe('tab persistence server scoping', () => {
       tabOrder: ['tab-2'],
       tabs: [snapshot.tabs[1]],
     })
-  })
-
-  test('persists dismissed sidebar tasks in the client-wide scope', () => {
-
-    persistDismissedSidebarRow('root-task')
-    persistDismissedSidebarRow('root-task')
-    persistDismissedSidebarRow('task:child-task')
-
-    expect(loadDismissedSidebarRowKeys()).toEqual(['root-task', 'task:child-task'])
-    expect(storage.getItem('solus-dismissed-sidebar-tasks')).toBe(
-      JSON.stringify(['root-task', 'task:child-task']),
-    )
-  })
-
-  test('restores selected sidebar rows without restoring unrelated rows', () => {
-    // WHY: the task picker reverses dismissal for one task tree. It must not
-    // reopen other tasks the user deliberately removed from the sidebar.
-    persistDismissedSidebarRow('root-task')
-    persistDismissedSidebarRow('session:attempt')
-    persistDismissedSidebarRow('unrelated-task')
-
-    removeDismissedSidebarRows(['root-task', 'session:attempt'])
-
-    expect(loadDismissedSidebarRowKeys()).toEqual(['unrelated-task'])
-  })
-
-  test('persists the task rows opened by this client', () => {
-    // WHY: host task data is shared, but each client must restore only its own
-    // open sidebar rows after a cold start.
-    expect(loadOpenSidebarTaskIds()).toBeNull()
-
-    persistOpenSidebarTaskIds(['task-one', 'task-two'])
-
-    expect(loadOpenSidebarTaskIds()).toEqual(['task-one', 'task-two'])
   })
 })

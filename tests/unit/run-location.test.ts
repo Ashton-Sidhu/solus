@@ -72,9 +72,9 @@ describe('a clone', () => {
 
   test('lands as a folder on its host with the project still home', () => {
     const cloned = dispatchTo(local(), 'omarchy', 'github.com/me/solus')
-    const landed = run(landClone(cloned, '/home/me/projects/solus-remote/solus'))
+    const landed = run(landClone(cloned, '/home/me/projects/solus'))
     expect(pendingClone(landed)).toBeNull()
-    expect(checkoutPlace(landed)).toEqual({ serverId: 'omarchy', path: '/home/me/projects/solus-remote/solus' })
+    expect(checkoutPlace(landed)).toEqual({ serverId: 'omarchy', path: '/home/me/projects/solus' })
     expect(projectHome(landed)).toEqual({ serverId: 'mac', path: '/Users/me/solus' })
   })
 

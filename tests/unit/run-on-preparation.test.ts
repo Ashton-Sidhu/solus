@@ -69,8 +69,9 @@ describe('the repository a clone run asks its host to copy', () => {
     // path belongs to the target host; a new worktree is made there.
     expect(dispatchRepository(cloneOf(null))).toEqual({ cloneUrl: 'https://github.com/solus-sh/solus.git', baseBranch: 'main' })
     expect(dispatchRepository(cloneOf({ kind: 'new-worktree' }))).toEqual({ cloneUrl: 'https://github.com/solus-sh/solus.git', newWorktree: true })
-    // An origin branch is worked on, as before the host made the copy itself.
-    expect(dispatchRepository(cloneOf({ kind: 'new-worktree', baseBranch: 'release' }))).toEqual({ cloneUrl: 'https://github.com/solus-sh/solus.git', baseBranch: 'release' })
+    // A new worktree from a named branch is still a new worktree, not work in
+    // the checkout on that branch.
+    expect(dispatchRepository(cloneOf({ kind: 'new-worktree', baseBranch: 'release' }))).toEqual({ cloneUrl: 'https://github.com/solus-sh/solus.git', newWorktree: true, baseBranch: 'release' })
     expect(dispatchRepository(cloneOf({ kind: 'worktree', path: '/srv/solus/.git/solus/worktrees/release', branch: 'release' })))
       .toEqual({ cloneUrl: 'https://github.com/solus-sh/solus.git', worktreePath: '/srv/solus/.git/solus/worktrees/release' })
   })

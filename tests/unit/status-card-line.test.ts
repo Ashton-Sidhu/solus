@@ -61,3 +61,38 @@ describe('a host card with skipped steps, warnings, and host times', () => {
     expect(statusCardLine(settled, 0).type).toBe('ready')
   })
 })
+
+describe('step durations', () => {
+  test('a step faster than a tenth of a second shows no time', async () => {
+    // WHY: "0.0s" beside a step reads as a broken timer, not as "fast".
+    const { formatStepDuration } = await import('@solus/contracts/setup-card')
+    expect(formatStepDuration(3)).toBe('')
+    expect(formatStepDuration(99)).toBe('')
+    expect(formatStepDuration(100)).toBe('0.1s')
+    expect(formatStepDuration(1800)).toBe('1.8s')
+  })
+})
+
+describe('the status row during setup', () => {
+  test('names the step that runs now, with its percentage', async () => {
+    // WHY: the row above the setup card must say what the card says, not a
+    // generic "Connecting to your agent…".
+    const { setupActivityLabel } = await import('@solus/contracts/setup-card')
+    const card = (steps: StatusCardState['steps'], status: StatusCardState['status'] = 'active'): StatusCardState =>
+      ({ id: 'worktree-s', title: 'Preparing worktree…', status, steps })
+    expect(setupActivityLabel(card([
+      { id: 'connection', label: 'Connecting to sidhu', status: 'done' },
+      { id: 'repository', label: 'Preparing repository', status: 'active', percent: 54 },
+    ]))).toBe('Preparing repository… 54%')
+    // Fetch and checkout run together: the later step speaks.
+    expect(setupActivityLabel(card([
+      { id: 'fetch', label: 'Fetch base branch', status: 'active' },
+      { id: 'checkout', label: 'Check out files', status: 'active' },
+    ]))).toBe('Checking out files…')
+    // A client-built card uses its own label.
+    expect(setupActivityLabel(card([{ id: 'pr-fetch', label: 'Fetching pull request', status: 'active' }]))).toBe('Fetching pull request…')
+    // No setup runs: the row keeps its own words.
+    expect(setupActivityLabel(card([{ id: 'agent', label: 'Start agent', status: 'done' }], 'done'))).toBeNull()
+    expect(setupActivityLabel(null)).toBeNull()
+  })
+})

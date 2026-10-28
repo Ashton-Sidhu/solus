@@ -1,7 +1,7 @@
 import { workspaceSessionQuerySchema, workspaceSessionSearchQuerySchema, workspacePageQuerySchema } from '@solus/contracts/solus-api'
 import { trimTrailingSeparators } from '@solus/contracts/host-path'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
-import { markedPassage, queryWords } from '@solus/contracts/word-match'
+import { SearchQuery } from '@solus/contracts/search-query'
 import { runnerPrincipalFor, type RecordScope } from '../../admission/principal'
 import { sql, type SQL } from 'drizzle-orm'
 import { encodePathAsFolder, isSolusWorktreePath, SOLUS_WORKTREE_ENCODED_MARKER, type SessionRecord } from '@solus/contracts/types'
@@ -44,7 +44,7 @@ async function pullRequestNames(scope: RecordScope): Promise<Map<string, string>
   return names
 }
 
-type SearchQuery = ReturnType<typeof workspaceSessionSearchQuerySchema.parse>
+type SearchRequest = ReturnType<typeof workspaceSessionSearchQuerySchema.parse>
 type SearchHit = WorkspaceSessionSearchResult['items'][number]['additionalMatches'][number]
 /** One session's passages, best first, before its record is checked. A
  *  session that matched by its name alone has none. */
@@ -264,12 +264,17 @@ export class SessionApiOperations {
     return { items, total, indexing }
   }
 
-  private async indexedHits(context: WorkspaceRequestContext, query: SearchQuery): Promise<HitsPage> {
+  private async indexedHits(context: WorkspaceRequestContext, query: SearchRequest): Promise<HitsPage> {
     // A machine's index knows its checkouts, not their repositories: it is searched by `projectRoot`.
     if (query.repositoryKey) throw new SolusApiError(400, 'INVALID_REQUEST', 'A machine searches one project by projectRoot; repositoryKey is answered by the workspace service.')
-    const readable = await getDatabase().all<{ session_id: string }>(sql`SELECT session_records.session_id FROM session_records WHERE ${sql.join(this.visible(context), sql` AND `)}`)
+    // When each was last read is a sign of use that reorders message matches.
+    const readable = await getDatabase().all<{ session_id: string; viewed_at: number | string | null }>(sql`
+      SELECT session_records.session_id, session_states.viewed_at FROM session_records
+      LEFT JOIN session_states ON session_states.session_id = session_records.session_id
+      WHERE ${sql.join(this.visible(context), sql` AND `)}`)
     const page = searchSessionIndex(query.q, {
       sessionIds: new Set(readable.map(row => row.session_id)),
+      viewedAt: new Map(readable.flatMap(row => row.viewed_at === null ? [] : [[row.session_id, Number(row.viewed_at)] as const])),
       projectRoot: query.projectRoot,
       providers: query.provider ? [query.provider] : undefined,
       namesOnly: query.namesOnly === 'true',
@@ -290,16 +295,16 @@ export class SessionApiOperations {
     }
   }
 
-  private async mirroredHits(context: WorkspaceRequestContext, query: SearchQuery): Promise<HitsPage> {
+  private async mirroredHits(context: WorkspaceRequestContext, query: SearchRequest): Promise<HitsPage> {
     const records = [...this.visible(context)]
     if (query.projectRoot) records.push(sql`session_records.project_root = ${query.projectRoot}`)
     if (query.repositoryKey) records.push(sql`session_records.project_remote = ${query.repositoryKey}`)
     if (query.provider) records.push(sql`session_records.provider = ${query.provider}`)
     if (query.activeSince !== undefined) records.push(sql`session_records.last_activity_at >= ${query.activeSince}`)
     const db = getDatabase()
-    const words = queryWords(query.q)
+    const search = new SearchQuery(query.q)
     const page = await searchIndexFor(db.engine).searchSessions(db, {
-      words, namesOnly: query.namesOnly === 'true', records: sql.join(records, sql` AND `), limit: query.limit, offset: query.offset, metadata: await pullRequestNames(apiScope(context)),
+      query: search, namesOnly: query.namesOnly === 'true', records: sql.join(records, sql` AND `), limit: query.limit, offset: query.offset, metadata: await pullRequestNames(apiScope(context)),
     })
     return {
       total: page.total,
@@ -310,7 +315,7 @@ export class SessionApiOperations {
           rank,
           reason: session.reason,
           passages: session.passages.map(passage => ({
-            snippet: markedPassage(passage.content, words, SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE),
+            snippet: search.passage(passage.content, SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE),
             timestamp: Math.max(0, Math.trunc(passage.timestamp ?? 0)),
             messageId: passage.position,
             rank,

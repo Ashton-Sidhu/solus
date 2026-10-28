@@ -7,6 +7,11 @@
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { afterPaint } from "../../lib/after-paint";
+  import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
+  import {
+    canExpandProjectRail,
+    toggleProjectRail,
+  } from "../project-panel/lib/rail-width";
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import type { PaneId } from "../../contexts/workspace/routing/location";
   import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
@@ -66,10 +71,29 @@
   // seam and closes the tab, so the row offers no close of its own.
   const isLeading = $derived(paneId === session.router.leadingPane.id);
 
+  // The user opened the rail in a pane too narrow for it to open on its own.
+  let railRevealed = $state(false);
+
   function toggleRail() {
-    settings.setLayout("splitProjectPanelOpen", !settings.splitProjectPanelOpen);
+    const { open, revealed } = toggleProjectRail(
+      settings.splitProjectPanelOpen,
+      paneWidth,
+      railRevealed,
+    );
+    railRevealed = revealed;
+    settings.setLayout("splitProjectPanelOpen", open);
     requestInputFocus(tabId ? { tabId } : undefined);
   }
+
+  // The split chat's rail answers the shortcut while a companion pane holds
+  // focus; `WorkspaceBody` answers it for the leading rail otherwise.
+  useKeybinding("global.toggle-project-panel", () => toggleRail(), {
+    enabled: () =>
+      surfaceVisible &&
+      !!tabId &&
+      tabId === session.chatSurfaceTabId &&
+      session.router.focusedPaneId !== session.router.leadingPane.id,
+  });
 </script>
 
 <div
@@ -90,7 +114,11 @@
         variant="inline"
         showNewSessionAction={false}
         showProjectPanelAction
-        projectPanelOpen={settings.splitProjectPanelOpen}
+        projectPanelOpen={!canExpandProjectRail(
+          settings.splitProjectPanelOpen,
+          paneWidth,
+          railRevealed,
+        )}
         onProjectPanelToggle={toggleRail}
         {onOpenAsPage}
         onClose={isLeading ? onClose : undefined}
@@ -113,6 +141,7 @@
       isSplit
       containerWidth={paneWidth}
       workspaceWidth={shell.workAreaWidth}
+      revealed={railRevealed}
       active={surfaceVisible}
       onCollapse={toggleRail}
     />

@@ -637,10 +637,9 @@ owner. Each decision below is the smallest one that meets the item.
   clone per repository from every device. Elsewhere the key is the paired
   device, as before. The delegated credential and the `--delegation` helper use
   the same key, so `githubCredentialChain` still finds the checkout's
-  credential (`dispatchCheckoutOwnerKeyOf`). The path comment in
-  `contracts/src/types.ts` is correct now. Existing device-keyed clones on a
-  managed machine are not moved; the next dispatch clones again under the
-  member. Test: `dispatch-history-roots`.
+  credential (`dispatchCheckoutOwnerKeyOf`). Since 27 October 2026 the clone
+  itself is `<member projects folder>/<repo>`, and the owner key is in its git
+  config, not its path (docs/plans/dispatch-clone-folder.md). Test: `dispatch-history-roots`.
 - **Step 14 (item 7).** Removed (2026-10-06). The dialog showed for a person's
   own sessions on a single-user host, so the busy check, the refusal code, and
   the dialog were deleted. Sessions in one working tree are not checked. The

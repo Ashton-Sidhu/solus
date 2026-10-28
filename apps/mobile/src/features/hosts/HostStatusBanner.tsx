@@ -5,7 +5,7 @@ import { hostReadinessCopy, isWaitingForHost } from "@solus/client-core/host-rea
 import { useApp, useListened } from "../../app/app-context";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
-import { CopyHostDetailsButton } from "./HostAsleepVeil";
+import { CopyHostDetailsButton } from "./HostAsleepCard";
 
 /** Shown only when the host is not ready: its readiness in the shared words, and the way out. */
 export function HostStatusBanner({ hostId }: { hostId: string }) {

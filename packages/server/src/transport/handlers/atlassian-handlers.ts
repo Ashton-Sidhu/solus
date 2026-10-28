@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type {
+  AtlassianApiTokenConnectResult,
   AtlassianJiraProject,
   AtlassianOAuthStartResult,
   AtlassianStatus,
@@ -14,16 +15,21 @@ import {
   isOAuthConfigured,
   startOAuthFlow,
 } from '../../atlassian/oauth'
+import { AtlassianApiTokenError } from '@solus/contracts/atlassian-api-token'
+import { connectWithApiToken } from '../../atlassian/api-token'
 import { isApiMode } from '../../host/api-mode'
+import { usesAccountIntegration } from '../../vault/vault'
 
 export interface AtlassianHandlerDependencies {
   cancelOAuthFlow: typeof cancelOAuthFlow
+  connectWithApiToken: typeof connectWithApiToken
   isOAuthConfigured: typeof isOAuthConfigured
   startOAuthFlow: typeof startOAuthFlow
 }
 
 const defaultDependencies: AtlassianHandlerDependencies = {
   cancelOAuthFlow,
+  connectWithApiToken,
   isOAuthConfigured,
   startOAuthFlow,
 }
@@ -34,13 +40,17 @@ export function registerAtlassianHandlers(
 ): void {
   server.register('atlassianStatus', async (): Promise<AtlassianStatus> => {
     const credential = await loadCredential()
-    if (!credential) return { connected: false, oauthAvailable: dependencies.isOAuthConfigured() }
+    // The account website owns the connection there; a host keeps a pasted token.
+    const apiTokenAvailable = !usesAccountIntegration()
+    if (!credential) return { connected: false, oauthAvailable: dependencies.isOAuthConfigured(), apiTokenAvailable }
     const status: AtlassianStatus = {
       connected: true,
       siteUrl: credential.siteUrl,
       cloudId: credential.cloudId,
       products: credential.products,
       oauthAvailable: dependencies.isOAuthConfigured(),
+      apiTokenAvailable,
+      authMethod: credential.kind ?? 'oauth',
     }
     if (credential.siteName) status.siteName = credential.siteName
     return status
@@ -69,6 +79,20 @@ export function registerAtlassianHandlers(
 
   server.register('atlassianCancelOAuth', () => {
     dependencies.cancelOAuthFlow()
+  })
+
+  // A pasted token replaces whatever grant was there, so a browser sign-in
+  // still waiting must not land on top of it.
+  server.register('atlassianConnectApiToken', async (args): Promise<AtlassianApiTokenConnectResult> => {
+    const [input] = args
+    try {
+      dependencies.cancelOAuthFlow()
+      await dependencies.connectWithApiToken(input)
+      return { ok: true }
+    } catch (error) {
+      if (error instanceof AtlassianApiTokenError) return { ok: false, error: error.message }
+      throw error
+    }
   })
 
   // Local only: this drops Solus's copy of the grant. Revoking it at Atlassian

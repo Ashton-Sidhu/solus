@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   checkPullRequestUrl,
+  linkedPullRequestTitle,
   taskPullRequestLink,
 } from '@solus/workspace-ui/components/session/lib/link-pull-request'
 
@@ -32,5 +33,14 @@ describe('linking a pull request by its URL', () => {
       url: 'https://github.com/Acme/Solus/pull/412',
     })
     expect(taskPullRequestLink('not a url')).toBeNull()
+  })
+})
+
+describe('linkedPullRequestTitle', () => {
+  test('names a pull request PR sync has not read by its repository, as the URL spells it', () => {
+    // WHY: the repository key is lowercase; `github.com/berriai/litellm` reads as noise in a list.
+    const url = 'https://github.com/BerriAI/litellm/pull/48668'
+    expect(linkedPullRequestTitle({ title: '', url, repository: 'github.com/berriai/litellm' })).toBe('BerriAI/litellm')
+    expect(linkedPullRequestTitle({ title: 'fix(chatgpt): send system input', url, repository: 'github.com/berriai/litellm' })).toBe('fix(chatgpt): send system input')
   })
 })

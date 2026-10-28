@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  canExpandProjectRail,
   isProjectRailOpen,
   PROJECT_RAIL_MIN_CONTAINER_WIDTH,
+  PROJECT_RAIL_REVEAL_MIN_CONTAINER_WIDTH,
   projectRailWidth,
+  toggleProjectRail,
 } from '@solus/workspace-ui/components/project-panel/lib/rail-width'
 import {
   MIN_PRIMARY_PANE_WIDTH,
@@ -75,5 +78,44 @@ describe('project rail width', () => {
     expect(isProjectRailOpen(true, 2000, minimized)).toBe(false)
     expect(isProjectRailOpen(true, 2000, companionMinimizesProjectPanel(null))).toBe(true)
     expect(isProjectRailOpen(false, 2000, companionMinimizesProjectPanel(null))).toBe(false)
+  })
+
+  test('a rail a narrow column hid still offers its expand control', () => {
+    // WHY: the preference says open, so a band that reads the preference alone
+    // hides the expand control and leaves the user no way to open the rail.
+    const narrow = PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1
+    expect(isProjectRailOpen(true, narrow)).toBe(false)
+    expect(canExpandProjectRail(true, narrow, false)).toBe(true)
+  })
+
+  test('pressing the toggle in a narrow column opens the rail there', () => {
+    const narrow = PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1
+    const opened = toggleProjectRail(true, narrow, false)
+    expect(opened).toEqual({ open: true, revealed: true })
+    expect(isProjectRailOpen(opened.open, narrow, false, opened.revealed)).toBe(true)
+    expect(canExpandProjectRail(opened.open, narrow, opened.revealed)).toBe(false)
+
+    // The way back out: the next press closes it and drops the reveal.
+    expect(toggleProjectRail(opened.open, narrow, opened.revealed)).toEqual({
+      open: false,
+      revealed: false,
+    })
+  })
+
+  test('an open at full width does not pin the rail when the column narrows', () => {
+    const opened = toggleProjectRail(false, PROJECT_RAIL_MIN_CONTAINER_WIDTH, false)
+    expect(opened).toEqual({ open: true, revealed: false })
+    expect(isProjectRailOpen(opened.open, PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1, false, opened.revealed)).toBe(false)
+  })
+
+  test('a column with no room for a rail offers no expand control', () => {
+    const tooNarrow = PROJECT_RAIL_REVEAL_MIN_CONTAINER_WIDTH - 1
+    expect(isProjectRailOpen(true, tooNarrow, false, true)).toBe(false)
+    expect(canExpandProjectRail(true, tooNarrow, true)).toBe(false)
+    expect(canExpandProjectRail(false, tooNarrow, false)).toBe(false)
+  })
+
+  test('a reveal never overrides a temporary minimize', () => {
+    expect(isProjectRailOpen(true, PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1, true, true)).toBe(false)
   })
 })

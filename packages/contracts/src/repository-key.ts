@@ -33,6 +33,49 @@ export function repositoryKeyOf(repository: { host: string; owner: string; repo:
   return `${repository.host}/${repository.owner}/${repository.repo}`.toLowerCase()
 }
 
+/** A repository as a code host names it. */
+interface HostedRepository {
+  host: string
+  owner: string
+  repo: string
+}
+
+/** The part of a pull request that names its head. A head repository names
+ *  no host: it is on the base repository's code host. */
+interface PullRequestHeadFields {
+  baseRepo: { host: string }
+  headRepo: { owner: string; repo: string }
+  headRef: string
+}
+
+/**
+ * The head of a pull request: the repository and branch it is opened from.
+ * A branch name alone names a branch in every fork, so `main` in a fork would
+ * claim each pull request another contributor opened from their own `main`.
+ * A checkout's branch has one head, where `git push` sends it
+ * (`resolvePushHead` on the server); a pull request is the branch's only when
+ * it names that head.
+ */
+export class PullRequestHead {
+  constructor(readonly repository: HostedRepository, readonly branch: string) {}
+
+  /** The head a pull request names. */
+  static of(pullRequest: PullRequestHeadFields): PullRequestHead {
+    return new PullRequestHead({ host: pullRequest.baseRepo.host, ...pullRequest.headRepo }, pullRequest.headRef)
+  }
+
+  /** One string per head: the repository key, then the branch. Git forbids
+   *  `:` in a branch name, so no two heads share a key. */
+  get key(): string {
+    return `${repositoryKeyOf(this.repository)}:${this.branch}`
+  }
+
+  /** Whether a pull request is opened from this head. */
+  isHeadOf(pullRequest: PullRequestHeadFields): boolean {
+    return PullRequestHead.of(pullRequest).key === this.key
+  }
+}
+
 /** The remote that names the repository: `upstream` for a fork, then
  *  `origin`, then the first remote by name. The push remote is a property of
  *  the checkout and plays no part here. */

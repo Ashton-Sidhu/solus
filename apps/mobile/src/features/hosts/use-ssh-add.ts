@@ -32,6 +32,7 @@ export function useSshAdd(preferredHostId: string | undefined) {
 
   const [chosenHostId, setChosenHostId] = useState<string | null>(null)
   const [sshTarget, setSshTarget] = useState('')
+  const [identityFile, setIdentityFile] = useState('')
   const [linkChoice, setLinkChoice] = useState<boolean | null>(null)
   const [authSecret, setAuthSecret] = useState('')
   const [phase, setPhase] = useState<SshAddPhase>({ kind: 'form' })
@@ -44,7 +45,7 @@ export function useSshAdd(preferredHostId: string | undefined) {
   const runner = runners.find((host) => host.hostId === chosenHostId) ?? runners[0] ?? null
   // Linking is the default when signed in; it is not possible signed out.
   const shouldLink = signedIn && (linkChoice ?? true)
-  const form = { runnerHostId: runner?.hostId ?? null, sshTarget, shouldLink, authSecret }
+  const form = { runnerHostId: runner?.hostId ?? null, sshTarget, identityFile, shouldLink, authSecret }
   const issue = sshAddFormIssue(form)
   const isRunning = phase.kind === 'running'
 
@@ -102,6 +103,8 @@ export function useSshAdd(preferredHostId: string | undefined) {
     chooseRunner: setChosenHostId,
     sshTarget,
     setSshTarget,
+    identityFile,
+    setIdentityFile,
     shouldLink,
     setShouldLink: setLinkChoice,
     authSecret,

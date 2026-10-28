@@ -13,17 +13,58 @@ import {
 export const PROJECT_RAIL_MIN_CONTAINER_WIDTH = 1200
 
 /**
+ * The narrowest view that can still hold a rail beside the conversation. Below
+ * 1200px the rail hides on its own, but the user may reveal it down to here.
+ */
+export const PROJECT_RAIL_REVEAL_MIN_CONTAINER_WIDTH = MIN_PRIMARY_PANE_WIDTH + SIDEBAR_MIN_WIDTH
+
+/**
  * Whether the rail is actually on screen: the user's persisted preference,
  * room to honour it, and no temporary layout reason to minimize it. One rule,
  * read by the rail itself and by the layout that gutters against it, so the two
- * can't disagree about whether it's there.
+ * can't disagree about whether it's there. `revealed` is the user opening the
+ * rail in a view too narrow for it to open on its own.
  */
 export function isProjectRailOpen(
   panelOpen: boolean,
   containerWidth: number,
   minimized = false,
+  revealed = false,
 ): boolean {
-  return panelOpen && !minimized && containerWidth >= PROJECT_RAIL_MIN_CONTAINER_WIDTH
+  if (!panelOpen || minimized) return false
+  if (containerWidth >= PROJECT_RAIL_MIN_CONTAINER_WIDTH) return true
+  return revealed && containerWidth >= PROJECT_RAIL_REVEAL_MIN_CONTAINER_WIDTH
+}
+
+/**
+ * Whether the conversation band offers to expand the rail: it is off screen
+ * and the view has room to show it. A rail hidden only for width counts, so
+ * the user always has a way to open it.
+ */
+export function canExpandProjectRail(
+  panelOpen: boolean,
+  containerWidth: number,
+  revealed: boolean,
+): boolean {
+  return (
+    containerWidth >= PROJECT_RAIL_REVEAL_MIN_CONTAINER_WIDTH &&
+    !isProjectRailOpen(panelOpen, containerWidth, false, revealed)
+  )
+}
+
+/**
+ * One press of the rail toggle. It acts on what is on screen, not on the stored
+ * preference, so a press on a rail hidden for width opens it. A press in a
+ * narrow view records a reveal, which keeps the rail open there until the user
+ * closes it.
+ */
+export function toggleProjectRail(
+  panelOpen: boolean,
+  containerWidth: number,
+  revealed: boolean,
+) {
+  const open = !isProjectRailOpen(panelOpen, containerWidth, false, revealed)
+  return { open, revealed: open && containerWidth < PROJECT_RAIL_MIN_CONTAINER_WIDTH }
 }
 
 /**

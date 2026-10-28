@@ -9,9 +9,9 @@ import type { Principal } from '@solus/server/admission/principal'
 
 // bun has no node:sqlite; the handlers' import chain reaches the db even though these tests never open it.
 mock.module('node:sqlite', () => ({ DatabaseSync }))
-const { MemberFolders, memberFolderFor, memberFolderName, memberUserIdOf, recordedMemberFolder, useMemberFolders } = await import('@solus/server/host/member-folders')
+const { MemberFolders, memberFolderFor, memberFolderName, recordedMemberFolder, useMemberFolders } = await import('@solus/server/host/member-folders')
 const { projectsRootFor } = await import('@solus/server/workspace')
-const { dispatchCheckoutOwnerKeyOf, dispatchCheckoutPath } = await import('@solus/server/project-config/dispatch-checkouts')
+const { dispatchCheckoutPath } = await import('@solus/server/project-config/dispatch-checkouts')
 
 // Every member folder on a host (projects, seats, dispatch checkouts, Git
 // credentials) is named after its member; two people with one name are told
@@ -59,7 +59,6 @@ describe('member folders', () => {
     expect(projectsRootFor(member(OTHER_ADA, 'Ada Lovelace'), projects)).toBe(join(projects, 'ada-lovelace-p7wm4c'))
     // A rename keeps the folder.
     expect(projectsRootFor(member(ADA, 'Ada King'), projects)).toBe(join(projects, 'ada-lovelace-k3x9q2'))
-    expect(memberUserIdOf('ada-lovelace-p7wm4c')).toBe(OTHER_ADA)
   })
 
   test('ids that agree on their start, or differ only in case, lengthen the slug', () => {
@@ -102,17 +101,14 @@ describe('member folders', () => {
     expect(memberFolderFor(ADA, 'Someone Else')).toBe('ada-k3x9q2')
   })
 
-  test('a dispatch checkout is under the member\'s folder and reads back to their account', () => {
+  test('a dispatch checkout is under the member\'s folder', () => {
     const { projects } = setup()
     const memberRoot = projectsRootFor(member(ADA, 'Ada'), projects)
-    const checkout = dispatchCheckoutPath(memberRoot, ADA, 'github.com/acme/app')
+    const checkout = dispatchCheckoutPath(memberRoot, 'github.com/acme/app')
+    expect(checkout).toBe(join(memberRoot, 'app'))
     expect(checkout.split(sep)).toContain('ada-k3x9q2')
     expect(checkout.split(sep)).not.toContain(ADA)
-    expect(dispatchCheckoutOwnerKeyOf(checkout)).toBe(ADA)
     // A paired device's key is no member's: it stays as it is.
     expect(recordedMemberFolder('device.1')).toBe('device.1')
-    expect(dispatchCheckoutOwnerKeyOf(dispatchCheckoutPath(projects, 'device.1', 'github.com/acme/app'))).toBe('device.1')
-    // A Windows host writes the same layout with `\`.
-    expect(dispatchCheckoutOwnerKeyOf(dispatchCheckoutPath(projects, 'device.1', 'github.com/acme/app').replaceAll('/', '\\'))).toBe('device.1')
   })
 })

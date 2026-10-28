@@ -89,7 +89,7 @@ describe('host project list (project-model §2)', () => {
     // WHY: the sessions another machine ran here live in this clone. A client
     // finds a host's checkout of a project from this list; unlisted, the host
     // is passed over and those sessions do not show in a project scope.
-    const dispatch = join(dataDir, 'repos', 'solus-remote', 'o', 'github.com', 'o', 'r')
+    const dispatch = join(dataDir, 'repos', 'r')
     mkdirSync(dispatch, { recursive: true })
     await manifest.recordProject(dispatch)
 

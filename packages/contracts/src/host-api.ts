@@ -5,7 +5,7 @@ import type { WorktreeOfferResolution } from './activity'
 import type { BrowserRuntimeStatus } from './browser-runtime'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, BranchRef, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkListingMeta, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus, IgnoredProjectFiles, WorktreeIncludeChange, CopiedProjectFile } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrFilterChoice, PrFilterField, PrInterest, PrLabel, PrListPage, PrProjectCursor, PrProjectListing, PrPendingWorkflowRuns, PrRevertResult, PrStackMergeRequest, PrStackMergeResult, PrStateAction, PrViewedFileChange, PrViewedFiles, PrWorkflowApprovalResult, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PrStack, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
@@ -23,7 +23,7 @@ import type { ShareDialogLog } from './sharing'
 import type { NotificationCount, NotificationHubCapability, NotificationListRequest, NotificationPage, NotificationSetArchived, NotificationSetRead, NotificationStateResult } from './notification-hub'
 import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserFrameCaps, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { DeviceActionRequest, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
-import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
+import type { AtlassianApiTokenConnectResult, AtlassianApiTokenInput, AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { McpAppCallRequest, McpAppRequest, McpAppResourceRequest, McpAppSnapshot, McpAppToolInfo, McpAppToolRequest } from './mcp-apps'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
@@ -200,6 +200,12 @@ export interface SolusAPI {
     success: boolean
   }): Promise<void>
   searchFiles(query: string, cwd: string, ctx?: IpcContext): Promise<{ files: FileMatch[] }>
+  /** The files git ignores in a checkout, and which ones its `.worktreeinclude` names. */
+  listIgnoredProjectFiles(cwd: string): Promise<IgnoredProjectFiles>
+  /** Adds files to, or takes them out of, a checkout's `.worktreeinclude`. */
+  setWorktreeIncluded(cwd: string, changes: WorktreeIncludeChange[]): Promise<IgnoredProjectFiles>
+  /** The files a Run on send copies from this checkout: what its `.worktreeinclude` names, and the file itself. */
+  readWorktreeIncludedFiles(cwd: string): Promise<CopiedProjectFile[]>
   /** Project-wide content search (live grep over the workspace index). */
   searchProjectContents(ctx: IpcContext, request: ProjectContentSearchRequest): Promise<ProjectContentSearchResult>
   /** `annotate` adds per-entry repo/branch/project marks — costs a stat per folder. */
@@ -317,6 +323,7 @@ export interface SolusAPI {
   /** `callbackBaseUrl` is the origin the client reached the workspace service by; a host ignores it and uses its loopback listener. */
   atlassianStartOAuth(callbackBaseUrl?: string): Promise<AtlassianOAuthStartResult>
   atlassianCancelOAuth(): Promise<void>
+  atlassianConnectApiToken(input: AtlassianApiTokenInput): Promise<AtlassianApiTokenConnectResult>
   atlassianDisconnect(): Promise<void>
   atlassianJiraProjects(): Promise<AtlassianJiraProject[]>
   /** `principal` is how this caller was admitted; only a `local-owner` may change how the host is reached. */
@@ -733,7 +740,7 @@ export interface SolusAPI {
    *  version and its body's version. A save against a newer record is refused. */
   saveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, base: Pick<Work, 'updatedAt' | 'contentVersion'>): Promise<Work>
   loadWork(id: string): Promise<Work | null>
-  listWorks(): Promise<(WorkMeta & { id: string })[]>
+  listWorks(): Promise<WorkListingMeta[]>
   deleteWork(id: string): Promise<void>
   duplicateWork(id: string): Promise<Work>
   linkWorkSession(id: string, sessionId: string): Promise<void>
@@ -910,8 +917,10 @@ export interface SolusAPI {
   gitRunAction(ctx: IpcContext, request: GitActionRequest): Promise<GitActionResult>
   gitDiscard(ctx: IpcContext): Promise<GitDiscardResult>
   gitSync(ctx: IpcContext): Promise<GitSyncResult>
-  gitCheckoutBranch(ctx: IpcContext, branch: string): Promise<GitCheckoutBranchResult>
-  worktreeBranches(ctx: IpcContext, options?: { remoteOnly?: boolean }): Promise<string[]>
+  /** `create` makes the branch from HEAD; otherwise the branch must exist. */
+  gitCheckoutBranch(ctx: IpcContext, branch: string, options?: { create?: boolean }): Promise<GitCheckoutBranchResult>
+  /** `skipFetch` lists the refs on disk now instead of after a fetch. */
+  worktreeBranches(ctx: IpcContext, options?: { remoteOnly?: boolean; skipFetch?: boolean }): Promise<BranchRef[]>
   worktreeRestore(ctx: IpcContext, worktreePath: string): Promise<GitCheckout | null>
   continueInWorktree(ctx: IpcContext, namePrompt?: string): Promise<GitCheckoutBranchResult>
   /** Answer a `worktree_offered` activity: switch the session into the agent's

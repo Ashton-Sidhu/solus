@@ -22,19 +22,19 @@ class FakeForward {
 }
 
 function harness(options: { failOpens?: number } = {}) {
-  const opened: Array<{ forward: FakeForward; preferred: number | undefined }> = []
+  const opened: Array<{ forward: FakeForward; preferred: number | undefined; target: SshTarget }> = []
   let failures = options.failOpens ?? 0
   let nextPort = 50_000
   const timers: Array<{ run: () => void; ms: number }> = []
   const changes: ForwardedHost[][] = []
   const ssh = {
-    forward: async (_target: SshTarget, remotePort: number, _ready?: string, preferredLocalPort?: number) => {
+    forward: async (target: SshTarget, remotePort: number, _ready?: string, preferredLocalPort?: number) => {
       if (failures > 0) {
         failures -= 1
         throw new Error('ssh: connect to host box port 22: Connection refused')
       }
       const forward = new FakeForward(preferredLocalPort ?? nextPort++, remotePort)
-      opened.push({ forward, preferred: preferredLocalPort })
+      opened.push({ forward, preferred: preferredLocalPort, target })
       return forward as unknown as SshForward
     },
   } as unknown as SshClient
@@ -116,6 +116,15 @@ describe('a forwarded host', () => {
     for (let i = 0; i < 10; i += 1) await Promise.resolve()
     expect(restarted.opened).toHaveLength(1)
     expect(restarted.opened[0]!.preferred).toBe(50_000)
+  })
+
+  test('reopens at the next start with the identity file it was added with, so an AWS key still signs in', async () => {
+    await harness().hosts.add({ ...BOX, target: { destination: 'ec2-user@ec2.example.com', port: 2222, identityFile: '~/.ssh/aws.pem' } })
+    const restarted = harness()
+    restarted.hosts.start()
+    for (let i = 0; i < 10; i += 1) await Promise.resolve()
+    expect(restarted.opened[0]!.target).toEqual({ destination: 'ec2-user@ec2.example.com', port: 2222, identityFile: '~/.ssh/aws.pem' })
+    expect(restarted.hosts.record('install-box')!.target.identityFile).toBe('~/.ssh/aws.pem')
   })
 
   test('once linked too, it stays as a route and says so (D9)', async () => {

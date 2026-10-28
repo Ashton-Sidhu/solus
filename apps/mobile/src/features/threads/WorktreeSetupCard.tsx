@@ -1,10 +1,11 @@
 // Adapted from T3 Code worktree-setup-card.tsx (MIT, see UPSTREAM.md).
 import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
-import { formatStepDuration, mayWorkLocallyDuringSetup, setupOutputWindow, stepDurationMs } from "@solus/contracts/setup-card";
+import { formatStepDuration, mayWorkLocallyDuringSetup, setupOutputTail, stepDurationMs } from "@solus/contracts/setup-card";
 import type { StatusCardState, StatusCardStep } from "@solus/contracts/types";
 
 import { AppSheet } from "../../components/AppSheet";
+import { TerminalOutput } from "../../components/TerminalOutput";
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
 import type { ConversationStore } from "../conversation/conversation-store";
@@ -85,23 +86,9 @@ function SetupDetails({ store, id, card }: { store: ConversationStore; id: strin
         </Text>
       ))}
       {card.output?.length ? (
-        // The last four lines, in a window that does not change height.
-        <View
-          accessibilityLabel="Setup output"
-          className={isError ? "mb-2 ml-8 rounded-md border border-danger-border bg-danger px-3 py-2" : "mb-2 ml-8 rounded-md border border-border bg-card-alt px-3 py-2"}
-        >
-          {setupOutputWindow(card.output).map((line, slot) => (
-            <Text
-              key={slot}
-              selectable
-              numberOfLines={1}
-              className={isError
-                ? "text-2xs leading-5 text-danger-foreground ios:font-[family-name:Menlo] android:font-mono"
-                : "text-2xs leading-5 text-foreground-secondary ios:font-[family-name:Menlo] android:font-mono"}
-            >
-              {line}
-            </Text>
-          ))}
+        // The end of the host's output, in the terminal panel every command output uses.
+        <View className="mb-2 ml-8">
+          <TerminalOutput output={setupOutputTail(card.output)} label="Setup output" maxHeight={192} />
         </View>
       ) : null}
       {canRecover ? (
@@ -130,7 +117,8 @@ function SetupDetails({ store, id, card }: { store: ConversationStore; id: strin
   );
 }
 
-function StageRow({ step, compact = false, animate = true }: { step: StatusCardStep; compact?: boolean; animate?: boolean }) {
+/** One step of a setup card; adding a machine over SSH draws its steps with it too. */
+export function StageRow({ step, compact = false, animate = true }: { step: StatusCardStep; compact?: boolean; animate?: boolean }) {
   const isRunning = step.status === "active" && animate;
   const symbol = step.status === "done" ? "checkmark"
     : step.status === "error" ? "xmark"

@@ -10,7 +10,7 @@ import { onDirectoryAnswered } from '@solus/client-core/server-registry'
 import { reconcileMachineReferences, savedHostsAreAuthoritative } from '../workspace/machine-references'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { hasSessionStarted } from '../../lib/sessionUtils'
-import type { RunLocation, Session } from '@solus/contracts/types'
+import type { RunLocation } from '@solus/contracts/types'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 import { startHostStallToasts } from '../connections/host-stall-toasts'
@@ -59,9 +59,10 @@ function reconcileGoneMachines(session: WorkspaceContext): void {
         const run = session.runFor(sourceId)
         return run ? [{ run, moveTo: (next: RunLocation) => session.moveRun(sourceId, next) }] : []
       }),
-      startedSessions: () => session.tabOrder
-        .map((tabId) => session.sessionFor(tabId))
-        .filter((tabSession): tabSession is Session => !!tabSession && hasSessionStarted(tabSession)),
+      startedTabs: () => session.tabOrder.flatMap((tabId) => {
+        const tabSession = session.sessionFor(tabId)
+        return tabSession && hasSessionStarted(tabSession) ? [{ run: tabSession.run, close: () => session.closeTab(tabId) }] : []
+      }),
       get defaultRunConfig() { return session.defaultRunConfig },
       projects: projectsStore,
     },
@@ -85,7 +86,13 @@ export function initializeRuntime(
   })
   // Pins federate across hosts, so a host that connects after boot has to
   // contribute its own rows too — not only the hosts present at bootstrap.
-  const stopConnections = serverConnections.onConnectionCreated(() => {
+  const stopConnections = serverConnections.onConnectionCreated((connection) => {
+    // A forgotten host is released to a gone connection: its tabs and rows leave with it.
+    if (connection.presence === 'gone') {
+      sessionListStore.forgetHost(connection.serverId)
+      reconcileGoneMachines(session)
+      return
+    }
     void sidebarStore.loadPinnedSessions()
     void sessionListStore.load()
   })

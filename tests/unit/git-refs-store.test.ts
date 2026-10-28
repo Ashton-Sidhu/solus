@@ -2,7 +2,7 @@ import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { hostKey } from '@solus/client-core/host-key'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { IpcContext, RunConfig } from '@solus/contracts/types'
+import { parseBranchRefs, type BranchRef, type IpcContext, type RunConfig } from '@solus/contracts/types'
 import { dispatchTo, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousWindow = globalThis.window
@@ -47,7 +47,7 @@ describe('SessionEnvironmentStore refs', () => {
     stubHosts({ 'test-host': window.solus })
     store.refsByRoot[hostKey('test-host', '/repo')] = {
       worktrees: [{ path: '/repo/.worktrees/existing', branch: 'existing' }],
-      branches: ['main'],
+      branches: parseBranchRefs(['main']),
     }
 
     const ok = await store.refreshRefs('test-host', '/repo', { session: {} } as IpcContext, { force: true })
@@ -55,7 +55,11 @@ describe('SessionEnvironmentStore refs', () => {
     expect(ok).toBe(false)
     expect(store.refsFor('test-host', '/repo')).toEqual({
       worktrees: [{ path: '/repo/.worktrees/existing', branch: 'existing' }],
-      branches: ['main', 'feature'],
+      // An older host answers with names only.
+      branches: [
+        { name: 'main', activeAt: 0, remoteOnly: false, isDefault: false },
+        { name: 'feature', activeAt: 0, remoteOnly: false, isDefault: false },
+      ],
     })
   })
 
@@ -79,8 +83,8 @@ describe('SessionEnvironmentStore refs', () => {
     await store.refreshRefs('host-a', '/workspace/app', { session: {} } as IpcContext, { force: true })
     await store.refreshRefs('host-b', '/workspace/app', { session: {} } as IpcContext, { force: true })
 
-    expect(store.refsFor('host-a', '/workspace/app').branches).toEqual(['laptop-branch'])
-    expect(store.refsFor('host-b', '/workspace/app').branches).toEqual(['linux-branch'])
+    expect(store.refsFor('host-a', '/workspace/app').branches.map((ref) => ref.name)).toEqual(['laptop-branch'])
+    expect(store.refsFor('host-b', '/workspace/app').branches.map((ref) => ref.name)).toEqual(['linux-branch'])
   })
 
   test('reports a local refs scan as loading until the branches arrive', async () => {
@@ -111,7 +115,39 @@ describe('SessionEnvironmentStore refs', () => {
     finishBranchLoad(['main', 'feature'])
     expect(await refresh).toBe(true)
     expect(store.refsLoadingFor('loading-host', '/repo')).toBe(false)
-    expect(store.refsFor('loading-host', '/repo').branches).toEqual(['main', 'feature'])
+    expect(store.refsFor('loading-host', '/repo').branches.map((ref) => ref.name)).toEqual(['main', 'feature'])
+  })
+
+  test('shows the branches on disk before the fetch, then the fetched ones', async () => {
+    // WHY: a fetch from a large remote takes seconds. The picker must list
+    // the branches it already has at once and not wait for the network.
+    Object.defineProperty(globalThis, '$state', {
+      configurable: true,
+      writable: true,
+      value: Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value }),
+    })
+    const ref = (name: string): BranchRef => ({ name, activeAt: 0, remoteOnly: false, isDefault: false })
+    let finishFetch!: (branches: BranchRef[]) => void
+    const fetched = new Promise<BranchRef[]>((resolve) => { finishFetch = resolve })
+    const api = {
+      worktreeListProject: async () => [],
+      worktreeBranches: async (_ctx: IpcContext, options?: { skipFetch?: boolean }) =>
+        options?.skipFetch ? [ref('main')] : fetched,
+    }
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    stubHosts({ 'fetch-host': api })
+
+    expect(await store.refreshRefs('fetch-host', '/repo', { session: {} } as IpcContext, { force: true })).toBe(true)
+    expect(store.refsLoadingFor('fetch-host', '/repo')).toBe(false)
+    expect(store.refsFetchingFor('fetch-host', '/repo')).toBe(true)
+    expect(store.refsFor('fetch-host', '/repo').branches.map((branch) => branch.name)).toEqual(['main'])
+
+    finishFetch([ref('main'), ref('teammate/new-work')])
+    // One macrotask turn lets the background fetch's promise chain settle.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.refsFetchingFor('fetch-host', '/repo')).toBe(false)
+    expect(store.refsFor('fetch-host', '/repo').branches.map((branch) => branch.name)).toEqual(['main', 'teammate/new-work'])
   })
 
   test('loads device-scoped target worktrees and source origin branches', async () => {

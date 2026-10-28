@@ -20,6 +20,8 @@
 #   SOLUS_RUNTIME_DIR       overrides ~/.local/share/solus
 #   SOLUS_BIN_DIR           overrides ~/.local/bin
 #   SOLUS_RELEASE_REPO      overrides Ashton-Sidhu/solus
+#   SOLUS_INSTALL_PROGRESS  set: print `solus-progress <stage> [percent]` lines, so
+#                           a host that installs over SSH can draw a progress bar
 #
 # Flags, for one-line setup (`curl -fsSL <url> | sh -s -- --link CODE`):
 #   --setup                 run `solus setup` after installing
@@ -35,6 +37,7 @@ REPO="${SOLUS_RELEASE_REPO:-Ashton-Sidhu/solus}"
 
 log() { printf '%s\n' "$*"; }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+progress() { [ -z "${SOLUS_INSTALL_PROGRESS:-}" ] || printf 'solus-progress %s\n' "$*"; }
 
 detect_target() {
   platform=""
@@ -65,6 +68,22 @@ fetch() {
   else
     die "curl or wget is required"
   fi
+}
+
+# The release archive, with its download percentage as progress lines when asked.
+# curl redraws its bar with a carriage return; awk reads each redraw as a record
+# and flushes each line, so the percentage arrives while the download runs.
+fetch_archive() {
+  # $1 url, $2 destination
+  if [ -z "${SOLUS_INSTALL_PROGRESS:-}" ] || ! command -v curl >/dev/null 2>&1; then
+    fetch "$1" "$2"
+    return
+  fi
+  progress download 0
+  curl_status="$work_dir/curl-status"
+  { curl -fL --progress-bar "$1" -o "$2" 2>&1 >/dev/null; echo "$?" > "$curl_status"; } |
+    awk 'BEGIN { RS = "\r" } match($0, /[0-9]+[.,][0-9]%/) { p = substr($0, RSTART, RLENGTH - 3); if (p != last) { print "solus-progress download " p; fflush(); last = p } }'
+  [ "$(cat "$curl_status")" = 0 ] || die "Could not download $1"
 }
 
 fetch_text() {
@@ -124,6 +143,7 @@ run_setup() {
   [ -z "$LINK_CODE" ] || set -- "$@" --link "$LINK_CODE"
   [ -z "$CLOUD_URL" ] || set -- "$@" --cloud-url "$CLOUD_URL"
   log ""
+  progress setup
   # Under `curl | sh` stdin is the rest of this script: keep it from the child.
   "$BIN_DIR/solus" "$@" </dev/null
   exit 0
@@ -152,7 +172,7 @@ main() {
     cp "$SOLUS_INSTALL_SHA256SUMS" "$work_dir/SHA256SUMS"
   else
     log "Downloading Solus $version ($target)..."
-    fetch "https://github.com/$REPO/releases/download/v$version/$artifact" "$work_dir/$artifact"
+    fetch_archive "https://github.com/$REPO/releases/download/v$version/$artifact" "$work_dir/$artifact"
     fetch "https://github.com/$REPO/releases/download/v$version/SHA256SUMS" "$work_dir/SHA256SUMS"
   fi
 
@@ -162,6 +182,7 @@ main() {
   if [ -d "$version_dir" ]; then
     log "Solus $version is already installed."
   else
+    progress unpack
     stage_dir="$RUNTIME_DIR/versions/.install-$$"
     rm -rf "$stage_dir"
     mkdir -p "$stage_dir"

@@ -2,7 +2,7 @@ import { ExternalCommentsStore } from './external-comments.store.svelte'
 import { WorkHistoryStore } from './work-history.store.svelte'
 import { WorkReviewsStore } from './work-reviews.store.svelte'
 import { WorkLiveStore } from './work-live.store.svelte'
-import type { AgentId, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkExportResult, WorkMeta, WorkType } from '@solus/contracts/types'
+import type { AgentId, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkExportResult, WorkListingMeta, WorkType } from '@solus/contracts/types'
 import type { NewWorkComment, WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { uuid } from '@solus/contracts/uuid'
 import { workPreview } from '@solus/contracts/work-preview'
@@ -30,7 +30,7 @@ import { OpenWork, unavailableReasonOf, type OpenWorkHost } from './open-work.sv
 
 /** What the window knows about a work without its body: a gallery row, a
  *  provisional entry, a link target. The body is only ever a saved record. */
-export type WorkListing = WorkMeta & { id: string }
+export type WorkListing = WorkListingMeta
 
 /** The pane's hold on one open work. Release it when the pane unmounts. */
 export interface OpenWorkLease {
@@ -816,6 +816,11 @@ function applyMeta(work: WorkListing, meta: WorkListing): void {
   work.cwd = meta.cwd
   work.pinned = meta.pinned
   work.mirroredDoc = meta.mirroredDoc
+  // What the host knows of the reader's standing and the work's sharing: the
+  // Workspace page's shared tabs and share chips read these.
+  work.role = meta.role
+  work.ownerKey = meta.ownerKey
+  work.share = meta.share
 }
 
 function applyRecord(work: Work, next: Work): void {

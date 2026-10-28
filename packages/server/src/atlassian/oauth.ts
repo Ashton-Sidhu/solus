@@ -11,6 +11,7 @@ import {
   clearCredential,
   loadCredential,
   persistCredential,
+  type AtlassianOAuthCredential,
   type AtlassianStoredCredential,
 } from './token-store'
 
@@ -311,7 +312,7 @@ export async function completeOAuthCallback(params: URLSearchParams): Promise<At
     if (!site) return { kind: 'no-sites' }
 
     const granted = token.scope?.split(' ') ?? []
-    const credential: AtlassianStoredCredential = {
+    const credential: AtlassianOAuthCredential = {
       siteUrl: site.url,
       cloudId: site.id,
       products: productsFromScopes(granted),
@@ -525,6 +526,8 @@ export async function currentCredential(): Promise<AtlassianStoredCredential | n
   if (usesAccountIntegration()) return loadCredential()
   const credential = await loadCredential()
   if (!credential) return null
+  // A pasted API token has no expiry Solus manages.
+  if (credential.kind === 'apiToken') return credential
   if (credential.expiresAt - REFRESH_MARGIN_MS > Date.now()) return credential
 
   const key = currentPersonKey() ?? 'host'
@@ -538,7 +541,7 @@ export async function currentCredential(): Promise<AtlassianStoredCredential | n
 }
 
 async function refreshCredential(
-  credential: AtlassianStoredCredential,
+  credential: AtlassianOAuthCredential,
 ): Promise<AtlassianStoredCredential | null> {
   try {
     const token = await exchange({
@@ -547,7 +550,7 @@ async function refreshCredential(
       client_secret: ATLASSIAN_CLIENT_SECRET,
       refresh_token: credential.refreshToken,
     })
-    const refreshed: AtlassianStoredCredential = {
+    const refreshed: AtlassianOAuthCredential = {
       ...credential,
       accessToken: token.access_token,
       // Atlassian rotates the refresh token on every use and invalidates the

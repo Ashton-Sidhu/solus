@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { DocDiagramAsset } from '@solus/contracts/docs'
 import { SCROLLING_FIGURE_MAX_WIDTH, scrollingFigureWidth } from '@solus/contracts/diagram-page'
 import { atlassianRequest, type AtlassianFailure } from '../../atlassian/api'
+import { grantsScope, type AtlassianStoredCredential } from '../../atlassian/token-store'
 import { pngPixelSize } from '../png'
 
 /**
@@ -77,8 +78,8 @@ export function diagramAttachments(assets: DocDiagramAsset[]): Map<string, Diagr
  */
 export const ATTACHMENT_SCOPE = 'write:confluence-file'
 
-export function canAttachDiagrams(scopes: readonly string[]): boolean {
-  return scopes.includes(ATTACHMENT_SCOPE)
+export function canAttachDiagrams(credential: AtlassianStoredCredential): boolean {
+  return grantsScope(credential, ATTACHMENT_SCOPE)
 }
 
 export const ATTACHMENT_SCOPE_MISSING =

@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { PullRequest } from './providers'
 
 /** Raw combined `git diff` patch for the requested scope. */
@@ -105,9 +106,33 @@ export interface WorktreeEntry {
   lastModified?: number
 }
 
+/** One branch as the branch picker orders and labels it. */
+export interface BranchRef {
+  name: string
+  /** Last commit on the branch or last checkout of it, in ms; 0 when unknown. */
+  activeAt: number
+  /** The branch exists only on a remote: picking it makes a local branch. */
+  remoteOnly: boolean
+  /** The branch the remote's HEAD names. */
+  isDefault: boolean
+}
+
+const branchRefsSchema = z.array(z.union([
+  // An older host lists branch names only.
+  z.string().transform((name): BranchRef => ({ name, activeAt: 0, remoteOnly: false, isDefault: false })),
+  z.object({ name: z.string(), activeAt: z.number(), remoteOnly: z.boolean(), isDefault: z.boolean() }),
+]))
+
+/** Decode a host's branch list; a list this client cannot read is empty. */
+export function parseBranchRefs(entries: readonly (BranchRef | string)[]): BranchRef[] {
+  const parsed = branchRefsSchema.safeParse(entries)
+  return parsed.success ? parsed.data : []
+}
+
 /** A project's worktrees and branches, as one picker reads them. */
 export interface GitProjectRefs {
-  branches: string[]
+  /** Most recently active first. */
+  branches: BranchRef[]
   worktrees: WorktreeEntry[]
 }
 
@@ -250,7 +275,8 @@ export interface BranchChanges {
  * working-tree scan `GitState` adds on top. */
 export interface GitIdentity {
   repoRoot: string
-  headSha: string
+  /** Null before the repository's first commit, when HEAD names an unborn branch. */
+  headSha: string | null
   branch: string | null
   targetBranch: string
 }

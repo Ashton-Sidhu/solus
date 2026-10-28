@@ -117,20 +117,6 @@ export interface TaskSessionRow {
    *  has no state column, since the lifecycle of a closed session is
    *  unknowable and a column of blanks would claim otherwise. */
   running: boolean
-  /** The task's lead: the session the task is talked to through. */
-  isLead: boolean
-}
-
-/** The task's lead session, when one is linked (docs/plans/task-conversation.md). */
-export function taskLeadSession(sessions: readonly TaskSessionLink[]): TaskSessionLink | null {
-  return sessions.find((link) => link.role === 'lead') ?? null
-}
-
-/** The lead first, then every other attempt in the order given: the Sessions
- *  list pins the task's conversation above the workers it started. */
-export function orderTaskSessions(sessions: readonly TaskSessionLink[]): TaskSessionLink[] {
-  const lead = taskLeadSession(sessions)
-  return lead ? [lead, ...sessions.filter((link) => link !== lead)] : [...sessions]
 }
 
 /** `sessions.provider` slugs as the session index writes them. */
@@ -177,7 +163,6 @@ export function taskSessionRow(
     date: (thisYear ? DAY : DAY_WITH_YEAR).format(started),
     dateFull: FULL.format(started),
     running,
-    isLead: link.role === 'lead',
   }
 }
 

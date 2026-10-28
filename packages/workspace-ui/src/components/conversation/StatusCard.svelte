@@ -7,25 +7,28 @@
   import type { StatusCardState } from "@solus/contracts/types";
   import TranscriptCard from "./TranscriptCard.svelte";
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
+  import { TerminalOutput } from "../ui/terminal-output";
   import { SetupStepTiming } from "./lib/setup-timing.svelte";
   import { statusCardLine } from "./lib/status-card";
   import {
     formatStepDuration,
     isWorktreeSetupCard,
     mayWorkLocallyDuringSetup,
-    setupOutputWindow,
+    setupOutputTail,
     stepDurationMs,
   } from "@solus/contracts/setup-card";
 
   interface Props {
     card: StatusCardState;
     skipMotion?: boolean;
+    /** Keep the steps open once done: the last step is the result to read (adding a machine over SSH). */
+    keepsStepsOpen?: boolean;
     onRetry?: () => void;
     onWorkLocally?: () => void;
     onCancel?: () => void;
   }
 
-  let { card, skipMotion = false, onRetry, onWorkLocally, onCancel }: Props = $props();
+  let { card, skipMotion = false, keepsStepsOpen = false, onRetry, onWorkLocally, onCancel }: Props = $props();
 
   // A card the client makes has no host times: its step times are what this
   // client sees as the steps change. A host card's steps carry their own.
@@ -43,7 +46,9 @@
   // The steps show while setup runs or fails. Once everything has finished the
   // card collapses to its line, unless the user chose otherwise.
   let userExpanded = $state<boolean | null>(null);
-  const expanded = $derived(userExpanded ?? !isDone);
+  // A step with a warning is what the reader must see, so its card stays open.
+  const hasWarning = $derived(card.steps.some((step) => step.status === "warning"));
+  const expanded = $derived(userExpanded ?? (!isDone || keepsStepsOpen || hasWarning));
 </script>
 
 <div role="status" aria-live="polite">
@@ -90,9 +95,12 @@
       <ul class="flex flex-col" role="list">
         {#each card.steps as step (step.id)}
           {@const stepMs = stepDurationMs(step) ?? timing.msFor(step.id)}
+          <!-- A running step that reports its percentage (a clone, an install) fills its
+               own tint from the left: the bar is the row, not one more line. -->
           <li
             class="setup-step flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem]"
             class:is-active={step.status === "active"}
+            style:--step-percent={step.status === "active" && step.percent !== undefined ? `${step.percent}%` : undefined}
           >
             {#if step.status === "done"}
               <CheckIcon size={12} class="shrink-0 text-[color:color-mix(in_oklch,var(--chart-3)_62%,var(--foreground))]" aria-hidden="true" />
@@ -137,11 +145,13 @@
         {/each}
       </ul>
       {#if isError && card.output?.length}
-        <!-- The last four lines of the host's output, in a window that does not
-             change height. -->
-        <pre
-          aria-label="Setup output"
-          class="mx-2 mt-1 mb-1.5 overflow-hidden rounded-md bg-muted px-2.5 py-1.5 font-mono text-transcript-meta leading-relaxed text-muted-foreground">{#each setupOutputWindow(card.output) as outputLine, slot (slot)}<div class="truncate whitespace-pre">{outputLine}</div>{/each}</pre>
+        <!-- The end of the host's output, in the terminal panel every command
+             output uses. -->
+        <TerminalOutput
+          output={setupOutputTail(card.output)}
+          label="Setup output"
+          class="mx-2 mt-1 mb-1.5 max-h-48"
+        />
       {/if}
     {/snippet}
     {#snippet seam()}
@@ -161,7 +171,11 @@
 
 <style>
   .setup-step.is-active {
-    background: color-mix(in oklch, var(--primary) 7%, transparent);
+    background: linear-gradient(
+      to right,
+      color-mix(in oklch, var(--primary) 16%, transparent) var(--step-percent, 0%),
+      color-mix(in oklch, var(--primary) 7%, transparent) var(--step-percent, 0%)
+    );
   }
 
   /* Pending is a ring, not an empty circle. */

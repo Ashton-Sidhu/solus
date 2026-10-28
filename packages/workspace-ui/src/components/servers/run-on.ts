@@ -1,9 +1,9 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
-import type { CloneCheckout, DispatchRepository, GithubDelegatedCredential, IpcContext, ProjectIdentity, RunLocation, Session } from '@solus/contracts/types'
+import type { CloneCheckout, CopiedProjectFile, DispatchRepository, GithubDelegatedCredential, IpcContext, ProjectIdentity, RunLocation, Session } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { hasSessionStarted } from '../../lib/sessionUtils'
-import { runHost, startsWorktree, workingPlace } from '../../contexts/workspace/run-location'
+import { projectHome, runHost, startsWorktree, workingPlace } from '../../contexts/workspace/run-location'
 
 /** Exactly what moving a tab to another host needs from the workspace context. */
 export interface RunOnWorkspace {
@@ -121,10 +121,30 @@ export function dispatchRepository(clone: CloneCheckout): DispatchRepository | n
   if (!cloneUrl) return null
   const { start } = clone
   if (start.kind === 'worktree') return { cloneUrl, worktreePath: start.path }
-  // An origin branch is worked on: in the checkout when it holds the branch,
-  // else in the branch's own worktree. With none, the host makes a new worktree.
-  if (start.kind === 'new-worktree') return start.baseBranch ? { cloneUrl, baseBranch: start.baseBranch } : { cloneUrl, newWorktree: true }
+  // A new worktree starts from the chosen branch, else from the host's default
+  // branch. A run on the default branch works in the checkout itself.
+  if (start.kind === 'new-worktree') return start.baseBranch ? { cloneUrl, newWorktree: true, baseBranch: start.baseBranch } : { cloneUrl, newWorktree: true }
   return clone.defaultBranch ? { cloneUrl, baseBranch: clone.defaultBranch } : { cloneUrl }
+}
+
+/**
+ * The files a clone gets from the project's home checkout: what its
+ * `.worktreeinclude` names (docs/run-on.md#copied-files). The two hosts never
+ * talk to each other, so the client carries them. When the home host cannot
+ * answer, the send goes without them.
+ */
+export async function copiedProjectFiles(
+  run: Pick<Session['run'], 'location'>,
+  apiFor: (serverId: string) => Pick<SolusAPI, 'readWorktreeIncludedFiles'> = (serverId) => serverConnections.apiFor(serverId),
+): Promise<CopiedProjectFile[]> {
+  const home = projectHome(run)
+  if (home.path === '~') return []
+  try {
+    return await apiFor(home.serverId).readWorktreeIncludedFiles(home.path)
+  } catch (error) {
+    console.warn('[Solus] Reading the .worktreeinclude files failed; the clone gets none.', error)
+    return []
+  }
 }
 
 /**

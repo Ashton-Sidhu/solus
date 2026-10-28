@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { callerFields, claudeParentToolUseId } from '@solus/server/execution/agents/claude/claude-tool-adapter'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
+import { adaptClaudeTools, claudeParentToolUseId } from '@solus/server/execution/agents/claude/claude-tool-adapter'
 
 describe('claudeParentToolUseId', () => {
   test('recovers the streamed tool-use id from the MCP request _meta', () => {
@@ -18,21 +21,41 @@ describe('claudeParentToolUseId', () => {
   })
 })
 
-// WHY: the Claude SDK validates a call against the shape we give it before our
-// own parse runs. A field with a default was offered as required there, so a
-// call that left `report` or `wait_seconds` out of start_session was refused
-// before Solus saw it. The caller's shape lets it be left out; our own parse
-// still fills the default in.
+// WHY: the Claude SDK validates a call with its own bundled zod before our
+// own parse runs, and that copy refused a left-out field with a default, even
+// one wrapped in `.optional()`. A start_session call without `report` or
+// `wait_seconds` failed with "expected nonoptional" before Solus saw it. Only
+// a real call through the SDK's server proves the fields it gets.
 describe('the fields Claude validates a call against', () => {
-  test('lets a field with a default be left out, and our parse still fills it', () => {
-    const fields = { prompt: z.string(), report: z.boolean().default(true), wait_seconds: z.number().default(0) }
-    expect(z.object(fields).safeParse({ prompt: 'go' }).success).toBe(true)
-    const caller = z.object(callerFields(fields))
-    expect(caller.safeParse({ prompt: 'go' }).success).toBe(true)
-    // Required fields stay required, and a wrong type is still refused.
-    expect(caller.safeParse({}).success).toBe(false)
-    expect(caller.safeParse({ prompt: 'go', report: 'yes' }).success).toBe(false)
-    expect(z.object(fields).parse({ prompt: 'go' })).toEqual({ prompt: 'go', report: true, wait_seconds: 0 })
+  test('a call can leave a field with a default out, and the tool gets the default', async () => {
+    const inputs: object[] = []
+    const tool: AgentTool = {
+      name: 'start_thing',
+      description: 'Start a thing.',
+      inputFields: { prompt: z.string(), report: z.boolean().default(true).describe('Report back.'), wait_seconds: z.number().default(0) },
+      requiresApproval: false,
+      execute: async (input) => { inputs.push(input); return { ok: true, text: 'ok' } },
+    }
+    const { server } = adaptClaudeTools([tool], {
+      provider: 'claude-code', cwd: '/tmp', sessionId: () => 'session-1', abortSignal: new AbortController().signal,
+      parentToolUseId: () => undefined, emit: () => {},
+    }, 'default')
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair()
+    await server.instance.connect(serverSide)
+    const client = new Client({ name: 'test', version: '1.0.0' })
+    await client.connect(clientSide)
+
+    const leftOut = await client.callTool({ name: tool.name, arguments: { prompt: 'go' } })
+    expect(leftOut.isError).toBeUndefined()
+    expect(inputs).toEqual([{ prompt: 'go', report: true, wait_seconds: 0 }])
+    // A required field stays required, and a wrong type is still refused.
+    expect((await client.callTool({ name: tool.name, arguments: {} })).isError).toBe(true)
+    expect((await client.callTool({ name: tool.name, arguments: { prompt: 'go', report: 'yes' } })).isError).toBe(true)
+    expect(inputs).toHaveLength(1)
+    // The agent still reads what the field means.
+    const listed = await client.listTools()
+    expect(JSON.stringify(listed.tools[0]?.inputSchema)).toContain('Report back.')
+    await client.close()
   })
 })
 

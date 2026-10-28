@@ -69,7 +69,7 @@ const taskTransferSchema = z.object({
   workIds: z.array(z.string().min(1)),
   sessions: z.array(z.object({
     sessionId: z.string().min(1),
-    role: z.enum(['lead', 'working', 'referenced']),
+    role: z.enum(['working', 'referenced']),
     linkedAt: z.number(),
     title: z.string().nullable(),
     provider: z.string().nullable(),

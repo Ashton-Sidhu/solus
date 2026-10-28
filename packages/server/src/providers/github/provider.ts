@@ -7,6 +7,7 @@ import type { PrPageRequest, Provider, PullRequestWatchFingerprint, RepositoryPa
 import { decodeWatchFingerprints, fingerprintRows } from './watch-fingerprints'
 import { pullRequestsByNumber } from './pull-requests-by-number'
 import { readPullRequestsByHead } from './pull-requests-by-head'
+import type { PullRequestHead } from '@solus/contracts/repository-key'
 import { ConditionalChecks } from './conditional-checks'
 import type {
   DraftReview,
@@ -886,15 +887,17 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
-  async getPullRequestsByHead(repo: RepoRef, heads: string[]): Promise<Map<string, PullRequest[]>> {
+  async getPullRequestsByHead(repo: RepoRef, heads: readonly PullRequestHead[]): Promise<Map<string, PullRequest[]>> {
     const answers = new Map<string, PullRequest[]>()
-    const unique = [...new Set(heads)].filter(Boolean)
+    const unique = [...new Map(heads.map((head) => [head.key, head])).values()]
     if (unique.length === 0) return answers
     // Lookups in other repositories on this account share the document (pull-requests-by-head.ts).
     await this.withClient('get_pull_requests_by_head', repo.host, async (client) => {
-      for (const [head, rows] of await readPullRequestsByHead(client, repo, unique)) {
-        answers.set(head, await Promise.all(rows.map(async (row) =>
-          toNeedsReviewPullRequest(row, repo, await accessFor(client, repo, row.author?.login ?? '')))))
+      const found = await readPullRequestsByHead(client, repo, unique)
+      for (const head of unique) {
+        const rows = await Promise.all((found.get(head.key) ?? []).map(async (row) =>
+          toNeedsReviewPullRequest(row, repo, await accessFor(client, repo, row.author?.login ?? ''))))
+        answers.set(head.key, rows.filter((pullRequest) => head.isHeadOf(pullRequest)))
       }
     })
     return answers

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { isDispatchClone } from '../../project-config/dispatch-checkouts'
 import { basename, join } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -238,6 +239,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
    * recorded facts name that folder, and the copy is made there later. For an
    * existing worktree they name its checkout until the copy step checks that
    * worktree (`resolveDispatchWorktree`): an unchecked path is never recorded.
+   *
+   * A checkout Solus did not make is a person's own, maybe with their work
+   * open in it, so a dispatch there always starts a new worktree
+   * (docs/plans/dispatch-clone-folder.md).
    */
   function placeDispatchCheckout(ctx: IpcContext, handlerCtx: HandlerCtx): void {
     const repository = ctx.session.repository
@@ -245,6 +250,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const pathOf = sessionRuntime.launcher.dispatchCheckoutPathOf
     if (!pathOf) throw new Error('This host cannot copy a repository.')
     const checkoutPath = pathOf(repository, { principal: handlerCtx.actor.principal, deviceId: handlerCtx.deviceId })
+    if (!repository.worktreePath && existsSync(checkoutPath) && !isDispatchClone(checkoutPath)) repository.newWorktree = true
     ctx.session.workingDirectory = checkoutPath
     ctx.session.projectPath = checkoutPath
     // The client's view of a checkout it has not made yet; the copy step reads the real one.

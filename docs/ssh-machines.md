@@ -5,13 +5,14 @@ not need to install Solus there first, and you do not need to open a port.
 
 ## Add a machine
 
-1. Open **Settings → Hosts** and select **Add machine over SSH**. You can also use the
-   command palette, the **Run on** picker, or **Add machine over SSH** on a host's
-   **Access** tab. On mobile, use the add-host sheet or a host's settings.
+1. Open **Settings → Hosts**, select **Add host**, then select the **SSH** tab. The
+   **Run on** picker's **Add a host…** opens the same dialog. The command palette's
+   **Add machine over SSH** and **Add machine over SSH** on a host's **Access** tab
+   open it on the **SSH** tab. On mobile, use the add-host sheet or a host's settings.
 2. Type the SSH target: an alias from `~/.ssh/config` or `user@host`.
 3. Choose whether to link the machine to your Solus account.
 
-The host that runs the SSH command does these steps, and shows each step:
+The host that runs the SSH command does these steps. It shows each step, and a progress bar while Solus installs: the download fills most of the bar, then unpacking and the service start. When the add ends, the last row tells you how the machine is reached:
 
 - It reads the machine. Linux, macOS, and Windows are supported.
 - It installs Solus with the published installer when Solus is not there.

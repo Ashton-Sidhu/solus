@@ -85,6 +85,7 @@ has none and ends on a self-contained page.
 | Ref | Material | Connected by | Refreshed by | Uploadable by an executor | Delivered to |
 |---|---|---|---|---|---|
 | `provider:*` | oauth | the website (the cloud's OAuth app) | the cloud on read | no: a token belongs to the client that issued it | the person's executors |
+| `provider:atlassian` | key (an API token with its site) | the website (pasted, checked with Atlassian first) | nobody: it does not expire on Solus's side | no | the person's executors |
 | `mcp:*` | oauth or key | the website, or an executor upload | the cloud through discovery | yes | the person's executors |
 | `typesafe` | key | the website (paste), or an executor upload | — | yes | the person's executors |
 | `seat:*` | cli-login | a host login relay, or a host write-back | the CLI on the host | yes (write-back, `expectedVersion`) | the person's executors, and the host worker of their organizations' managed hosts |

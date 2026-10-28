@@ -9,6 +9,8 @@
  * its title. The session they came from is the answer. Targets are drawn
  * twice: weighted to recent sessions (half-life 14 days), as people mostly
  * look for recent work, and uniformly, so older work is not traded away.
+ * Transcripts written after `--until` (ms; default 2026-10-26 00:00 EDT) are
+ * left out, so live sessions do not change the corpus between runs.
  *
  * The report holds counts and ranks only, never transcript text: it is safe
  * to keep, the corpus is not. */
@@ -36,6 +38,8 @@ const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.le
 
 interface Corpus { sessionId: string; title: string | null; last: number; userTexts: string[] }
 const root = join(homedir(), '.claude', 'projects')
+const untilIndex = process.argv.indexOf('--until')
+const until = untilIndex < 0 ? Date.UTC(2026, 9, 26, 4) : Number(process.argv[untilIndex + 1])
 const corpus: Corpus[] = []
 try {
   const started = performance.now()
@@ -45,8 +49,8 @@ try {
     for (const name of readdirSync(projectDir)) {
       if (!name.endsWith('.jsonl')) continue
       const file = join(projectDir, name)
-      const size = statSync(file).size
-      if (size < 100) continue
+      const { size, mtimeMs } = statSync(file)
+      if (size < 100 || mtimeMs > until) continue
       const sessionId = name.slice(0, -'.jsonl'.length)
       // The latest title line, as a provider-generated name.
       let title: string | null = null

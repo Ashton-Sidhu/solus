@@ -32,7 +32,6 @@
   import type { TaskProviderChoice } from "./provider/lib/task-provider";
   import {
     atlassianStore,
-    getClientShellContext,
     getSurfaceContext,
     getProjectConfigStore,
     getSessionSidebarStore,
@@ -110,7 +109,6 @@
   // (docs/plans/cloud-console-native-pages.md §9). Starting a session from a
   // row, the sidebar's live projects, and the page's close need a workspace.
   const workspace = session.workspace;
-  const shell = getClientShellContext();
   /** A task held anywhere but this machine names its host on its row and card:
    *  "Solus Cloud" for the workspace service, the host's own name otherwise. */
   function homeFor(taskId: string): string | null {
@@ -246,7 +244,7 @@
   const selection = new TasksSelectionStore();
   setTasksSelection(selection);
   // Composer state for adding into a board column: the column's status, null =
-  // closed. The task it makes stays on the list; New task opens its task
+  // closed. The task it makes stays on the list; New task opens its page
   // instead (`startNewTask`). It files into the page's current project, so a
   // project switch keeps the composer and its draft open for the new project.
   let composingStatus = $state<TaskStatus | null>(null);
@@ -555,8 +553,7 @@
     composingStatus = status;
   }
 
-  // New task files an untitled task and opens it the way a row opens. The
-  // lead's first prompt names it (`SessionMetadata`).
+  // New task files an untitled task and opens it the way a row opens.
   async function startNewTask() {
     if (!taskContext) return;
     try {
@@ -740,27 +737,10 @@
     ]);
   }
 
-  // Where a page can open beside a conversation, a row opens the task as the
-  // split view: its lead's conversation in the leading pane, started as a lead
-  // draft when it has none, and its page beside it
-  // (docs/plans/task-conversation.md). Elsewhere — the phone, a narrow web
-  // layout, the console with no workspace — the page opens over the list.
+  // A row opens its task page over the list.
   function onOpen(task: Task) {
     selectedKey = task.id;
-    if (workspace && shell.hasCompanionPanes) {
-      void openSplitView(task);
-      return;
-    }
     openTaskId = task.id;
-  }
-
-  async function openSplitView(task: Task) {
-    if (!workspace) return;
-    try {
-      await workspace.opening.openTask(await nativeTask(task));
-    } catch (error) {
-      toastTaskError("open task", error);
-    }
   }
 
   // A provider ticket becomes a native task before a session can be bound to
@@ -827,9 +807,7 @@
     const localIds = tasks.filter((_, i) => owned[i]).map((task) => task.id);
     const notOwned = tasks.filter((task, i) => task.providerId === "local" && !owned[i]).length;
     if (notOwned) toasts.error(`Couldn't delete ${notOwned} task${notOwned === 1 ? "" : "s"}`, { description: "Only the owner can delete a task." });
-    // The sidebar command also closes the tasks' open tabs; left open, each
-    // one would lose its task and reappear in the sidebar as a loose session.
-    const pending = sessionSidebar?.deleteTasks(localIds) ?? store.softRemove(localIds);
+    const pending = store.softRemove(localIds);
     if (!pending.length) return;
     toasts.undo(label, () => store.restorePending(pending), {
       // commitPending restores any rows whose delete failed; surface why.
@@ -884,8 +862,14 @@
       .map((id) => taskById(id))
       .filter((task): task is Task => !!task);
     selection.clear();
-    if (!sessionSidebar) return;
-    for (const task of tasks) await sessionSidebar.markTaskUnread(task.id);
+    for (const task of tasks) {
+      try {
+        await store.get(task.id).markRead(false);
+      } catch (error) {
+        toastTaskError(`mark “${task.title}” unread`, error);
+        break;
+      }
+    }
   }
 
   // The board is a single-selection surface. Both list views share this one

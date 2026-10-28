@@ -114,17 +114,19 @@ Offline, Not running, No address, Refused, Removed.
 
 Desktop and web (shared Svelte):
 
-- **Inside the grace.** The composer stays. One whisper over it, with no box:
-  a small spinner and "Reconnecting to Raiders…". It is not shown for the
+- **Inside the grace.** The composer stays, but it is disabled: it keeps the
+  draft and takes no input until the host is back. One whisper over it, with
+  no box: a small spinner and "Reconnecting to Raiders…". It is not shown for the
   window's own host (the overlay says it) or the desktop's local host.
-- **Host away.** The conversation sleeps: the transcript dims and stops taking
-  input, and one large statement sits over it ("Raiders is offline.", with
-  "Last seen 4 min ago. Solus keeps trying." under it). Two controls: a quiet
+- **Host away.** One card takes the composer's place, with one statement
+  ("Raiders is offline.", with "Last seen 4 min ago. Solus keeps trying."
+  under it). The transcript above stays at full contrast, and the user can
+  scroll and read it. Two controls: a quiet
   **Details** toggle and the one action (**Retry now**, **Start**, or **Pair
   again**). The diagnostics stay collapsed until Details opens them, with
   **Copy details** and **Host settings** under the list. During a retry the
-  statement says "Trying Raiders again…". The composer slot is empty. An empty
-  transcript shows only the statement, never a skeleton. The session action
+  statement says "Trying Raiders again…". An empty transcript stays empty,
+  never a skeleton. The session action
   row and the request cards are hidden.
 - **Session sidebar.** Rows from ready hosts show. An unreachable host never
   keeps the list in its skeleton.
@@ -140,9 +142,10 @@ Desktop and web (shared Svelte):
 
 Mobile: the host banner, the thread pill, the host rows, and the new-task gate
 read the same readiness and the same copy. A thread follows the same design:
-inside the grace, `HostGraceWhisper` sits over the composer; while away the
-thread dims under the same statement, Details toggle, and action, and the
-composer is hidden.
+inside the grace, `HostGraceWhisper` sits over the composer, which is
+disabled; while away `HostAsleepCard` takes the composer's place, with the
+same statement, Details toggle, and action, and the thread above stays
+readable.
 The request cards and the agents pill are hidden while away. The host banner
 offers Copy details.
 

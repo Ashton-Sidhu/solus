@@ -1,11 +1,11 @@
 import { z } from 'zod'
 import type { HostEventMap } from '@solus/contracts/host-events'
-import type { SshAddLink, SshAddResult } from '@solus/contracts/remote-machines'
+import type { SshAddLink, SshAddProgress, SshAddResult } from '@solus/contracts/remote-machines'
 import { createLogger } from '../../logger'
 import type { SshClient } from '../../platform/ssh'
 import type { ForwardedHosts } from '../../remote-machines/forwarded-hosts'
 import type { SshProvisioner } from '../../remote-machines/ssh-provisioner'
-import { formatSshTarget, parseSshTarget, resolveSshTarget } from '../../remote-machines/ssh-targets'
+import { formatSshTarget, resolveSshTarget } from '../../remote-machines/ssh-targets'
 import type { SolusServer } from '../server'
 
 const log = createLogger('main', 'remote-machines-handlers')
@@ -29,6 +29,7 @@ const discoveredSchema = z.object({
 })
 const addSchema = z.object({
   sshTarget: z.string().max(512).optional(),
+  identityFile: z.string().trim().max(1024).optional(),
   discovered: discoveredSchema.optional(),
   authSecret: z.string().max(1024).optional(),
   link: linkSchema.optional(),
@@ -43,6 +44,7 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
     const resolved = resolveSshTarget(request.discovered, request.sshTarget)
     if (resolved.status === 'needs-target') return resolved
     const { target } = resolved
+    if (request.identityFile) target.identityFile = request.identityFile
     // A forward runs with no one to type a secret: it needs a key the agent or ssh config gives.
     if (request.authSecret && !request.link) {
       throw new Error('A machine added without your Solus account is reached through an SSH forward, which needs an SSH key. Add a key for this machine, or link it to your account.')
@@ -50,7 +52,11 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
     if (!request.link && await deps.ssh.resolvesToThisMachine(target)) throw new Error('That SSH target is this computer.')
     const outcome = await deps.provisioner.add(
       { target, authSecret: request.authSecret, link: request.link, deviceLabel: request.deviceLabel ?? 'Solus' },
-      (step, message) => deps.broadcast('host.sshProgress', { requestId: request.requestId, step, message }),
+      (step, message, percent) => {
+        const event: SshAddProgress = { requestId: request.requestId, step, message }
+        if (percent !== undefined) event.percent = percent
+        deps.broadcast('host.sshProgress', event)
+      },
     )
     if (outcome.status === 'needs-auth') return { status: 'needs-auth', sshTarget: formatSshTarget(target), message: outcome.message }
     const { host } = outcome
@@ -79,7 +85,7 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
     const record = deps.forwardedHosts.record(installationId)
     if (record && stopRemote && record.startedBySolus && record.os) {
       // The forward goes even when the machine cannot be reached now; the service then stays there.
-      await deps.provisioner.uninstallService(parseSshTarget(record.sshTarget), record.os).catch((error: Error) => {
+      await deps.provisioner.uninstallService(record.target, record.os).catch((error: Error) => {
         log.warn('forwarded_host_service_not_removed', { installationId, error: error.message })
       })
     }
@@ -90,7 +96,7 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
     const { installationId, link } = z.object({ installationId: z.string().min(1), link: linkSchema }).parse(input)
     const record = deps.forwardedHosts.record(installationId)
     if (!record) throw new Error('This host does not forward to that machine.')
-    const outcome = await deps.provisioner.add({ target: parseSshTarget(record.sshTarget), link: link satisfies SshAddLink, deviceLabel: 'Solus' }, () => {})
+    const outcome = await deps.provisioner.add({ target: record.target, link: link satisfies SshAddLink, deviceLabel: 'Solus' }, () => {})
     if (outcome.status === 'needs-auth') throw new Error(outcome.message)
     deps.forwardedHosts.markLinked(installationId)
     return { linked: true as const }

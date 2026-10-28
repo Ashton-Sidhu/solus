@@ -55,6 +55,9 @@ import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
 
 const DISCOVERY_INTERVAL_MS = 30_000
 
+/** The tab the add-host dialog shows: a pairing link, an address and code, or SSH. */
+export type AddHostMode = 'link' | 'manual' | 'ssh'
+
 export interface ServerItem {
   id: string
   label: string
@@ -103,6 +106,7 @@ class ServersStore {
   activeServerId = $state(serverConnections.defaultServerId() ?? getActiveServerId())
   addServerOpen = $state(false)
   addServerUrl = $state('')
+  addServerMode = $state<AddHostMode>('link')
   /** Which Run-on picker opened the add-server dialog, so a host paired from
    *  there is handed back to that picker and not to another one. A correlation
    *  breadcrumb between two UI moments — any stable id will do, and a session
@@ -554,14 +558,16 @@ class ServersStore {
     return serverId
   }
 
-  openAddServer(prefillUrl = ''): void {
+  openAddServer(prefillUrl = '', mode: AddHostMode = 'link'): void {
     this.addServerUrl = prefillUrl
+    this.addServerMode = mode
     this.addServerOpen = true
   }
 
   closeAddServer(): void {
     this.addServerOpen = false
     this.addServerUrl = ''
+    this.addServerMode = 'link'
     requestInputFocus()
   }
 

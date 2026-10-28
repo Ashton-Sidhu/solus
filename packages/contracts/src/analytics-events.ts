@@ -36,6 +36,20 @@ export interface SolusEventMap {
   push_permission_result: { granted: boolean }
   pairing_completed: { method: 'token' | 'ssh' }
   pairing_failed: { method: 'token' | 'ssh' }
+  /** A row chosen in the session picker under a query. It holds no query
+   *  text and no ids: `repeat` says whether this device chose for the same
+   *  query before, and whether the same row (docs/plans/session-search-benchmark.md). */
+  session_search_picked: {
+    /** 1 for the first row the keyboard reaches. */
+    position: number
+    section: 'top' | 'tasks' | 'sessions' | 'messages' | 'other' | 'none'
+    kind: 'task' | 'session' | 'conversation'
+    matched_in: string
+    query_words: number
+    sort: 'relevance' | 'recency'
+    repeat: 'new' | 'same_choice' | 'other_choice'
+    via: Via
+  }
 }
 
 export interface ServerEventMap {

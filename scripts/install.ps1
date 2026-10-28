@@ -129,11 +129,51 @@ function Add-UserPath([string]$BinDir) {
   }
 }
 
+# With SOLUS_INSTALL_PROGRESS set, a host that installs over SSH reads these
+# lines to draw a progress bar: `solus-progress <stage> [percent]`.
+function Write-InstallProgress([string]$Line) {
+  if ($env:SOLUS_INSTALL_PROGRESS) { Write-Host "solus-progress $Line" }
+}
+
+# The release archive, read in blocks so its download percentage can be told.
+function Get-Archive([string]$Uri, [string]$OutFile) {
+  if (-not $env:SOLUS_INSTALL_PROGRESS) {
+    Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $OutFile
+    return
+  }
+  Write-InstallProgress 'download 0'
+  $response = [Net.HttpWebRequest]::Create($Uri).GetResponse()
+  try {
+    $total = $response.ContentLength
+    $stream = $response.GetResponseStream()
+    $file = [IO.File]::Create($OutFile)
+    try {
+      $buffer = New-Object byte[] 262144
+      $done = 0
+      $last = 0
+      while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        $file.Write($buffer, 0, $read)
+        $done += $read
+        if ($total -gt 0) {
+          $percent = [int][Math]::Floor(100 * $done / $total)
+          if ($percent -ne $last) { Write-InstallProgress "download $percent"; $last = $percent }
+        }
+      }
+    } finally {
+      $file.Close()
+      $stream.Close()
+    }
+  } finally {
+    $response.Close()
+  }
+}
+
 function Invoke-SolusSetup([string]$BinDir) {
   $setupArgs = @('setup')
   if ($Link) { $setupArgs += @('--link', $Link) }
   if ($CloudUrl) { $setupArgs += @('--cloud-url', $CloudUrl) }
   Write-Host ''
+  Write-InstallProgress 'setup'
   & (Join-Path $BinDir 'solus.cmd') @setupArgs
   if ($LASTEXITCODE -ne 0) { throw "solus setup failed (exit code $LASTEXITCODE)" }
 }
@@ -170,7 +210,7 @@ function Install-Solus {
       Copy-Item -LiteralPath $env:SOLUS_INSTALL_SHA256SUMS -Destination $sums
     } else {
       Write-Host "Downloading Solus $version ($target)..."
-      Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/$repo/releases/download/v$version/$artifact" -OutFile $archive
+      Get-Archive "https://github.com/$repo/releases/download/v$version/$artifact" $archive
       Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/$repo/releases/download/v$version/SHA256SUMS" -OutFile $sums
     }
 
@@ -181,6 +221,7 @@ function Install-Solus {
     if (Test-Path -LiteralPath $versionDir) {
       Write-Host "Solus $version is already installed."
     } else {
+      Write-InstallProgress 'unpack'
       $stageDir = Join-Path $versionsDir ".install-$PID"
       if (Test-Path -LiteralPath $stageDir) { Remove-Item -LiteralPath $stageDir -Recurse -Force }
       New-Item -ItemType Directory -Force -Path $stageDir | Out-Null

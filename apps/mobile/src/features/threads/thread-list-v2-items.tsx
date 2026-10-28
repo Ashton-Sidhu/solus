@@ -37,6 +37,8 @@ import {
   type ThreadListV2Status,
   type ThreadPrPresentation,
   type ThreadPrWatchTarget,
+  unlinkPullRequestActionId,
+  unlinkPullRequestMenuItems,
 } from "./threadListV2";
 
 /**
@@ -394,6 +396,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     [snoozePresets],
   );
   const watchTarget = pr?.watchTarget ?? null;
+  const unlinkTargets = pr?.unlinkTargets;
   const titleMenuItems = useMemo<MenuAction[]>(
     () => [
       ...(watchTarget
@@ -401,10 +404,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           ? { id: "stop-watching-pr", title: `Stop Watching #${watchTarget.number}`, image: "eye.slash" }
           : { id: "watch-pr", title: `Watch #${watchTarget.number}`, subtitle: "Wake the agent on checks and reviews", image: "eye" }]
         : []),
+      ...unlinkPullRequestMenuItems(unlinkTargets ?? []),
       { id: "mark-unread", title: "Mark Unread", image: "circle.fill" },
       { id: "rename", title: "Rename", image: "square.and.pencil" },
     ],
-    [watchTarget],
+    [watchTarget, unlinkTargets],
   );
   const snoozableCardMenuActions = useMemo<MenuAction[]>(
     () => [
@@ -453,6 +457,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           Alert.alert("Could not mark session unread", error.message);
         });
       }
+      const unlinkTarget = unlinkTargets?.find((target) => nativeEvent.event === unlinkPullRequestActionId(target));
+      if (unlinkTarget) {
+        void list.unlinkPullRequest(thread.hostId, record.sessionId, unlinkTarget).catch((error: Error) => {
+          Alert.alert("Could not unlink pull request", error.message);
+        });
+      }
       if (watchTarget && nativeEvent.event === "watch-pr") onSetPullRequestWatch(thread, watchTarget, true);
       if (watchTarget && nativeEvent.event === "stop-watching-pr") onSetPullRequestWatch(thread, watchTarget, false);
       if (nativeEvent.event === "copy-thread-id") {
@@ -482,6 +492,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       record.sessionId,
       snoozePresets,
       thread,
+      unlinkTargets,
       watchTarget,
     ],
   );

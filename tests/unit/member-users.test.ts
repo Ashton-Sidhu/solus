@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Seat } from '@solus/contracts/seats'
 import { MemberUsers, useMemberUsers, WorkspacePreparingError, type MemberUser } from '@solus/server/host/member-users'
-import { memberFolderFor, memberUserIdOf } from '@solus/server/host/member-folders'
+import { memberFolderFor } from '@solus/server/host/member-folders'
 import { applyMemberFiles } from '@solus/server/execution/seats/member-files'
 import { ActingIdentities } from '@solus/server/execution/seats/acting-identity'
 import { chatFolderFor, projectsRootFor } from '@solus/server/workspace'
@@ -78,7 +78,6 @@ test('on a host with member users, a member’s folder is their username, and an
   useMemberUsers(new MemberUsers(file))
 
   expect(memberFolderFor('ada1', 'Ada Lovelace')).toBe('ada-lovelace')
-  expect(memberUserIdOf('ada-lovelace')).toBe('ada1')
   expect(() => memberFolderFor('bob1', 'Bob')).toThrow(WorkspacePreparingError)
 })
 

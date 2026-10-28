@@ -15,9 +15,9 @@ const log = createLogger('orchestration', 'parent-delivery.ts')
  * so a parent never acts on something that is already over. Delivery to one
  * parent is serialized, so a merge never races the prompt it merges into.
  *
- * A task's lead is not woken for each report. Its reports are held until its
- * last open message settles, and then reach it as one prompt
- * (docs/plans/task-conversation.md).
+ * A lead is not woken for each report. Its reports are held until its last
+ * open message settles, and then reach it as one prompt
+ * (docs/session-orchestration.md, "The lead session").
  *
  * This class owns delivery retries while the host runs. A submission that
  * fails on a known transient error is tried again after a growing delay, a

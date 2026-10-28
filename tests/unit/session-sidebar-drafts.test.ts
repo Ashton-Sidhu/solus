@@ -78,14 +78,18 @@ describe('unsent prompts in open sidebar sessions', () => {
     expect([...store.parkedSessionTabIds]).toEqual([])
   })
 
-  test('attachments earn a draft, while task rows keep their identity', () => {
+  test('attachments earn a draft, linked to a task or not', () => {
+    // WHY: a link to a task gives a session no row identity of its own, so a
+    // set-aside prompt moves to Drafts like any other session's.
     const { store, shown, sessions } = sidebar()
     shown.clear()
     sessions.get('first')!.prompt.text = ''
     sessions.get('first')!.prompt.attachments.push({ id: 'file' } as Session['prompt']['attachments'][number])
     expect([...store.parkedSessionTabIds]).toEqual(['first'])
-    Object.assign(store, { activeTasks: [{ taskId: 'task', tabIds: ['first'] } satisfies Partial<SidebarTask>] })
-    expect([...store.parkedSessionTabIds]).toEqual([])
+    Object.assign(store, {
+      activeTasks: [{ tabIds: ['first'], linkedTask: { taskId: 'task', title: 'Task' } } satisfies Partial<SidebarTask>],
+    })
+    expect([...store.parkedSessionTabIds]).toEqual(['first'])
   })
 
   test('a session draft opens its original conversation', () => {

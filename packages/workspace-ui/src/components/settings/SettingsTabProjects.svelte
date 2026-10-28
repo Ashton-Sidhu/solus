@@ -12,6 +12,7 @@
   import { Button } from "../ui/button";
   import SettingsSection from "./SettingsSection.svelte";
   import ProjectBranchNamingSetting from "./ProjectBranchNamingSetting.svelte";
+  import ProjectCopiedFilesSetting from "./ProjectCopiedFilesSetting.svelte";
   import type { HostApi } from "@solus/client-core/host-api";
 
   interface Props {
@@ -137,6 +138,7 @@
     <section class="min-w-0 flex-1" aria-label="Project settings">
       {#key selected}
         <ProjectBranchNamingSetting {serverId} {api} cwd={selected} />
+        <ProjectCopiedFilesSetting {serverId} cwd={selected} />
       {/key}
     </section>
   {/if}

@@ -1,16 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
-import {
-  SessionSidebarStore,
-  type SidebarSessionChild,
-} from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
+import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
-type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'completeTask' | 'renameTask' | 'restoreTask'> & {
-  dismissedRowKeys: Set<string>
-  openTaskIds: Set<string>
-  completedHereTaskIds: Set<string>
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask'> & {
   closedTabIds: string[]
-  unloadedCompletedTaskIds: Set<string>
   closeTabs: (tabIds: string[]) => void
   catalogTasks: SidebarTask[]
   activeTasks: SidebarTask[]
@@ -19,17 +12,11 @@ type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' 
   hasSettledBootLocation: boolean
   settleBootLocation: () => void
   session: unknown
-  tabIdBySessionId: Map<string, string>
-  renameSession: (tabId: string) => Promise<void>
 }
 
 function sidebarStoreForDismissal(): SidebarStoreHarness {
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
-  store.dismissedRowKeys = new Set<string>()
-  store.openTaskIds = new Set<string>()
-  store.completedHereTaskIds = new Set<string>()
   store.closedTabIds = []
-  store.unloadedCompletedTaskIds = new Set<string>()
   store.catalogTasks = []
   store.activeTasks = []
   store.openedDraftCount = 0
@@ -40,7 +27,6 @@ function sidebarStoreForDismissal(): SidebarStoreHarness {
   store.session = {
     showsConversation: false,
     tasksStore: { loaded: true, tasks: [] },
-    clearSidebarTaskOccurrences: () => {},
     drafts: { openSessionDraft: (options: { freshTask?: boolean; via?: string; reveal?: boolean } = {}) => {
       store.openedDraftCount += 1
       store.openedDraftOptions.push(options)
@@ -53,8 +39,8 @@ function sidebarStoreForDismissal(): SidebarStoreHarness {
 }
 
 describe('session sidebar dismissal', () => {
-  test('closing a running task unloads its session tab', () => {
-    // WHY: a closed sidebar task must not still appear as an open session in
+  test('closing a running row unloads its session tab', () => {
+    // WHY: a closed sidebar row must not still appear as an open session in
     // the picker. Its provider history remains durable and can be resumed.
     const store = sidebarStoreForDismissal()
     const task = {
@@ -66,7 +52,6 @@ describe('session sidebar dismissal', () => {
       groupKey: '/repo',
       branchName: null,
       serverId: null,
-      prNumber: null,
       status: 'running',
       attention: 'running',
       unread: false,
@@ -80,45 +65,9 @@ describe('session sidebar dismissal', () => {
     expect(store.closedTabIds).toEqual(['loose-tab'])
   })
 
-  test('closing a running child unloads only that child tab', () => {
-    const store = sidebarStoreForDismissal()
-    const child = {
-      tabId: 'child-tab',
-      label: 'Background child',
-      attention: 'running',
-      unread: false,
-      serverId: null,
-      branchName: null,
-      runStartedAt: 1,
-      lastActivityAt: 1,
-      reviewGuideStatus: null,
-    } satisfies SidebarSessionChild
-
-    store.closeChild(child)
-
-    expect(store.closedTabIds).toEqual(['child-tab'])
-  })
-
-  test('closing a durable task unloads every tab and dismisses the row', () => {
-    // WHY: removing a row is presentation state only. It must not complete or
-    // otherwise change the task's workflow status.
-    const store = sidebarStoreForDismissal()
-    store.openTaskIds.add('root')
-
-    store.closeTask({
-      id: 'root',
-      taskId: 'root',
-      tabIds: ['root-tab', 'child-tab'],
-    } as SidebarTask)
-
-    expect(store.closedTabIds).toEqual(['root-tab', 'child-tab'])
-    expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['root'])
-    expect([...store.openTaskIds]).toEqual([])
-  })
-
-  test('ending the last active task composes a new prompt', () => {
+  test('ending the last active row composes a new prompt', () => {
     // WHY: closing a tab falls through to whichever tab sits beside it, and a
-    // completed task can still hold one. Ending the column's last live task
+    // completed session can still hold one. Ending the column's last live row
     // must not land the user in work they already finished.
     const store = sidebarStoreForDismissal()
     ;(store.session as { showsConversation: boolean }).showsConversation = true
@@ -126,7 +75,6 @@ describe('session sidebar dismissal', () => {
 
     store.closeTask({
       id: 'root',
-      taskId: 'root',
       lifecycle: 'active',
       tabIds: ['root-tab'],
     } as SidebarTask)
@@ -134,14 +82,14 @@ describe('session sidebar dismissal', () => {
     expect(store.openedDraftOptions).toEqual([{ freshTask: true, via: 'click' }])
   })
 
-  test('closing the final active tab composes under a new task', () => {
-    // WHY: closeTabs can open the replacement draft before the task-specific
+  test('closing the final active tab composes a fresh draft', () => {
+    // WHY: closeTabs can open the replacement draft before the row-specific
     // fallback runs. It must not inherit the completed tab that becomes the
     // registry fallback in that interval.
     const store = sidebarStoreForDismissal()
     Object.assign(store, {
-      taskRows: [],
       sessionRows: [],
+      workingRows: [],
       snoozedTasks: [],
       completedTasks: [],
       activeTasks: [],
@@ -152,17 +100,23 @@ describe('session sidebar dismissal', () => {
       showsConversation: true,
       closeTab: () => {},
       selectTab: () => {},
-      drafts: { openSessionDraft: (options: { freshTask?: boolean; via?: string } = {}) => {
-        store.openedDraftOptions.push(options)
-      } },
+      drafts: {
+        // The draft is minted before the close, so it reads the closing
+        // conversation's project, then opened once the tab is gone.
+        createSessionDraft: (options: { freshTask?: boolean; via?: string }) => {
+          store.openedDraftOptions.push(options)
+          return { id: 'draft-1' }
+        },
+        openDraft: () => {},
+      },
     }
 
     SessionSidebarStore.prototype.closeTabs.call(store, ['root-tab'])
 
-    expect(store.openedDraftOptions).toEqual([{ freshTask: true, via: 'click' }])
+    expect(store.openedDraftOptions).toEqual([{ freshTask: true, sourceId: 'root-tab', via: 'click' }])
   })
 
-  test('ending a task while others are still live keeps the pane where it is', () => {
+  test('ending a row while others are still live keeps the pane where it is', () => {
     // WHY: the composer fallback exists only for an emptied column. Yanking the
     // user off a conversation that still has live siblings would be a worse
     // interruption than the one it fixes.
@@ -172,7 +126,6 @@ describe('session sidebar dismissal', () => {
 
     store.closeTask({
       id: 'root',
-      taskId: 'root',
       lifecycle: 'active',
       tabIds: ['root-tab'],
     } as SidebarTask)
@@ -189,7 +142,6 @@ describe('session sidebar dismissal', () => {
 
     store.closeTask({
       id: 'root',
-      taskId: 'root',
       lifecycle: 'completed',
       tabIds: ['root-tab'],
     } as SidebarTask)
@@ -197,125 +149,6 @@ describe('session sidebar dismissal', () => {
     expect(store.openedDraftCount).toBe(0)
   })
 
-  test('completion keeps a durable task available on the completed shelf', async () => {
-    // Both the mobile sheet and desktop control use this command. Completing
-    // must unload conversations without dismissing the durable task row.
-    const store = sidebarStoreForDismissal()
-    const statuses: string[] = []
-    Object.assign(store.session, {
-      tasksStore: {
-        peek: () => ({ id: 'root', status: 'in_progress' }),
-        get: () => ({ setStatus: async (status: string) => { statuses.push(status) } }),
-      },
-    })
-    await store.completeTask({ id: 'root', taskId: 'root', tabIds: ['root-tab', 'child-tab'] } as SidebarTask)
-    expect(statuses).toEqual(['done'])
-    expect(store.closedTabIds).toEqual(['root-tab', 'child-tab'])
-    expect([...store.dismissedRowKeys]).toEqual([])
-    // WHY: the task is done at once but its tabs close only when the host
-    // answers. Recorded here, it is not kept on a collapsed Completed shelf as
-    // the row on screen, which flashed it there before it vanished.
-    expect([...store.completedHereTaskIds]).toEqual(['root'])
-  })
-
-  test('a failed completion leaves the conversation and task row open', async () => {
-    const store = sidebarStoreForDismissal()
-    Object.assign(store.session, {
-      tasksStore: {
-        peek: () => ({ id: 'root', status: 'in_progress' }),
-        get: () => ({ setStatus: async () => { throw new Error('Host disconnected') } }),
-      },
-    })
-    await expect(store.completeTask({ id: 'root', taskId: 'root', tabIds: ['root-tab'] } as SidebarTask))
-      .rejects.toThrow('Host disconnected')
-    expect(store.closedTabIds).toEqual([])
-    expect([...store.dismissedRowKeys]).toEqual([])
-    // A refused completion leaves the task where it was, reveal included.
-    expect([...store.completedHereTaskIds]).toEqual([])
-  })
-
-  test('reopening a shelved task puts its row back in the column', async () => {
-    // WHY: the Completed shelf lists finished work whether or not this client
-    // has the row open, so a task reopened from there leaves Completed and the
-    // column never listed it — the row would simply vanish under the pointer.
-    const store = sidebarStoreForDismissal()
-    store.dismissedRowKeys = new Set(['root'])
-    const statuses: Array<[string, string]> = []
-    store.session = {
-      showExplicitSidebarTaskSession: () => {},
-      clearSidebarTaskOccurrences: () => {},
-      tasksStore: {
-        loaded: true,
-        tasks: [{ id: 'root' }],
-        peek: (id: string) => (id === 'root' ? { id: 'root', status: 'done', sessions: [] } : null),
-        get: (id: string) => ({
-          sessions: [],
-          setStatus: (status: string) => {
-            statuses.push([id, status])
-            return Promise.resolve()
-          },
-        }),
-      },
-    }
-
-    await store.completeTask({ id: 'root', taskId: 'root', tabIds: [] } as SidebarTask)
-
-    expect(statuses).toEqual([['root', 'todo']])
-    expect([...store.openTaskIds]).toEqual(['root'])
-    expect([...(store.dismissedRowKeys as Set<string>)]).toEqual([])
-  })
-
-  test('reopening takes back a dropped ending as well as a completed one', async () => {
-    // WHY: the row draws one finished glyph for both endings, so the control
-    // under it has to reverse both. Reading only `done` turned the reopen click
-    // on a dropped row into a second completion.
-    const store = sidebarStoreForDismissal()
-    const statuses: Array<[string, string]> = []
-    store.session = {
-      showExplicitSidebarTaskSession: () => {},
-      clearSidebarTaskOccurrences: () => {},
-      tasksStore: {
-        loaded: true,
-        tasks: [{ id: 'root' }],
-        peek: () => ({ id: 'root', status: 'dropped', sessions: [] }),
-        get: (id: string) => ({
-          sessions: [],
-          setStatus: (status: string) => {
-            statuses.push([id, status])
-            return Promise.resolve()
-          },
-        }),
-      },
-    }
-
-    await store.completeTask({ id: 'root', taskId: 'root', tabIds: [] } as SidebarTask)
-
-    expect(statuses).toEqual([['root', 'todo']])
-  })
-
-  test('restoring a task restores every linked session', () => {
-    // WHY: selecting a task in the picker promises to put every prior attempt
-    // back under the expanded task, not only the draft it opens now.
-    const store = sidebarStoreForDismissal()
-    store.dismissedRowKeys = new Set([
-      'root',
-      'session:first-session',
-      'session:second-session',
-      'unrelated',
-    ])
-    store.session = {
-      showExplicitSidebarTaskSession: () => {},
-      tasksStore: {
-        peek: (taskId: string) => (taskId === 'root' ? { id: 'root' } : null),
-        get: () => ({ sessions: [{ sessionId: 'first-session' }, { sessionId: 'second-session' }] }),
-      },
-    }
-
-    store.restoreTask('root')
-
-    expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['unrelated'])
-    expect([...store.openTaskIds]).toEqual(['root'])
-  })
 })
 
 describe('session sidebar boot location', () => {
@@ -384,60 +217,5 @@ describe('session sidebar boot location', () => {
     store.settleBootLocation()
 
     expect(store.openedDraftCount).toBe(0)
-  })
-})
-
-describe('session sidebar rename', () => {
-  test('renaming a task names the task and nothing under it', async () => {
-    // WHY: renaming the row in place used to carry the new title down into the
-    // task's lead session as a manual rename, stamping a name onto a
-    // conversation the user never renamed — and reshaping its row out from
-    // under them mid-edit. The record is the only thing the edit owns.
-    const store = sidebarStoreForDismissal()
-    const updates: Array<[string, unknown]> = []
-    const renamedTabIds: string[] = []
-    store.session = {
-      tasksStore: {
-        get: (id: string) => ({
-          update: (patch: unknown) => {
-            updates.push([id, patch])
-            return Promise.resolve()
-          },
-        }),
-        sessionsByTask: new Map([['root', [{ sessionId: 'session-root' }]]]),
-      },
-    }
-    store.tabIdBySessionId = new Map([['session-root', 'root-tab']])
-    store.renameSession = (tabId: string) => {
-      renamedTabIds.push(tabId)
-      return Promise.resolve()
-    }
-
-    await store.renameTask(
-      { id: 'root', taskId: 'root', tabIds: ['root-tab'] } as SidebarTask,
-      'Ship the sidebar',
-    )
-
-    expect(updates).toEqual([['root', { title: 'Ship the sidebar' }]])
-    expect(renamedTabIds).toEqual([])
-  })
-
-  test('renaming a loose row renames the tab that is standing in for it', async () => {
-    // WHY: a row with no task record is named by its only conversation, so the
-    // session rename *is* the rename — dropping it would leave that row
-    // permanently unnameable.
-    const store = sidebarStoreForDismissal()
-    const renamedTabIds: string[] = []
-    store.renameSession = (tabId: string) => {
-      renamedTabIds.push(tabId)
-      return Promise.resolve()
-    }
-
-    await store.renameTask(
-      { id: 'loose-tab', tabIds: ['loose-tab'] } as SidebarTask,
-      'Background work',
-    )
-
-    expect(renamedTabIds).toEqual(['loose-tab'])
   })
 })

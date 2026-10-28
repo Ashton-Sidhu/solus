@@ -132,29 +132,27 @@ subagents use their provider's own result delivery.
 
 ## The lead session
 
-A task can have one **lead**: the session the task is talked to through
-(`docs/plans/task-conversation.md`). Selecting the task opens the lead's
-conversation with the task page beside it; the lead reads the prompt, starts
-workers as attempts on the same task with `start_session`, hears their reports,
-and answers. Its link on `task_session_links` has role `lead`; a task refuses a
-second one, and only a session started as lead is lead. Workers are ordinary
-`working` attempts.
+A **lead** is a parent that coordinates workers and keeps its own thread small.
+No session is a lead now: tasks no longer have a lead role
+(`docs/plans/task-conversation.md`). The parts below are kept for reuse, and
+nothing triggers them.
 
-The lead's task packet ends with the **lead contract**: coordinate, do not
+The **lead contract** (`formatLeadContract`) says: coordinate, do not
 implement beyond very small edits, start workers with the full brief and
 `report` on, answer from reports and `read_task_sessions` rather than by reading
 transcripts or source, keep replies short, write durable summaries into the
 task, and call `read_task_sessions` first when the user writes, but not after
-reports. After a restart, that first read helps the lead catch up. Saved queues remain
-held, and uncertain running requests end as interrupted.
+reports. The user's lead settings in Settings → Tasks follow it.
 
 A lead is woken as rarely as possible, because each wake reads its whole thread
 again. Its reports are held until the last message it waits on settles, and
 then reach it as one prompt, so it tells the user once that the work is done.
 Notices never reach a lead's model: the person answers on the card, and a rate
-limit resumes on its own. Stopping the lead drops the reports held for it.
+limit resumes on its own. Stopping the lead drops the reports held for it. The
+orchestrator asks `isLead` (an argument of `orchestrateSessions`, false for
+every session by default) which sessions get this rule.
 
-The lead is a parent in the orchestration layer's sense. A parent is not always
+A lead is a parent in the orchestration layer's sense. A parent is not always
 a lead: any session that starts another is its parent.
 
 When the user stops a parent, Solus also stops each session the parent started
@@ -172,9 +170,9 @@ for the user or another session. A host stop (an accepted plan) and an agent's
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. Reaches a session the sender started on another host (see below). `attachments` (also on `start_session`) takes up to 8 files on this host (10 MB each). When the message is sent, each file is uploaded to the attachment store of the host that runs the session, with the same upload code a client uses, in one folder per message. The session reads the file as it was when sent. PNG, JPEG, GIF and WebP go as image refs that the provider sees. Other files go as `[Attached file: <path>]` lines before the text. Every client shows both kinds as chips. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |
-| `read_session` | A session's status, task and messages. `since` returns only what came after a cursor. |
+| `read_session` | A session's status, task, pending input and timeline, in T3 Code's thread-read model. Every item has a fixed `position` and an `itemId`; a tool call and its result are one item, and rows inside a subagent are not on the timeline. `view` `messages` (default) gives the user and assistant messages and plans; `activity` gives every item, with tool input and output, reasoning and notices. A read starts at the beginning; `after_position=nextPosition` reads on. `limit` (default 50, at most 100) and `max_chars_per_item` (default 20,000, at most 50,000) keep a read small; a value over the bound reads the bound. A cut item continues with `item_id` and `text_offset=nextTextOffset`. The result is JSON. |
 | `read_task_sessions` | The task view: the task and every session working on it — whoever started it — with its status, what it waits on, its last message and its outputs. It reads durable records, so it works after a restart. |
-| `search_sessions` | Search past conversations by title, branch, pull request and what was said. Every word must be somewhere in the session (docs/plans/unified-search.md). |
+| `search_sessions` | Search past conversations by title, branch, pull request and what was said. Every word must be somewhere in the session (docs/plans/unified-search.md). Each result names the `item id` of the matched message, which `read_session` opens with `item_id`. A Claude history row has no provider id, so its item id is its role and time (`assistant@<ms>`). |
 | `list_agent_targets` | Providers and models this host can run, and the other hosts it can start sessions on. With `host`, what that host offers. |
 
 ### Sessions on another host

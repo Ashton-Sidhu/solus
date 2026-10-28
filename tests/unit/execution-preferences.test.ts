@@ -226,53 +226,6 @@ describe('what a session works under survives a host restart', () => {
   })
 })
 
-describe('a task keeps the lead preferences it was first led with', () => {
-  const worker = (model: string) => ({ provider: 'codex' as const, model, reasoningEffort: 'high' as const })
-  const lead = (model: string) => ({ provider: 'claude-code' as const, model, reasoningEffort: 'high' as const })
-
-  test('two people on one host keep different lead models, and a changed default does not reach an existing task', async () => {
-    const { installTestWorkspaceTools } = await import('./helpers/workspace-tools')
-    await installTestWorkspaceTools()
-    const { createTask } = await import('@solus/server/data/tasks/task-store')
-    const leadPreferences = await import('@solus/server/data/tasks/task-lead-preferences')
-    const alice: ExecutionPreferences = { leadModel: lead('alice-lead'), workerModel: worker('alice-worker'), leadInstructions: 'Alice leads.', agentTaskLifecyclePolicy: 'autonomous' }
-    const bob: ExecutionPreferences = { leadModel: lead('bob-lead'), workerModel: worker('bob-worker'), leadInstructions: 'Bob leads.', agentTaskLifecyclePolicy: 'none' }
-    const aliceTask = await createTask('local', { title: 'Alice task', projectKey: '/p', body: '' })
-    const bobTask = await createTask('local', { title: 'Bob task', projectKey: '/p', body: '' })
-    const { runtime, backends } = await runtimeWith()
-    const leadTurn = (sessionId: string, taskId: string, preferences: ExecutionPreferences) => ({
-      ...turn(sessionId, input('codex', 'full-access', preferences)),
-      options: { prompt: sessionId, promptSource: 'typed' as const, taskId, taskRole: 'lead' as const },
-    })
-    await (await runtime.runTurn(leadTurn('alice-lead-session', aliceTask.id, alice))).agentSessionId
-    expect(backends.codex.requests.at(-1)?.systemPrompt).toContain("model_id 'alice-worker'")
-    await (await runtime.runTurn(leadTurn('bob-lead-session', bobTask.id, bob))).agentSessionId
-    expect(backends.codex.requests.at(-1)?.systemPrompt).toContain("model_id 'bob-worker'")
-    expect((await leadPreferences.taskLeadPreferences(aliceTask.id))?.preferences).toEqual({ leadModel: alice.leadModel, workerModel: alice.workerModel, leadInstructions: 'Alice leads.', agentTaskLifecyclePolicy: 'autonomous' })
-    expect((await leadPreferences.taskLeadPreferences(bobTask.id))?.preferences.leadModel).toEqual(bob.leadModel)
-
-    // Alice changes her defaults. Her next turn to the lead — queued, then run
-    // when the lead is free — still works from what her task captured.
-    const changed: ExecutionPreferences = { leadModel: lead('alice-new-lead'), workerModel: worker('alice-new-worker'), leadInstructions: 'Changed.', agentTaskLifecyclePolicy: 'none' }
-    const before = backends.codex.requests.length
-    await runtime.runTurn({
-      target: { kind: 'session', sessionId: 'alice-lead-session' }, sessionId: 'alice-lead-session', input: input('codex', 'full-access', changed),
-      tools: [], options: { prompt: 'next', promptSource: 'typed', delivery: 'queue', taskId: aliceTask.id },
-    })
-    backends.codex.cancelSession('thread-alice-lead-session')
-    await until(() => backends.codex.requests.length > before)
-    const followUp = backends.codex.requests.at(-1)?.systemPrompt ?? ''
-    expect(followUp).toContain("model_id 'alice-worker'")
-    expect(followUp).toContain('Alice leads.')
-    expect(followUp).not.toContain('alice-new-worker')
-    expect(sessionSettings.sessionSettings('alice-lead-session')?.preferences?.agentTaskLifecyclePolicy).toBe('autonomous')
-    expect((await leadPreferences.taskLeadPreferences(aliceTask.id))?.preferences.leadModel).toEqual(alice.leadModel)
-    // Bob's task is not touched by either of Alice's choices.
-    expect((await leadPreferences.taskLeadPreferences(bobTask.id))?.preferences.workerModel).toEqual(bob.workerModel)
-    runtime.shutdown()
-  })
-})
-
 // ─── Tools ───
 
 function namedTool(name: string): AgentTool {

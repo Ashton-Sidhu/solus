@@ -54,6 +54,8 @@
     workspaceWidth: number;
     /** Temporarily minimize without changing the role's persisted preference. */
     minimized?: boolean;
+    /** The user opened the rail in a view too narrow for it to open alone. */
+    revealed?: boolean;
     /** False while the owning workspace surface is mounted but hidden. */
     active?: boolean;
     /** Collapse the rail through its owning conversation so transient and
@@ -66,6 +68,7 @@
     containerWidth,
     workspaceWidth,
     minimized = false,
+    revealed = false,
     active = true,
     onCollapse,
   }: Props = $props();
@@ -153,7 +156,7 @@
   // honour it. Temporary minimization leaves that preference intact, so the
   // rail returns when the secondary panel closes.
   const open = $derived(
-    isProjectRailOpen(preferOpen, containerWidth, minimized),
+    isProjectRailOpen(preferOpen, containerWidth, minimized, revealed),
   );
 
   const panelSession = $derived(session.sessionFor(sourceId));

@@ -30,6 +30,7 @@
   import { taskOfTab, unlinkTabFromTask } from "../../contexts/workspace/session-task-link";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { checkoutGit } from "../../contexts/workspace/run-location";
+  import { sessionPullRequestsStore } from "../../contexts/prs/session-pull-requests.store.svelte";
 
   interface Props {
     x: number;
@@ -415,7 +416,7 @@
       {#if canDrive && sess?.agentSessionId}
         <ContextMenu.Item onSelect={linkPullRequest}>
           <GitPullRequestIcon />
-          Link Pull Request…
+          {sessionPullRequestsStore.linksFor(sess.id).length ? "Pull Requests…" : "Link Pull Request…"}
         </ContextMenu.Item>
       {/if}
       <ContextMenu.Separator />

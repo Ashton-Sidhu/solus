@@ -48,10 +48,9 @@ The host's existing `status_card` event is part of the normalized event contract
 It carries bounded output (up to 100 lines, 2,048 characters per line) and the
 base branch needed for retry. The UI shows actual stages: branch and worktree
 creation, workspace linking, and provider startup. A joining client can read the
-latest setup state before a provider runtime exists. On the phone, Details
-shows the last four output lines in a fixed window. Desktop and web show the
-setup in the general setup card shell and show the same window when setup
-fails. Failure offers retry and work locally;
+latest setup state before a provider runtime exists. The last eight output
+lines show in the terminal panel: in Details on the phone, and in the setup
+card when setup fails on desktop and web. Failure offers retry and work locally;
 active setup offers cancel. Completion ends the active stages.
 
 These are setup operation messages. Solus has no setup-script runner in this

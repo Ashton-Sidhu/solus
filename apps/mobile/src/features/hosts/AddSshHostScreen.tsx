@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { sshAddStatusCard } from "@solus/client-core/ssh-progress";
 
 import { AppText as Text } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -13,7 +15,7 @@ import { SettingsRow } from "../settings/components/SettingsRow";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
-import { sshProgressLines } from "./lib/ssh-add";
+import { StageRow } from "../threads/WorktreeSetupCard";
 import { useSshAdd } from "./use-ssh-add";
 
 /**
@@ -27,6 +29,15 @@ export function AddSshHostScreen({ navigation, route }: ScreenProps<"AddSshHost"
   const { phase, runner } = add;
   const runnerLabel = runner?.label ?? "the host";
   const showsForm = phase.kind === "form" || phase.kind === "ask-auth" || phase.kind === "ask-target";
+  const { setIdentityFile } = add;
+
+  // A key chosen in ChooseSshKey comes back as a route parameter: apply it once.
+  const chosenKey = route.params?.identityFile;
+  useEffect(() => {
+    if (chosenKey === undefined) return;
+    setIdentityFile(chosenKey);
+    navigation.setParams({ identityFile: undefined });
+  }, [chosenKey, navigation, setIdentityFile]);
 
   return (
     <SettingsScreen title="Add over SSH">
@@ -69,6 +80,29 @@ export function AddSshHostScreen({ navigation, route }: ScreenProps<"AddSshHost"
               onChangeText={add.setSshTarget}
               onSubmitEditing={() => void add.submit()}
             />
+
+            <View className="gap-3">
+              <ConnectionFormField
+                label="Identity file (optional)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="~/.ssh/my-key.pem"
+                returnKeyType="go"
+                value={add.identityFile}
+                onChangeText={add.setIdentityFile}
+                onSubmitEditing={() => void add.submit()}
+              />
+              <SettingsSection>
+                <SettingsRow
+                  icon="folder"
+                  label="Browse…"
+                  disabled={!runner}
+                  accessibilityHint={`Shows the files in ~/.ssh on ${runnerLabel}`}
+                  onPress={() => runner && navigation.navigate("ChooseSshKey", { hostId: runner.hostId })}
+                />
+              </SettingsSection>
+              <SettingsNote>{`A private key on ${runnerLabel}, as with ssh -i. Empty: its SSH keys and ~/.ssh/config.`}</SettingsNote>
+            </View>
 
             {phase.kind === "ask-target" && phase.candidates.length > 0 ? (
               <SettingsSection title="Targets from SSH">
@@ -141,25 +175,18 @@ export function AddSshHostScreen({ navigation, route }: ScreenProps<"AddSshHost"
         ) : phase.kind === "running" ? (
           <View className="gap-3">
             <SettingsSection title={`${runnerLabel} is adding the machine`}>
-              {sshProgressLines(phase.progress).map((line) => (
-                <View key={line.step} className="flex-row items-center gap-3 p-4">
-                  {line.isCurrent ? (
-                    <ActivityIndicator accessibilityLabel={line.title} colorClassName="accent-icon-muted" />
-                  ) : null}
-                  <View className="min-w-0 flex-1">
-                    <Text className={line.isCurrent ? "text-lg text-foreground" : "text-lg text-foreground-muted"}>
-                      {line.title}
-                    </Text>
-                    <Text className="text-xs text-foreground-muted">{line.message}</Text>
-                  </View>
-                </View>
-              ))}
               {phase.progress.length === 0 ? (
                 <View className="flex-row items-center gap-3 p-4">
                   <ActivityIndicator accessibilityLabel="Starting" colorClassName="accent-icon-muted" />
                   <Text className="text-lg text-foreground">Starting</Text>
                 </View>
-              ) : null}
+              ) : (
+                <View className="px-4 py-2">
+                  {sshAddStatusCard(phase.progress, { target: add.sshTarget.trim(), standing: "running", resultMessage: "", error: "" }).steps.map((step) => (
+                    <StageRow key={step.id} step={step} compact />
+                  ))}
+                </View>
+              )}
             </SettingsSection>
             <SettingsNote>This can take a few minutes when Solus installs on the machine.</SettingsNote>
           </View>

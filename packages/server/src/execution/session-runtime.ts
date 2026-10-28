@@ -12,7 +12,6 @@ import { isWindowClosed } from './rate-limits'
 import { UsageLimitsStore } from '../usage/usage-store'
 import { AttentionService } from '../attention/attention-service'
 import { prepareSessionTask } from '../data/tasks/task-sessions'
-import { captureTaskLeadPreferences, taskLeadPreferences, taskLeadPreferencesOfSession, withTaskLeadPreferences } from '../data/tasks/task-lead-preferences'
 import { recordSessionExecutionPreferences } from '../data/sessions/session-states'
 import { ResponseTextBuffer } from './sessions/response-text-buffer'
 import { inheritedOrganizationOf, parentSessionIdOf, recordSessionSettings } from './sessions/session-settings'
@@ -46,6 +45,7 @@ import { ProviderHandoffs } from './sessions/provider-handoffs'
 import { SessionCheckouts } from './sessions/session-checkouts'
 import { PromptDispatch } from './sessions/prompt-dispatch'
 import { hasOpenBackgroundQuery } from './sessions/background-work'
+import { TurnStops } from './sessions/turn-stops'
 
 const log = createLogger('SessionRuntime', 'session-runtime.ts')
 
@@ -182,6 +182,8 @@ export class SessionRuntime extends EventEmitter {
   readonly providerEvents = new ProviderEvents(this)
   readonly inputRequests = new InputRequests(this)
   readonly launcher = new RunLauncher(this)
+  /** The stop of each session's current turn (docs/plans/turn-stop.md). */
+  readonly turnStops = new TurnStops()
   readonly watchers = new SessionWatchers(this)
   readonly history = new SessionHistory(this)
   readonly handoffs: ProviderHandoffs
@@ -246,7 +248,8 @@ export class SessionRuntime extends EventEmitter {
    *  watching it, a worktree being prepared, a run — or its lineage is recorded. */
   hasSession(sessionId: string): boolean {
     return this.activeSessions.has(sessionId) || this.watchers.watches.has(sessionId)
-      || this.launcher.pendingSetupControllers.has(sessionId) || this.launcher.failedSetupPrompts.has(sessionId)
+      || this.launcher.pendingSetupControllers.has(sessionId) || this.turnStops.has(sessionId)
+      || this.launcher.failedSetupPrompts.has(sessionId)
       || resolveSessionLineageById(sessionId) !== null
   }
 
@@ -295,23 +298,6 @@ export class SessionRuntime extends EventEmitter {
       await inheritSessionOrganization(request.sessionId, organizationId)
     }
     recordSessionSettings(request.sessionId, { organizationId, preferences: request.input.executionPreferences })
-  }
-
-  /**
-   * A task's runs use the lead preferences the task captured when it was first
-   * led (plans/018 §3.1), not the current ones of whoever sent the turn; the
-   * first lead dispatch captures them from its sender. A client names the task
-   * on every typed turn of a task session, so only a run nobody typed (a lead
-   * woken in the background) looks its task up through its link.
-   */
-  async useTaskLeadPreferences(request: SessionRunRequest): Promise<void> {
-    const { taskId, taskRole, taskSnapshot, promptSource = 'typed' } = request.options
-    // A foreign task's row, and its capture, live on another host.
-    if (taskSnapshot || (!taskId && promptSource === 'typed')) return
-    const preferences = request.input.executionPreferences
-    let captured = taskId ? await taskLeadPreferences(taskId) : await taskLeadPreferencesOfSession(request.sessionId)
-    if (!captured && taskId && taskRole === 'lead' && preferences) captured = await captureTaskLeadPreferences(taskId, preferences)
-    if (captured) request.input.executionPreferences = withTaskLeadPreferences(preferences, captured)
   }
 
   /** What the transcript mirror needs to read a session's history: the provider,
@@ -691,37 +677,9 @@ export class SessionRuntime extends EventEmitter {
     moveController?.abort(new Error('Interrupted'))
     this.sessionCheckouts.worktreeMoves.delete(sessionId)
 
-    // Worktree creation happens before a backend RunHandle exists. Cancel it
-    // first or Stop would report failure while setup continued into a new run.
-    const setupController = this.launcher.pendingSetupControllers.get(sessionId)
-    if (setupController) {
-      // The prompts queued behind it were written for the worktree that now
-      // never exists; run in the project folder they would do something else.
-      this.scheduler.drainQueue(sessionId)
-      setupController.abort(new Error('Interrupted'))
-      this.launcher.pendingSetupControllers.delete(sessionId)
-      this.sessionEmitter.recordTerminal(sessionId, 'interrupted')
-      stopped()
-      return true
-    }
-
-    const session = this.activeSessions.get(sessionId)
-    // Stop is the way out of a task that never settles: cancelling the query
-    // is what ends the work the agent left running, held or not.
-    if (session?.agentSessionId && (isSessionBusyStatus(session.status) || hasOpenBackgroundQuery(session))) {
-      const cancelled = this.backendFor(session.backendId).cancelSession(session.agentSessionId)
-      if (cancelled) {
-        this.sessionEmitter.recordTerminal(sessionId, 'interrupted')
-        stopped()
-        return true
-      }
-    }
-
-    // Fall back to pre-session_init handles owned by any backend.
-    for (const backend of this.backends.values()) {
-      const handle = backend.getPendingHandles().find((h) => h.sessionId === sessionId)
-      if (!handle) continue
-      handle.abortController.abort()
+    // The turn's open phase says what its work is: the launch, a setup, the
+    // provider run, or the background work the run left (docs/plans/turn-stop.md).
+    if (this.turnStops.get(sessionId)?.stop()) {
       this.sessionEmitter.recordTerminal(sessionId, 'interrupted')
       stopped()
       return true

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  PullRequestHead,
   isRepositoryKey,
   localProjectKey,
   parseRemoteUrls,
@@ -63,5 +64,25 @@ describe('repository key', () => {
     expect(isRepositoryKey('github.com/acme/web')).toBe(true)
     expect(isRepositoryKey('/Users/me/web')).toBe(false)
     expect(isRepositoryKey(localProjectKey('host-a', '/Users/me/scratch'))).toBe(false)
+  })
+})
+
+describe('pull request head', () => {
+  const pr = (owner: string, headRef: string) => ({ baseRepo: { host: 'github.com' }, headRepo: { owner, repo: 'litellm' }, headRef })
+
+  test("a branch of the same name in another fork is not the head", () => {
+    // WHY: GitHub matches a branch name in every fork. A session on `main` in
+    // a fork must not claim the pull request a stranger opened from their `main`.
+    const head = new PullRequestHead({ host: 'github.com', owner: 'Me', repo: 'LiteLLM' }, 'main')
+    expect(head.isHeadOf(pr('stranger', 'main'))).toBe(false)
+    expect(head.isHeadOf(pr('BerriAI', 'main'))).toBe(false)
+    expect(head.isHeadOf(pr('me', 'main'))).toBe(true)
+  })
+
+  test('the branch name is exact, and the key tells heads apart', () => {
+    // WHY: Git branch names are case-sensitive; repository names on GitHub are not.
+    const head = new PullRequestHead({ host: 'github.com', owner: 'me', repo: 'litellm' }, 'Fix')
+    expect(head.isHeadOf(pr('me', 'fix'))).toBe(false)
+    expect(PullRequestHead.of(pr('ME', 'Fix')).key).toBe(head.key)
   })
 })

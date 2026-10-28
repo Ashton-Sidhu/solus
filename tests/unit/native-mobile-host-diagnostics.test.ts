@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { hostDiagnosticsText } from '@solus/client-core/host-diagnostics'
 import type { HostReadinessState } from '@solus/client-core/host-readiness'
 import { hostSettingsErrorText } from '../../apps/mobile/src/features/settings/host-settings'
-import { hostAsleepVeilCopy, threadHostChrome } from '../../apps/mobile/src/features/threads/lib/thread-host-chrome'
+import { hostAsleepCardCopy, threadHostChrome } from '../../apps/mobile/src/features/threads/lib/thread-host-chrome'
 import { createHostWorld } from './helpers/native-mobile-fakes'
 
 // A host that is away puts its thread to sleep under one statement of what
@@ -85,8 +85,8 @@ describe('the thread for a host that is not ready', () => {
 
   test('a host that is away puts the thread to sleep with no composer and no whisper, also while a retry dials', () => {
     // WHY: a composer the host cannot answer only collects messages that fail,
-    // so nothing takes its place: the veil over the thread says what happened.
-    // A retry dials as `checking`, but the veil says so: a whisper too would
+    // so the asleep card takes its place and says what happened.
+    // A retry dials as `checking`, but the card says so: a whisper too would
     // say it twice. The thread stays asleep until the host is ready again.
     expect(threadHostChrome({ readiness: 'unreachable', away: true })).toMatchObject({ showsComposer: false, showsGraceWhisper: false, isAsleep: true })
     expect(threadHostChrome({ readiness: 'checking', away: true })).toMatchObject({ showsComposer: false, showsGraceWhisper: false, isAsleep: true })
@@ -103,34 +103,34 @@ describe('the thread for a host that is not ready', () => {
     expect(threadHostChrome({ readiness: 'reconnecting', away: false })).toMatchObject({ showsRequestCards: true, showsAgentsPill: true })
   })
 
-  test('the veil states what happened in the shared words, with its one action', () => {
+  test('the asleep card states what happened in the shared words, with its one action', () => {
     // WHY: desktop, web, and the phone say the same sentence for the same host
     // state. The detail promises a retry only for a host that does not answer:
     // a refused, removed, or stopped host stays away until the person acts.
     const now = 10 * 60_000
-    expect(hostAsleepVeilCopy(away({ lastSeenAt: now - 4 * 60_000 }), 'Raiders', false, now)).toEqual({
+    expect(hostAsleepCardCopy(away({ lastSeenAt: now - 4 * 60_000 }), 'Raiders', false, now)).toEqual({
       heading: 'Raiders is offline.',
       detail: 'Last seen 4 min ago. Solus keeps trying.',
       isDialing: false,
       action: 'retry',
     })
-    expect(hostAsleepVeilCopy(away({ readiness: 'refused', refusedReason: 'auth', unreachableReason: null }), 'Raiders', false)).toEqual({
+    expect(hostAsleepCardCopy(away({ readiness: 'refused', refusedReason: 'auth', unreachableReason: null }), 'Raiders', false)).toEqual({
       heading: 'Raiders needs pairing again.',
       detail: 'The host no longer accepts this device.',
       isDialing: false,
       action: 'pair-again',
     })
-    expect(hostAsleepVeilCopy(away({ unreachableReason: 'not-running' }), 'Raiders', false)).toEqual({ heading: 'Raiders is not running.', detail: null, isDialing: false, action: 'start' })
-    expect(hostAsleepVeilCopy(away({ readiness: 'gone', unreachableReason: null }), 'Raiders', false)).toMatchObject({ detail: null, action: null })
+    expect(hostAsleepCardCopy(away({ unreachableReason: 'not-running' }), 'Raiders', false)).toEqual({ heading: 'Raiders is not running.', detail: null, isDialing: false, action: 'start' })
+    expect(hostAsleepCardCopy(away({ readiness: 'gone', unreachableReason: null }), 'Raiders', false)).toMatchObject({ detail: null, action: null })
   })
 
-  test('while a retry or a start dials, the veil says so and offers no action or detail', () => {
+  test('while a retry or a start dials, the asleep card says so and offers no action or detail', () => {
     // WHY: a Retry during a dial starts a second dial that hides which one
     // failed; a second Start asks the account to start the machine twice. A
     // "Solus keeps trying" detail under "Trying again" says the same thing twice.
     const dialing = { heading: 'Trying Raiders again…', detail: null, isDialing: true, action: null }
-    expect(hostAsleepVeilCopy(away({ readiness: 'checking' }), 'Raiders', false)).toEqual(dialing)
-    expect(hostAsleepVeilCopy(away({ unreachableReason: 'not-running' }), 'Raiders', true)).toEqual(dialing)
+    expect(hostAsleepCardCopy(away({ readiness: 'checking' }), 'Raiders', false)).toEqual(dialing)
+    expect(hostAsleepCardCopy(away({ unreachableReason: 'not-running' }), 'Raiders', true)).toEqual(dialing)
   })
 })
 

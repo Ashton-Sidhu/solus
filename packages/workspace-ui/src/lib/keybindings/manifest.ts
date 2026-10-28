@@ -6,15 +6,15 @@ export const KEYBINDINGS = {
   'global.open-host-project': { combo: { mod: true, code: 'KeyO' }, web: { alt: true, code: 'KeyO' }, scope: 'global', label: 'Open project on current host', group: 'General' },
   'global.select-project':    { combo: { mod: true, shift: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyO' }, scope: 'global', label: 'Open project',             group: 'General' },
   // A session has no task unless it joins one. `global.new-session` starts a
-  // session on its own; `global.new-task` opens the task composer, and the new
-  // task then opens as the split view (docs/plans/task-conversation.md).
+  // session on its own; `global.new-task` files a task and opens its page. It
+  // has no default key.
   'global.new-session':       { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New session',              group: 'Tasks' },
   'global.new-session-without-task': { combo: { mod: true, shift: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
   // A chat has no project. ⌘⌥N sits beside the new-session family, and no
   // browser claims it, so web keeps the same combo.
   'global.new-chat':          { combo: { mod: true, alt: true, code: 'KeyN' },            scope: 'global',             label: 'New chat',                 group: 'Tasks' },
   'global.new-session-in-task': { combo: null,                                             scope: 'global',             label: 'New session in task',      group: 'Tasks' },
-  'global.new-task':          { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New task',                 group: 'Tasks' },
+  'global.new-task':          { combo: null,                                             scope: 'global',             label: 'New task',                 group: 'Tasks' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
   'global.next-tab':          { combo: { ctrl: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowRight' }, scope: 'global', label: 'Next branch / tab',     group: 'Tabs' },
@@ -146,6 +146,11 @@ export const KEYBINDINGS = {
   // card, pinned, on the focused row. No hover state is ever required to reach
   // information.
   'workspace.peek':               { combo: { code: 'Space' },                              scope: 'workspace',          label: 'Peek',                     group: 'Workspace' },
+  // The three groups of the page, one key each: the reader's own works, the
+  // works shared with them, the sessions shared with them.
+  'workspace.tab-yours':          { combo: { alt: true, code: 'Digit1' },                  scope: 'workspace',          label: 'Your works',               group: 'Workspace' },
+  'workspace.tab-shared-works':   { combo: { alt: true, code: 'Digit2' },                  scope: 'workspace',          label: 'Shared works',             group: 'Workspace' },
+  'workspace.tab-shared-sessions':{ combo: { alt: true, code: 'Digit3' },                  scope: 'workspace',          label: 'Shared sessions',          group: 'Workspace' },
 
   // ── Plan review ────────────────────────────────────────────────────────────
   'plan-review.approve-ask':      { combo: { alt: true, code: 'KeyY' },                    scope: 'plan-action-bar',    label: 'Approve (ask mode)',       group: 'Review' },

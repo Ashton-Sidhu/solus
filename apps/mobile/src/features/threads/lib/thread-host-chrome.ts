@@ -7,11 +7,11 @@ import {
 
 /**
  * What a thread shows for its host's readiness (docs/plans/host-readiness.md).
- * Inside the grace a drop is short: the composer stays and one whisper over it
- * says the host is reconnecting. Once the host is away, the thread goes to
- * sleep: it dims and takes no touch under one statement of what happened, and
- * nothing that needs the host shows. The queue pill stays: it shows what waits
- * to send.
+ * Inside the grace a drop is short: the composer stays, disabled, and one
+ * whisper over it says the host is reconnecting. Once the host is away, one
+ * statement of what happened takes the composer's place; the thread above stays
+ * readable, and nothing that needs the host shows. The queue pill stays: it
+ * shows what waits to send.
  */
 export interface ThreadHostChrome {
   showsComposer: boolean
@@ -22,8 +22,8 @@ export interface ThreadHostChrome {
   /** The Agents pill opens agents that only the host can stop or follow. */
   showsAgentsPill: boolean
   /**
-   * The thread dims under the asleep veil. An empty thread shows only the veil:
-   * no loading spinner and no "No conversation yet", which the host must answer.
+   * The asleep card takes the composer's place. An empty thread shows only the
+   * card: no loading spinner and no "No conversation yet", which the host must answer.
    */
   isAsleep: boolean
 }
@@ -38,8 +38,8 @@ export function threadHostChrome(state: Pick<HostReadinessState, 'readiness' | '
   }
 }
 
-/** The statement over a sleeping thread. Details is always there; the rest follows the dial. */
-export interface HostAsleepVeilCopy {
+/** The statement in the composer's place while the host is away. Details is always there; the rest follows the dial. */
+export interface HostAsleepCardCopy {
   /** "Raiders is offline." or "Trying Raiders again…". */
   heading: string
   /** "Last seen 4 min ago. Solus keeps trying."; none while a dial runs. */
@@ -54,12 +54,12 @@ export interface HostAsleepVeilCopy {
  * `isStarting` is true while this client asked a managed host to start and
  * has no answer yet: that is a dial too, so the Start button does not show twice.
  */
-export function hostAsleepVeilCopy(
+export function hostAsleepCardCopy(
   state: HostReadinessState,
   hostLabel: string,
   isStarting: boolean,
   now = Date.now(),
-): HostAsleepVeilCopy {
+): HostAsleepCardCopy {
   const isDialing = isStarting || isWaitingForHost(state.readiness)
   if (isDialing) return { heading: `Trying ${hostLabel} again…`, detail: null, isDialing, action: null }
   const copy = hostReadinessCopy(state, hostLabel, now)

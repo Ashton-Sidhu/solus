@@ -1,4 +1,4 @@
-import type { AgentId, Attachment, Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RequestExpiry, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
+import type { AgentId, Attachment, Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RequestExpiry, RuntimeSessionInfo, TodoItem, SessionProgress, Session, SessionMeta, DiffComment, PlanComment } from '@solus/contracts/types'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import { formatReviewComment } from '@solus/contracts/review-comment'
 import { attributionLabel } from '@solus/contracts/user'
@@ -348,6 +348,15 @@ export function applyRuntimeConfig(session: Session, info: RuntimeSessionInfo): 
     session.run.modelConfig.fastMode = info.modelConfig.fastMode
   }
   if (info.permissionMode) session.run.permissionMode = info.permissionMode
+}
+
+/**
+ * The session that started this one. A local child has a `delegation` record; a
+ * child that an agent on another host started has only its origin (`startedBy`,
+ * docs/plans/cross-host-sessions.md §5.5). Both nest under the parent's row.
+ */
+export function parentSessionIdOf(meta: Pick<SessionMeta, 'delegation' | 'startedBy'>): string | undefined {
+  return meta.delegation?.parentSessionId ?? meta.startedBy?.sessionId
 }
 
 /**

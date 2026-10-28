@@ -3,21 +3,21 @@ import { cloudModeScenario } from '../../src/cloud-mode'
 import { controlTokenWith, directory, hostKeyOf, removeHost, uplinkStatus } from '../../src/cloud-fixtures'
 
 /**
- * Registration apart from link (docs/adr/0001-standard-authentication.md §2.2 rules 8
- * and 9, "Registration apart from link"): a signed-in owner registers a host with no
- * link; the directory lists it with no internet route. "Remove host" ends the
+ * Registration (docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9): a
+ * signed-in owner registers a host, and the new registration links it, so the directory
+ * lists it with its tunnel route for every device she signs in on. "Remove host" ends the
  * registration, and the host reads as not registered. Registering again keeps the host
  * id, advances the generation, and rotates the key: the old key gets no token.
  */
-export default cloudModeScenario('registration: no link, remove host, register again with a new key', async (ctx) => {
+export default cloudModeScenario('registration: links, remove host, register again with a new key', async (ctx) => {
   const persona = ctx.stack.personas.alice
   const alice = await ctx.signIn('alice')
   const host = await ctx.bootHost()
 
-  ctx.step('alice registers the host; no link')
+  ctx.step('alice registers the host; it links')
   const first = await registerHost(ctx.stack, host, alice)
   ctx.check('uplinkStatus: registered', first.registration.registered)
-  ctx.check('uplinkStatus: not linked', !first.link.linked)
+  ctx.check('uplinkStatus: linked', first.link.linked)
   if (!first.registration.registered) return
   const hostId = first.registration.registration.hostId
   const firstGeneration = first.registration.registration.generation
@@ -30,7 +30,7 @@ export default cloudModeScenario('registration: no link, remove host, register a
   const listed = (await directory(ctx.stack, alice)).find((entry) => entry.hostId === hostId)
   ctx.check('the directory lists the host', listed !== undefined)
   ctx.check('it is alice\'s personal host', listed?.kind === 'personal', listed?.kind)
-  ctx.check('it has no internet route', listed?.routes.length === 0, JSON.stringify(listed?.routes))
+  ctx.check('it has its tunnel route', listed?.routes.length === 1 && listed.routes[0]?.kind === 'tunnel', JSON.stringify(listed?.routes))
   const firstKey = hostKeyOf(host)
   ctx.check('the host keeps its key', firstKey !== null && firstKey.clientId === `host_${hostId}`, firstKey?.clientId)
   if (!firstKey) return
@@ -56,11 +56,11 @@ export default cloudModeScenario('registration: no link, remove host, register a
   if (!second.registration.registered) return
   ctx.check('the host id is the same', second.registration.registration.hostId === hostId, second.registration.registration.hostId)
   ctx.check('the generation advanced', second.registration.registration.generation > firstGeneration, `${firstGeneration} → ${second.registration.registration.generation}`)
-  ctx.check('still not linked', !second.link.linked)
+  ctx.check('the new registration linked it again', second.link.linked)
   const secondKey = hostKeyOf(restarted)
   ctx.check('the key is new', secondKey !== null && secondKey.privateJwk.x !== firstKey.privateJwk.x)
   const relisted = (await directory(ctx.stack, alice)).find((entry) => entry.hostId === hostId)
-  ctx.check('the directory lists it again, with no route', relisted !== undefined && relisted.routes.length === 0)
+  ctx.check('the directory lists it again, with its tunnel route', relisted?.routes.length === 1 && relisted.routes[0]?.kind === 'tunnel', JSON.stringify(relisted?.routes))
 
   ctx.step('the token endpoint takes only the new key')
   const old = await controlTokenWith(ctx.stack, firstKey)

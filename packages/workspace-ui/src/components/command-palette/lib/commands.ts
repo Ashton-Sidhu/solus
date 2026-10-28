@@ -57,6 +57,19 @@ export function filterCommands(commands: Command[], query: string): Command[] {
   return commands.filter((c) => commandSearchText(c).includes(q))
 }
 
+/** A sub-page can hold a command per branch, which is thousands in a large
+ *  repository. The palette mounts at most this many of its rows; a search
+ *  reaches the rest. */
+export const SUB_PAGE_ROWS_SHOWN = 100
+
+/** The commands a page shows for a search, and how many matches it leaves
+ *  out. The root page is a fixed set of commands, so only a sub-page is cut. */
+export function commandsShown(commands: Command[], query: string, isSubPage: boolean) {
+  const matched = filterCommands(commands, query)
+  const shown = isSubPage ? matched.slice(0, SUB_PAGE_ROWS_SHOWN) : matched
+  return { shown, hiddenCount: matched.length - shown.length }
+}
+
 /** Group commands by their `group`, preserving first-seen order. */
 export function groupCommands(commands: Command[]): CommandGroup[] {
   const map = new Map<string, Command[]>()

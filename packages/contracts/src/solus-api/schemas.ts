@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { activitySchema } from '../activity'
 import { hubNotificationSchema } from '../notification-hub'
-import { resourceRoleSchema } from '../sharing'
+import { resourceRoleSchema, shareSummarySchema } from '../sharing'
 
 const datetime = z.iso.datetime({ offset: true })
 const nullableText = (max: number) => z.string().max(max).nullable()
@@ -172,6 +172,8 @@ export const workspaceWorkSummarySchema = z.strictObject({
   cwd: z.string().max(4096),
   agentProvider,
   mirroredDoc: workspaceLinkedDocumentSchema.optional(),
+  /** Who else may open it (docs/workspace-page.md). Absent from a host older than the field. */
+  share: shareSummarySchema.optional(),
 }).meta({ description: 'Work metadata without the content. Read an individual work for its content.', examples: [workExample] })
 export type WorkspaceWorkSummary = z.infer<typeof workspaceWorkSummarySchema>
 

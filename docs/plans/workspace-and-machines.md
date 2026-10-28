@@ -315,7 +315,8 @@ skipped where it is cheap to know: startup prefetch, review-guide probes.
 **One owner moves references.** `reconcileMachineReferences`
 (`contexts/workspace/machine-references.ts`) makes the workspace stop pointing
 at a gone host. It runs from `initializeRuntime` after restore, on every
-successful directory read, and when a machine connects — but only once a
+successful directory read, when a machine connects, and when a forgotten host
+is released to a gone connection — but only once a
 directory has answered this load (`markDirectoryAnswered`), or when the client
 has no directory. Before that, a gone host's calls fail and nothing is moved:
 
@@ -325,7 +326,10 @@ has no directory. Before that, a gone host's calls fail and nothing is moved:
 | the kept project list (`projectsStore`) | dropped: its projects are not away, and their checkouts cannot be read |
 | an unstarted draft or tab | moved to where a new session starts (the default machine and its folder), as a fresh draft would be; with no machine, it stays until one connects |
 | a draft opened from a task | moves as above and keeps the task's home, unless that is gone too |
-| a started tab | kept on its machine, since its conversation lives there, and made read-only (`GONE_MACHINE_READ_ONLY_REASON`, the composer's text); a restored one reads the transcript its record home mirrored: the workspace service of the session's organization (`recordHomeOf`, from `Session.organizationId`, which the host reports from the session record and the tab keeps), never the window's default host. Its older pages are read there too (`apiForSession`). A personal session, or one the service holds no copy of, says so in the composer (`GONE_MACHINE_NO_RECORD_REASON`) (`hydrateTabOnGoneMachine`, `session-bootstrap.ts`) |
+| a started tab | closed: forgetting a machine takes its conversations with it. An organization session stays in the list its workspace service keeps and opens from there. A restored tab that `hydrateTab` reaches before the pass runs is read-only meanwhile (`hydrateTabOnGoneMachine`, `session-bootstrap.ts`) |
+
+The session list (`sessionListStore.forgetHost`) drops the rows whose home was
+the forgotten host at the same moment.
 
 Other kept data keyed by host is left alone: board order and view modes call no
 host, unsent work edits are the user's content (`askBeforeDiscardingUnsent`), and

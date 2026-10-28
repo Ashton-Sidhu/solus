@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import type { SessionSearchResult } from '@solus/contracts/types'
-import { markedPassage } from '@solus/contracts/word-match'
-import { searchWords, searchTokens, searchTokenMatches, sessionNameScore, sessionEvidenceScore, type SessionNameScore } from '@solus/contracts/session-search'
+import { SearchQuery } from '@solus/contracts/search-query'
+import { rankSessions, type RankedSession, type SessionCandidate } from '@solus/contracts/session-search'
 import { rowToSession, SESSION_ROW_SPAN, sessionRowSchema } from './session-indexer'
 import { getDb } from '.'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
@@ -11,6 +11,10 @@ import { sessionIdOfThread } from '../data/sessions/session-lineage'
 export interface SessionSearchOptions {
   /** Applied before scoring and paging, after the caller checks record visibility. */
   sessionIds?: ReadonlySet<string>
+  /** Session id → when it was last read on any client, a sign of use. */
+  viewedAt?: ReadonlyMap<string, number>
+  /** The clock use is scored against. Now by default. */
+  now?: number
   providers?: string[]
   /** Only messages by one side of the conversation (the agent tool's filter). */
   role?: 'user' | 'assistant'
@@ -111,36 +115,33 @@ function messageHits(db: ReturnType<typeof getDb>, term: string, options: Sessio
  * evidence ranks before words in one message, then words spread across messages.
  * Counts saturate within each tier. Recency breaks ties.
  */
-export function searchSessionIndex(query: string, options: SessionSearchOptions = {}): SessionSearchPage {
-  const words = searchWords(query)
-  if (!words.length) return { results: [], total: 0 }
+export function searchSessionIndex(text: string, options: SessionSearchOptions = {}): SessionSearchPage {
+  const query = new SearchQuery(text)
+  if (query.isEmpty) return { results: [], total: 0 }
   const limit = Math.min(MAX_PAGE, Math.max(1, Math.trunc(options.limit ?? MAX_PAGE)))
   const offset = Math.max(0, Math.trunc(options.offset ?? 0))
   const db = getDb()
   // Resolve lineage once per candidate, including misses. A later pass must
   // not issue a second database query for every unbound provider thread.
-  const sessions = sessionsInScope(db, options)
-    .map(row => ({ row, sessionId: sessionIdOfThread(row.session_id) }))
-    .filter(candidate => !options.sessionIds || options.sessionIds.has(candidate.sessionId))
-  const hits = queryHits(db, words, options)
+  const candidates: IndexedCandidate[] = sessionsInScope(db, options).flatMap(row => {
+    const sessionId = sessionIdOfThread(row.session_id)
+    if (options.sessionIds && !options.sessionIds.has(sessionId)) return []
+    return [{ row, sessionId, title: row.custom_title, branch: row.branch, pullRequest: options.metadata?.get(sessionId), lastActivity: row.last_timestamp ?? 0, viewedAt: options.viewedAt?.get(sessionId) }]
+  })
+  const hits = queryHits(db, query, options)
+  const has = (map: Map<number, WordHits> | null, number: number | null) => number !== null && !!map?.has(number)
   // A session that changed provider has a row per thread; it is one hit, its best thread's.
-  const bySession = new Map<string, MatchedSession>()
-  for (const { row, sessionId } of sessions) {
-    const name = sessionNameScore({ id: sessionId, title: row.custom_title, branch: row.branch, pullRequest: options.metadata?.get(sessionId) }, words)
-    const score = sessionScore(row, words, hits, options.metadata?.get(sessionId), name)
-    const held = bySession.get(sessionId)
-    if (score !== null && (!held || score > held.score)) bySession.set(sessionId, { row, score, name })
-  }
-  // A typo never displaces a real word match. Names-only correction reads no messages.
-  if (bySession.size === 0) for (const { row, sessionId } of sessions) {
-    const name = sessionNameScore({ id: sessionId, title: row.custom_title, branch: row.branch, pullRequest: options.metadata?.get(sessionId) }, words, true)
-    if (name) bySession.set(sessionId, { row, score: name.score, name })
-  }
-  const matched = [...bySession.values()]
-  matched.sort((a, b) => b.score - a.score || (b.row.last_timestamp ?? 0) - (a.row.last_timestamp ?? 0) || a.row.session_id.localeCompare(b.row.session_id))
-  const page = matched.slice(offset, offset + limit).map((session) => ({ ...session, passageIds: passageIdsOf(session.row.number, hits) }))
-  return { results: pageResults(db, page, words), total: matched.length }
+  const matched = rankSessions(query, candidates, options.namesOnly ? null : {
+    counts: ({ row }) => hits.perWord.map(wordHits => row.number === null ? 0 : wordHits.get(row.number)?.count ?? 0),
+    together: ({ row }) => has(hits.together, row.number),
+    phrase: ({ row }) => has(hits.phrase, row.number),
+  }, options.now ?? Date.now())
+  const page = matched.slice(offset, offset + limit).map((session) => ({ ...session, passageIds: passageIdsOf(session.candidate.row.number, hits) }))
+  return { results: pageResults(db, page, query), total: matched.length }
 }
+
+/** One indexed thread of a session, as the shared ranking reads it. */
+interface IndexedCandidate extends SessionCandidate { row: z.infer<typeof nameRowSchema> }
 
 /** The sessions the scope and filters keep, with what they are called. */
 function sessionsInScope(db: ReturnType<typeof getDb>, options: SessionSearchOptions): z.infer<typeof nameRowSchema>[] {
@@ -157,51 +158,23 @@ function sessionsInScope(db: ReturnType<typeof getDb>, options: SessionSearchOpt
   `).all(...params))
 }
 
-/** Each word's message hits, and messages that hold every word or the phrase. */
+/** Each required word's message hits, and messages that hold every required word or the phrase. */
 interface QueryHits {
   perWord: Map<number, WordHits>[]
   together: Map<number, WordHits> | null
   phrase: Map<number, WordHits> | null
 }
 
-function queryHits(db: ReturnType<typeof getDb>, words: readonly string[], options: SessionSearchOptions): QueryHits {
+function queryHits(db: ReturnType<typeof getDb>, query: SearchQuery, options: SessionSearchOptions): QueryHits {
   if (options.namesOnly) return { perWord: [], together: null, phrase: null }
-  const perWord = words.map((word) => messageHits(db, phraseTerm([word]), options))
-  const several = words.length > 1
+  // An optional filler word is in nearly every message: reading its postings
+  // costs the most and decides nothing. The phrase still holds it.
+  const { required, words } = query
   return {
-    perWord,
-    together: several ? messageHits(db, words.map((word) => phraseTerm([word])).join(' '), options) : null,
-    phrase: several ? messageHits(db, phraseTerm(words), options) : null,
+    perWord: required.map((word) => messageHits(db, phraseTerm([word]), options)),
+    together: required.length > 1 ? messageHits(db, required.map((word) => phraseTerm([word])).join(' '), options) : null,
+    phrase: words.length > 1 ? messageHits(db, phraseTerm(words), options) : null,
   }
-}
-
-/** What a session is called: its title, its branch and its pull
- *  requests. Its opening message stands in for a title on screen, but it is
- *  what was said, and a message hit finds it. */
-function nameText(row: z.infer<typeof nameRowSchema>, metadata: string | undefined): string {
-  return [row.custom_title, row.branch, metadata].filter(Boolean).join('\n')
-}
-
-/** A session's score, or null when a word is in neither its name nor its messages. */
-function sessionScore(row: z.infer<typeof nameRowSchema>, words: readonly string[], hits: QueryHits, metadata: string | undefined, nameMatch: SessionNameScore | null): number | null {
-  if (nameMatch) return nameMatch.score
-  const number = row.number
-  const name = row.custom_title || row.branch || metadata ? searchTokens(nameText(row, metadata)).map(token => token.text) : []
-  const counts: number[] = []
-  for (let index = 0; index < words.length; index++) {
-    const inName = name.some(token => searchTokenMatches(token, words[index]!))
-    const count = number === null ? 0 : hits.perWord[index]?.get(number)?.count ?? 0
-    if (!inName && !count) return null
-    counts.push(count)
-  }
-  return sessionEvidenceScore(counts, number !== null && !!hits.together?.has(number), number !== null && !!hits.phrase?.has(number))
-}
-
-/** A session that matched, and its score. */
-interface MatchedSession {
-  row: z.infer<typeof nameRowSchema>
-  score: number
-  name: SessionNameScore | null
 }
 
 /** The messages a session's row shows, best first: the newest with the phrase,
@@ -221,11 +194,11 @@ function passageIdsOf(number: number | null, hits: QueryHits): number[] {
 /** The page as results: each session's row, and its passages cut and marked. */
 function pageResults(
   db: ReturnType<typeof getDb>,
-  page: ReadonlyArray<MatchedSession & { passageIds: number[] }>,
-  words: readonly string[],
+  page: ReadonlyArray<RankedSession<IndexedCandidate> & { passageIds: number[] }>,
+  query: SearchQuery,
 ): SessionSearchResult[] {
   if (!page.length) return []
-  const sessionIds = page.map(({ row }) => row.session_id)
+  const sessionIds = page.map(({ candidate }) => candidate.row.session_id)
   const rows = new Map(sessionRowSchema.array().parse(db.prepare(`
     SELECT
       session_id, provider, cwd, project_path, is_worktree, slug, first_message, custom_title,
@@ -241,13 +214,13 @@ function pageResults(
       `).all(...passageIds)).map((row) => [row.id, row])
     : [])
   const results: SessionSearchResult[] = []
-  for (const { row, score, name, passageIds } of page) {
+  for (const { candidate: { row }, score, name, passageIds } of page) {
     const session = rows.get(row.session_id)
     if (!session) continue
     const hits = passageIds.flatMap((id) => {
       const passage = passages.get(id)
       return passage ? [{
-        snippet: markedPassage(passage.text, words, SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE),
+        snippet: query.passage(passage.text, SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE),
         ts: passage.ts ?? 0,
         messageId: passage.id,
         rank: -score,

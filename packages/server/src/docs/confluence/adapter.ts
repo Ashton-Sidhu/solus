@@ -145,7 +145,7 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
     const status: DocProviderStatus = { provider: this.id, connected: true }
     // An older grant publishes prose perfectly well and cannot carry a
     // picture. Saying so beats a refusal halfway through a publish.
-    if (!canAttachDiagrams(credential.scopes)) status.limitation = ATTACHMENT_SCOPE_MISSING
+    if (!canAttachDiagrams(credential)) status.limitation = ATTACHMENT_SCOPE_MISSING
     return status
   }
 
@@ -262,7 +262,7 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
     assets: DocDiagramAsset[] | undefined,
   ): DocDiagramAsset[] {
     const validated = validatedDiagramAssets(assets)
-    if (validated.length && !canAttachDiagrams(credential.scopes)) {
+    if (validated.length && !canAttachDiagrams(credential)) {
       throw new DocProviderUnavailableError(this.id, ATTACHMENT_SCOPE_MISSING)
     }
     return validated

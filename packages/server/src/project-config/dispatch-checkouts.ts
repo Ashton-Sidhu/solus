@@ -1,11 +1,10 @@
-import { existsSync, realpathSync } from 'node:fs'
-import { hostPathSegments } from '@solus/contracts/host-path'
+import { existsSync, readdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
-import { SOLUS_REMOTE_DISPATCH_DIR, type DispatchHistoryRoot } from '@solus/contracts/types'
-import { resolveRepositoryKey } from '../git/git-helpers'
+import type { DispatchHistoryRoot } from '@solus/contracts/types'
+import { repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
+import { git, runAsync } from '../git/exec'
 import { listProjectWorktrees } from '../git/worktree-manager'
 import { hostCategory } from '../host/host-category'
-import { memberUserIdOf, recordedMemberFolder } from '../host/member-folders'
 import type { Principal } from '../admission/principal'
 
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -27,35 +26,106 @@ export function normalizeDispatchRepoKey(repoKey: string): string {
 }
 
 /**
- * Who owns a caller's dispatch checkouts: the key of the checkout path and of
- * its delegated credential. On a Solus-provisioned machine it is the member, so
- * each member has one clone per repository, whatever device asks (plan 004
- * item 8). Elsewhere it is the paired device, as before.
+ * Whose delegated credential a dispatch acts with: the key it is stored under,
+ * and the one a clone's git config names. On a Solus-provisioned machine it is
+ * the member, whatever device asks (plan 004 item 8). Elsewhere it is the
+ * paired device. Which folder the clone is in is the projects folder's choice.
  */
 export function dispatchCheckoutOwnerKey(principal: Principal, deviceId: string): string {
   return hostCategory() === 'managed' && principal.kind === 'org-member' ? principal.userId : deviceId
 }
 
-/** A dispatch checkout belongs to one owner (`dispatchCheckoutOwnerKey`) and one repository. A member's folder is their name. */
-export function dispatchCheckoutPath(projectsRoot: string, ownerKey: string, repoKey: string): string {
-  if (!SAFE_PATH_SEGMENT.test(ownerKey) || ownerKey.includes('..')) {
-    throw new Error('The checkout owner cannot be used as a dispatch checkout path.')
+/** The repository the `origin` of a checkout names, or null for a folder that is not one. */
+function originRepoKeyOf(path: string): string | null {
+  try {
+    const url = git(['-C', path, 'config', '--get', 'remote.origin.url'], path)
+    return url ? repositoryKeyFromRemoteUrl(url)?.toLowerCase() ?? null : null
+  } catch {
+    return null
   }
-  return join(projectsRoot, SOLUS_REMOTE_DISPATCH_DIR, recordedMemberFolder(ownerKey), ...normalizeDispatchRepoKey(repoKey).split('/'))
+}
+
+/** Names tried after `<repo>`: `<repo>-2` up to this. */
+const MAX_NAME_SUFFIX = 50
+
+/** The folder names a checkout of `repoKey` may have, in lower case and in the order they are tried. */
+function candidateNames(repoKey: string): string[] {
+  const name = repoKey.split('/').at(-1)!
+  return [name, ...Array.from({ length: MAX_NAME_SUFFIX - 1 }, (_, index) => `${name}-${index + 2}`)]
+}
+
+/** The projects folder's entries by their lower-case name. A repository name
+ *  ignores case, and a person's own `Hello-World` is the `hello-world` a
+ *  client names, also on a file system that keeps case. */
+function entriesByLowerName(projectsRoot: string): Map<string, string> {
+  try {
+    return new Map(readdirSync(projectsRoot).map((name) => [name.toLowerCase(), name]))
+  } catch {
+    return new Map()
+  }
 }
 
 /**
- * The inverse: the owner key a path belongs to, or null for an ordinary
- * project. Lives beside `dispatchCheckoutPath` so the two change together —
- * this is the layout read back, not a guess about it. Linked worktrees under
- * the checkout keep the segment, so they resolve to the same owner.
+ * The checkout of `repoKey` the caller already has in their projects folder: a
+ * folder named for the repository whose `origin` is that repository. Null when
+ * there is none.
  */
-export function dispatchCheckoutOwnerKeyOf(cwd: string): string | null {
-  const segments = hostPathSegments(cwd)
-  const markerIndex = segments.indexOf(SOLUS_REMOTE_DISPATCH_DIR)
-  if (markerIndex === -1) return null
-  const ownerKey = segments[markerIndex + 1]
-  return ownerKey && SAFE_PATH_SEGMENT.test(ownerKey) ? memberUserIdOf(ownerKey) : null
+export function existingDispatchCheckout(projectsRoot: string, repoKey: string): string | null {
+  const key = normalizeDispatchRepoKey(repoKey)
+  const entries = entriesByLowerName(projectsRoot)
+  for (const name of candidateNames(key)) {
+    const entry = entries.get(name)
+    if (!entry) return null
+    const path = join(projectsRoot, entry)
+    if (originRepoKeyOf(path) === key) return path
+  }
+  return null
+}
+
+/**
+ * The folder a dispatch of `repoKey` works in: the checkout the caller has
+ * (`existingDispatchCheckout`), else the first free name in their projects
+ * folder — `<repo>`, then `<repo>-2` and on — the way `git clone` names one.
+ * A folder that holds anything else is never used.
+ */
+export function dispatchCheckoutPath(projectsRoot: string, repoKey: string): string {
+  const existing = existingDispatchCheckout(projectsRoot, repoKey)
+  if (existing) return existing
+  const entries = entriesByLowerName(projectsRoot)
+  const freeName = candidateNames(normalizeDispatchRepoKey(repoKey)).find((name) => !entries.has(name))
+  const free = freeName ? join(projectsRoot, freeName) : null
+  if (!free) throw new Error(`Every folder name for ${repoKey} in ${projectsRoot} is taken.`)
+  return free
+}
+
+/** Local git config of a clone Solus made for a dispatch. */
+export const DISPATCH_CLONE_CONFIG_KEY = 'solus.dispatchClone'
+/** Local git config naming whose delegated credential the clone acts with. */
+export const DELEGATION_OWNER_CONFIG_KEY = 'solus.delegationOwner'
+
+function localConfig(cwd: string, key: string): string | null {
+  try {
+    return git(['-C', cwd, 'config', '--get', key], cwd) || null
+  } catch {
+    return null
+  }
+}
+
+/** Solus made this clone, so it may write the delegated helper and identity into it. */
+export function isDispatchClone(cwd: string): boolean {
+  return localConfig(cwd, DISPATCH_CLONE_CONFIG_KEY) === 'true'
+}
+
+/**
+ * Whose delegated credential a checkout acts with, or null for an ordinary
+ * project. The clone's git config names it, and linked worktrees share that
+ * config, so they resolve to the same owner.
+ */
+export async function dispatchCheckoutOwnerKeyOf(cwd: string): Promise<string | null> {
+  if (!existsSync(cwd)) return null
+  // Asked on every GitHub call from a checkout, so it must not block the host.
+  const ownerKey = await runAsync('git', ['-C', cwd, 'config', '--get', DELEGATION_OWNER_CONFIG_KEY], cwd).catch(() => '')
+  return ownerKey && SAFE_PATH_SEGMENT.test(ownerKey) ? ownerKey : null
 }
 
 /** Validate an exact existing worktree against the owner's dispatch
@@ -85,20 +155,12 @@ export function resolveDispatchWorktree(
   return worktree.path
 }
 
-/** Resolve exact roots without enumerating any other owner's namespace.
- *  A root matches when the repository key of its checkout (§1 rule) is the
- *  requested key. A dispatch clone has only its clone source as a remote, so
- *  the full path is compared, and GitLab subgroups match. */
-export async function resolveDispatchHistoryRoots(
-  projectsRoot: string,
-  ownerKey: string,
-  repoKeys: string[],
-): Promise<DispatchHistoryRoot[]> {
-  const normalizedKeys = [...new Set(repoKeys.map(normalizeDispatchRepoKey))]
-  const roots = await Promise.all(normalizedKeys.map(async (repoKey): Promise<DispatchHistoryRoot | null> => {
-    const path = dispatchCheckoutPath(projectsRoot, ownerKey, repoKey)
-    if (!existsSync(path)) return null
-    return await resolveRepositoryKey(path) === repoKey ? { repoKey, path } : null
-  }))
-  return roots.filter((root): root is DispatchHistoryRoot => root !== null)
+/** The checkouts a dispatch of each repository would use, without listing any
+ *  other folder of the caller's. A root matches when its `origin` is the
+ *  requested repository, so GitLab subgroups match too. */
+export function resolveDispatchHistoryRoots(projectsRoot: string, repoKeys: string[]): DispatchHistoryRoot[] {
+  return [...new Set(repoKeys.map(normalizeDispatchRepoKey))].flatMap((repoKey) => {
+    const path = existingDispatchCheckout(projectsRoot, repoKey)
+    return path ? [{ repoKey, path }] : []
+  })
 }

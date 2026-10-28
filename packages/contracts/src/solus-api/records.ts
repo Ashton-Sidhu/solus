@@ -1,5 +1,5 @@
 import type { Task } from '../task-types'
-import type { Work, WorkMeta, SessionRecord } from '../types'
+import type { Work, WorkListingMeta, SessionRecord } from '../types'
 import type { WorkspaceTask, WorkspaceWork, WorkspaceWorkSummary, WorkspaceSession } from './schemas'
 
 /** The established client records, read from the HTTP contract. */
@@ -12,7 +12,7 @@ export function taskRecord(task: WorkspaceTask): Task {
 export function workRecord(work: WorkspaceWork): Work {
   return { ...work, organizationId: work.organizationId ?? 'local', sessionId: work.sessionIds[0] }
 }
-export function workSummary(work: WorkspaceWorkSummary): WorkMeta & { id: string } {
+export function workSummary(work: WorkspaceWorkSummary): WorkListingMeta {
   return { ...work, organizationId: work.organizationId ?? 'local', sessionId: work.sessionIds[0] }
 }
 export function sessionRecord(session: WorkspaceSession): SessionRecord {

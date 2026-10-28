@@ -1,7 +1,7 @@
 import { randomId } from './random-id'
 import { taskRecord, workRecord, workSummary, sessionRecord } from '@solus/contracts/solus-api/records'
 import type { Task, TaskDetails } from '@solus/contracts/task-types'
-import type { Work, WorkMeta, SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
+import type { Work, WorkListingMeta, SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { WorkspaceSessionSearchResult, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
@@ -63,7 +63,7 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
     },
     loadWork: id => notFoundAsNull(client.request('getWork', { id }).then(rememberWork)),
     async listWorks() {
-      const works: (WorkMeta & { id: string })[] = []
+      const works: WorkListingMeta[] = []
       let cursor: string | undefined
       do {
         const page = await client.request('listWorks', { query: { limit: 200, cursor } })

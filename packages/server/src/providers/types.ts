@@ -29,6 +29,7 @@ import type {
   PullRequestOverview,
 } from '@solus/contracts/providers'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
+import type { PullRequestHead } from '@solus/contracts/repository-key'
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
@@ -139,10 +140,10 @@ export interface ReviewProvider {
    *  matches `query`, at most `limit`: the list's author filter choices. */
   listMentionableUsers(repo: RepoRef, query: string, limit: number): Promise<PrFilterChoice[]>
   setLabels(repo: RepoRef, number: number, names: string[]): Promise<PrLabel[]>
-  /** The pull requests opened from each branch, in every state, newest first,
-   *  in as few requests as the host allows. Only PR sync calls this
+  /** The pull requests into `repo` opened from each exact head, in every
+   *  state, newest first, by head key, in as few requests as the host allows
    *  (docs/plans/pr-sync.md §3.2). */
-  getPullRequestsByHead(repo: RepoRef, heads: string[]): Promise<Map<string, PullRequest[]>>
+  getPullRequestsByHead(repo: RepoRef, heads: readonly PullRequestHead[]): Promise<Map<string, PullRequest[]>>
   /** Pull requests by number, in as few requests as the host allows. Null for
    *  a number the repository does not have. */
   getPullRequests(repo: RepoRef, numbers: number[]): Promise<Map<number, PullRequest | null>>

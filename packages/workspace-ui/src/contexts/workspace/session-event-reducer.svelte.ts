@@ -1,7 +1,7 @@
 import { reconcileQueuedPromptsForSession } from './session-transcript'
 import { recordQuestionAnswer } from './question-history'
 import type { ContextCompaction, EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '@solus/contracts/types'
-import { existingTaskId, taskRoleOf } from './session-draft.svelte'
+import { existingTaskId } from './session-draft.svelte'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
@@ -15,6 +15,7 @@ import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationCards } from './agent-conversation-cards'
 import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitSentAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests, dropBlockingQuestions } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
+import { hostReportedSetup, settleSetupCard } from '@solus/contracts/setup-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
 import type { UserId } from '@solus/contracts/user'
@@ -121,7 +122,7 @@ export class SessionEventReducer {
   /**
    * One activity the host recorded (plans/012 §5), appended in place. A replay to
    * a joining client may repeat one its history already holds, so the same id is
-   * added once. Rows the reader need not see — their own notices — are not added.
+   * added once, and one older than the loaded window is left to the older page. Rows the reader need not see — their own notices — are not added.
    */
   private appendActivity(session: Session, activity: Activity): void {
     // An offer's answer changes the offer's card; it is not a row of its own.
@@ -131,6 +132,9 @@ export class SessionEventReducer {
     }
     if (!showsActivity(activity, this.reader(session))) return
     if (this.hasActivity(session, activity.id)) return
+    // A replay can repeat one from before the loaded window: the older page
+    // holds it at its place, so appending it here would draw it twice.
+    if (session.historyTruncated && activity.at < (session.messages[0]?.timestamp ?? -Infinity)) return
     const message: Message = { id: `activity:${activity.id}`, role: 'system', content: '', timestamp: activity.at, activity }
     // A fork is recorded as its first prompt dispatches, after that prompt's
     // bubble is on screen: it goes before the prompt, where a reload puts it.
@@ -383,7 +387,6 @@ export class SessionEventReducer {
               projectRoot: projectRoot(session.run),
             },
             taskServerId,
-            taskRoleOf(session.task),
           ).then(() => branch
             ? serverConnections.apiFor(taskServerId).setSessionBranch(taskSessionId, branch)
             : undefined)
@@ -1015,12 +1018,16 @@ export class SessionEventReducer {
         } else if (event.status === 'idle') {
           session.currentTurnStartedAt = null
         }
-        // The status card tracks the pre-run setup phase (worktree creation,
-        // session handshake), which only lives while 'connecting'. Once we
-        // leave that state the card's job is done — clear it so the agent's
-        // output takes over. Keep failed cards so the error stays visible.
+        // The status card tracks the pre-run setup, which only runs while
+        // 'connecting'. When the run starts, a card the host reported on settles:
+        // it stays, folded, with its times and any warning, until the next send
+        // clears it. The client's guess at Send, which the host never confirmed,
+        // goes. Any other status stopped the setup; a failed card stays for its error.
         if (event.status !== 'connecting' && session.statusCard && session.statusCard.status !== 'error') {
-          session.statusCard = null
+          const started = event.status === 'running' || event.status === 'idle' || event.status === 'completed'
+          session.statusCard = started && session.statusCard.status === 'active' && hostReportedSetup(session.statusCard)
+            ? settleSetupCard(session.statusCard, event.status)
+            : started && session.statusCard.status === 'done' ? session.statusCard : null
         }
         if (event.status === 'interrupted') {
           // Stop keeps the host's queue (plan 004 D12): held prompts leave only on

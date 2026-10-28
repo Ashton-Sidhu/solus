@@ -139,7 +139,7 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   | 'openUrlInBrowser'
   | 'showSettings'
 > & {
-  readonly opening: Pick<SessionOpening, 'resumeSession' | 'openTask' | 'openTaskSession' | 'openTaskLinkedSession'>
+  readonly opening: Pick<SessionOpening, 'resumeSession' | 'openTaskSession' | 'openTaskLinkedSession'>
   readonly prReview: Pick<PrReviewActions, 'openReviewMode'>
 }
 

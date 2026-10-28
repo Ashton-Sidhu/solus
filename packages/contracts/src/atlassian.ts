@@ -8,9 +8,10 @@
  * later (`<cloudId>/<spaceKey>`, `<cloudId>/<projectKey>`) is built from it and
  * a site can be renamed.
  *
- * Browser sign-in is the only way in. Atlassian has no public-client mode, so
- * the flow needs a client secret shipped with the build; a build without one
- * cannot connect at all, which `oauthAvailable` reports.
+ * Browser sign-in is the usual way in. Atlassian has no public-client mode, so
+ * the flow needs a client secret shipped with the build, which `oauthAvailable`
+ * reports. The fallback is an API token the user pastes from their Atlassian
+ * profile: it works on any build, and on sites whose admin blocks OAuth apps.
  */
 
 export type AtlassianProduct = 'confluence' | 'jira'
@@ -27,7 +28,27 @@ export interface AtlassianStatus {
   /** Whether this build ships an OAuth client. When false there is no way to
    *  connect, and the UI says so rather than offering a button that fails. */
   oauthAvailable?: boolean
+  /** Whether this host takes a pasted API token. Absent from an older host, and
+   *  false where the account website owns the connection. */
+  apiTokenAvailable?: boolean
+  /** How the connected site was connected. */
+  authMethod?: 'oauth' | 'apiToken'
 }
+
+/** What a user pastes to connect without a browser sign-in. The token is
+ *  created at id.atlassian.com and acts as the account the email names. */
+export interface AtlassianApiTokenInput {
+  /** `acme`, `acme.atlassian.net`, or any link on the site. */
+  siteUrl: string
+  email: string
+  apiToken: string
+}
+
+export const ATLASSIAN_API_TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens'
+
+export type AtlassianApiTokenConnectResult =
+  | { ok: true }
+  | { ok: false; error: string }
 
 /** A Jira project on the connected site, as the task-provider picker lists it.
  *  `key` is the durable half of a task `externalKey` (`<cloudId>/<projectKey>`);

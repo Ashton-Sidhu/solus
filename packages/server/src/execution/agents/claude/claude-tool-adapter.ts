@@ -24,13 +24,19 @@ export function claudeParentToolUseId(extra: z.input<typeof claudeToolExtraSchem
 }
 
 /**
- * The fields as the caller may send them. The SDK validates a call before we
- * see it and refuses a field with a default when the call leaves it out, so
- * such a field is offered as optional here; `executeAgentTool` parses the call
- * again against the tool's own fields, which fills the default in.
+ * The fields as the caller may send them. The SDK validates a call with its
+ * own bundled zod before we see it, and that copy refuses a left-out field
+ * whose schema holds a default anywhere, even inside `.optional()`. So such a
+ * field is offered as its plain inner type, optional; `executeAgentTool`
+ * parses the call again against the tool's own fields, which fills the
+ * default in.
  */
-export function callerFields(fields: AgentTool['inputFields']): AgentTool['inputFields'] {
-  return Object.fromEntries(Object.entries(fields ?? {}).map(([name, field]) => [name, field instanceof z.ZodDefault ? field.optional() : field]))
+function callerFields(fields: AgentTool['inputFields']): AgentTool['inputFields'] {
+  return Object.fromEntries(Object.entries(fields ?? {}).map(([name, field]) => {
+    if (!(field instanceof z.ZodDefault)) return [name, field]
+    const optional = z.optional(field.unwrap())
+    return [name, field.description ? optional.describe(field.description) : optional]
+  }))
 }
 
 /** A neutral tool result as an MCP response: text first, then any image. */

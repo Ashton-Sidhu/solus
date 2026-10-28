@@ -253,7 +253,12 @@ topic, in the same form as setup's `SetupLogEvent`.
 
 `SshProvisioner` runs on the host that the client asks: the desktop's own
 server, or the server that a web or mobile client is connected to. SSH keys and
-`~/.ssh/config` are read on that host, as SSH device hosts do today. A password
+`~/.ssh/config` are read on that host, as SSH device hosts do today. The person
+can also name an identity file (`identityFile`, a path on that host, given to
+`ssh -i` with `IdentitiesOnly=yes`), such as the `.pem` key of an AWS VM. Its
+"Browse…" control lists that host's files with `listDirectory`, from `~/.ssh`,
+because the key is on the host that runs SSH, not always on the client. A
+password
 (`authSecret`) goes through the RPC only for that one call and is given to
 `ssh` through askpass, as `ssh-bootstrap.ts` does today.
 
@@ -263,7 +268,7 @@ server, or the server that a web or mobile client is connected to. SSH keys and
 forward that this host holds to another Solus host.
 
 - **Record**, saved in this host's data directory:
-  `{ installationId, label, sshTarget, remotePort, identityKey, startedBySolus }`.
+  `{ installationId, label, sshTarget, identityFile?, remotePort, identityKey, startedBySolus }`.
   The session token is kept in the secret store, not in the record.
 - **Open.** It calls `SshClient.forward(target, remotePort)` and adds the route
   `{ kind: 'forwarded', url: 'http://127.0.0.1:<local>', source: 'ssh', viaHostId: <this installation> }`.

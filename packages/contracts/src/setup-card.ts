@@ -58,7 +58,8 @@ export function mayWorkLocallyDuringSetup(card: StatusCardState): boolean {
  */
 export function settleSetupCard(card: StatusCardState, status: SessionStatus | undefined): StatusCardState {
   const succeeded = status === 'running' || status === 'idle' || status === 'completed'
-  const isWorktree = card.icon === 'git-branch'
+  // A Run on card keeps the client's server icon, but it made a worktree too.
+  const isWorktree = card.icon === 'git-branch' || card.steps.some((step) => step.id === 'checkout')
   return {
     ...card,
     status: succeeded ? 'done' : 'error',
@@ -73,6 +74,12 @@ export function settleSetupCard(card: StatusCardState, status: SessionStatus | u
         : step.status,
     })),
   }
+}
+
+/** The host did setup work for this card: a step has the host's start time.
+ *  A card the client showed at Send has none until the host confirms it. */
+export function hostReportedSetup(card: StatusCardState): boolean {
+  return card.steps.some((step) => step.startedAt !== undefined)
 }
 
 /** How long a step took, from the host's times. Undefined while it runs or
@@ -92,7 +99,8 @@ export function setupSpanMs(card: StatusCardState): number | undefined {
 
 /** `0.4s`, `2.1s`, `1m 04s` — the rail is narrow, so nothing wider. */
 export function formatStepDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return ''
+  // A time that rounds to 0.0s says nothing.
+  if (!Number.isFinite(ms) || ms < 100) return ''
   const seconds = ms / 1000
   if (seconds < 10) return `${seconds.toFixed(1)}s`
   if (seconds < 60) return `${Math.round(seconds)}s`
@@ -100,9 +108,29 @@ export function formatStepDuration(ms: number): string {
   return `${minutes}m ${String(Math.round(seconds % 60)).padStart(2, '0')}s`
 }
 
-/** The last lines of setup output in a fixed window of `size` rows, oldest first. */
-export function setupOutputWindow(output: readonly string[] | undefined, size = 4): string[] {
-  const lines = output?.slice(-size) ?? []
-  // A non-breaking space keeps an empty row at its height.
-  return [...Array<string>(size - lines.length).fill(''), ...lines].map((line) => line || ' ')
+/** How the status row says each setup step while it runs. Other steps use their label. */
+const RUNNING_STEP_PHRASES: Readonly<Partial<Record<string, string>>> = {
+  repository: 'Preparing repository',
+  fetch: 'Fetching base branch',
+  checkout: 'Checking out files',
+  submodules: 'Initializing submodules',
+  agent: 'Starting agent',
+}
+
+/**
+ * What the conversation's status row says while a setup card runs: the step
+ * that runs now, with its percentage. When the fetch and the checkout run at
+ * the same time, the later step speaks. Null when no setup runs.
+ */
+export function setupActivityLabel(card: StatusCardState | null | undefined): string | null {
+  if (card?.status !== 'active') return null
+  const step = card.steps.findLast((candidate) => candidate.status === 'active')
+  if (!step) return null
+  const phrase = `${RUNNING_STEP_PHRASES[step.id] ?? step.label}…`
+  return step.percent === undefined ? phrase : `${phrase} ${step.percent}%`
+}
+
+/** The end of the setup output, for the terminal panel: the error is the last thing git prints. */
+export function setupOutputTail(output: readonly string[] | undefined, size = 8): string {
+  return output?.slice(-size).join('\n') ?? ''
 }

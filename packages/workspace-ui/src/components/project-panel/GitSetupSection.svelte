@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from "svelte";
-import Icon from "@iconify/svelte";
   import { GitBranch as GitBranchIcon } from "@lucide/svelte";
   import { getWorkspaceContext, getSessionEnvironmentStore, hosts } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -8,7 +7,6 @@ import Icon from "@iconify/svelte";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
-  import PublishRepositoryDialog from "./publish-repository/PublishRepositoryDialog.svelte";
 
   interface Props {
     /** The tab or draft whose project this section describes. */
@@ -24,17 +22,10 @@ import Icon from "@iconify/svelte";
   const serverId = $derived(serverConnections.serverIdForApi(api));
   const env = $derived(environmentStore.environmentFor(session.runFor(sourceId)));
   const cwd = $derived(env.cwd);
-  const ctx = $derived(session.ctxForEnvironment(env.cwd, env.checkout, sourceId));
 
   const status = $derived(repositorySetupStore.statusFor(serverId, cwd));
   const canWriteGit = $derived(hosts.get(serverId)?.me.may("host.git.write") ?? true);
   const showInit = $derived(!!status && !status.isRepository);
-  // Publishing normally belongs to the Git rows' pull-request row. This card is
-  // only for the stage before those rows exist: a repository whose HEAD is
-  // still unborn reports no branch, so nothing else offers a way forward.
-  const showPublish = $derived(
-    !!status && status.isRepository && !status.hasCommits && !status.primaryRemoteUrl,
-  );
 
   // One repository-status read per checkout — cheap, and the manual Git
   // refresh (ProjectPanel's header button) forces a fresh one the same way.
@@ -45,16 +36,6 @@ import Icon from "@iconify/svelte";
     if (requestedFor === key) return;
     requestedFor = key;
     untrack(() => { void repositorySetupStore.refresh(api, serverId, cwd); });
-  });
-
-  let checkedConnectionFor: string | null = null;
-  $effect(() => {
-    if (!active || !showPublish || !api) return;
-    const key = `${serverId}\0${cwd}`;
-    if (checkedConnectionFor === key) return;
-    checkedConnectionFor = key;
-    const context = ctx;
-    untrack(() => { void repositorySetupStore.refreshGithubConnection(api, serverId, context, cwd); });
   });
 
   const initError = $derived(repositorySetupStore.initErrorFor(serverId, cwd));
@@ -68,13 +49,6 @@ import Icon from "@iconify/svelte";
         description: repositorySetupStore.initErrorFor(serverId, cwd) ?? undefined,
       });
     }
-    requestInputFocus();
-  }
-
-  let publishDialogOpen = $state(false);
-
-  function closePublishDialog() {
-    publishDialogOpen = false;
     requestInputFocus();
   }
 </script>
@@ -98,24 +72,5 @@ import Icon from "@iconify/svelte";
       {initializing ? "Initializing…" : "Initialize Git"}
     </Button>
   </div>
-{:else if showPublish}
-  <div class="flex flex-col gap-2 px-1 py-1">
-    <p class="text-pretty text-chrome-dense leading-relaxed text-muted-foreground">
-      No commits yet — publishing creates the GitHub repository and its remote.
-    </p>
-    <Button
-      variant="outline"
-      size="sm"
-      class="w-full justify-center gap-1.5 text-chrome-dense"
-      disabled={!canWriteGit}
-      onclick={() => (publishDialogOpen = true)}
-    >
-      <Icon icon="logos:github-icon" size={13} />
-      Publish to GitHub
-    </Button>
-  </div>
 {/if}
 
-{#if publishDialogOpen}
-  <PublishRepositoryDialog {sourceId} onClose={closePublishDialog} />
-{/if}

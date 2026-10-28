@@ -1,6 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import type { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
-import type { Task } from '@solus/contracts/task-types'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 
 // The store's import chain reaches module-level stores built with `$state`,
@@ -41,36 +40,12 @@ describe('selecting a sidebar row', () => {
     expect(selected).toEqual([tab.id])
   })
 
-  // WHY: a task is talked to through its lead, with the task page beside it,
-  // and a task with no lead gets a lead draft — "click a task, type"
-  // (docs/plans/task-conversation.md, decisions 5 and 6). The move lives in
-  // the opening command, so the picker and the row agree.
-  function harness() {
+  test('a row linked to a task opens its own conversation, not the task', async () => {
+    // WHY: tasks are plain entities that sessions link to. A sidebar row is
+    // one session; its task chip, not the row, opens the task page.
     const calls: string[] = []
-    const record = { id: 'task-1' } as Task
     const store = Object.create(SidebarStoreClass.prototype) as SessionSidebarStore
-    Object.defineProperty(store, 'session', {
-      value: {
-        tasksStore: { peek: (taskId: string) => (taskId === record.id ? record : null) },
-        opening: { openTask: async (task: Task) => { calls.push(`task:${task.id}`) } },
-      },
-    })
-    store.restoreTask = (taskId) => { calls.push(`restore:${taskId}`) }
     store.selectTab = (tabId) => { calls.push(`tab:${tabId}`) }
-    return { store, record, calls }
-  }
-
-  test('a task row opens the task as the split view, not one of its sessions', async () => {
-    // Its other sessions are on its page, so a mounted worker does not take
-    // the click.
-    const { store, calls } = harness()
-    await store.selectTask({ key: 'task-1', taskId: 'task-1', tabIds: ['worker-tab'] } as SidebarTask)
-    expect(calls).toEqual(['task:task-1'])
-  })
-
-  test("a session row opens its conversation", async () => {
-    // A session linked to a task that has no row here is still a session row.
-    const { store, calls } = harness()
     await store.selectTask({
       key: 'tab-1',
       tabIds: ['tab-1'],
@@ -78,16 +53,10 @@ describe('selecting a sidebar row', () => {
     } as SidebarTask)
     expect(calls).toEqual(['tab:tab-1'])
   })
-
-  test('the picker restores the task row, then opens the task the same way', async () => {
-    const { store, record, calls } = harness()
-    await store.selectTaskRecord(record)
-    expect(calls).toEqual(['restore:task-1', 'task:task-1'])
-  })
 })
 
 // WHY: the next/previous-session keys must walk the rows in the order the
-// sidebar lists them — tasks, then sessions, then working — not the order tabs
+// sidebar lists them — sessions, then working — not the order tabs
 // were opened. Otherwise the key jumps to a row that is not the one below.
 describe('next and previous session keys', () => {
   function harness(onScreenTaskId: string | null) {
@@ -95,10 +64,10 @@ describe('next and previous session keys', () => {
     const store = Object.create(SidebarStoreClass.prototype) as SessionSidebarStore
     const row = (id: string) => ({ id }) as SidebarTask
     Object.defineProperties(store, {
-      taskRows: { value: [row('task')] },
       sessionRows: { value: [row('session-a'), row('session-b')] },
       workingRows: { value: [row('working')] },
       onScreenTaskId: { value: onScreenTaskId },
+      onScreenRowId: { value: onScreenTaskId },
     })
     store.selectTask = async (task) => { opened.push(task.id) }
     return { store, opened }
@@ -111,15 +80,15 @@ describe('next and previous session keys', () => {
 
     const last = harness('working')
     await last.store.selectAdjacentRow(1)
-    expect(last.opened).toEqual(['task'])
+    expect(last.opened).toEqual(['session-a'])
   })
 
   test('moves to the row listed above and wraps to the bottom', async () => {
-    const { store, opened } = harness('session-a')
+    const { store, opened } = harness('session-b')
     await store.selectAdjacentRow(-1)
-    expect(opened).toEqual(['task'])
+    expect(opened).toEqual(['session-a'])
 
-    const first = harness('task')
+    const first = harness('session-a')
     await first.store.selectAdjacentRow(-1)
     expect(first.opened).toEqual(['working'])
   })
@@ -127,7 +96,7 @@ describe('next and previous session keys', () => {
   test('with no row on screen, starts from the top or the bottom', async () => {
     const down = harness(null)
     await down.store.selectAdjacentRow(1)
-    expect(down.opened).toEqual(['task'])
+    expect(down.opened).toEqual(['session-a'])
 
     const up = harness(null)
     await up.store.selectAdjacentRow(-1)

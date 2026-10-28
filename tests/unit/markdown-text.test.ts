@@ -64,6 +64,20 @@ describe("user message inline tokens", () => {
     expect(fileMentionTarget("src/renderer/")).toEqual({ path: "src/renderer/" });
   });
 
+  test("a Windows path shows its file name, and copies whole", () => {
+    // WHY: a chip split the path on `/` only, so a path from a Windows host
+    // showed in full and ran past the edge of the message bubble.
+    const path = String.raw`C:\Users\ashto\projects\solus-remote\docs\plan.md`;
+    expect(tokenizeMarkdownText(`what is left on\n@${path}`)).toEqual([
+      { type: "text", value: "what is left on\n" },
+      { type: "file", path },
+    ]);
+
+    const parts = fileChipParts(path);
+    expect(parts.label).toBe("plan.md");
+    expect(`${parts.prefix}${parts.label}${parts.suffix}`).toBe(`@${path}`);
+  });
+
   test("shows the folder name on a folder chip, not the trailing slash", () => {
     expect(fileChipParts("src/renderer/")).toEqual({
       prefix: "@src/",

@@ -20,6 +20,7 @@ import {
   type ShareSetLinkRequest,
   type ShareSetRequest,
   type ShareTransferRequest,
+  type ShareSummary,
 } from '@solus/contracts/sharing'
 import { sessionActionLeafSchema, type ResourceStanding, type SessionActionLeaf } from '@solus/contracts/permissions'
 import { DEFAULT_LINK_ACTIONS, customRoleActions } from '@solus/contracts/shareable-actions'
@@ -305,7 +306,7 @@ export class ShareManager {
    * the role the caller holds on it (docs/plans/access-model.md §2.7): `roleOf`
    * over its row and its ACL entries, read in one query each.
    */
-  async accessOf(principal: Principal, kind: ShareResourceKind, ids: readonly string[]): Promise<Map<string, { ownerKey: string } & ResourceStanding>> {
+  async accessOf(principal: Principal, kind: ShareResourceKind, ids: readonly string[]): Promise<Map<string, { ownerKey: string; share: ShareSummary } & ResourceStanding>> {
     if (ids.length === 0) return new Map()
     if (ids.length > 201) throw new Error('Role reads require a bounded resource page.')
     const { table, id } = RESOURCE_TABLES[kind]
@@ -319,13 +320,28 @@ export class ShareManager {
       `)),
     ])
     const actor = actorFor(principal)
-    return new Map(rows.map((row) => [row.id, {
-      ownerKey: row.owner_key,
-      ...standingFields(standingOf(actor, {
-        kind, id: row.id, organizationId: row.organization_id, ownerKey: row.owner_key,
-        acl: entries.filter((entry) => entry.resource_id === row.id).map(aclEntryOf),
-      })),
-    }]))
+    return new Map(rows.map((row) => {
+      const own = entries.filter((entry) => entry.resource_id === row.id)
+      return [row.id, {
+        ownerKey: row.owner_key,
+        ...standingFields(standingOf(actor, {
+          kind, id: row.id, organizationId: row.organization_id, ownerKey: row.owner_key,
+          acl: own.map(aclEntryOf),
+        })),
+        share: this.summaryOf(own),
+      }]
+    }))
+  }
+
+  /** A listing's glance at a resource's sharing (docs/workspace-page.md): how
+   *  many are named, whether the organization is, and the link while it opens. */
+  private summaryOf(entries: readonly EntryRow[]): ShareSummary {
+    const link = entries.find((entry) => entry.subject_kind === 'everyone')
+    return {
+      named: entries.filter((entry) => entry.subject_kind === 'user' || entry.subject_kind === 'team').length,
+      organization: entries.some((entry) => entry.subject_kind === 'organization'),
+      link: link && !this.expired(link) ? { role: link.role, expiresAt: link.expires_at } : null,
+    }
   }
 
   /**

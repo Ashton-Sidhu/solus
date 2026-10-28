@@ -8,7 +8,7 @@ import { getEpisodeNumstat } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 import { isGitOperationInProgress } from './git-operation-state'
 import { z } from 'zod'
-import { parseRemoteUrls, primaryRemoteUrl, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
+import { PullRequestHead, parseRemoteUrls, primaryRemoteUrl, repositoryKeyFromRemoteUrl } from '@solus/contracts/repository-key'
 
 const gitCommandErrorSchema = z.object({
   message: z.string().optional(),
@@ -221,9 +221,15 @@ async function computeGitIdentityUncached(cwd: string): Promise<GitIdentity | nu
     runAsync('git', ['rev-parse', 'HEAD', '--abbrev-ref', 'HEAD'], cwd).catch(() => null),
     getDefaultBranchLocal(cwd),
   ])
-  // Both null cases are ordinary, not failures: no repo here, or a repo with no
-  // commits yet. `resolveRepoRoot` already logs the former.
-  if (!repoRoot || headRaw === null) return null
+  // No repo here is the ordinary null answer; `resolveRepoRoot` already logs it.
+  if (!repoRoot) return null
+  if (headRaw === null) {
+    // A repository before its first commit: HEAD names a branch that has no
+    // commit yet. Git works on that branch, so it is a checkout like any other,
+    // and it is its own target — the default-branch probe needs a commit.
+    const unbornBranch = await runAsync('git', ['symbolic-ref', '--short', '-q', 'HEAD'], cwd).catch(() => null)
+    return unbornBranch ? { repoRoot, headSha: null, branch: unbornBranch, targetBranch: unbornBranch } : null
+  }
 
   const [headSha, headRef] = headRaw.split('\n').map((line) => line.trim())
   if (!headSha) return null
@@ -313,14 +319,48 @@ export function resolveRepositoryKey(cwd: string): Promise<string | null> {
   return pending
 }
 
-async function primaryRemoteUrlOf(cwd: string): Promise<string | null> {
+async function remoteUrlsOf(cwd: string): Promise<Map<string, string>> {
   try {
     const output = await runAsync('git', ['-c', 'safe.directory=*', 'config', '--get-regexp', '^remote\\..*\\.url$'], cwd)
-    return primaryRemoteUrl(parseRemoteUrls(output))
+    return parseRemoteUrls(output)
   } catch {
     // Exit 1: no remote, or not a repository.
-    return null
+    return new Map()
   }
+}
+
+async function primaryRemoteUrlOf(cwd: string): Promise<string | null> {
+  return primaryRemoteUrl(await remoteUrlsOf(cwd))
+}
+
+/**
+ * Where `branch` of the checkout at `cwd` is pushed: the head a pull request
+ * from it names (`PullRequestHead`). Git answers with `<branch>@{push}`, which
+ * follows `pushRemote`, `push.default`, and a branch that pushes under another
+ * name. A branch that was never pushed, or has no upstream under
+ * `push.default=simple`, goes where `git push` would send it: its push remote,
+ * the default push remote, its remote, then `origin`, under its own name.
+ * Null when no remote is known.
+ */
+export async function resolvePushHead(cwd: string, branch: string): Promise<PullRequestHead | null> {
+  const remotes = await remoteUrlsOf(cwd)
+  if (!remotes.size) return null
+  const git = (args: string[]) => runAsync('git', ['-c', 'safe.directory=*', ...args], cwd).then((out) => out.trim() || null, () => null)
+  const pushRef = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branch}@{push}`])
+  if (pushRef) {
+    // `origin/fix`. A remote name may hold a slash, so the longest remote that starts it wins.
+    const remote = [...remotes.keys()]
+      .filter((name) => pushRef.startsWith(`${name}/`))
+      .sort((a, b) => b.length - a.length)[0]
+    const repository = remote ? parseRemoteUrl(remotes.get(remote) ?? '') : null
+    if (remote && repository) return new PullRequestHead(repository, pushRef.slice(remote.length + 1))
+  }
+  const remote = await git(['config', '--get', `branch.${branch}.pushRemote`])
+    ?? await git(['config', '--get', 'remote.pushDefault'])
+    ?? await git(['config', '--get', `branch.${branch}.remote`])
+    ?? (remotes.has('origin') ? 'origin' : remotes.size === 1 ? [...remotes.keys()][0]! : null)
+  const repository = remote ? parseRemoteUrl(remotes.get(remote) ?? '') : null
+  return repository ? new PullRequestHead(repository, branch) : null
 }
 
 const primaryRepoRefCache = new Map<string, Promise<RepoRef | null>>()

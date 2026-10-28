@@ -17,6 +17,8 @@ import {
   threadListV2ListItemsAreEqual,
   threadPullRequests,
   type ThreadListV2Facts,
+  unlinkPullRequestActionId,
+  unlinkPullRequestMenuItems,
 } from '../../apps/mobile/src/features/threads/threadListV2'
 import {
   resolveThreadSelectionNavigationAction,
@@ -239,6 +241,17 @@ describe('thread list rows', () => {
     expect(presentThreadPullRequests([link(4, { snapshot: snapshot('merged') })])?.watchTarget).toBeNull()
   })
 
+  test('the row menu unlinks each linked pull request', () => {
+    // WHY: the phone has no sidebar chip menu, so the row menu is the way out
+    // of a link PR sync made by mistake. Each link needs its own item.
+    const one = presentThreadPullRequests([link(3)])!
+    expect(unlinkPullRequestMenuItems(one.unlinkTargets)).toEqual([expect.objectContaining({ id: unlinkPullRequestActionId(one.unlinkTargets[0]!), title: 'Unlink #3' })])
+    const several = presentThreadPullRequests([link(1), link(2)])!
+    const [submenu] = unlinkPullRequestMenuItems(several.unlinkTargets)
+    expect(submenu?.subactions?.map((action) => action.title)).toEqual(['#2 PR 2', '#1 PR 1'])
+    expect(new Set(submenu?.subactions?.map((action) => action.id)).size).toBe(2)
+  })
+
   test('snooze presets wake in the future and the wake label rounds up', () => {
     const now = new Date(2026, 9, 7, 10, 0) // a Wednesday
     const presets = resolveSnoozePresets(now)
@@ -326,6 +339,9 @@ describe('thread list state', () => {
           calls.push(`links:${sessionId}`)
           return [link(9)]
         },
+        sessionPullRequestDelete: async (sessionId, pullRequest) => {
+          calls.push(`unlink:${sessionId}:${pullRequest.repository}#${pullRequest.number}`)
+        },
         sessionPullRequestWatch: async () => 'started' as const,
         sessionUpdate: async (sessionId, change) => {
           calls.push(`update:${sessionId}:${JSON.stringify(change)}`)
@@ -345,6 +361,16 @@ describe('thread list state', () => {
     }
     return { events, calls, resets, connection }
   }
+
+  test('unlinking a pull request removes it at the host and reads the links again', async () => {
+    // WHY: a person removes a pull request PR sync linked by mistake, as on
+    // desktop. The row must show the host's answer, not a guess.
+    const host = fakeConnection()
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    list.follow('h')
+    await list.unlinkPullRequest('h', 's2', { repository: 'github.com/acme/repo', number: 4 })
+    expect(host.calls).toEqual(['unlink:s2:github.com/acme/repo#4', 'links:s2'])
+  })
 
   test('follows live status, and reads one session\'s links again when they change', async () => {
     // WHY: the records carry every session's links. Only the session the host

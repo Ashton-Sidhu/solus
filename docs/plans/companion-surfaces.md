@@ -48,8 +48,7 @@ Do not coin "panel tab", "side tab", "aside tab" or "secondary tab". The
    | either | `chat`, `draft`, `sessionRecord`, `insights` |
 
    `task` and `prReview` leave the page group. `plan`, `work` and `automation`
-   no longer take the leading pane. The `task-conversation` layout (lead
-   conversation in the leading pane, task beside it) is already this model.
+   no longer take the leading pane.
 
 2. **Remove the exclusive groups.** `ExclusiveGroup`, `isPageRoute` and
    `isArtifactRoute` go away. Their only job was to keep one item per pane. A
@@ -390,7 +389,7 @@ The code follows this plan, with these differences:
   embeds and the Workspace page now do the same thing as a plain click. They
   can go: `PlanMessageItem`, `AutomationRefCard`, `ArtifactActivityCard`,
   `ArtifactRail`, `DocumentStackCard`, `ArtifactEmbedNodeView`,
-  `DiagramEmbedNodeView`, `WorkspaceItemContextMenu`, `WorkspaceRow`,
+  `DiagramEmbedNodeView`, `WorkspaceItemContextMenu`, `WorkspaceCard`,
   `WorkspacePage`, `HtmlBlock`. The session variants (`SessionContextMenu`,
   `TaskSessionsList`, `AgentConversationCard`) still mean something.
 

@@ -55,6 +55,11 @@ had these problems:
 - The project panel collapses when its conversation column is narrower than
   1200px, on desktop and web. Each split pane uses its own column width. The
   panel returns when there is enough room if the user's preference is open.
+  While it is collapsed for width, the conversation band shows the expand
+  button. A press opens the panel in the narrow column, down to 600px (the
+  400px conversation minimum plus the 200px rail minimum). The panel stays
+  open there until the user closes it. Below 600px there is no room, so the
+  band shows no button.
 - A user who already has a saved 90% zoom from the old first-run seed keeps it.
   `mod+0` returns to 100%. There is no migration.
 - On a laptop, some surfaces now show the desktop geometry. Examples are menu

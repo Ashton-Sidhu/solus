@@ -79,6 +79,7 @@ describe('Working and Waiting rows count from when the status began (pingdotgg/t
       onReset: () => () => {},
       api: {
         sessionPullRequests: async () => [],
+        sessionPullRequestDelete: async () => {},
         sessionPullRequestWatch: async () => 'started' as const,
         sessionUpdate: async () => ({}),
         setSessionTitle: async () => {},

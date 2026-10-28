@@ -18,7 +18,7 @@
           <button
             {...props}
             type="button"
-            class="relative flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-card px-2 text-foreground shadow-[shadow:var(--elev-ring)] hover:bg-[var(--wash-1)] @min-[40rem]/pane:pr-3 @max-[30rem]/pane:h-10"
+            class="relative flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg bg-card px-2 text-foreground shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_color-mix(in_oklch,var(--foreground)_4%,transparent)] transition-colors duration-150 hover:bg-[var(--wash-2)] @min-[40rem]/pane:pr-3 @max-[30rem]/pane:h-10"
             aria-label={ariaLabel}
             title="Sort"
           >

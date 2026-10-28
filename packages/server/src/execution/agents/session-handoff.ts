@@ -105,7 +105,7 @@ export async function buildHandoff(oldSessionId: string, projectPath: string, de
   const selected = selectHistory(items, budget, deps.sourceStatus, deps.nextPrompt)
   const omitted = items.length - selected.length
   const header = `# Conversation handoff\n\nSource session: ${oldSessionId}\nSource project: ${projectPath}\n`
-  const retrieval = omitted ? `\n${omitted} visible history items omitted. Use read_session with session_id "${oldSessionId}" and match or tail to retrieve relevant earlier history.\n` : '\nAll visible conversation items are included.\n'
+  const retrieval = omitted ? `\n${omitted} visible history items omitted. Use read_session with session_id "${oldSessionId}" to page through earlier history, or search_sessions to find a passage in it.\n` : '\nAll visible conversation items are included.\n'
   const body = selected.map((item) => renderItem(item, deps.sourceStatus)).join('\n\n')
   const root = deps.handoffRoot ?? join(tmpdir(), 'solus-handoffs')
   await mkdir(root, { recursive: true })

@@ -1,9 +1,10 @@
 <script lang="ts" generics="T extends string">
+  import type { Snippet } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import * as DropdownMenu from "../dropdown-menu";
   import type { ListIcon } from "./list-page";
 
-  let { label, icon: Icon, options, selected, onChange, multiple = false, emptyLabel = "All", showAll = false }: {
+  let { label, icon: Icon, options, selected, onChange, multiple = false, emptyLabel = "All", showAll = false, optionIcon }: {
     label: string;
     icon?: ListIcon;
     options: { value: T; label: string; count?: number }[];
@@ -12,6 +13,8 @@
     multiple?: boolean;
     emptyLabel?: string;
     showAll?: boolean;
+    /** A mark drawn before each option's label, such as a host's operating system. */
+    optionIcon?: Snippet<[T]>;
   } = $props();
   const narrowViewport = new MediaQuery("(max-width: 40rem)");
   const valueLabel = $derived(selected.length === 0 ? emptyLabel : selected.length === 1
@@ -34,6 +37,7 @@
           closeOnSelect={false}
           onCheckedChange={(checked) => onChange(checked ? [...selected.filter((value) => value !== option.value), option.value] : selected.filter((value) => value !== option.value))}
         >
+          {@render optionIcon?.(option.value)}
           <span class="min-w-0 flex-1 truncate">{option.label}</span>
           {#if option.count !== undefined}<span class="mr-1 tabular-nums text-muted-foreground">{option.count}</span>{/if}
         </DropdownMenu.CheckboxItem>
@@ -49,6 +53,7 @@
       }}>
         {#each options as option (option.value)}
           <DropdownMenu.RadioItem value={option.value}>
+            {@render optionIcon?.(option.value)}
             <span class="min-w-0 flex-1 truncate">{option.label}</span>
             {#if option.count !== undefined}<span class="mr-1 tabular-nums text-muted-foreground">{option.count}</span>{/if}
           </DropdownMenu.RadioItem>

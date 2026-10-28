@@ -3,7 +3,6 @@
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
   import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
-  import { addOverSshStore } from "@solus/workspace-ui/components/servers/add-over-ssh.store.svelte";
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
   import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
@@ -790,24 +789,12 @@
 <LazyDialog
   open={serversStore.addServerOpen}
   load={() => import("@solus/workspace-ui/components/servers/AddServerModal.svelte")}
-  title="Add server"
-  class="w-[28rem]"
+  title="Add host"
+  class="w-[44rem]"
   onclose={() => serversStore.closeAddServer()}
 >
   {#snippet children(AddServerModal)}
     <AddServerModal />
-  {/snippet}
-</LazyDialog>
-
-<LazyDialog
-  open={addOverSshStore.isOpen}
-  load={() => import("@solus/workspace-ui/components/servers/AddOverSshDialog.svelte")}
-  title="Add a machine over SSH"
-  class="w-[28rem]"
-  onclose={() => addOverSshStore.close()}
->
-  {#snippet children(AddOverSshDialog)}
-    <AddOverSshDialog />
   {/snippet}
 </LazyDialog>
 

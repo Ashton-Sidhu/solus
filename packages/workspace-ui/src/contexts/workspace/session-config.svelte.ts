@@ -422,7 +422,8 @@ export class SessionConfigController {
     this.deps.refreshGitRefs(contextRun, projectRoot, repoCtx)
   }
 
-  async switchToBranch(branch: string, sourceId?: string): Promise<boolean> {
+  /** `create` makes the branch from the checkout's HEAD first. */
+  async switchToBranch(branch: string, sourceId?: string, options?: { create?: boolean }): Promise<boolean> {
     if (this.switchingBranch) return false
     this.switchingBranch = true
     try {
@@ -439,7 +440,7 @@ export class SessionConfigController {
       const projectRoot = worktreeProjectRoot(baseDir)
       const ctx = this.deps.ctxForDirectory(projectRoot)
       const api = this.deps.apiForRun(contextRun)
-      const result = await api.gitCheckoutBranch(ctx, branch)
+      const result = await api.gitCheckoutBranch(ctx, branch, options)
       if (!result.success || !result.gitContext) {
         toasts.error("Couldn't switch branch", { description: result.error })
         return false

@@ -48,14 +48,12 @@ function build(
   sessions: Record<string, SidebarSessionChild[]>,
   query = '',
   expanded: string[] = [],
-  openTaskIds: string[] = [],
 ) {
   return buildPickerRows({
     tasks,
     query,
     sessionsFor: (item) => sessions[item.id] ?? [],
     expandedTaskIds: new Set(expanded),
-    openTaskIds: new Set(openTaskIds),
   })
 }
 
@@ -90,7 +88,9 @@ describe('unified picker rows', () => {
     expect(entries.map((entry) => entry.kind)).toEqual(['task', 'task'])
   })
 
-  test('open in-progress sidebar tasks are lifted into the top section without duplicates', () => {
+  test('tasks sit under their lifecycle sections, each listed once', () => {
+    // WHY: tasks have no place in the sidebar, so no task is lifted into an
+    // "Open" section above the rest. The Tasks page's sections order them.
     const todo = { ...task('c', 'Gamma'), status: 'todo' as const }
     const { rows } = buildPickerRows({
       tasks: [...tasks, todo],
@@ -98,10 +98,8 @@ describe('unified picker rows', () => {
       resultType: 'tasks',
       sessionsFor: (item) => sessions[item.id as keyof typeof sessions] ?? [],
       expandedTaskIds: new Set(),
-      openTaskIds: new Set(['a', 'c']),
     })
     expect(rows.filter((row) => row.kind === 'header').map((row) => row.label)).toEqual([
-      'Open',
       'In progress',
       'Todo',
     ])

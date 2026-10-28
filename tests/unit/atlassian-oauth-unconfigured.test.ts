@@ -57,11 +57,12 @@ describe('Atlassian OAuth on a build with no client credentials', () => {
 
     const result = await server.handle('atlassianStartOAuth', [], TEST_HANDLER_CTX)
     expect(result).toMatchObject({ ok: false })
-    // The status is what the UI reads to replace the button with an
-    // explanation, so it must say the build cannot sign in at all.
+    // The status is what the UI reads to replace the button with the token
+    // form, so it must say the build cannot sign in but takes a token.
     expect(await server.handle('atlassianStatus', [], TEST_HANDLER_CTX)).toEqual({
       connected: false,
       oauthAvailable: false,
+      apiTokenAvailable: true,
     })
   })
 })

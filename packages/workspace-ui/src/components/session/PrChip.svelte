@@ -1,7 +1,8 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
-  import { ChevronDown as ChevronDownIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { ChevronDown as ChevronDownIcon, GitPullRequest as GitPullRequestIcon, X as XIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { Button } from "../ui/button";
   import { hoverIntent } from "../../lib/hover-intent";
   import { prStatusBadge, REQUIRED_CHECKS_FAILING_BADGE } from "../prs/lib/pr-utils";
   import TaskPrMenuLabel from "./TaskPrMenuLabel.svelte";
@@ -18,8 +19,11 @@
     /** Reads the pull request ahead while the pointer rests on the chip, so
      *  the click finds it loaded. */
     onWarm?: (choice: TaskPrChoice) => void;
+    /** Removes a link from the row. Absent for a pull request the row only
+     *  reads from its checkout, which has no link to remove. */
+    onUnlink?: (choice: TaskPrChoice) => (() => void) | null;
   }
-  let { chip, choices, onOpen, onMore, onWarm }: Props = $props();
+  let { chip, choices, onOpen, onMore, onWarm, onUnlink }: Props = $props();
   let menuOpen = $state(false);
 
   // The menu's rows and the PR surfaces draw each state with these badges, so
@@ -112,17 +116,43 @@
     >
       <DropdownMenu.Label class="text-workspace-chrome">Pull requests</DropdownMenu.Label>
       {#each choices as choice (`${choice.targetScope}:${choice.number}`)}
+        {@const unlink = onUnlink?.(choice) ?? null}
+        <!-- Delete or Backspace unlinks the highlighted row, so the keyboard
+             needs no second stop. -->
         <DropdownMenu.Item
-          class="text-workspace-chrome"
+          class="group/pr text-workspace-chrome"
           textValue={`#${choice.number} ${taskPrMenuTitle(choice)}`}
           title={`Open #${choice.number} ${taskPrMenuTitle(choice)}`}
           onclick={(event) => {
             event.stopPropagation();
             if (openChoiceExternal(choice, event)) menuOpen = false;
           }}
+          onkeydown={(event) => {
+            if (!unlink || (event.key !== "Delete" && event.key !== "Backspace")) return;
+            event.preventDefault();
+            unlink();
+          }}
           onSelect={() => onOpen(choice)}
         >
           <TaskPrMenuLabel {choice} />
+          {#if unlink}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              tabindex={-1}
+              class="-my-1 -mr-1 size-5 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-100 group-hover/pr:opacity-100 group-data-highlighted/pr:opacity-100 hover:text-foreground pointer-coarse:opacity-100"
+              aria-label={`Unlink pull request #${choice.number}`}
+              title="Unlink"
+              onpointerdown={(event) => event.stopPropagation()}
+              onclick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                unlink();
+              }}
+            >
+              <XIcon size={12} aria-hidden="true" />
+            </Button>
+          {/if}
         </DropdownMenu.Item>
       {/each}
     </DropdownMenu.Content>

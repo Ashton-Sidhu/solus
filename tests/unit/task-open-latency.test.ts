@@ -4,8 +4,7 @@ import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
 import { SvelteRunes } from './helpers/svelte-runes'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
-// WHY: opening a task is opening its lead conversation with the task page
-// beside it. The page must not wait for the lead's transcript, and a task the
+// WHY: jumping back to a task's work resumes its latest session. A task the
 // reader clicked past must not take the screen back when its slow reads land.
 
 const workspaceUi = '../../packages/workspace-ui/src'
@@ -37,8 +36,8 @@ mock.module(`${workspaceUi}/contexts/workspace/session-draft.svelte`, () => ({ o
 
 const { SessionOpening } = await import(`${workspaceUi}/contexts/workspace/session-opening`)
 
-function leadLink(sessionId: string): TaskSessionLink {
-  return { sessionId, role: 'lead', sessionTitle: null, provider: 'codex', model: null, startedAt: null, lastActivityAt: null, linkedAt: 1 } as TaskSessionLink
+function attemptLink(sessionId: string): TaskSessionLink {
+  return { sessionId, role: 'working', sessionTitle: null, provider: 'codex', model: null, startedAt: null, lastActivityAt: null, linkedAt: 1 } as TaskSessionLink
 }
 
 function taskRecord(id: string): Task {
@@ -47,25 +46,21 @@ function taskRecord(id: string): Task {
 
 interface Resume {
   meta: SessionMeta
-  opts: { stillWanted?: () => boolean; onShown?: (tabId: string) => void }
+  opts: { stillWanted?: () => boolean }
   finish: () => void
 }
 
-function harness(openLeads: Record<string, string> = {}) {
-  const pages: string[] = []
+function harness(openSessions: Record<string, string> = {}) {
   const selectedTabs: string[] = []
   const resumes: Resume[] = []
   const workspace = {
-    hasCompanionPanes: true,
-    tabs: Object.fromEntries(Object.entries(openLeads).map(([sessionId, tabId]) => [tabId, { id: tabId, sessionId }])),
-    sessions: { byId: Object.fromEntries(Object.entries(openLeads).map(([sessionId]) => [sessionId, { id: sessionId, agentSessionId: sessionId, run: { location: folderLocation({ serverId: 'local', path: '/repo' }) } }])) },
-    tabOrder: Object.values(openLeads),
+    tabs: Object.fromEntries(Object.entries(openSessions).map(([sessionId, tabId]) => [tabId, { id: tabId, sessionId }])),
+    sessions: { byId: Object.fromEntries(Object.entries(openSessions).map(([sessionId]) => [sessionId, { id: sessionId, agentSessionId: sessionId, run: { location: folderLocation({ serverId: 'local', path: '/repo' }) } }])) },
+    tabOrder: Object.values(openSessions),
     tasksStore: {
-      get: (taskId: string) => ({ sessions: [leadLink(`${taskId}-lead`)], ownerHost: async () => 'local' }),
+      get: (taskId: string) => ({ sessions: [attemptLink(`${taskId}-session`)], ownerHost: async () => 'local' }),
     },
-    goToTask: (taskId: string) => pages.push(taskId),
     selectTab: (tabId: string) => selectedTabs.push(tabId),
-    showExplicitSidebarTaskSession: () => {},
   }
   const opening = new SessionOpening(workspace)
   // The resume itself is measured elsewhere (session-first-paint); here it is
@@ -73,7 +68,7 @@ function harness(openLeads: Record<string, string> = {}) {
   opening.resumeSession = (meta: SessionMeta, opts: Resume['opts']) => new Promise<string>((resolve) => {
     resumes.push({ meta, opts, finish: () => resolve(`tab:${meta.sessionId}`) })
   })
-  return { opening, pages, selectedTabs, resumes }
+  return { opening, selectedTabs, resumes }
 }
 
 const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
@@ -83,66 +78,32 @@ beforeEach(() => {
   metaReads.clear()
 })
 
-test('the task page opens when the lead is shown, before its transcript loads', async () => {
-  const { opening, pages, resumes } = harness()
-  const opened = opening.openTaskLinkedSession(taskRecord('task-a'))
-  await settle()
-  metaReads.get('task-a-lead')?.({ sessionId: 'task-a-lead', serverId: 'local', provider: 'codex' } as SessionMeta)
-  await settle()
-  expect(resumes).toHaveLength(1)
-  expect(pages).toEqual([])
-
-  resumes[0].opts.onShown?.('tab:task-a-lead')
-  expect(pages).toEqual(['task-a'])
-
-  resumes[0].finish()
-  await opened
-  // Once, not again after the transcript.
-  expect(pages).toEqual(['task-a'])
-  expect(focusRequests).toHaveLength(1)
-})
-
-test('a lead the resume found already open still gets its page', async () => {
-  const { opening, pages, resumes } = harness()
-  const opened = opening.openTaskLinkedSession(taskRecord('task-a'))
-  await settle()
-  metaReads.get('task-a-lead')?.({ sessionId: 'task-a-lead', serverId: 'local', provider: 'codex' } as SessionMeta)
-  await settle()
-  resumes[0].finish()
-  await opened
-  expect(pages).toEqual(['task-a'])
-})
-
-test('a task clicked past before its lead metadata lands does not open', async () => {
-  const { opening, pages, selectedTabs, resumes } = harness({ 'task-b-lead': 'tab-b' })
+test('a task clicked past before its session metadata lands does not open', async () => {
+  const { opening, selectedTabs, resumes } = harness({ 'task-b-session': 'tab-b' })
   const slow = opening.openTaskLinkedSession(taskRecord('task-a'))
   await settle()
   await opening.openTaskLinkedSession(taskRecord('task-b'))
   expect(selectedTabs).toEqual(['tab-b'])
-  expect(pages).toEqual(['task-b'])
 
-  metaReads.get('task-a-lead')?.({ sessionId: 'task-a-lead', serverId: 'local', provider: 'codex' } as SessionMeta)
+  metaReads.get('task-a-session')?.({ sessionId: 'task-a-session', serverId: 'local', provider: 'codex' } as SessionMeta)
   await slow
   expect(resumes).toHaveLength(0)
-  expect(pages).toEqual(['task-b'])
   expect(focusRequests).toHaveLength(1)
 })
 
-test('a task clicked past during its resume neither shows its page nor takes focus', async () => {
-  const { opening, pages, resumes } = harness({ 'task-b-lead': 'tab-b' })
+test('a task clicked past during its resume does not take focus', async () => {
+  const { opening, resumes } = harness({ 'task-b-session': 'tab-b' })
   const slow = opening.openTaskLinkedSession(taskRecord('task-a'))
   await settle()
-  metaReads.get('task-a-lead')?.({ sessionId: 'task-a-lead', serverId: 'local', provider: 'codex' } as SessionMeta)
+  metaReads.get('task-a-session')?.({ sessionId: 'task-a-session', serverId: 'local', provider: 'codex' } as SessionMeta)
   await settle()
   expect(resumes[0].opts.stillWanted?.()).toBe(true)
 
   await opening.openTaskLinkedSession(taskRecord('task-b'))
   // The resume reads this before it opens a tab, so the late tab never steals the screen.
   expect(resumes[0].opts.stillWanted?.()).toBe(false)
-  resumes[0].opts.onShown?.('tab:task-a-lead')
   resumes[0].finish()
   await slow
-  expect(pages).toEqual(['task-b'])
   expect(focusRequests).toHaveLength(1)
 })
 

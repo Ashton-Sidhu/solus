@@ -45,7 +45,6 @@ import { sameEpic, sameMirroredTicket, samePr, samePrLinks, sameStrings } from '
 import { upstreamTaskDetails } from './upstream-task-details'
 import { taskTitleRegenerationInput } from './task-title-regeneration'
 import type { TasksStore } from './tasks.store.svelte'
-import type { SessionGeneratedMetadata } from '@solus/contracts/types'
 
 /** The title New task gives a task before its lead's first prompt names it. */
 export const UNTITLED_TASK_TITLE = 'Untitled task'
@@ -315,15 +314,6 @@ export class Task implements TaskRecord {
     }
   }
 
-  /** Name a task New task made from its lead's first prompt. A title or
-   *  description a person already wrote is kept. */
-  async nameFromLeadPrompt(metadata: SessionGeneratedMetadata): Promise<void> {
-    if (this.title !== UNTITLED_TASK_TITLE) return
-    const patch: TaskUpdatePatch = { title: metadata.title }
-    if (!this.body.trim()) patch.body = metadata.description
-    await this.update(patch)
-  }
-
   async markRead(read: boolean): Promise<this> {
     this.hydrate(await this.#api.tasksMarkRead(this.id, read))
     return this
@@ -463,18 +453,14 @@ export class Task implements TaskRecord {
    * `serverId` names this task's own host for the dispatch boundary, where the
    * caller knows it from the run and this client may not have placed the task
    * yet. Given, it is remembered.
-   *
-   * `role` is `lead` for the session composed on the task page's conversation;
-   * every other session links as a `working` attempt.
    */
   async linkSession(
     sessionId: string,
     execution: SessionExecutionHost | null,
     serverId?: string,
-    role: 'lead' | 'working' = 'working',
   ): Promise<void> {
     if (serverId) this.#serverId = serverId
-    await this.#api.tasksLinkSession(this.id, sessionId, role, execution)
+    await this.#api.tasksLinkSession(this.id, sessionId, 'working', execution)
   }
 
   /**

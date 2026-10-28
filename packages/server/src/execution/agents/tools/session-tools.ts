@@ -3,7 +3,7 @@ import { createLogger } from '../../../logger'
 import type { AgentTool } from './agent-tool'
 import { basename } from 'node:path'
 import { resolveHomePath } from '../../../platform/paths'
-import { getSessionMessages, listProjectRoots } from '../../../db/session-indexer'
+import { listProjectRoots } from '../../../db/session-indexer'
 import { searchSessionIndex } from '../../../db/session-search'
 import { formatPendingInputReport } from '../../sessions/pending-input'
 import { plainSnippet } from '@solus/contracts/search-snippet'
@@ -24,6 +24,7 @@ import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { checkAttachments } from '../../orchestration/prompt-attachments'
 import { findRemoteSession, type OrganizationApi, type RemoteSession } from '../../orchestration/remote-session-read'
 import type { AwaitedTasksResult } from '../../sessions/background-work'
+import { messageItemId, readTimeline, type TimelineRequest } from './session-timeline'
 
 const log = createLogger('sessions', 'session-tools.ts')
 
@@ -119,13 +120,14 @@ export interface SessionToolDeps {
 
 interface SessionToolArgs {
   after?: unknown
+  after_position?: unknown
   agent_provider?: unknown
-  since?: unknown
   before?: unknown
   cwd?: unknown
   delivery?: unknown
+  item_id?: unknown
   limit?: unknown
-  match?: unknown
+  max_chars_per_item?: unknown
   message?: unknown
   model_id?: unknown
   project?: unknown
@@ -139,9 +141,10 @@ interface SessionToolArgs {
   reply_offset?: unknown
   role?: unknown
   session_id?: unknown
-  tail?: unknown
   task?: unknown
   task_id?: unknown
+  text_offset?: unknown
+  view?: unknown
   wait_seconds?: unknown
   worktree_base_branch?: unknown
 }
@@ -230,19 +233,18 @@ const readTaskSessionsFields = {
   task_id: z.string().optional().describe('The task to show. Defaults to the task this session works on.'),
 }
 
+// T3 Code's thread read bounds; a larger value reads the bound.
+const MAX_READ_ITEMS = 100
+const MAX_ITEM_CHARS = 50_000
+
 const readSessionFields = {
-  session_id: z.string().describe('The session id to inspect.'),
-  tail: z.number().int().min(1).optional().describe(`Number of tail messages to return. Defaults to 10; at most ${MAX_READ_PAGE}, larger values read ${MAX_READ_PAGE}.`),
-  match: z
-    .string()
-    .optional()
-    .describe('Optional text to locate inside the session (e.g. the query you searched for). Returns the matching messages with surrounding context instead of the latest tail — use it to jump straight to the relevant passage of a long session.'),
-  since: z
-    .number()
-    .int()
-    .min(0)
-    .optional()
-    .describe('A cursor from an earlier read_session of this session. Returns only the messages after it, oldest first (up to `tail`), and a new cursor — read what is new without reading the transcript again.'),
+  session_id: z.string().describe('The session id to read.'),
+  view: z.enum(['messages', 'activity']).optional().describe("'messages' (default): user and assistant messages and plans. 'activity': every item, with tool calls and their output, reasoning, subagents and notices."),
+  after_position: z.number().int().min(0).optional().describe('Read the items after this position. Omit to read from the start. Pass nextPosition to read on.'),
+  limit: z.number().int().min(1).optional().describe(`Max items, 1 to ${MAX_READ_ITEMS}. Defaults to 50.`),
+  max_chars_per_item: z.number().int().min(1).optional().describe(`Max chars per item, 1 to ${MAX_ITEM_CHARS}. Defaults to 20000.`),
+  item_id: z.string().optional().describe('Read one item by its itemId, such as the item id a search_sessions result names.'),
+  text_offset: z.number().int().min(0).optional().describe('With item_id: read its text from this offset. Pass nextTextOffset to read the rest of a cut item.'),
 }
 
 const searchSessionsFields = {
@@ -291,9 +293,9 @@ const START_SESSION_DESC = [
 const LIST_AGENT_TARGETS_DESC =
   'List the agent providers and models currently configured on this Solus host for Solus sessions and wrapper subagents, including runtime availability and supported reasoning levels, and the other hosts you can start sessions on. Superseded model generations are left out (`legacyModelsOmitted` counts them); start_session still accepts their ids. This catalog does not establish native subagent model support; consult the built-in tool schema for that. With `host`, list what that host offers instead, and the projects on that host.'
 const SEARCH_SESSIONS_DESC =
-  "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id (pass your query as `match`) to load the conversation before you answer. When you cite one of these sessions, copy its link exactly as returned."
+  "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id and the result's `item id` as `item_id` to read the passage, then page around its position, before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
-  'Load a Solus session by id: its status, bound task context, and message bodies. A session that is not on this host is looked up on your other linked hosts, then on your organizations\' Solus APIs. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead. When you cite this session in a reply, copy the returned session link verbatim rather than rebuilding it.'
+  "Read any Solus session by id: its status, task, pending input, and timeline. `messages` (default): user and assistant messages and plans. `activity`: every item, with tool calls and their output. Reads from the start; page with `after_position=nextPosition`. Keep reads small: low `limit` and `max_chars_per_item`. Cut-off text: `item_id` with `text_offset=nextTextOffset`. To find a passage, use search_sessions and read its item id. A session not on this host is looked up on your other hosts, then on your organizations' Solus APIs. In your reply, name it as its `link` verbatim."
 const SEND_SESSION_DESC =
   "Send a message to another Solus session. `delivery` 'queue' (default) runs it after the session's current turn; 'steer' changes the turn in progress now, and falls back to queue if that turn cannot take it. With `report` on, the outcome comes back like start_session's. Cannot target your own session."
 const READ_TASK_SESSIONS_DESC =
@@ -366,15 +368,11 @@ function resolveProject(
   return { kind: 'candidates', candidates: hits }
 }
 
-async function taskContextForSession(sessionId: string): Promise<{
-  summary: string
-  details: string[]
-} | null> {
+async function taskSummaryForSession(sessionId: string): Promise<string | null> {
   const boundTask = await Task.forSession(ANY_ORGANIZATION, sessionId)
   if (!boundTask) return null
   const task = boundTask.record()
-  const summary = `${task.id} [${task.status}] ${task.title}`
-  return { summary, details: [`task: ${summary}`] }
+  return `${task.id} [${task.status}] ${task.title}`
 }
 
 /** The time window of a search. */
@@ -434,132 +432,6 @@ function remoteHostOf(deps: SessionToolDeps, sessionId: string): string | undefi
 export async function findSession(sessionId: string): Promise<SessionMeta | null> {
   if (!sessionController) return null
   return sessionController.getSessionInfo(sessionId)
-}
-
-function formatTail(messages: SessionLoadMessage[]): string {
-  // Reasoning/thinking turns are carried in the transcript for provider handoffs,
-  // not for reading back a session — drop them so they don't crowd the tail.
-  const visible = messages.filter((m) => m.role !== 'reasoning')
-  if (!visible.length) return '(no messages)'
-  return visible.map((m) => {
-    if (m.toolName) return `[tool: ${m.toolName}]`
-    const content = truncate(m.content || m.toolInput || m.toolResultForId || '', 500)
-    return `[${m.role || 'message'}] ${content || '(empty)'}`
-  }).join('\n')
-}
-
-/** What one read_session call reads from. */
-interface SessionRead {
-  /** The last `limit` messages; without a limit, the whole transcript. */
-  load(limit?: number): Promise<SessionLoadMessage[]>
-  /** The text messages `match` searches. */
-  matchable(): Promise<Array<{ role: string; text: string }>>
-  tail: number
-}
-
-/** The body of a read_session result, what it is, and the cursor after it. */
-interface SessionBody {
-  body: string
-  bodyNote?: string
-  cursor?: number
-}
-
-async function readTail(read: SessionRead): Promise<SessionBody> {
-  const messages = await read.load(read.tail)
-  return { body: formatTail(messages), cursor: cursorAfter(messages) }
-}
-
-async function readSince(read: SessionRead, since: number): Promise<SessionBody> {
-  const page = messagesSince(await read.load(), since, read.tail)
-  if (!page.messages.length) return { body: '(nothing new)', bodyNote: `new since ${since}:`, cursor: since }
-  const cursor = cursorAfter(page.messages)
-  return {
-    body: formatTail(page.messages),
-    bodyNote: page.remaining
-      ? `${page.messages.length} new messages since ${since}; ${page.remaining} more after these — call again with since=${cursor}:`
-      : `new since ${since}:`,
-    cursor,
-  }
-}
-
-/** The indexed messages matching `match`; the latest tail when nothing
- *  matches or the body is not indexed yet. */
-async function readMatch(read: SessionRead, match: string): Promise<SessionBody> {
-  const indexed = await read.matchable()
-  const matched = formatMatchedMessages(indexed, match, read.tail)
-  if (matched) {
-    return {
-      body: matched.text,
-      bodyNote: matched.total > matched.shown
-        ? `matched ${matched.total} messages for "${match}" — showing first ${matched.shown} (±1 for context):`
-        : `matched ${matched.shown} message${matched.shown === 1 ? '' : 's'} for "${match}" (±1 for context):`,
-    }
-  }
-  const tail = await readTail(read)
-  return {
-    ...tail,
-    bodyNote: indexed.length
-      ? `no messages matched "${match}" — showing latest ${read.tail}:`
-      : `session body not indexed for matching — showing latest ${read.tail}:`,
-  }
-}
-
-/** The cursor after `messages`: the time of the last one. */
-function cursorAfter(messages: readonly SessionLoadMessage[]): number | undefined {
-  return messages.reduce<number | undefined>((latest, message) => (latest === undefined || message.timestamp > latest ? message.timestamp : latest), undefined)
-}
-
-/** One page of messages after a cursor, and how many more follow it. */
-interface MessagePage {
-  messages: SessionLoadMessage[]
-  remaining: number
-}
-
-/**
- * The messages after cursor `since`, oldest first, at most `limit`. A page never
- * ends inside a run of messages with one timestamp: the next cursor would skip
- * the rest of that run.
- */
-function messagesSince(messages: readonly SessionLoadMessage[], since: number, limit: number): MessagePage {
-  const after = messages.filter((message) => message.timestamp > since && message.role !== 'reasoning')
-  let end = Math.min(limit, after.length)
-  while (end < after.length && after[end]!.timestamp === after[end - 1]!.timestamp) end++
-  return { messages: after.slice(0, end), remaining: after.length - end }
-}
-
-/** For `read_session`'s `match` mode: from a session's indexed text messages,
- *  return the ones containing every query token (FTS-style AND) plus one message
- *  of context on each side, with `⋯` marking gaps. Null when nothing matches, so
- *  the caller can fall back to the latest tail. */
-function formatMatchedMessages(
-  messages: Array<{ role: string; text: string }>,
-  match: string,
-  maxMatches: number,
-): { text: string; total: number; shown: number } | null {
-  const tokens = match.toLowerCase().split(/\s+/).map((t) => t.trim()).filter(Boolean)
-  if (!tokens.length) return null
-  const matchIdx: number[] = []
-  messages.forEach((m, i) => {
-    const hay = m.text.toLowerCase()
-    if (tokens.every((t) => hay.includes(t))) matchIdx.push(i)
-  })
-  if (!matchIdx.length) return null
-  const shown = matchIdx.slice(0, maxMatches)
-  const hits = new Set(shown)
-  const include = new Set<number>()
-  for (const i of shown) {
-    for (let j = i - 1; j <= i + 1; j += 1) if (j >= 0 && j < messages.length) include.add(j)
-  }
-  const ordered = [...include].sort((a, b) => a - b)
-  const lines: string[] = []
-  let prev = -2
-  for (const i of ordered) {
-    if (lines.length && i !== prev + 1) lines.push('⋯')
-    const marker = hits.has(i) ? '» ' : '  '
-    lines.push(`${marker}[${messages[i].role || 'message'}] ${truncate(messages[i].text, 500)}`)
-    prev = i
-  }
-  return { text: lines.join('\n'), total: matchIdx.length, shown: shown.length }
 }
 
 // ─── Executor (shared by Claude SDK tool + Codex handler) ───
@@ -670,69 +542,67 @@ async function readSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   if (!sessionController) return { ok: false, text: 'read_session is unavailable — no session controller is wired.' }
   const controller = sessionController
   const parsed = z.object(readSessionFields).safeParse(args)
-  if (!parsed.success) return { ok: false, text: 'read_session requires a valid session_id.' }
+  if (!parsed.success) return { ok: false, text: `read_session received invalid arguments: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}` }
+  const request: TimelineRequest = {
+    view: parsed.data.view ?? 'messages',
+    afterPosition: parsed.data.after_position ?? -1,
+    limit: Math.min(parsed.data.limit ?? 50, MAX_READ_ITEMS),
+    maxCharsPerItem: Math.min(parsed.data.max_chars_per_item ?? 20_000, MAX_ITEM_CHARS),
+    ...(parsed.data.item_id !== undefined && { itemId: parsed.data.item_id, textOffset: parsed.data.text_offset ?? 0 }),
+  }
   const requestedId = parsed.data.session_id.trim()
-  const tail = Math.min(parsed.data.tail ?? 10, MAX_READ_PAGE)
   const meta = await findSession(requestedId)
   if (!meta) {
     const remote = await findOffHost(requestedId, deps.ctx?.sessionId)
-    if (remote) return readRemoteSession(remote, parsed.data, tail)
+    // Its task and pending input stay on the host that holds it.
+    if (remote) return readResult({ meta: remote.meta, status: remote.meta.status ?? 'idle', foundOn: remote.source }, await remote.load(), request)
     const remoteHost = remoteHostOf(deps, requestedId)
     if (remoteHost) return { ok: false, text: `Session ${requestedId} runs on ${remoteHost}, which did not answer. Its report comes back here, and read_session_exchange reads it.` }
     return { ok: false, text: `Session ${requestedId} not found on this host, your other hosts, or your organizations' Solus APIs.` }
   }
   // The session read may name a thread; everything below names the session.
   const sessionId = meta.sessionId
-  const status = controller.liveStatus(sessionId) ?? meta.status ?? 'idle'
-  const projectPath = meta.projectPath || deps.ctx?.cwd
-  const { body, bodyNote = '', cursor } = await readBody({
-    load: (limit) => controller.loadSessionTail(meta.provider, sessionId, projectPath, limit),
-    matchable: async () => getSessionMessages(sessionId),
-    tail,
-  }, parsed.data)
-  const pendingInput = formatPendingInputReport(controller.pendingInputEvents(sessionId))
-  const taskContext = await taskContextForSession(sessionId)
-  return {
-    ok: true,
-    text: [
-      ...sessionHeader(meta, status, taskContext ? taskContext.details : ['task: (unbound)']),
-      ...(pendingInput ? [`Pending input:\n${pendingInput}`, ''] : []),
-      ...bodyLines(body, bodyNote, cursor),
-    ].join('\n'),
+  const messages = await controller.loadSessionTail(meta.provider, sessionId, meta.projectPath || deps.ctx?.cwd)
+  return readResult({
+    meta,
+    status: controller.liveStatus(sessionId) ?? meta.status ?? 'idle',
+    task: await taskSummaryForSession(sessionId),
+    pendingInput: formatPendingInputReport(controller.pendingInputEvents(sessionId)),
+  }, messages, request)
+}
+
+/** What read_session says about a session beside its timeline. */
+interface SessionReadContext {
+  meta: SessionMeta
+  status: SessionStatus
+  task?: string | null
+  pendingInput?: string | null
+  /** The other host or Solus API that answered, when this host does not hold it. */
+  foundOn?: string
+}
+
+function readResult(context: SessionReadContext, messages: readonly SessionLoadMessage[], request: TimelineRequest): SessionToolResult {
+  const page = readTimeline(messages, request)
+  const { meta } = context
+  if (request.itemId !== undefined && !page.items.length) return { ok: false, text: `Session ${meta.sessionId} has no item ${request.itemId}.` }
+  const session = {
+    sessionId: meta.sessionId,
+    link: sessionLink(meta),
+    title: meta.customTitle || meta.slug || null,
+    status: context.status,
+    provider: meta.provider,
+    model: meta.model ?? null,
+    reasoningEffort: meta.reasoningEffort ?? null,
+    workingDirectory: meta.cwd,
+    branch: meta.branch ?? null,
+    parentSessionId: meta.delegation?.parentSessionId ?? null,
+    ...(context.foundOn !== undefined && { foundOn: context.foundOn }),
+    ...(context.task !== undefined && { task: context.task }),
+    ...(context.pendingInput && { pendingInput: context.pendingInput }),
+    itemCount: page.itemCount,
+    updatedAt: meta.lastTimestamp,
   }
-}
-
-/** A session on another host or an organization's Solus API. Its task and pending input stay there. */
-async function readRemoteSession(remote: RemoteSession, request: { match?: string; since?: number }, tail: number): Promise<SessionToolResult> {
-  const { body, bodyNote = '', cursor } = await readBody({
-    load: (limit) => remote.load(limit),
-    matchable: async () => (await remote.load())
-      .filter((message) => message.role !== 'reasoning' && message.content)
-      .map((message) => ({ role: message.role, text: message.content })),
-    tail,
-  }, request)
-  return {
-    ok: true,
-    text: [
-      ...sessionHeader(remote.meta, remote.meta.status ?? 'idle', [`found on: ${remote.source}`]),
-      ...bodyLines(body, bodyNote, cursor),
-    ].join('\n'),
-  }
-}
-
-/** With `match`, the relevant passage; with `since`, only what came after the cursor; otherwise the latest tail. */
-async function readBody(read: SessionRead, request: { match?: string; since?: number }): Promise<SessionBody> {
-  const match = request.match?.trim() ?? ''
-  if (match) return readMatch(read, match)
-  return request.since !== undefined ? readSince(read, request.since) : readTail(read)
-}
-
-function bodyLines(body: string, bodyNote: string, cursor: number | undefined): string[] {
-  return [
-    ...(bodyNote ? [bodyNote] : []),
-    body,
-    ...(cursor !== undefined ? ['', `cursor: ${cursor} (pass since=${cursor} to read only what comes after)`] : []),
-  ]
+  return { ok: true, text: JSON.stringify({ session, items: page.items, nextPosition: page.nextPosition, hasMore: page.hasMore }, null, 2) }
 }
 
 /** The session on one of the person's other hosts or organizations' Solus APIs; null when none has it. */
@@ -746,21 +616,6 @@ async function findOffHost(sessionId: string, callerSessionId: string | undefine
   })
   const apis = sessionController?.organizationApisFor?.(callerSessionId) ?? []
   return findRemoteSession(sessionId, hosts, apis)
-}
-
-/** The lines that say which session this is, where it stands, and where it belongs. */
-function sessionHeader(meta: SessionMeta, status: SessionStatus, context: string[]): string[] {
-  const stuck = status === 'awaiting_input' ? ' — awaiting input/permission' : status === 'awaiting_plan' ? ' — awaiting plan approval' : ''
-  return [
-    `Session ${sessionLink(meta)}`,
-    `status: ${status}${stuck}`,
-    `provider: ${meta.provider}`,
-    ...(meta.model ? [`model: ${meta.model}${meta.reasoningEffort ? ` (reasoning: ${meta.reasoningEffort})` : ''}`] : []),
-    `cwd: ${meta.cwd}`,
-    `lastTimestamp: ${meta.lastTimestamp}`,
-    ...context,
-    '',
-  ]
 }
 
 async function readTaskSessionsTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
@@ -821,11 +676,12 @@ async function searchSessionsTool(args: SessionToolArgs): Promise<SessionToolRes
     limit,
   })
   if (!results.length) return { ok: true, text: `${scopeNote}${rangeNote}No matching sessions.` }
-  const lines = results.map(({ session, snippet, ts }) => {
+  const lines = results.map(({ session, snippet, ts, target }) => {
     const project = session.projectRoot ? basename(session.projectRoot) : '(unknown)'
-    return `${sessionLink(session)}\nproject: ${project} (${session.projectRoot ?? session.cwd})\nprovider: ${session.provider}\nsession id: ${session.sessionId}\ntimestamp: ${new Date(ts).toISOString()}\nsnippet: ${snippet ? truncate(plainSnippet(snippet), 500) : '(matched by its name)'}`
+    const item = target ? `\nitem id: ${messageItemId(target.role, target.messageId, target.timestamp)}` : ''
+    return `${sessionLink(session)}\nproject: ${project} (${session.projectRoot ?? session.cwd})\nprovider: ${session.provider}\nsession id: ${session.sessionId}${item}\ntimestamp: ${new Date(ts).toISOString()}\nsnippet: ${snippet ? truncate(plainSnippet(snippet), 500) : '(matched by its name)'}`
   })
-  const nextStep = '→ To read any result in full, call read_session with its session id (add match:"…" to jump to the relevant passage).'
+  const nextStep = '→ To read a passage, call read_session with its session id and item_id. Its position tells you where to page from: after_position reads what follows it.'
   return { ok: true, text: `${scopeNote}${rangeNote}Search results:\n\n${lines.join('\n\n')}\n\n${nextStep}` }
 }
 

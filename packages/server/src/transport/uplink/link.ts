@@ -10,6 +10,7 @@ import {
   type HostLinkResponse,
   type HostLinkStatus,
   type HostRegistration,
+  type HostRegistrationRequest,
   type HostTunnel,
   type LinkHostRequest,
   type UplinkLinkState,
@@ -19,7 +20,7 @@ import { createLogger } from '../../logger'
 import { dataDir, solusDir } from '../../platform/paths'
 import { secretStore } from '../../platform/secrets'
 import type { FetchLike } from '../../admission/access-tokens'
-import { HostRegistrationError, storeRegistrationRecord } from '../../host/host-registration'
+import { HostRegistrationError, storeRegistrationRecord, type HostRegistrar } from '../../host/host-registration'
 import type { ConnectorObservation } from './connector'
 
 const log = createLogger('main', 'uplink-link')
@@ -221,6 +222,11 @@ export class UplinkLinkManager {
     this.setObservation(observation)
   }
 
+  /** A link that could not be made: the status line says why until a link succeeds. */
+  noteLinkFailure(error: string): void {
+    this.setObservation({ observed: 'error', error })
+  }
+
   /**
    * The tunnel's connector when the link has one. Without one the host is reached
    * directly — its platform proxy forwards to the proxied listener — so there is
@@ -302,6 +308,26 @@ export class UplinkLinkManager {
     this.observed = observation.observed
     this.observedError = observation.observed === 'error' ? observation.error : undefined
     this.deps.onStatusChanged?.()
+  }
+}
+
+/**
+ * Registers the host and links it when this is its first registration (ADR 0001 §2.2
+ * rule 9): a person who links a device to Solus cloud reaches it from every device they
+ * sign in on, with no second step. A host registered already keeps the link its owner
+ * chose, so an unlink stays an unlink. A link that fails leaves the registration, and
+ * the link's status says why.
+ */
+export async function registerAndLink(registrar: Pick<HostRegistrar, 'current' | 'register'>, link: UplinkLinkManager, request: HostRegistrationRequest): Promise<void> {
+  const wasRegistered = registrar.current() !== null
+  await registrar.register(request)
+  if (wasRegistered || !registrar.current()) return
+  try {
+    await link.link()
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    log.warn('uplink_link_after_registration_failed', { hostId: registrar.current()?.hostId ?? null, error })
+    link.noteLinkFailure(error)
   }
 }
 

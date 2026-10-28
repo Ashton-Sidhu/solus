@@ -73,7 +73,7 @@
       session.drafts.openSessionDraft({ sourceId });
   }
 
-  async function selectBranch(branch: string) {
+  async function selectBranch(branch: string, options?: { create?: boolean }) {
     if (pendingDispatch) return;
     const entry = worktrees.find((worktree) => worktree.branch === branch);
     if (entry) {
@@ -81,7 +81,7 @@
       return;
     }
     const draft = destinationDraft();
-    const ok = await session.switchToBranch(branch, draft.id);
+    const ok = await session.switchToBranch(branch, draft.id, "click", options);
     if (ok) settleOnDestination(draft.id);
     else requestInputFocus();
   }

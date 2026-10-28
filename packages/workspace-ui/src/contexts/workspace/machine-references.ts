@@ -38,8 +38,8 @@ export interface MachineReferenceOwner {
   /** Runs nothing has happened in yet, each with the command that moves it
    *  through its owner, so a moved draft reads its new checkout. */
   unstartedRuns(): { run: RunConfig; moveTo(next: RunLocation): void }[]
-  /** Sessions something has happened in: their machine is where their conversation lives. */
-  startedSessions(): Pick<Session, 'run' | 'readOnlyReason'>[]
+  /** Tabs something has happened in, each with the command that closes it. */
+  startedTabs(): { run: RunConfig; close(): void }[]
   /** Where a new session starts once the remembered project is cleared. */
   readonly defaultRunConfig: RunConfig
   /** The project lists kept from each host's last read. */
@@ -61,9 +61,8 @@ export interface MachineReferenceOwner {
  *   move to, it stays: there is nothing better to point it at, and its Run-on
  *   chip asks for a machine.
  * - A draft opened from a task keeps the task's home unless that is gone too.
- * - A started session keeps its machine, since its conversation lives there, and
- *   becomes read-only; its transcript is read from the mirror when there is one
- *   (`hydrateTab`).
+ * - A started tab closes. Forgetting a machine takes its conversations with it;
+ *   an organization session is still in the list its Solus API keeps.
  *
  * Call it only once the saved hosts are authoritative — after a directory read
  * succeeded, or when there is no directory — so a failed read never throws
@@ -82,8 +81,8 @@ export function reconcileMachineReferences(
     if (isGone(serverId)) owner.projects.forgetHost(serverId)
   }
 
-  for (const session of owner.startedSessions()) {
-    if (!session.readOnlyReason && isGone(runHost(session.run))) session.readOnlyReason = GONE_MACHINE_READ_ONLY_REASON
+  for (const tab of owner.startedTabs()) {
+    if (isGone(runHost(tab.run))) tab.close()
   }
 
   const orphaned = owner.unstartedRuns().filter(({ run }) => isGone(runHost(run)))

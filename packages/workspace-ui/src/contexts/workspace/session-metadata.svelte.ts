@@ -5,8 +5,6 @@ import { applySessionTitleChange } from './session-title-change'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import type { WorkspaceContext } from './workspace.context.svelte'
-import { existingTaskId, taskRoleOf } from './session-draft.svelte'
-import { UNTITLED_TASK_TITLE, type Task } from '../tasks/task.svelte'
 import { canDriveSession } from '../sharing/resource-roles'
 import { checkoutPlace, runHost } from './run-location'
 
@@ -127,9 +125,8 @@ export class SessionMetadata {
 
   /**
    * Name a thread from the opening prompt, once its agent session id exists to
-   * persist against. The same answer names the untitled task a lead was opened
-   * for by New task. Silent on failure: the prompt-derived title and the
-   * placeholder task title are valid fallbacks.
+   * persist against. Silent on failure: the prompt-derived title is a valid
+   * fallback.
    */
   async generateSessionMetadata(tabId: string): Promise<void> {
     const tab = this.workspace.tabs[tabId]
@@ -146,9 +143,7 @@ export class SessionMetadata {
       this.metadataFinalizedTabs.add(tabId)
       await this.workspace.apiFor(tabId).setSessionTitle(session.id, session.title, 'manual').catch(() => {})
     }
-    const renamesSession = !session.titleCustom && this.workspace.settings.autoRenameSessions
-    const untitledTask = this.untitledLeadTask(session)
-    if (!renamesSession && !untitledTask) return
+    if (session.titleCustom || !this.workspace.settings.autoRenameSessions) return
 
     // Only the opening turn names a thread — a later init is a resume, and a
     // resumed thread either has a name already or was deliberately left unnamed.
@@ -166,8 +161,6 @@ export class SessionMetadata {
       .generateSessionMetadata(userMessages[0].content, checkoutPlace(session.run).path, { ...metadataContext, sessionId: session.id, executionPreferences: this.workspace.settings.executionPreferences })
       .catch(() => null)
     if (!metadata) return
-    if (untitledTask) void untitledTask.nameFromLeadPrompt(metadata).catch(() => {})
-    if (!renamesSession) return
 
     // The tab may have been closed, reset, renamed by hand, or resumed into a
     // different session while the naming round trip was in flight.
@@ -178,15 +171,6 @@ export class SessionMetadata {
     await this.workspace.apiFor(tabId)
       .setSessionTitle(currentSession.id, metadata.title, 'generated', metadata.description)
       .catch(() => {})
-  }
-
-  /** The task New task made for this session to lead, while it still has its
-   *  placeholder title. */
-  private untitledLeadTask(session: Session): Task | null {
-    const taskId = existingTaskId(session.task)
-    if (!taskId || taskRoleOf(session.task) !== 'lead') return null
-    const task = this.workspace.tasksStore.get(taskId)
-    return task.title === UNTITLED_TASK_TITLE ? task : null
   }
 
   /** Rename a session by hand, named by a tab showing it. An empty name clears

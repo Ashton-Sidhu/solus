@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { SearchQuery } from '@solus/contracts/search-query'
 import type { Task, TaskStatus } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
@@ -79,8 +80,8 @@ describe('picker relevance', () => {
   })
 
   test('a name scores by how much of it the query is, not only whether it matches', () => {
-    expect(nameScore('Websocket reconnect loop', ['websocket', 'reconnect'])).toBeGreaterThan(nameScore('Fix websocket sidebar after reconnect', ['websocket', 'reconnect']))
-    expect(nameScore('Dark mode', ['dark', 'mode'])).toBeGreaterThan(nameScore('Dark mode for the settings page', ['dark', 'mode']))
+    expect(nameScore('Websocket reconnect loop', new SearchQuery('websocket reconnect'))).toBeGreaterThan(nameScore('Fix websocket sidebar after reconnect', new SearchQuery('websocket reconnect')))
+    expect(nameScore('Dark mode', new SearchQuery('dark mode'))).toBeGreaterThan(nameScore('Dark mode for the settings page', new SearchQuery('dark mode')))
   })
 })
 

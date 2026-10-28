@@ -5,6 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
+import type { IpcContext } from '@solus/contracts/types'
 
 // bun has no node:sqlite; the review context's import chain reaches the metrics db.
 mock.module('node:sqlite', () => ({ DatabaseSync }))
@@ -95,6 +96,39 @@ describe('review context', () => {
     expect(context?.baseSha).toBe(headSha)
     expect(context?.headSha).toBe(headSha)
     expect(context?.key).toBe(`main-${headSha}`)
+  })
+
+  test('the review pane reads the session base under the Solus session id', async () => {
+    // WHY: turn checkpoints store the session base under the Solus session id.
+    // On the default branch that base is the review pane's diff base; looked up
+    // under the provider thread id it is never found, and the pane quietly
+    // diffs against HEAD, hiding every change the session committed.
+    const { cwd } = createRepo()
+    git(cwd, ['checkout', 'main'])
+    const sessionBase = git(cwd, ['rev-parse', 'HEAD'])
+    writeFileSync(join(cwd, 'tracked.txt'), 'first\nsession\n')
+    git(cwd, ['commit', '-am', 'session work'])
+    const solusSessionId = 'solus-session'
+    mkdirSync(join(cwd, '.git', 'solus', 'sessions'), { recursive: true })
+    writeFileSync(join(cwd, '.git', 'solus', 'sessions', `${solusSessionId}.json`), JSON.stringify({
+      version: 1,
+      baseSha: sessionBase,
+      turns: [],
+    }))
+
+    const { SolusServer } = await import('@solus/server/transport/server')
+    const { registerReviewHandlers } = await import('@solus/server/transport/handlers/review-handlers')
+    const { TEST_HANDLER_CTX } = await import('./helpers/handler-ctx')
+    const server = new SolusServer()
+    registerReviewHandlers(server, {} as Parameters<typeof registerReviewHandlers>[1], {} as Parameters<typeof registerReviewHandlers>[2], {} as Parameters<typeof registerReviewHandlers>[3])
+    const context = { session: {
+      sessionId: solusSessionId, agentSessionId: 'provider-thread',
+      projectPath: cwd, workingDirectory: cwd,
+    } } as IpcContext
+
+    const review = await server.handle('getReviewContext', [context], TEST_HANDLER_CTX)
+
+    expect(review?.baseSha).toBe(sessionBase)
   })
 
   test('never asks a code host which pull request the branch has', () => {

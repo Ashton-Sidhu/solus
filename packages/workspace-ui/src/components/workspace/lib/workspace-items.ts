@@ -1,5 +1,8 @@
 import type { WorkListing } from '../../../contexts/works/works.store.svelte'
+import type { ListedSession } from '../../../contexts/workspace/session-list.store.svelte'
 import type { DocProviderId } from '@solus/contracts/docs'
+import type { ResourceRole, ShareSummary } from '@solus/contracts/sharing'
+import type { SessionRecordStatus } from '@solus/contracts/types'
 import type { WorkReviewerSummary, WorkReviewState, WorkReviewStateEntry } from '@solus/contracts/work-review'
 import { projectKeyLabel } from '@solus/client-core/project-identity'
 
@@ -49,7 +52,65 @@ export type WorkspaceItem = {
   reviewers: WorkReviewerSummary[]
   /** A review request waits for the reader. */
   awaitingMyReview: boolean
+  /** The reader's role on the work, as its host answered; null on a host that is theirs. */
+  role: ResourceRole | null
+  /** The person the work belongs to; null from a host older than the field. */
+  ownerKey: string | null
+  /** Who else may open it; null from a host older than the field. */
+  share: ShareSummary | null
   work: WorkListing
+}
+
+/** What a card says of a work's sharing at a glance, with the glyph that says it. */
+export interface ShareStateLabel {
+  glyph: 'private' | 'people' | 'organization' | 'link'
+  label: string
+}
+
+function linkTimeLeft(expiresAt: number | null, now: number): string {
+  if (expiresAt === null) return ''
+  const left = expiresAt - now
+  if (left <= 0) return 'expired'
+  const hours = Math.round(left / 3_600_000)
+  if (hours < 1) return 'under an hour left'
+  if (hours < 48) return `${hours}h left`
+  return `${Math.round(hours / 24)}d left`
+}
+
+/**
+ * Who else may open the reader's own work, as one phrase. The widest reach
+ * leads: a link reaches anyone, then the organization, then the people named.
+ * Null from a host that did not say, so the card shows nothing rather than a guess.
+ */
+export function shareStateLabel(share: ShareSummary | null, now = Date.now()): ShareStateLabel | null {
+  if (!share) return null
+  if (share.link) {
+    const left = linkTimeLeft(share.link.expiresAt, now)
+    return { glyph: 'link', label: left ? `Anyone with link · ${left}` : 'Anyone with link' }
+  }
+  if (share.organization) return { glyph: 'organization', label: share.named > 0 ? `Organization · ${share.named} named` : 'Organization' }
+  if (share.named > 0) return { glyph: 'people', label: `${share.named} ${share.named === 1 ? 'person' : 'people'}` }
+  return { glyph: 'private', label: 'Only you' }
+}
+
+/**
+ * A record another person let the reader open (docs/plans/access-model.md
+ * §2.7). The reader's own record carries `owner`, or no role at all on a host
+ * that is theirs; `none` is a record they cannot open and never see listed.
+ */
+export function isSharedWithMe(role: ResourceRole | null | undefined): boolean {
+  return role != null && role !== 'owner' && role !== 'none'
+}
+
+/** The role as the share dialog names it. */
+export function roleLabel(role: ResourceRole): string {
+  switch (role) {
+    case 'owner': return 'Owner'
+    case 'editor': return 'Can edit'
+    case 'commenter': return 'Can comment'
+    case 'custom': return 'Custom'
+    default: return 'Can view'
+  }
 }
 
 /** How the ledger names projects, from the shared project model
@@ -92,8 +153,130 @@ export function workItem(w: WorkListing, project: { key: string; label: string }
     reviewState: review?.state ?? null,
     reviewers: review?.reviewers ?? [],
     awaitingMyReview: reviews.awaitsMe(w.id),
+    role: w.role ?? null,
+    ownerKey: w.ownerKey ?? null,
+    share: w.share ?? null,
     work: w,
   }
+}
+
+// ─── Tabs ───
+
+/** The page's three groups: the reader's own works, then what others shared
+ *  with them, works and live sessions apart. */
+export type WorkspaceTab = 'yours' | 'shared-works' | 'shared-sessions'
+
+export interface WorkspaceTabSpec {
+  id: WorkspaceTab
+  label: string
+  count: number
+}
+
+export function workspaceTabs(counts: Record<WorkspaceTab, number>): WorkspaceTabSpec[] {
+  return [
+    { id: 'yours', label: 'Your works', count: counts.yours },
+    { id: 'shared-works', label: 'Shared works', count: counts['shared-works'] },
+    { id: 'shared-sessions', label: 'Shared sessions', count: counts['shared-sessions'] },
+  ]
+}
+
+/** The reader's own works and the ones shared with them, apart. */
+export interface WorkspaceOwnership {
+  yours: WorkspaceItem[]
+  shared: WorkspaceItem[]
+}
+
+export function splitByOwnership(items: WorkspaceItem[]): WorkspaceOwnership {
+  const yours: WorkspaceItem[] = []
+  const shared: WorkspaceItem[] = []
+  for (const item of items) (isSharedWithMe(item.role) ? shared : yours).push(item)
+  return { yours, shared }
+}
+
+// ─── Shared sessions ───
+
+/** One session another person shared with the reader, as the Shared sessions
+ *  tab shows it: who runs it, how far the reader may go, and whether it works now. */
+export interface WorkspaceSessionItem {
+  rowKey: string
+  serverId: string
+  sessionId: string
+  title: string
+  /** The project folder's last segment. */
+  projectLabel: string
+  branch: string | null
+  status: SessionRecordStatus
+  role: ResourceRole
+  ownerKey: string
+  /** Last activity, epoch ms. */
+  timestamp: number
+  runnerOffline: boolean
+  listed: ListedSession
+}
+
+function lastSegment(path: string | null): string {
+  if (!path) return ''
+  const segments = path.split(/[/\\]/).filter(Boolean)
+  return segments.at(-1) ?? path
+}
+
+/** The sessions in the reader's list that another person shared with them, newest first. */
+export function buildSharedSessionItems(sessions: ListedSession[]): WorkspaceSessionItem[] {
+  const items: WorkspaceSessionItem[] = []
+  for (const listed of sessions) {
+    if (!isSharedWithMe(listed.role) || !listed.role) continue
+    items.push({
+      rowKey: `session:${listed.sessionId}`,
+      serverId: listed.serverId,
+      sessionId: listed.sessionId,
+      title: listed.title || 'Untitled session',
+      projectLabel: lastSegment(listed.projectPath),
+      branch: listed.branch,
+      status: listed.status,
+      role: listed.role,
+      ownerKey: listed.ownerKey,
+      timestamp: listed.lastActivityAt || listed.createdAt,
+      runnerOffline: listed.runnerOffline,
+      listed,
+    })
+  }
+  items.sort((a, b) => b.timestamp - a.timestamp)
+  return items
+}
+
+export function applySessionFilter(items: WorkspaceSessionItem[], text: string): WorkspaceSessionItem[] {
+  const q = text.trim().toLowerCase()
+  if (!q) return items
+  return items.filter((item) => item.title.toLowerCase().includes(q) || item.projectLabel.toLowerCase().includes(q))
+}
+
+export function sortSessionItems(items: WorkspaceSessionItem[], order: SortOrder): WorkspaceSessionItem[] {
+  return [...items].sort((a, b) => (order === 'oldest' ? a.timestamp - b.timestamp : b.timestamp - a.timestamp))
+}
+
+export type SessionGroup = { key: string; label: string; items: WorkspaceSessionItem[] }
+
+/** A session whose agent works now leads, whatever its age; the rest fall
+ *  into the ledger's date buckets. */
+export function groupSharedSessions(items: WorkspaceSessionItem[], now = new Date()): SessionGroup[] {
+  const live: SessionGroup = { key: 'live', label: 'Live now', items: [] }
+  const groups: SessionGroup[] = []
+  const byKey = new Map<string, SessionGroup>()
+  for (const item of items) {
+    if (item.status === 'running') {
+      live.items.push(item)
+      continue
+    }
+    const bucket = bucketFor(item.timestamp, now)
+    let group = byKey.get(bucket.key)
+    if (!group) {
+      group = { key: bucket.key, label: bucket.label, items: [] }
+      byKey.set(bucket.key, group)
+      groups.push(group)
+    }
+    group.items.push(item)
+  }
+  return live.items.length > 0 ? [live, ...groups] : groups
 }
 
 /** What the status icon shows. */
@@ -175,6 +358,30 @@ export function bucketFor(timestamp: number, now = new Date()): LedgerBucket {
 }
 
 export type LedgerGroup = { key: string; label: string; items: WorkspaceItem[] }
+
+/** The shared works: what waits on the reader first, then the date buckets.
+ *  A pin is the reader's own mark, and it keeps its place inside the buckets:
+ *  the only group that cuts across time here is the one that needs them. */
+export function groupSharedWorks(items: WorkspaceItem[], now = new Date()): LedgerGroup[] {
+  const needsYou: LedgerGroup = { key: 'needs-you', label: 'Needs you', items: [] }
+  const groups: LedgerGroup[] = []
+  const byKey = new Map<string, LedgerGroup>()
+  for (const item of items) {
+    if (item.awaitingMyReview) {
+      needsYou.items.push(item)
+      continue
+    }
+    const bucket = bucketFor(item.timestamp, now)
+    let group = byKey.get(bucket.key)
+    if (!group) {
+      group = { key: bucket.key, label: bucket.label, items: [] }
+      byKey.set(bucket.key, group)
+      groups.push(group)
+    }
+    group.items.push(item)
+  }
+  return needsYou.items.length > 0 ? [needsYou, ...groups] : groups
+}
 
 export interface GroupedWorkspaceItems {
   pinned: WorkspaceItem[]

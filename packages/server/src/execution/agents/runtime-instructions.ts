@@ -94,7 +94,7 @@ This session is a chat with no project. The person did not choose a folder or a 
 
 const VISUALS_INSTRUCTIONS = `## Showing visuals
 
-When a chart, table, diagram, image collage, or mockup would say more than prose, show it as an HTML page in your reply, as the render_artifact tool describes. Check the page with render_artifact preview: true, then write it in a \`\`\`html fence in your reply. A preview shows the page to you only; its screenshot is not the result.`
+Show trends, comparisons, and flows as a chart or diagram, even unasked, and any visual the user asks for: show it as an HTML page in your reply, as the render_artifact tool describes. Check the page with render_artifact preview: true, then write it in a \`\`\`html fence in your reply. A preview shows the page to you only; its screenshot is not the result.`
 
 export interface AgentRuntime {
   harness: 'Claude Code' | 'Codex'
@@ -140,6 +140,7 @@ You can embed images and videos in your response with Markdown and absolute file
       PULL_REQUEST_WRITING_INSTRUCTION,
     ].join('\n\n'),
     has('link') && 'Use link without task_id to attach works, automations, PRs, and project files to the current session. Markdown plan files use kind=file and path. Relative paths use the calling session’s working directory.',
+    has('unlink_pull_request') && 'If a pull request linked to this session is not your work, call unlink_pull_request to remove it. Solus does not link it again.',
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
     runtime.harness === 'Claude Code' && has('background_wait') && BACKGROUND_WAIT_INSTRUCTIONS,
   ].filter(Boolean).join('\n\n')

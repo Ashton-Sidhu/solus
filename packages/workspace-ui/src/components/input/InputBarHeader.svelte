@@ -228,7 +228,7 @@
     branchTooltipOpen = next && !gitOpen;
   }
 
-  async function selectBranch(branch: string) {
+  async function selectBranch(branch: string, options?: { create?: boolean }) {
     if (!source) return;
     if (pendingDispatch) return;
     // A branch checked out elsewhere names that existing worktree. Navigating
@@ -238,7 +238,7 @@
       await selectWorktree(entry);
       return;
     }
-    const ok = await session.switchToBranch(branch, source);
+    const ok = await session.switchToBranch(branch, source, "click", options);
     if (!ok) {
       requestInputFocus(focusTarget);
       return;

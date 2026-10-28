@@ -1,29 +1,21 @@
 import { describe, expect, test } from 'bun:test'
 import type { Task } from '@solus/contracts/task-types'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import type { ListedSession } from '@solus/workspace-ui/contexts/workspace/session-list.store.svelte'
 import { runGroupKey, SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import { projectsStore } from '@solus/workspace-ui/contexts/projects/projects.store.svelte'
 import type { SessionHomeHosts } from '@solus/workspace-ui/components/session/lib/session-home'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
-type SidebarStoreHarness = Pick<
-  SessionSidebarStore,
-  'childForTab' | 'sessionsFor' | 'sessionsForPickableTask'
-> & {
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'childForTab' | 'sessionsForPickableTask'> & {
   session: unknown
-  visibleTabIds: string[]
-  pendingTabByTaskId: Map<string, unknown>
-  dismissedRowKeys: Set<string>
   tabIdBySessionId: Map<string, string>
-  sessionsByTaskId: Map<string, unknown>
   pickerSessionsByTaskId: Map<string, unknown>
   sessionHomes: SessionHomeHosts
+  lifecycleNow: number
   liveChildFor(tabId: string): Omit<ReturnType<SessionSidebarStore['childForTab']>, 'lastActivityAt'>
   tabActivityAt(tabId: string): number
-  projectsSessionUnder(
-    rootTaskId: string,
-    link: { sessionId: string; role?: 'working' | 'referenced' },
-  ): boolean
+  buildListedSessionRow(listed: ListedSession): SidebarTask
 }
 
 /** No cloud host and every runner up: the rows merge to themselves (session-home.ts). */
@@ -32,6 +24,8 @@ const ONE_HOME: SessionHomeHosts = { isSolusApi: () => false, isConnected: () =>
 function sidebarStore(): SidebarStoreHarness {
   const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
   store.sessionHomes = ONE_HOME
+  store.tabIdBySessionId = new Map()
+  store.pickerSessionsByTaskId = new Map()
   return store
 }
 
@@ -50,31 +44,30 @@ function task(id: string, title: string): Task {
 }
 
 describe('session sidebar session rows', () => {
-  test('projects a session under its owner, and under a referrer only where the user opened it', () => {
-    // WHY: the host keeps one working owner per session. A referenced link is
-    // a relationship the task page shows; drawing a row for it as well put the
-    // same conversation under two tasks. An optimistic link written before the
-    // host answered carries no role yet and is the owner by construction.
+  test('a session linked to a task has its own row, and the row names the task', () => {
+    // WHY: tasks have no place in the sidebar. A session linked to a task is
+    // still one row of its own; the chip on it is the way to the task page.
+    const root = task('root', 'Ship the release')
     const store = sidebarStore()
+    store.lifecycleNow = 10
     store.session = {
-      hasExplicitSidebarTaskSession: (taskId: string, sessionId: string) =>
-        taskId === 'second-task' && sessionId === 'provider-session',
+      tasksStore: { taskForSession: (sessionId: string) => (sessionId === 'linked' ? root : null) },
     }
-    const owner = { sessionId: 'provider-session', role: 'working' as const }
-    const optimistic = { sessionId: 'provider-session' }
-    const reference = { sessionId: 'provider-session', role: 'referenced' as const }
+    const listed = (sessionId: string) => ({
+      sessionId, serverId: 'workshop', title: sessionId, projectPath: '/repo', createdAt: 1,
+    }) as ListedSession
 
-    expect(store.projectsSessionUnder('first-task', owner)).toBe(true)
-    expect(store.projectsSessionUnder('first-task', optimistic)).toBe(true)
-    expect(store.projectsSessionUnder('unopened-task', reference)).toBe(false)
-    expect(store.projectsSessionUnder('second-task', reference)).toBe(true)
+    const row = store.buildListedSessionRow(listed('linked'))
+    expect(row).toMatchObject({ id: 'session:linked', sessionId: 'linked', title: 'linked' })
+    expect(row.linkedTask).toEqual({ taskId: 'root', title: 'Ship the release' })
+    expect('taskId' in row).toBe(false)
+    expect(store.buildListedSessionRow(listed('loose')).linkedTask).toBeUndefined()
   })
 
-  test('the picker lists a task the sidebar has no row for, dismissals included', () => {
-    // WHY: the sidebar column is this client's working set, so most pickable
-    // tasks have no row in it. Reading their sessions through one reported them
-    // as "no sessions yet" and then resumed one on ⏎. The picker restores a
-    // dismissed row before it navigates, so it must count those too.
+  test('the picker lists every session linked to a task, owned or referenced', () => {
+    // WHY: the picker reads a task's own links, not a sidebar row: no task has
+    // a row. Reading them through one reported "no sessions yet" and then
+    // resumed one on ⏎.
     const root = task('root', 'Ship the release')
     const store = sidebarStore()
     store.session = {
@@ -83,36 +76,14 @@ describe('session sidebar session rows', () => {
         get: () => ({
           serverId: 'workshop',
           sessions: [
-            {
-              taskId: root.id,
-              sessionId: 'hidden',
-              sessionTitle: 'Dismissed run',
-              provider: 'claude',
-              startedAt: 1,
-              lastActivityAt: 1,
-              executionServerId: null,
-              // Owned elsewhere: the column projects nothing for a reference,
-              // but restoring the task will reveal it, so the picker counts it.
-              role: 'referenced',
-              linkedAt: 1,
-            },
+            { taskId: root.id, sessionId: 'owned', sessionTitle: 'Owned run', provider: 'claude', startedAt: 1, lastActivityAt: 1, executionServerId: null, role: 'working', linkedAt: 1 },
+            { taskId: root.id, sessionId: 'referenced', sessionTitle: 'Referenced run', provider: 'claude', startedAt: 2, lastActivityAt: 2, executionServerId: null, role: 'referenced', linkedAt: 2 },
           ],
         }),
       },
     }
-    store.visibleTabIds = []
-    store.pendingTabByTaskId = new Map()
-    store.dismissedRowKeys = new Set([`session:hidden`])
-    store.tabIdBySessionId = new Map()
-    store.sessionsByTaskId = new Map()
-    store.pickerSessionsByTaskId = new Map()
-    store.session.hasExplicitSidebarTaskSession = () => false
 
-    // The sidebar column, which owns dismissal, still hides it.
-    expect(
-      store.sessionsFor({ id: root.id, taskId: root.id, tabIds: [] } as unknown as SidebarTask),
-    ).toEqual([])
-    expect(store.sessionsForPickableTask(root).map((row) => row.sessionId)).toEqual(['hidden'])
+    expect(store.sessionsForPickableTask(root).map((row) => row.sessionId)).toEqual(['owned', 'referenced'])
   })
 
   test('a closed attempt reports the host it ran on, not the reader', () => {
@@ -136,13 +107,8 @@ describe('session sidebar session rows', () => {
         }),
       },
     }
-    store.visibleTabIds = []
-    store.pendingTabByTaskId = new Map()
-    store.dismissedRowKeys = new Set()
-    store.tabIdBySessionId = new Map()
-    store.sessionsByTaskId = new Map()
 
-    const rows = store.sessionsFor({ id: root.id, taskId: root.id, tabIds: [] } as unknown as SidebarTask)
+    const rows = store.sessionsForPickableTask(root)
     expect(rows.map((row) => [row.sessionId, row.serverId])).toEqual([
       ['here', 'workshop'],
       ['dispatched', 'studio'],
@@ -169,13 +135,8 @@ describe('session sidebar session rows', () => {
         }),
       },
     }
-    store.visibleTabIds = []
-    store.pendingTabByTaskId = new Map()
-    store.dismissedRowKeys = new Set()
-    store.tabIdBySessionId = new Map()
-    store.sessionsByTaskId = new Map()
 
-    const rows = store.sessionsFor({ id: root.id, taskId: root.id, tabIds: [] } as unknown as SidebarTask)
+    const rows = store.sessionsForPickableTask(root)
     expect(rows.map((row) => [row.sessionId, row.label])).toEqual([
       ['named', 'lady'],
       ['unnamed', 'Ship the release'],
@@ -205,10 +166,7 @@ describe('session sidebar session rows', () => {
         }),
       },
     }
-    store.pendingTabByTaskId = new Map()
-    store.dismissedRowKeys = new Set()
     store.tabIdBySessionId = new Map([['restored', 'tab-1']])
-    store.sessionsByTaskId = new Map()
     store.liveChildFor = () => ({
       tabId: 'tab-1',
       label: 'Restored run',
@@ -222,11 +180,7 @@ describe('session sidebar session rows', () => {
     // The mounted transcript is still empty.
     store.tabActivityAt = () => 0
 
-    const [row] = store.sessionsFor({
-      id: root.id,
-      taskId: root.id,
-      tabIds: ['tab-1'],
-    } as unknown as SidebarTask)
+    const [row] = store.sessionsForPickableTask(root)
     expect(row.lastActivityAt).toBe(120)
   })
 })

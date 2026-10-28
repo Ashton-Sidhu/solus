@@ -1,6 +1,5 @@
 import { hostPathBaseName } from '@solus/contracts/host-path'
 import { localProjectKey } from '@solus/contracts/repository-key'
-import { remoteDispatchRepositoryKey } from '@solus/contracts/types'
 
 /**
  * How every client lists projects (docs/plans/project-model.md §1, §5). A
@@ -19,12 +18,9 @@ export interface CheckoutFacts {
   repositoryKey?: string | null
 }
 
-/** The project a checkout belongs to: its repository, or itself when it has
- *  none. A remote-dispatch checkout names its repository in its path. */
+/** The project a checkout belongs to: its repository, or itself when it has none. */
 export function projectKeyOf(checkout: CheckoutFacts): string {
-  return checkout.repositoryKey
-    || remoteDispatchRepositoryKey(checkout.path)
-    || localProjectKey(checkout.serverId, checkout.path)
+  return checkout.repositoryKey || localProjectKey(checkout.serverId, checkout.path)
 }
 
 export interface ProjectGroup<Checkout> {

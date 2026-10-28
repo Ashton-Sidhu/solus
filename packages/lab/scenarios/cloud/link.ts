@@ -4,10 +4,10 @@ import { hostClient } from '../../src/cloud-sign-in'
 import type { LabClient } from '../../src/client'
 
 /**
- * Link only adds the tunnel (docs/adr/0001-standard-authentication.md §2.2 rule 9):
- * before the link, while linked, and after unlink, the registration (host id and
- * generation), the person's delegations, and an account read through them stay the
- * same. Only the directory route comes and goes. In development the stub tunnel's route
+ * Link only adds the tunnel (docs/adr/0001-standard-authentication.md §2.2 rule 9).
+ * The new registration links the host; after unlink and after a second link, the
+ * registration (host id and generation), the person's delegations, and an account
+ * read through them stay the same. Only the directory route comes and goes. In development the stub tunnel's route
  * is the host's own proxied listener on loopback (solus-cloud `stubTunnelRoute`), so
  * the Lab dials it.
  */
@@ -17,7 +17,7 @@ function delegationEvents(host: CloudHost): string {
   return JSON.stringify(host.log().filter((entry) => entry.msg?.startsWith('delegation_')).map((entry) => [entry.msg, entry.userId, entry.scope, entry.grantId]))
 }
 
-export default cloudModeScenario('link: the tunnel comes and goes; registration, delegations, and account reads stay', async (ctx) => {
+export default cloudModeScenario('link: registration links; the tunnel comes and goes; registration, delegations, and account reads stay', async (ctx) => {
   const persona = ctx.stack.personas.alice
   const { alice, host, hostId, owner } = await ownedRegisteredHost(ctx)
   const mcp = await accountMcpServer(ctx, alice)
@@ -45,35 +45,40 @@ export default cloudModeScenario('link: the tunnel comes and goes; registration,
 
   const routeOf = async () => (await directory(ctx.stack, alice)).find((entry) => entry.hostId === hostId)?.routes ?? null
 
-  ctx.step('before the link')
-  const before = await identity('before', null)
-  ctx.check('before: not linked', !before.linked)
-  ctx.check('before: the directory lists no route', JSON.stringify(await routeOf()) === '[]', JSON.stringify(await routeOf()))
+  /** The tunnel route the directory lists, and that alice dials it there. */
+  const routeWorks = async (label: string) => {
+    const routes = await routeOf()
+    const route = routes?.[0]?.url ?? ''
+    ctx.check(`${label}: the directory lists one tunnel route`, routes?.length === 1 && routes[0]?.kind === 'tunnel', JSON.stringify(routes))
+    ctx.check(`${label}: in development it is the host's proxied listener on loopback`, route === host.tunnelUrl, `${route} vs ${host.tunnelUrl}`)
+    const health = route ? await fetch(`${route}/health`).then((response) => response.status, () => 0) : 0
+    ctx.check(`${label}: GET <route>/health answers 200`, health === 200, String(health))
+    if (!route) return
+    const viaRoute = hostClient({ localUrl: host.localUrl, tunnelUrl: route }, alice, hostId, { asOwner: true })
+    ctx.defer(`${label}: the client on the route closes`, async () => viaRoute.close())
+    const dialed = await viaRoute.connect()
+    ctx.check(`${label}: alice dials the host at its route with her host token`, dialed.ok, JSON.stringify(dialed))
+  }
 
-  ctx.step('alice links the host from its local owner connection')
-  const linked = await localRpc(host, persona, 'uplinkLink')
-  ctx.check('uplinkStatus: linked', linked.link.linked)
   ctx.defer('the host unlinks if the scenario stopped while linked', async () => {
     const status = await uplinkStatus(host, persona)
     if (status.link.linked) await localRpc(host, persona, 'uplinkUnlink')
   })
-  const routes = await routeOf()
-  const route = routes?.[0]?.url ?? ''
-  ctx.check('the directory lists one tunnel route', routes?.length === 1 && routes[0]?.kind === 'tunnel', JSON.stringify(routes))
-  ctx.check('in development it is the host\'s proxied listener on loopback', route === host.tunnelUrl, `${route} vs ${host.tunnelUrl}`)
-  const health = route ? await fetch(`${route}/health`).then((response) => response.status, () => 0) : 0
-  ctx.check('GET <route>/health answers 200', health === 200, String(health))
-  if (route) {
-    const viaRoute = hostClient({ localUrl: host.localUrl, tunnelUrl: route }, alice, hostId, { asOwner: true })
-    ctx.defer('the client on the route closes', async () => viaRoute.close())
-    const dialed = await viaRoute.connect()
-    ctx.check('alice dials the host at its route with her host token', dialed.ok, JSON.stringify(dialed))
-  }
-  await identity('linked', before)
+
+  ctx.step('the new registration linked the host')
+  const registered = await identity('registered', null)
+  ctx.check('registered: linked', registered.linked)
+  await routeWorks('registered')
 
   ctx.step('alice unlinks the host')
   const unlinked = await localRpc(host, persona, 'uplinkUnlink')
   ctx.check('uplinkStatus: not linked', !unlinked.link.linked)
   ctx.check('the directory route is gone', JSON.stringify(await routeOf()) === '[]', JSON.stringify(await routeOf()))
-  await identity('unlinked', before)
+  await identity('unlinked', registered)
+
+  ctx.step('alice links the host again from its local owner connection')
+  const linked = await localRpc(host, persona, 'uplinkLink')
+  ctx.check('uplinkStatus: linked', linked.link.linked)
+  await routeWorks('linked again')
+  await identity('linked again', registered)
 })

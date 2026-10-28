@@ -67,7 +67,7 @@
   import { sessionComposerMode, SUGGEST_ONLY_REASON, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
 
   import type { Snippet } from "svelte";
-  import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
+  import { checkoutGit, checkoutPlace, runHost, workingPlace } from "../../contexts/workspace/run-location";
 
   interface Props {
     active: boolean;
@@ -270,6 +270,8 @@
     suppliedPluginCommands ?? sess?.pluginCommands ?? session.pluginCommands,
   );
   // Working directory driving @-file search and plan/work lookup in the composer.
+  // It is `workingPlace(run)`'s path, so @-search asks that place's host: a
+  // clone does not exist until Send, so it reads the checkout it copies.
   const composerCwd = $derived(
     checkoutGit(run)?.worktreePath ??
       checkoutPlace(run)?.path ??
@@ -828,8 +830,11 @@
         </div>
       </div>
     {/if}
+    <!-- `.cm-content` is a flex item. Without `min-w-0` its min-content width is
+         the whole no-wrap placeholder, so the box grows past the padding that
+         keeps the corner clear and the hint runs under mic and send. -->
     <div
-      class="[&_.cm-placeholder]:inline-block! [&_.cm-placeholder]:max-w-full [&_.cm-placeholder]:overflow-hidden [&_.cm-placeholder]:text-ellipsis [&_.cm-placeholder]:whitespace-nowrap [&_.cm-placeholder]:align-bottom"
+      class="[&_.cm-content]:min-w-0 [&_.cm-placeholder]:inline-block! [&_.cm-placeholder]:max-w-full [&_.cm-placeholder]:overflow-hidden [&_.cm-placeholder]:text-ellipsis [&_.cm-placeholder]:whitespace-nowrap [&_.cm-placeholder]:align-bottom"
       style:display={showWaveform ? "none" : null}
     >
       <PromptEditor
@@ -840,7 +845,7 @@
         {pluginCommands}
         provider={activeProvider}
         tabId={targetTabId}
-        serverId={runHost(run)}
+        serverId={workingPlace(run)?.serverId}
         sessionId={sessionId ?? undefined}
         workingDirectory={composerCwd}
         onRefsChange={handleRefsChange}

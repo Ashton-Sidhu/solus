@@ -1,19 +1,18 @@
 <script lang="ts">
   import { accountStore } from "../../contexts/account/account.store.svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { subscribeAllHosts } from "@solus/client-core/host-events";
   import { tick, untrack } from "svelte";
   import {
     LibraryBig as BooksIcon,
     ChevronDown as CaretDownIcon,
     ChevronRight as CaretRightIcon,
-    FileText as FileTextIcon,
-    Network as ArchitectureIcon,
+    MessagesSquare as SharedSessionsIcon,
     Plus as PlusIcon,
     Pin as PushPinIcon,
     UserCheck as UserCheckIcon,
     PanelLeft as SidebarSimpleIcon,
-    Upload as UploadSimpleIcon,
-    Link2 as LinkIcon,
+    Users as SharedIcon,
   } from "@lucide/svelte";
   import type { WorkListing } from "../../contexts/works/works.store.svelte";
   import {
@@ -44,47 +43,33 @@
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import PageEmpty from "../ui/PageEmpty.svelte";
-  import WorkspaceRow from "./WorkspaceRow.svelte";
+  import WorkspaceCard from "./WorkspaceCard.svelte";
+  import WorkspaceSessionCard from "./WorkspaceSessionCard.svelte";
+  import WorkspaceTabStrip from "./WorkspaceTabStrip.svelte";
+  import WorkspaceNewMenu from "./WorkspaceNewMenu.svelte";
   import WorkspaceItemContextMenu from "./WorkspaceItemContextMenu.svelte";
   import WorkspacePeek from "./WorkspacePeek.svelte";
   import ImportDocDialog from "../work/ImportDocDialog.svelte";
-  import { docProviderLabel } from "../work/lib/work-publish";
   import { copyWorkReviewLink, openWorkReview } from "../work/lib/work-review-commands";
-  import type { DocProviderId, DocProviderStatus } from "@solus/contracts/docs";
+  import type { DocProviderId } from "@solus/contracts/docs";
   import WorkspaceSearchField from "./WorkspaceSearchField.svelte";
+  import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
+  import { memberByKey } from "../users/lib/organization-people";
+  import type { PresencePerson } from "../presence/lib/presence-people";
   import { PeekHover } from "./lib/peek-hover.svelte";
   import { isStackedPane, observePaneWidth } from "../../lib/pane-width";
   import { SessionLabels } from "./lib/session-labels.svelte";
-  import type {
-    SortOrder,
-    TimeFilter,
-    TypeFilter,
-    WorkspaceFilter,
-    WorkspaceItem,
-  } from "./lib/workspace-items";
-  import {
-    DEFAULT_FILTER,
-    applyFilter,
-    bucketFor,
-    buildWorkspaceItems,
-    groupItems,
-    isHtmlArtifact,
-    isDefaultFilter,
-    projectOptions,
-    sortItems,
-  } from "./lib/workspace-items";
+  import { SORT_OPTIONS, WorkspaceLedger } from "./lib/workspace-ledger.svelte";
+  import type { WorkspaceItem, WorkspaceSessionItem, WorkspaceTab } from "./lib/workspace-items";
+  import { buildWorkspaceItems, isHtmlArtifact } from "./lib/workspace-items";
 
   const session = getSurfaceContext();
   // The ledger is mounted by the workspace and by the cloud console alike
-  // (docs/plans/cloud-console-native-pages.md §9). The sessions a row leads
+  // (docs/plans/cloud-console-native-pages.md §9). The sessions a card leads
   // back to, the split opens, the catalog's history, and the page's close
   // need a workspace.
   const workspace = session.workspace;
   const shell = getClientShellContext();
-
-  const PINNED_PREVIEW = 6;
-  const RENDER_PAGE = 80;
-  const PINNED_COLLAPSED_KEY = "solus.workspace.pinned-collapsed";
 
   // A console page is open for as long as it is mounted.
   const open = $derived(workspace?.router.at("folio") ?? true);
@@ -100,7 +85,7 @@
   );
   // A work belongs to the project its host and folder name; a work outside
   // every known project still shows, under its own folder.
-  const items: WorkspaceItem[] = $derived(
+  const allItems: WorkspaceItem[] = $derived(
     buildWorkspaceItems(worksList, {
       keyOf: (work) => {
         const serverId = session.worksStore.hostFor(work.id);
@@ -112,8 +97,15 @@
       awaitsMe: (workId) => !!session.worksStore.reviews.inboxItem(workId),
     }),
   );
+  // The three groups (docs/workspace-page.md): the reader's own works, the
+  // works other people shared with them, and the sessions other people shared
+  // with them — the ones in this person's list with a role below owner.
+  const ledger = new WorkspaceLedger({
+    works: () => allItems,
+    sessions: () => sessionListStore.sessionsInOrganization(serversStore.activeOrganizationId),
+  });
   const anyLoading = $derived(session.worksStore.listLoading);
-  const loading = $derived(items.length === 0 && anyLoading);
+  const loading = $derived(allItems.length === 0 && anyLoading);
   const backgroundLoading = $derived(!loading && anyLoading);
   const synced = syncStamp(() => anyLoading);
   function refreshRecentProjects() {
@@ -127,24 +119,7 @@
     void session.worksStore.loadAll();
   }
 
-  // ── Filter + view state ──
-  const filter = $state<WorkspaceFilter>({ ...DEFAULT_FILTER });
-  /** A row names its project unless the reader filtered to one, or the
-   *  ledger holds only one. */
-  const showProject = $derived(
-    !filter.project && new Set(items.map((item) => item.projectKey)).size > 1,
-  );
-  const scopeLabel = $derived(
-    (filter.project && items.find((item) => item.projectKey === filter.project)?.projectLabel) ||
-      "all projects",
-  );
-  let sort = $state<SortOrder>("recent");
-  let pinnedCollapsed = $state(
-    localStorage.getItem(PINNED_COLLAPSED_KEY) === "true",
-  );
-  let pinnedExpanded = $state(false);
-  let selectedIndex = $state(0);
-  let renderLimit = $state(RENDER_PAGE);
+  // ── View state ──
   let searchEl: HTMLInputElement | null = $state(null);
   let scrollEl: HTMLDivElement | null = $state(null);
   let itemContextMenu = $state<{
@@ -154,15 +129,15 @@
   } | null>(null);
 
   /** The hover peek — the ledger's only preview. It is deliberately not the
-   *  selection: peeking must never lose your place in a 400-row ledger. */
+   *  selection: peeking must never lose your place in a 400-card ledger. */
   const peek = new PeekHover();
 
   // ── The stacked rung ──
-  // The rows reflow into records in CSS, but two decisions here are not
-  // expressible as a container query: whether a tap previews or opens, and
-  // which shell the peek takes — the peek is portalled to the body, so no
-  // container query reaches it. Both read the page's own box, at the same
-  // 30rem the stylesheet uses, so the layout and the behaviour cannot disagree.
+  // The grid reflows in CSS, but two decisions here are not expressible as a
+  // container query: whether a tap previews or opens, and which shell the
+  // peek takes — the peek is portalled to the body, so no container query
+  // reaches it. Both read the page's own box, at the same 30rem the
+  // stylesheet uses, so the layout and the behaviour cannot disagree.
   let rootEl = $state<HTMLDivElement | null>(null);
   let paneWidth = $state(0);
   $effect(() => {
@@ -170,43 +145,20 @@
     return observePaneWidth(rootEl, (width) => (paneWidth = width));
   });
   const stacked = $derived(isStackedPane(paneWidth));
-  /** Names for the sessions the rows link back to. */
+  /** Names for the sessions the cards link back to. */
   const sessionLabels = new SessionLabels();
-
-  const searching = $derived(!isDefaultFilter(filter));
-
-  function togglePinnedCollapsed() {
-    pinnedCollapsed = !pinnedCollapsed;
-    localStorage.setItem(PINNED_COLLAPSED_KEY, String(pinnedCollapsed));
-  }
-
-  function clearFacets() {
-    filter.type = "all";
-    filter.pinnedOnly = false;
-    filter.awaitingMyReview = false;
-    filter.time = "all";
-    filter.project = "";
-  }
-
-  function clearFilters() {
-    clearFacets();
-    filter.text = "";
-  }
-
-  function resetLedgerSelection() {
-    selectedIndex = 0;
-    renderLimit = RENDER_PAGE;
-    pinnedExpanded = false;
-  }
 
   $effect(() => {
     if (!open) return;
     untrack(() => {
       refreshRecentProjects();
-      clearFilters();
-      resetLedgerSelection();
+      ledger.clearFilters();
+      ledger.resetSelection();
       peek.close();
       load();
+      // The shared tabs name who a record came from; the organization's
+      // people are read once and kept.
+      if (serversStore.activeOrganizationId) void sharesStore.loadDirectory().catch(() => {});
       blurActiveTextInputOnMobile();
       if (!runtime.shouldSuppressFocus) {
         tick().then(() => searchEl?.focus());
@@ -222,140 +174,42 @@
     }),
   );
 
-  // ── Derived ledger ──
-  const filtered: WorkspaceItem[] = $derived(
-    sortItems(applyFilter(items, filter), sort),
+  // A work's share list changed on some host: its card's share line reads the
+  // listing, so the listing is read again. The works themselves are unchanged.
+  $effect(() =>
+    subscribeAllHosts("share.changed", (_serverId, change) => {
+      if (open && change.resource.kind === "work") void session.worksStore.loadAll();
+    }),
   );
-  const grouped = $derived(groupItems(filtered));
-  const pinnedShown: WorkspaceItem[] = $derived(
-    pinnedCollapsed
-      ? []
-      : pinnedExpanded
-        ? grouped.pinned
-        : grouped.pinned.slice(0, PINNED_PREVIEW),
-  );
-  const pinnedOverflow = $derived(
-    pinnedCollapsed ? 0 : Math.max(0, grouped.pinned.length - PINNED_PREVIEW),
-  );
-  const renderedGroups = $derived.by(() => {
-    let budget = renderLimit;
-    const out: {
-      key: string;
-      label: string;
-      total: number;
-      items: WorkspaceItem[];
-    }[] = [];
-    for (const group of grouped.groups) {
-      if (budget <= 0) break;
-      const slice = group.items.slice(0, budget);
-      budget -= slice.length;
-      out.push({
-        key: group.key,
-        label: group.label,
-        total: group.items.length,
-        items: slice,
-      });
-    }
-    return out;
-  });
-  /** What the keyboard walks — exactly the rendered rows, in visual order. */
-  const flat: WorkspaceItem[] = $derived([
-    ...pinnedShown,
-    ...renderedGroups.flatMap((g) => g.items),
-  ]);
-  const hasMoreRows = $derived(
-    renderedGroups.reduce((n, g) => n + g.items.length, 0) <
-      grouped.groups.reduce((n, g) => n + g.items.length, 0),
-  );
-  const selectedItem: WorkspaceItem | null = $derived(
-    flat[selectedIndex] ?? null,
-  );
-
-  // ── Facet counts: each axis counted with its own facet released, so the
-  //    numbers stay live against the rest of the filter. ──
-  const typeCounts = $derived.by(() => {
-    const base = applyFilter(items, { ...filter, type: "all" });
-    const c = { all: base.length, doc: 0, diagram: 0, artifact: 0 };
-    for (const item of base) c[item.type]++;
-    return c;
-  });
-  const timeCounts = $derived.by(() => {
-    const base = applyFilter(items, { ...filter, time: "all" });
-    const c = { today: 0, yesterday: 0, week: 0, older: 0 };
-    const now = new Date();
-    for (const item of base) {
-      const key = bucketFor(item.timestamp, now).key;
-      if (key === "today" || key === "yesterday" || key === "week") c[key]++;
-      else c.older++;
-    }
-    return c;
-  });
-  const PROJECT_OPTIONS = $derived([
-    { value: "", label: "All projects", count: applyFilter(items, { ...filter, project: "" }).length },
-    ...projectOptions(applyFilter(items, { ...filter, project: "" })),
-  ]);
-  const pinnedCount = $derived(
-    applyFilter(items, { ...filter, pinnedOnly: false }).filter((i) => i.pinned)
-      .length,
-  );
-  const awaitingMyReviewCount = $derived(
-    applyFilter(items, { ...filter, awaitingMyReview: false }).filter((i) => i.awaitingMyReview).length,
-  );
-  /** Matches that exist outside the active facets (same text, no facets). */
-  const outsideCount = $derived(
-    applyFilter(items, { ...DEFAULT_FILTER, text: filter.text }).length,
-  );
-
-  const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
-    { value: "recent", label: "Recent" },
-    { value: "oldest", label: "Oldest" },
-  ];
-
-  /** Type and Time were the rail's two axes. They partition the whole set, so
-   *  each is one menu carrying its own live counts — the same filter state the
-   *  `type:` / `time:` search tokens write. */
-  const TYPE_OPTIONS = $derived<{ value: TypeFilter; label: string; count: number }[]>([
-    { value: "all", label: "Everything", count: typeCounts.all },
-    { value: "doc", label: "Docs", count: typeCounts.doc },
-    { value: "diagram", label: "Diagrams", count: typeCounts.diagram },
-    { value: "artifact", label: "Artifacts", count: typeCounts.artifact },
-  ]);
-
-  const TIME_OPTIONS = $derived<{ value: TimeFilter; label: string; count?: number }[]>([
-    { value: "all", label: "Any time" },
-    { value: "today", label: "Today", count: timeCounts.today },
-    { value: "yesterday", label: "Yesterday", count: timeCounts.yesterday },
-    { value: "week", label: "This week", count: timeCounts.week },
-    { value: "older", label: "Older", count: timeCounts.older },
-  ]);
 
   // ── Selection bookkeeping ──
   $effect(() => {
-    void filter.type;
-    void filter.pinnedOnly;
-    void filter.awaitingMyReview;
-    void filter.time;
-    void filter.project;
-    void filter.text;
-    void sort;
-    resetLedgerSelection();
+    void ledger.filter.type;
+    void ledger.filter.pinnedOnly;
+    void ledger.filter.awaitingMyReview;
+    void ledger.filter.time;
+    void ledger.filter.project;
+    void ledger.filter.text;
+    void ledger.sort;
+    void ledger.tab;
+    ledger.resetSelection();
   });
 
   $effect(() => {
-    if (selectedIndex >= flat.length && flat.length > 0) selectedIndex = 0;
+    if (ledger.selectedIndex >= ledger.walkLength && ledger.walkLength > 0) ledger.selectedIndex = 0;
   });
 
   $effect(() => {
     if (!open) return;
-    void selectedIndex;
-    void flat.length;
+    void ledger.selectedIndex;
+    void ledger.walkLength;
     void tick().then(() => {
       const el = scrollEl?.querySelector<HTMLElement>('[data-selected="true"]');
       el?.scrollIntoView({ block: "nearest" });
     });
   });
 
-  // Only the rows that are actually rendered are looked up — the ledger pages
+  // Only the cards that are actually rendered are looked up — the ledger pages
   // in 80 at a time, so scrolling resolves the next batch rather than the whole
   // history up front.
   /** The host that owns an artifact's origin session: the work's owner host. */
@@ -365,20 +219,20 @@
 
   $effect(() => {
     sessionLabels.ensure(
-      flat.map((item) => ({
+      ledger.flat.map((item) => ({
         sessionId: item.sessionId,
         serverId: originServerId(item),
       })),
     );
   });
 
-  /** What to call the session an artifact came from. A session open in a tab
-   *  knows its own name; the index answers for everything else. */
   /** "Solus Cloud" when the artifact lives on the workspace service. */
   function homeLabel(item: WorkspaceItem): string | null {
     return serversStore.cloudHomeLabel(session.worksStore.hostFor(item.id));
   }
 
+  /** What to call the session an artifact came from. A session open in a tab
+   *  knows its own name; the index answers for everything else. */
   function originLabel(item: WorkspaceItem): string | null {
     if (!item.sessionId) return null;
     return (
@@ -387,20 +241,20 @@
     );
   }
 
-  /** The row the keyboard cursor is on — what the peek anchors to when it is
+  /** The card the keyboard cursor is on — what the peek anchors to when it is
    *  opened or moved from the keyboard. */
-  function selectedRowEl(): HTMLElement | null {
+  function selectedCardEl(): HTMLElement | null {
     return scrollEl?.querySelector<HTMLElement>('[data-selected="true"]') ?? null;
   }
 
   // An open peek follows the cursor: the same card, new contents, no delay and
   // no second animation.
   $effect(() => {
-    void selectedIndex;
+    void ledger.selectedIndex;
     if (!untrack(() => peek.open)) return;
     void tick().then(() => {
-      const item = untrack(() => selectedItem);
-      if (item) peek.follow(item, selectedRowEl());
+      const item = untrack(() => ledger.selectedItem);
+      if (item) peek.follow(item, selectedCardEl());
     });
   });
 
@@ -433,14 +287,11 @@
   function handleLedgerScroll() {
     // The card again, not the sheet: the sheet's backdrop covers the ledger,
     // so the only scroll that reaches here while it is up is the ledger's own
-    // scroll-into-view of the row just tapped — which must not dismiss it.
+    // scroll-into-view of the card just tapped — which must not dismiss it.
     if (!stacked) peek.close();
     const el = scrollEl;
     if (!el) return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) {
-      const total = grouped.groups.reduce((n, g) => n + g.items.length, 0);
-      if (renderLimit < total) renderLimit += RENDER_PAGE;
-    }
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) ledger.renderMore();
   }
 
   // ── Keyboard ──
@@ -458,10 +309,10 @@
   useKeybinding(
     "workspace.peek",
     () => {
-      const row = selectedRowEl();
-      if (selectedItem && row) peek.toggle(selectedItem, row);
+      const card = selectedCardEl();
+      if (ledger.selectedItem && card) peek.toggle(ledger.selectedItem, card);
     },
-    { enabled: () => open && flat.length > 0 },
+    { enabled: () => open && ledger.flat.length > 0 },
   );
   useKeybinding("workspace.focus-search", () => searchEl?.focus(), {
     enabled: () => open && document.activeElement !== searchEl,
@@ -469,38 +320,30 @@
   useKeybinding(
     "workspace.open",
     () => {
-      if (selectedItem) void openItem(selectedItem);
+      if (ledger.selectedItem) void openItem(ledger.selectedItem);
+      else if (ledger.selectedSession) void openSharedSession(ledger.selectedSession);
     },
-    { enabled: () => open && flat.length > 0 },
+    { enabled: () => open && ledger.walkLength > 0 },
   );
   useKeybinding(
     "workspace.resume",
     () => {
-      if (selectedItem) void resumeItem(selectedItem);
+      if (ledger.selectedItem) void resumeItem(ledger.selectedItem);
     },
-    { enabled: () => open && flat.length > 0 },
+    { enabled: () => open && ledger.flat.length > 0 },
   );
-  useKeybinding(
-    "workspace.next",
-    () => {
-      selectedIndex = Math.min(selectedIndex + 1, flat.length - 1);
-    },
-    { enabled: () => open && flat.length > 0 },
-  );
-  useKeybinding(
-    "workspace.prev",
-    () => {
-      selectedIndex = Math.max(selectedIndex - 1, 0);
-    },
-    { enabled: () => open && flat.length > 0 },
-  );
+  useKeybinding("workspace.next", () => ledger.selectNext(), { enabled: () => open && ledger.walkLength > 0 });
+  useKeybinding("workspace.prev", () => ledger.selectPrevious(), { enabled: () => open && ledger.walkLength > 0 });
   useKeybinding(
     "workspace.toggle-pin",
     () => {
-      if (selectedItem) togglePin(selectedItem);
+      if (ledger.selectedItem) togglePin(ledger.selectedItem);
     },
-    { enabled: () => open && flat.length > 0 },
+    { enabled: () => open && ledger.flat.length > 0 },
   );
+  useKeybinding("workspace.tab-yours", () => { ledger.tab = "yours"; }, { enabled: () => open });
+  useKeybinding("workspace.tab-shared-works", () => { ledger.tab = "shared-works"; }, { enabled: () => open });
+  useKeybinding("workspace.tab-shared-sessions", () => { ledger.tab = "shared-sessions"; }, { enabled: () => open });
 
   // ── Actions ──
   function close() {
@@ -556,6 +399,31 @@
     if (resumed) workspace.openChatSurface(resumed.id);
   }
 
+  /** A shared session opens where it runs, as a tab; the console shows its record. */
+  async function openSharedSession(item: WorkspaceSessionItem) {
+    if (!workspace) {
+      shell.openResource({ kind: "session", sessionId: item.sessionId, serverId: item.serverId });
+      return;
+    }
+    const { provider, cwd, projectPath } = item.listed.opensWith;
+    try {
+      await workspace.opening.resumeSession({
+        serverId: item.serverId,
+        provider,
+        sessionId: item.sessionId,
+        slug: null,
+        firstMessage: item.title,
+        lastTimestamp: new Date(item.timestamp).toISOString(),
+        size: 0,
+        cwd,
+        projectPath,
+      });
+    } catch (error) {
+      if (!(error instanceof SessionUnavailableError)) throw error;
+      workspace.notifySessionUnavailable(provider);
+    }
+  }
+
   function togglePin(item: WorkspaceItem) {
     void session.worksStore.setPinned(item.id, !item.pinned);
   }
@@ -571,9 +439,35 @@
   }
 
   /** Who has the work open now, from its host's room. */
-  function workPresence(workId: string) {
+  function workPresence(workId: string): PresencePerson[] {
     const serverId = session.worksStore.hostFor(workId);
     return serverId ? presenceStore.peopleFocusedOn(serverId, { kind: "work", workId }) : [];
+  }
+
+  /** Who is in a shared session now, from its host's room. */
+  function sessionPresence(item: WorkspaceSessionItem): PresencePerson[] {
+    return presenceStore.peopleFocusedOn(item.serverId, { kind: "session", sessionId: item.sessionId });
+  }
+
+  /** Everyone present in the records a tab holds, each person once: the
+   *  strip shows a shared tab's activity before the reader opens it. */
+  function presentIn(which: WorkspaceTab): PresencePerson[] {
+    const people = which === "shared-works"
+      ? ledger.ownership.shared.flatMap((item) => workPresence(item.id))
+      : which === "shared-sessions"
+        ? ledger.sharedSessionItems.flatMap(sessionPresence)
+        : [];
+    const seen = new Set<string>();
+    return people.filter((person) => !seen.has(person.userId) && seen.add(person.userId));
+  }
+
+  /** The person a shared record belongs to, when the organization's directory names them. */
+  function ownerOf(ownerKey: string) {
+    return memberByKey(sharesStore.directory, ownerKey) ?? null;
+  }
+
+  function hostLabelFor(serverId: string): string | null {
+    return serversStore.servers.find((server) => server.id === serverId)?.label ?? null;
   }
 
   function deleteItem(item: WorkspaceItem) {
@@ -585,8 +479,8 @@
     event.preventDefault();
     event.stopPropagation();
     peek.close();
-    const index = flat.indexOf(item);
-    if (index >= 0) selectedIndex = index;
+    const index = ledger.flat.indexOf(item);
+    if (index >= 0) ledger.selectedIndex = index;
     itemContextMenu = { item, x: event.clientX, y: event.clientY };
   }
 
@@ -600,20 +494,6 @@
   /** The provider the user picked in "Import from", or undefined when the
    *  dialog was opened without naming one. */
   let importDocProvider = $state<DocProviderId | undefined>(undefined);
-  let newMenuOpen = $state(false);
-  let docProviders = $state<DocProviderStatus[]>([]);
-  let docProvidersLoading = $state(false);
-
-  // Which providers exist is a host fact the user can change in Settings while
-  // this page stays mounted, so it is re-read each time the menu opens.
-  $effect(() => {
-    if (!newMenuOpen) return;
-    docProvidersLoading = true;
-    void session.worksStore
-      .loadDocProviders()
-      .then((statuses) => (docProviders = statuses))
-      .finally(() => (docProvidersLoading = false));
-  });
 
   function openImportDialog(provider: DocProviderId) {
     importDocProvider = provider;
@@ -623,7 +503,6 @@
   /** A provider the user could sign in to is a route, not a dead end: the
    *  workspace's provider settings, or the console's connections page. */
   function openProviderSettings() {
-    newMenuOpen = false;
     if (workspace) workspace.showSettings("integrations");
     else shell.openResource({ kind: "connections" });
   }
@@ -642,196 +521,89 @@
 </script>
 
 {#snippet filterControls()}
-  <ListSortMenu bind:value={sort} options={SORT_OPTIONS} ariaLabel="Sort workspace" />
-  <ListFilterMenu activeCount={Number(filter.type !== "all") + Number(filter.time !== "all") + Number(filter.pinnedOnly) + Number(filter.awaitingMyReview) + Number(!!filter.project)} onClear={clearFacets}>
-    <ListFilterGroup label="Project" options={PROJECT_OPTIONS} selected={[filter.project]} onChange={(next) => (filter.project = next[0])} />
-    <ListFilterGroup label="Type" icon={BooksIcon} options={TYPE_OPTIONS} selected={[filter.type]} onChange={(next) => (filter.type = next[0])} />
-    <ListFilterGroup label="Time" options={TIME_OPTIONS} selected={[filter.time]} onChange={(next) => (filter.time = next[0])} />
-    <DropdownMenu.Separator />
-    <DropdownMenu.CheckboxItem checked={filter.pinnedOnly} closeOnSelect={false} onCheckedChange={(checked) => (filter.pinnedOnly = checked)}>
-      <PushPinIcon size={14} class="shrink-0 text-muted-foreground" />
-      <span class="flex-1">Pinned</span>
-      <span class="mr-1 tabular-nums text-muted-foreground">{pinnedCount}</span>
-    </DropdownMenu.CheckboxItem>
-    <!-- Works a teammate asked the reader to review. -->
-    <DropdownMenu.CheckboxItem checked={filter.awaitingMyReview} closeOnSelect={false} onCheckedChange={(checked) => (filter.awaitingMyReview = checked)} data-testid="filter-needs-my-review">
-      <UserCheckIcon size={14} class="shrink-0 text-muted-foreground" />
-      <span class="flex-1">Needs my review</span>
-      <span class="mr-1 tabular-nums text-muted-foreground">{awaitingMyReviewCount}</span>
-    </DropdownMenu.CheckboxItem>
-  </ListFilterMenu>
+  <ListSortMenu bind:value={ledger.sort} options={SORT_OPTIONS} ariaLabel="Sort workspace" />
+  <!-- The facets cut works by type, time, project, pin and review; a session
+       has none of those, so its tab keeps only the search and the sort. -->
+  {#if ledger.tab !== "shared-sessions"}
+    <ListFilterMenu activeCount={ledger.activeFacetCount} onClear={() => ledger.clearFacets()}>
+      <ListFilterGroup label="Project" options={ledger.projectOptions} selected={[ledger.filter.project]} onChange={(next) => (ledger.filter.project = next[0])} />
+      <ListFilterGroup label="Type" icon={BooksIcon} options={ledger.typeOptions} selected={[ledger.filter.type]} onChange={(next) => (ledger.filter.type = next[0])} />
+      <ListFilterGroup label="Time" options={ledger.timeOptions} selected={[ledger.filter.time]} onChange={(next) => (ledger.filter.time = next[0])} />
+      <DropdownMenu.Separator />
+      {#if ledger.tab === "yours"}
+        <DropdownMenu.CheckboxItem checked={ledger.filter.pinnedOnly} closeOnSelect={false} onCheckedChange={(checked) => (ledger.filter.pinnedOnly = checked)}>
+          <PushPinIcon size={14} class="shrink-0 text-muted-foreground" />
+          <span class="flex-1">Pinned</span>
+          <span class="mr-1 tabular-nums text-muted-foreground">{ledger.pinnedCount}</span>
+        </DropdownMenu.CheckboxItem>
+      {/if}
+      <!-- Works a teammate asked the reader to review. -->
+      <DropdownMenu.CheckboxItem checked={ledger.filter.awaitingMyReview} closeOnSelect={false} onCheckedChange={(checked) => (ledger.filter.awaitingMyReview = checked)} data-testid="filter-needs-my-review">
+        <UserCheckIcon size={14} class="shrink-0 text-muted-foreground" />
+        <span class="flex-1">Needs my review</span>
+        <span class="mr-1 tabular-nums text-muted-foreground">{ledger.awaitingMyReviewCount}</span>
+      </DropdownMenu.CheckboxItem>
+    </ListFilterMenu>
+  {/if}
 {/snippet}
 
-{#snippet ledgerRow(item: WorkspaceItem, index: number)}
-  <WorkspaceRow
-    {item}
-    selected={index === selectedIndex}
-    {showProject}
-    homeLabel={homeLabel(item)}
-    query={filter.text}
-    onOpen={() =>
-      stacked && !isHtmlArtifact(item) ? peek.raise(item) : openItem(item)}
-    onTogglePin={() => togglePin(item)}
-    onDelete={() => deleteItem(item)}
-    sessionLabel={originLabel(item)}
-    onOpenSession={workspace && item.sessionId ? () => resumeItem(item) : undefined}
-    onOpenSessionSplit={workspace && item.sessionId ? () => openSessionInSplit(item) : undefined}
-    onPeek={(row) => peek.enter(item, row)}
-    onPeekLeave={() => peek.leave()}
-    onContextMenu={(event) => openItemContextMenu(event, item)}
-    present={workPresence(item.id)}
+{#snippet newMenu(triggerClass: string, iconSize: number)}
+  <WorkspaceNewMenu
+    {triggerClass}
+    {iconSize}
+    onCreate={createNew}
+    onImportFile={() => importInput?.click()}
+    onImportFrom={openImportDialog}
+    onOpenProviderSettings={openProviderSettings}
+    loadDocProviders={() => session.worksStore.loadDocProviders()}
   />
 {/snippet}
 
-<!-- The Tasks group header exactly: 30px tall, 11px chevron, 9.5px uppercase
-     label, mono count, then a hairline to the right edge. Each pins to the top
-     of the scroll area on an opaque background, so the current bucket is always
-     named, even 300 rows down. -->
-{#snippet groupHeader(label: string, count: number)}
-  <span
-    class="text-xs font-normal text-muted-foreground uppercase"
-  >
-    {label}
-  </span>
-  <span
-    class="text-xs tabular-nums text-muted-foreground opacity-70"
-    >{count}</span
-  >
-  <span class="h-px flex-1 bg-[var(--hairline)]"></span>
+{#snippet tabStrip()}
+  <WorkspaceTabStrip tabs={ledger.tabSpecs} tab={ledger.tab} onSelect={(next) => (ledger.tab = next)} {presentIn} />
 {/snippet}
 
-<!-- The page's one creating action. One definition, two homes: nearest the
-     ledger it adds to on a wide pane, and in the header on a record, where the
-     filter row is a search field and a chip scroller with no room beside them.
-     One `newMenuOpen` means only one of the two may ever be mounted, which is
-     what the `stacked` branch at each call site guarantees. -->
-{#snippet newMenu(triggerClass: string, iconSize: number)}
-  <DropdownMenu.Root bind:open={newMenuOpen}>
-    <DropdownMenu.Trigger>
-      {#snippet child({ props })}
-              <button
-                {...props}
-                type="button"
-                class="text-workspace-chrome {triggerClass}"
-                data-testid="workspace-new"
-              >
-                <PlusIcon size={iconSize} weight="bold" class="shrink-0" />
-                <span>New</span>
-                <CaretDownIcon size={9} class="shrink-0 opacity-80" />
-              </button>
-      {/snippet}
-    </DropdownMenu.Trigger>
-    <!-- Width is declared by the menu, not by the longest row: a
-         fixed 160px wrapped "Import from URL…" onto two lines. -->
-    <DropdownMenu.Content
-      align="end"
-      sideOffset={6}
-      collisionPadding={8}
-      class="w-auto min-w-56 max-w-[min(20rem,calc(100vw-2rem))] whitespace-nowrap"
-    >
-      <DropdownMenu.Label>Create</DropdownMenu.Label>
-      <DropdownMenu.Item
-        class="text-workspace-chrome"
-        onSelect={() => createNew("doc")}
-      >
-        <FileTextIcon size={14} /><span class="flex-1 text-left"
-          >Document</span
-        >
-      </DropdownMenu.Item>
-      <DropdownMenu.Item
-        class="text-workspace-chrome"
-        onSelect={() => createNew("diagram")}
-      >
-        <ArchitectureIcon size={14} /><span class="flex-1 text-left"
-          >Diagram</span
-        >
-      </DropdownMenu.Item>
-      <DropdownMenu.Separator />
-      <DropdownMenu.Item
-        class="text-workspace-chrome"
-        onSelect={() => importInput?.click()}
-      >
-        <UploadSimpleIcon size={14} /><span class="flex-1 text-left"
-          >Import .md…</span
-        >
-      </DropdownMenu.Item>
-      <DropdownMenu.Sub>
-        <DropdownMenu.SubTrigger
-          class="text-workspace-chrome"
-          data-testid="workspace-import-doc"
-        >
-          <LinkIcon size={14} /><span class="flex-1 text-left"
-            >Import from</span
-          >
-        </DropdownMenu.SubTrigger>
-        <DropdownMenu.SubContent
-          class="w-auto min-w-52 max-w-[min(20rem,calc(100vw-2rem))] whitespace-nowrap"
-        >
-          {#if docProvidersLoading}
-            <DropdownMenu.Item disabled class="text-workspace-chrome"
-              >Checking connections…</DropdownMenu.Item
-            >
-          {:else if docProviders.length === 0}
-            <DropdownMenu.Item disabled class="text-workspace-chrome"
-              >No document provider is available.</DropdownMenu.Item
-            >
-          {:else}
-            <!-- Every provider is listed, connected or not: an absent
-                 row reads as "Solus cannot import from there" and
-                 sends the user looking in the wrong place. -->
-            {#each docProviders as status (status.provider)}
-              {#if status.connected}
-                <DropdownMenu.Item
-                  class="text-workspace-chrome"
-                  data-testid={`import-from-${status.provider}`}
-                  onSelect={() => openImportDialog(status.provider)}
-                >
-                  <LinkIcon size={14} /><span class="flex-1 text-left"
-                    >{docProviderLabel(status.provider)}…</span
-                  >
-                </DropdownMenu.Item>
-              {:else if status.connectable}
-                <DropdownMenu.Item
-                  class="h-auto py-1.5 text-workspace-chrome"
-                  data-testid={`connect-${status.provider}`}
-                  onSelect={openProviderSettings}
-                >
-                  <LinkIcon size={14} />
-                  <span
-                    class="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left"
-                  >
-                    <span>{docProviderLabel(status.provider)}</span>
-                    <span
-                      class="max-w-full whitespace-normal text-(--solus-text-tertiary)"
-                    >
-                      {status.reason} Connect in Settings…
-                    </span>
-                  </span>
-                </DropdownMenu.Item>
-              {:else}
-                <DropdownMenu.Item
-                  class="h-auto py-1.5 text-workspace-chrome"
-                  data-testid={`unavailable-${status.provider}`}
-                  disabled
-                >
-                  <LinkIcon size={14} />
-                  <span
-                    class="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left"
-                  >
-                    <span>{docProviderLabel(status.provider)}</span>
-                    <span
-                      class="max-w-full whitespace-normal text-(--solus-text-tertiary)"
-                      >{status.reason}</span
-                    >
-                  </span>
-                </DropdownMenu.Item>
-              {/if}
-            {/each}
-          {/if}
-        </DropdownMenu.SubContent>
-      </DropdownMenu.Sub>
-    </DropdownMenu.Content>
-  </DropdownMenu.Root>
+{#snippet workCard(item: WorkspaceItem, index: number)}
+  <WorkspaceCard
+    {item}
+    selected={index === ledger.selectedIndex}
+    showProject={ledger.showProject}
+    homeLabel={homeLabel(item)}
+    query={ledger.filter.text}
+    onOpen={() =>
+      stacked && !isHtmlArtifact(item) ? peek.raise(item) : openItem(item)}
+    onTogglePin={() => togglePin(item)}
+    onDelete={ledger.tab === "yours" ? () => deleteItem(item) : undefined}
+    sessionLabel={originLabel(item)}
+    onOpenSession={workspace && item.sessionId ? () => resumeItem(item) : undefined}
+    onOpenSessionSplit={workspace && item.sessionId ? () => openSessionInSplit(item) : undefined}
+    onPeek={(card) => peek.enter(item, card)}
+    onPeekLeave={() => peek.leave()}
+    onContextMenu={(event) => openItemContextMenu(event, item)}
+    present={workPresence(item.id)}
+    sharedBy={item.ownerKey ? (ownerOf(item.ownerKey)?.displayName ?? null) : null}
+  />
+{/snippet}
+
+{#snippet sessionCard(item: WorkspaceSessionItem, index: number)}
+  <WorkspaceSessionCard
+    {item}
+    selected={index === ledger.selectedIndex}
+    query={ledger.filter.text}
+    hostLabel={hostLabelFor(item.serverId)}
+    owner={ownerOf(item.ownerKey)}
+    present={sessionPresence(item)}
+    onOpen={() => openSharedSession(item)}
+  />
+{/snippet}
+
+<!-- A quiet sentence-case label and its count, 30px tall. Each pins to the
+     top of the scroll area on an opaque background, so the current bucket is
+     always named, even 300 cards down. -->
+{#snippet groupHeader(label: string, count: number)}
+  <span class="text-[13px] font-medium text-foreground/80">{label}</span>
+  <span class="text-xs tabular-nums text-muted-foreground">{count}</span>
+  <span class="flex-1"></span>
 {/snippet}
 
 {#if open}
@@ -867,21 +639,14 @@
               </button>
             {/if}
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span
-                class="text-base/[1.15] font-semibold tracking-[-0.016em]"
-                >Workspace</span
-              >
-              <span
-                class="flex items-center gap-[7px] text-xs text-muted-foreground"
-              >
+              <span class="text-base/[1.15] font-semibold tracking-[-0.016em]">Workspace</span>
+              <span class="flex items-center gap-[7px] text-xs text-muted-foreground">
                 <span class="font-medium text-foreground"
-                  >{items.length}
-                  {items.length === 1 ? "artifact" : "artifacts"}</span
+                  >{ledger.allItems.length}
+                  {ledger.allItems.length === 1 ? "artifact" : "artifacts"}</span
                 >
                 <span class="opacity-35" aria-hidden="true">·</span>
-                <span>{typeCounts.doc} docs</span>
-                <span class="opacity-35" aria-hidden="true">·</span>
-                <span>{typeCounts.diagram} diagrams</span>
+                <span>{ledger.sharedSessionItems.length} shared {ledger.sharedSessionItems.length === 1 ? "session" : "sessions"}</span>
               </span>
             </span>
             {@render newMenu(
@@ -890,8 +655,12 @@
             )}
           </div>
 
-          <div class="flex min-w-0 shrink-0 items-center gap-2 border-b border-[var(--hairline)] px-4 pt-0.5 pb-2.5 text-workspace-chrome">
-            <WorkspaceSearchField {filter} totalCount={items.length} {scopeLabel} matches={searching ? filtered.length : null} bind:ref={searchEl} />
+          <div class="shrink-0 px-4">
+            {@render tabStrip()}
+          </div>
+
+          <div class="flex min-w-0 shrink-0 items-center gap-2 border-b border-[var(--hairline)] px-4 pt-2 pb-2.5 text-workspace-chrome">
+            <WorkspaceSearchField filter={ledger.filter} totalCount={ledger.tabTotal} scopeLabel={ledger.scopeLabel} matches={ledger.searching ? ledger.walkLength : null} bind:ref={searchEl} />
             {@render filterControls()}
           </div>
         {:else}
@@ -910,15 +679,22 @@
             />
           </div>
 
-          <!-- ── Row 2: search · sort · filters · New ── -->
+          <!-- ── Row 2: the three groups ── -->
           <div
-            class="mx-auto flex w-full max-w-[72rem] shrink-0 flex-wrap items-center gap-2 px-8 pb-[14px] text-workspace-chrome @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
+            class="mx-auto w-full max-w-[72rem] shrink-0 px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
+          >
+            {@render tabStrip()}
+          </div>
+
+          <!-- ── Row 3: search · sort · filters · New ── -->
+          <div
+            class="mx-auto flex w-full max-w-[72rem] shrink-0 flex-wrap items-center gap-2 px-8 pt-2.5 pb-[14px] text-workspace-chrome @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4"
           >
           <WorkspaceSearchField
-            {filter}
-            totalCount={items.length}
-            {scopeLabel}
-            matches={searching ? filtered.length : null}
+            filter={ledger.filter}
+            totalCount={ledger.tabTotal}
+            scopeLabel={ledger.scopeLabel}
+            matches={ledger.searching ? ledger.walkLength : null}
             bind:ref={searchEl}
           />
           {@render filterControls()}
@@ -944,140 +720,131 @@
           onscroll={handleLedgerScroll}
         >
           {#if loading}
-            <div class="flex flex-col gap-1 pt-2" aria-hidden="true">
-              {#each Array(8) as _, i (i)}
-                <div
-                  class="h-11 animate-pulse rounded-lg bg-[var(--wash-2)]"
-                  style="opacity:{1 - i * 0.1}"
-                ></div>
+            <div class="grid grid-cols-3 gap-3 pt-2 @max-[48rem]/pane:grid-cols-2 @max-[30rem]/pane:grid-cols-1" aria-hidden="true">
+              {#each Array(6) as _, i (i)}
+                <div class="h-[108px] animate-pulse rounded-xl bg-[var(--wash-2)]" style="opacity:{1 - i * 0.12}"></div>
               {/each}
             </div>
-          {:else if items.length === 0}
-            <PageEmpty icon={BooksIcon} title="Nothing here yet.">
-              Docs, diagrams and artifacts from every project land here.
-              {#snippet actions()}
-                <button
-                  type="button"
-                  class={PAGE_PRIMARY_BTN}
-                  onclick={() => createNew("doc")}
-                >
-                  <PlusIcon size={13} weight="bold" />
-                  <span>New document</span>
-                </button>
-                <button
-                  type="button"
-                  class={PAGE_SECONDARY_BTN}
-                  onclick={() => createNew("diagram")}
-                >
-                  New diagram
-                </button>
-              {/snippet}
-            </PageEmpty>
-          {:else if filtered.length === 0}
+          {:else if ledger.tab === "shared-sessions"}
+            {#if ledger.sharedSessionItems.length === 0}
+              <PageEmpty icon={SharedSessionsIcon} title="No sessions shared with you.">
+                A session another person shares with you opens here, where it runs.
+              </PageEmpty>
+            {:else if ledger.filteredSessions.length === 0}
+              <PageEmpty title="No matches in this filter.">
+                Try a different search.
+                {#snippet actions()}
+                  <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => ledger.clearFilters()}>Clear filters</button>
+                {/snippet}
+              </PageEmpty>
+            {:else}
+              {#each ledger.renderedSessionGroups as group (group.key)}
+                {@const groupOffset = ledger.sessionOffsetOf(group)}
+                <div class="sticky top-0 z-[1] mt-3 flex h-[30px] items-center gap-2 bg-background px-1">
+                  {@render groupHeader(group.label, group.total)}
+                </div>
+                <div class="grid grid-cols-3 gap-3 pt-1 pb-2 @max-[48rem]/pane:grid-cols-2 @max-[30rem]/pane:grid-cols-1">
+                  {#each group.items as item, j (item.rowKey)}
+                    {@render sessionCard(item, groupOffset + j)}
+                  {/each}
+                </div>
+              {/each}
+            {/if}
+          {:else if ledger.items.length === 0}
+            {#if ledger.tab === "shared-works"}
+              <PageEmpty icon={SharedIcon} title="No works shared with you.">
+                A doc, diagram or artifact another person shares with you lands here.
+              </PageEmpty>
+            {:else}
+              <PageEmpty icon={BooksIcon} title="Nothing here yet.">
+                Docs, diagrams and artifacts from every project land here.
+                {#snippet actions()}
+                  <button type="button" class={PAGE_PRIMARY_BTN} onclick={() => createNew("doc")}>
+                    <PlusIcon size={13} weight="bold" />
+                    <span>New document</span>
+                  </button>
+                  <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => createNew("diagram")}>
+                    New diagram
+                  </button>
+                {/snippet}
+              </PageEmpty>
+            {/if}
+          {:else if ledger.filtered.length === 0}
             <PageEmpty title="No matches in this filter.">
-              {#if filter.text.trim() && outsideCount > 0}
-                {outsideCount}
-                {outsideCount === 1 ? "match" : "matches"} outside the active filters.
+              {#if ledger.filter.text.trim() && ledger.outsideCount > 0}
+                {ledger.outsideCount}
+                {ledger.outsideCount === 1 ? "match" : "matches"} outside the active filters.
               {:else}
                 Try a different search or filter.
               {/if}
               {#snippet actions()}
-                <button
-                  type="button"
-                  class={PAGE_SECONDARY_BTN}
-                  onclick={clearFilters}
-                >
-                  Clear filters
-                </button>
+                <button type="button" class={PAGE_SECONDARY_BTN} onclick={() => ledger.clearFilters()}>Clear filters</button>
               {/snippet}
             </PageEmpty>
           {:else}
             <!-- A pinned item is *moved* here, not copied: its date group's
                  count drops accordingly and no title appears twice. -->
-            {#if grouped.pinned.length > 0}
-              <div
-                class="sticky top-0 z-[1] flex h-[30px] items-center gap-2.5 bg-background px-1.5 @max-[30rem]/pane:h-auto @max-[30rem]/pane:px-1.5 @max-[30rem]/pane:pt-4 @max-[30rem]/pane:pb-1.5"
-              >
+            {#if ledger.grouped.pinned.length > 0}
+              <div class="sticky top-0 z-[1] flex h-[30px] items-center gap-2 bg-background px-1">
                 <button
                   type="button"
-                  class="flex shrink-0 cursor-pointer items-center border-0 bg-transparent p-0 text-muted-foreground opacity-60 transition-transform duration-200 {pinnedCollapsed
- ? ''
- : 'rotate-90'}"
-                  onclick={togglePinnedCollapsed}
-                  aria-label={pinnedCollapsed
-                    ? "Expand pinned"
-                    : "Collapse pinned"}
-                  aria-expanded={!pinnedCollapsed}
+                  class="flex shrink-0 cursor-pointer items-center border-0 bg-transparent p-0 text-muted-foreground opacity-60 transition-transform duration-200 {ledger.pinnedCollapsed ? '' : 'rotate-90'}"
+                  onclick={() => ledger.togglePinnedCollapsed()}
+                  aria-label={ledger.pinnedCollapsed ? "Expand pinned" : "Collapse pinned"}
+                  aria-expanded={!ledger.pinnedCollapsed}
                 >
                   <CaretRightIcon size={11} />
                 </button>
-                {@render groupHeader("Pinned", grouped.pinned.length)}
-                {#if pinnedOverflow > 0 || pinnedExpanded}
+                {@render groupHeader("Pinned", ledger.grouped.pinned.length)}
+                {#if ledger.pinnedOverflow > 0 || ledger.pinnedExpanded}
                   <button
                     type="button"
                     class="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-muted-foreground opacity-80 hover:text-foreground"
-                    onclick={() => (pinnedExpanded = !pinnedExpanded)}
+                    onclick={() => (ledger.pinnedExpanded = !ledger.pinnedExpanded)}
                   >
-                    {pinnedExpanded ? "Show less" : "Show all"}
+                    {ledger.pinnedExpanded ? "Show less" : "Show all"}
                   </button>
                 {/if}
               </div>
-              <!-- On a wide pane the rows are the ledger's own children, so the
-                   wrapper is `display: contents` and changes nothing. On a
-                   record they become one card per group with a hairline between
-                   rows, which is what turns a run of 44px lines into a bucket a
-                   thumb can tell from the bucket above it. -->
-              <div
-                class="contents @max-[30rem]/pane:block @max-[30rem]/pane:overflow-hidden @max-[30rem]/pane:rounded-xl @max-[30rem]/pane:bg-card @max-[30rem]/pane:shadow-[shadow:var(--elev-ring)] @max-[30rem]/pane:[&>*+*]:border-t @max-[30rem]/pane:[&>*+*]:border-[var(--hairline)]"
-              >
-                {#each pinnedShown as item, i (item.rowKey)}
-                  {@render ledgerRow(item, i)}
-                {/each}
-              </div>
-              {#if pinnedOverflow > 0}
+              {#if ledger.pinnedShown.length > 0}
+                <div class="grid grid-cols-3 gap-3 pt-1 pb-2 @max-[48rem]/pane:grid-cols-2 @max-[30rem]/pane:grid-cols-1">
+                  {#each ledger.pinnedShown as item, i (item.rowKey)}
+                    {@render workCard(item, i)}
+                  {/each}
+                </div>
+              {/if}
+              {#if ledger.pinnedOverflow > 0}
                 <button
                   type="button"
                   class="flex h-[30px] w-full cursor-pointer items-center gap-[9px] rounded-lg border-0 bg-transparent pr-3 pl-2.5 text-xs text-muted-foreground transition-shadow duration-150 hover:shadow-[inset_0_0_0_999px_var(--wash-1)]"
-                  onclick={() => (pinnedExpanded = true)}
+                  onclick={() => (ledger.pinnedExpanded = true)}
                 >
                   <span class="flex w-4 shrink-0 justify-center opacity-60">
                     <CaretDownIcon size={11} />
                   </span>
-                  {pinnedOverflow} more pinned
+                  {ledger.pinnedOverflow} more pinned
                 </button>
               {/if}
             {/if}
 
-            {#each renderedGroups as group (group.key)}
-              {@const groupOffset =
-                pinnedShown.length +
-                renderedGroups
-                  .slice(0, renderedGroups.indexOf(group))
-                  .reduce((n, g) => n + g.items.length, 0)}
-              <div
-                class="sticky top-0 z-[1] mt-1.5 flex h-[30px] items-center gap-2.5 bg-background px-1.5 @max-[30rem]/pane:h-auto @max-[30rem]/pane:pt-4 @max-[30rem]/pane:pb-1.5"
-              >
-                <span class="w-[11px] shrink-0"></span>
+            {#each ledger.renderedGroups as group (group.key)}
+              {@const groupOffset = ledger.offsetOf(group)}
+              <div class="sticky top-0 z-[1] mt-3 flex h-[30px] items-center gap-2 bg-background px-1">
                 {@render groupHeader(group.label, group.total)}
               </div>
-              <div
-                class="contents @max-[30rem]/pane:block @max-[30rem]/pane:overflow-hidden @max-[30rem]/pane:rounded-xl @max-[30rem]/pane:bg-card @max-[30rem]/pane:shadow-[shadow:var(--elev-ring)] @max-[30rem]/pane:[&>*+*]:border-t @max-[30rem]/pane:[&>*+*]:border-[var(--hairline)]"
-              >
+              <div class="grid grid-cols-3 gap-3 pt-1 pb-2 @max-[48rem]/pane:grid-cols-2 @max-[30rem]/pane:grid-cols-1">
                 {#each group.items as item, j (item.rowKey)}
-                  {@render ledgerRow(item, groupOffset + j)}
+                  {@render workCard(item, groupOffset + j)}
                 {/each}
               </div>
             {/each}
 
-            <!-- Rows still on their way in: only at the true tail of the ledger,
-                 where more items would actually appear. -->
-            {#if backgroundLoading && !searching && !hasMoreRows}
-              <div class="flex flex-col gap-1 pt-1" aria-hidden="true">
-                {#each Array(2) as _, i (i)}
-                  <div
-                    class="h-11 animate-pulse rounded-lg bg-[var(--wash-2)]"
-                    style="opacity:{0.55 - i * 0.25}"
-                  ></div>
+            <!-- Cards still on their way in: only at the true tail of the
+                 ledger, where more items would actually appear. -->
+            {#if backgroundLoading && !ledger.searching && !ledger.hasMoreRows}
+              <div class="grid grid-cols-3 gap-3 pt-1 @max-[48rem]/pane:grid-cols-2 @max-[30rem]/pane:grid-cols-1" aria-hidden="true">
+                {#each Array(3) as _, i (i)}
+                  <div class="h-[108px] animate-pulse rounded-xl bg-[var(--wash-2)]" style="opacity:{0.55 - i * 0.15}"></div>
                 {/each}
               </div>
             {/if}
@@ -1121,7 +888,7 @@
     {#if peek.item && stacked}
       <WorkspacePeek
         item={peek.item}
-        query={filter.text}
+        query={ledger.filter.text}
         pinned={peek.pinned}
         variant="sheet"
         onOpen={() => {
@@ -1149,7 +916,7 @@
         item={peek.item}
         anchor={peek.anchor}
         ledger={scrollEl}
-        query={filter.text}
+        query={ledger.filter.text}
         pinned={peek.pinned}
       />
     {/if}

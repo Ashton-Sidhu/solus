@@ -17,6 +17,8 @@ export interface DeviceCommandOptions {
   stdin?: string
   env?: NodeJS.ProcessEnv
   cwd?: string
+  /** Each line of stdout and stderr as it arrives, for a command that reports its progress. */
+  onOutput?: (line: string) => void
 }
 
 /**
@@ -53,16 +55,35 @@ export const runDeviceCommand: DeviceCommandRunner = (command, args, options = {
       child.kill('SIGKILL')
       finish({ code: 124, stdout, stderr: `${stderr}\ntimed out` })
     }, options.timeoutMs ?? 20_000)
+    const stdoutLines = options.onOutput ? outputLines(options.onOutput) : null
+    const stderrLines = options.onOutput ? outputLines(options.onOutput) : null
     child.stdout?.on('data', (chunk: Buffer) => {
-      if (stdout.length < MAX_OUTPUT_CHARS) stdout += chunk.toString()
+      const text = chunk.toString()
+      if (stdout.length < MAX_OUTPUT_CHARS) stdout += text
+      stdoutLines?.(text)
     })
     child.stderr?.on('data', (chunk: Buffer) => {
-      if (stderr.length < MAX_OUTPUT_CHARS) stderr += chunk.toString()
+      const text = chunk.toString()
+      if (stderr.length < MAX_OUTPUT_CHARS) stderr += text
+      stderrLines?.(text)
     })
     child.once('error', (error) => finish({ code: 127, stdout, stderr: error.message }))
     child.once('close', (code) => finish({ code: code ?? 1, stdout, stderr }))
     if (options.stdin !== undefined) child.stdin?.end(options.stdin)
   })
+
+/**
+ * Splits a stream into its lines for `onOutput`. A carriage return ends a line
+ * too, so a progress bar that redraws in place reports each redraw.
+ */
+export function outputLines(onLine: (line: string) => void): (text: string) => void {
+  let pending = ''
+  return (text) => {
+    const parts = (pending + text).split(/\r\n|\r|\n/)
+    pending = parts.pop() ?? ''
+    for (const part of parts) onLine(part)
+  }
+}
 
 /** The oldest Node the pinned helpers accept (agent-device engines). */
 const MIN_NODE: readonly [number, number] = [22, 12]
