@@ -978,12 +978,12 @@
     {#if showProjectPanelAction && !isProjectPanelOpen}
       <button
         type="button"
-        class={BAND_ACTION}
+        class="{PAGE_SOFT_ICON_BTN} ml-1.5"
         title="Expand project panel"
         aria-label="Expand project panel"
         onclick={toggleProjectPanel}
       >
-        <SidebarSimpleIcon size={14} mirrored />
+        <SidebarSimpleIcon size={15} strokeWidth={1.5} mirrored />
       </button>
     {/if}
 
