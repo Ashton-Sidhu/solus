@@ -64,10 +64,11 @@ export const sessionRecordUpsertWireSchema: z.ZodType<SessionRecordUpsert> = z.o
  * - `activity`: `{ activity }`, one activity row of a mirrored session (plans/012 §5).
  * - `shares`: `{ resource, rows }`, a mirrored session's share list but the owner's row, replaced whole (host-sharing.md §2); sent when it changes.
  * - `insights`: `{ spans: [{ span, events }] }`, every span of one turn, sent once when the turn's root span ends.
+ * - `webhooks`: `{ webhooks, deliveries }`, organization webhook metadata and delivery summaries for the admin view (docs/plans/webhooks.md §2.7).
  *
  * A write an agent makes (a task, a work, a comment, a link) is not an item: it calls the Solus API directly.
  */
-export const DELIVERY_KINDS = ['session', 'transcript', 'activity', 'shares', 'insights'] as const
+export const DELIVERY_KINDS = ['session', 'transcript', 'activity', 'shares', 'insights', 'webhooks'] as const
 export const deliveryKindSchema = z.enum(DELIVERY_KINDS)
 export type DeliveryKind = z.infer<typeof deliveryKindSchema>
 

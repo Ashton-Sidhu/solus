@@ -376,20 +376,4 @@ export interface WebhookDeliveryEvent {
   delivery: WebhookDeliverySummary
 }
 
-// ─── Organization admins (plan §2.7) ───
-
-export interface WebhookAdminEntry {
-  id: string
-  organizationId: string
-  name: string
-  ownerKey: string
-  hostId: string
-  project: string | null
-  urlMode: WebhookUrlMode
-  enabled: boolean
-  pausedByAdmin: boolean
-  verified: boolean
-  unverifiedReason: string | null
-  actionTypes: WebhookActionType[]
-}
-
+// The organization admin shapes are in `webhook-admin.ts`.

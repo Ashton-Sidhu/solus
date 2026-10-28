@@ -35,7 +35,8 @@ import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhoo
 import { registerWebhookHandlers } from './transport/handlers/webhook-handlers'
 import { setWebhookToolServices } from './execution/agents/tools/webhook-tools'
 import { takeSecretRef } from './execution/sessions/secret-requests'
-import { sweepSeenKeys } from './data/webhooks/webhook-store'
+import { readDelivery, sweepSeenKeys } from './data/webhooks/webhook-store'
+import { mirrorWebhook, mirrorWebhookDelivery } from './sync/mirror/webhook-mirror'
 import { RunnerDelivery } from './sync/runner-delivery'
 import type { TurnOrganizationDeps } from './execution/sessions/turn-organization'
 import { Delegations, type DelegationScope } from './sync/delegations'
@@ -1388,7 +1389,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       publicUrl: () => getServerSettings().webhookPublicUrl ?? null,
     },
     takeSecretRef: (secretRef, sessionId) => takeSecretRef(secretRef, sessionId),
+    onDeleted: (webhook) => mirrorWebhook(webhook, { deleted: true, registered: registrar.current() !== null }),
   })
+  // Organization webhooks and their delivery summaries go to the organization's Solus API for its admins (plan §2.7).
+  domainEventUnsubscribes.push(
+    onWebhookChanged((event) => { if (event.kind === 'saved') mirrorWebhook(event.webhook, { registered: registrar.current() !== null }) }),
+    onWebhookDelivery((summary) => {
+      if (summary.outcome === 'pending') return
+      void (async () => {
+        const [webhook, delivery] = await Promise.all([webhookService.read(summary.webhookId), readDelivery(summary.id)])
+        if (webhook && delivery) mirrorWebhookDelivery(webhook, delivery, { registered: registrar.current() !== null })
+      })().catch((err) => log.warn('webhook_mirror_failed', { webhookId: summary.webhookId, deliveryId: summary.id, error: err instanceof Error ? err.message : String(err) }))
+    }),
+  )
   setWebhookToolServices({ webhooks: webhookService, actions: webhooks.actions })
   registerWebhookHandlers(server, {
     actions: webhooks.actions,

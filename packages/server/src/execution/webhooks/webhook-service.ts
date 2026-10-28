@@ -63,6 +63,8 @@ export interface WebhookServiceDeps {
   allowsUnverifiedWebhooks(organizationId: string): boolean
   /** A one-use `secretRef` from `request_secret` (plan §3.6), for the session that asked; null when it is not valid. */
   takeSecretRef?(secretRef: string, sessionId: string | null): string | null
+  /** A webhook was deleted, with its last view: the organization mirror sends its removal (plan §2.7). */
+  onDeleted?(webhook: Webhook): void
 }
 
 export class WebhookInputError extends Error {}
@@ -289,9 +291,12 @@ export function createWebhookService(deps: WebhookServiceDeps) {
     },
 
     async delete(id: string): Promise<boolean> {
+      const record = await loadWebhook(id)
+      const last = record ? await view(record) : null
       const deleted = await deleteWebhook(id)
       removeWebhookSecrets(id)
       if (deleted) {
+        if (last) deps.onDeleted?.(last)
         emitWebhookChanged({ kind: 'deleted', webhookId: id })
         log.info('webhook_deleted', { webhookId: id })
       }

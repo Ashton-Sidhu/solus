@@ -52,6 +52,7 @@ import type {
   WebhookUpdateInput,
   WebhookWithUrl,
 } from './webhooks'
+import type { WebhookAdminList, WebhookAdminOutcome, WebhookAdminRef } from './webhook-admin'
 import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { HostRoute } from './host-routes'
 import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
@@ -918,6 +919,11 @@ export interface SolusAPI {
   hostWebhookSettingsUpdate(patch: HostWebhookSettingsPatch): Promise<HostWebhookSettings>
   /** Answers a `secret` card: the value, or null to decline. The value goes to the host's secret-ref store only, never to the transcript. */
   secretRequestAnswer(sessionId: string, questionId: string, value: string | null): Promise<boolean>
+  /** The Solus API: the organization webhooks of every host, for an organization admin. */
+  webhookAdminList(organizationId: string): Promise<WebhookAdminOutcome<WebhookAdminList>>
+  /** The Solus API: an admin pause. The forwarder refuses the webhook at once; the host within 5 minutes. */
+  webhookAdminPause(ref: WebhookAdminRef): Promise<WebhookAdminOutcome<null>>
+  webhookAdminResume(ref: WebhookAdminRef): Promise<WebhookAdminOutcome<null>>
 
   skillsList(): Promise<import('./skill-types').SkillListResult>
   skillsRemove(name: string): Promise<import('./skill-types').SkillRemoveResult>

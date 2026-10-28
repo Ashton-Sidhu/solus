@@ -234,7 +234,9 @@ const PERMISSION_OF_METHOD = {
   tasksSearchComments: HOST_USE, tasksPrepareForSession: HOST_USE, tasksLinkedTo: HOST_USE, outboxList: HOST_USE,
   outboxAck: HOST_USE, outboxApply: HOST_USE, automationCreate: HOST_USE, automationList: HOST_USE,
   automationRecentRuns: HOST_USE, webhookList: HOST_USE, webhookCreate: HOST_USE, webhookDryRun: HOST_USE,
-  hostWebhookSettingsRead: HOST_USE, prChecks: HOST_USE, browserRuntimeStatus: HOST_USE, browserListTargets: HOST_USE,
+  hostWebhookSettingsRead: HOST_USE,
+  // The admin rule is Solus Cloud's: the webhookAdmin port refuses a person who is not an organization admin.
+  webhookAdminList: HOST_USE, webhookAdminPause: HOST_USE, webhookAdminResume: HOST_USE, prChecks: HOST_USE, browserRuntimeStatus: HOST_USE, browserListTargets: HOST_USE,
   browserListPages: HOST_USE, browserOpen: HOST_USE, browserClose: HOST_USE, browserNavigate: HOST_USE,
   browserSetViewport: HOST_USE, browserSetAppearance: HOST_USE, browserSnapshot: HOST_USE, browserInteract: HOST_USE,
   browserAttachSurface: HOST_USE, browserDetachSurface: HOST_USE, browserReportSurface: HOST_USE,

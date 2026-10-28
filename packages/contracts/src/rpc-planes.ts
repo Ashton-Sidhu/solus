@@ -515,6 +515,9 @@ export const RPC_PLANES = {
   hostWebhookSettingsRead: 'execution',
   hostWebhookSettingsUpdate: 'execution',
   secretRequestAnswer: 'execution',
+  webhookAdminList: 'collaboration',
+  webhookAdminPause: 'collaboration',
+  webhookAdminResume: 'collaboration',
 
   // PR checks
   prChecks: 'collaboration',

@@ -10,6 +10,7 @@ import { applyMirrorItem } from './mirror/mirror-sinks'
 import type { ShareManager } from '../sharing/share-manager'
 import type { Principal } from '../admission/principal'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
+import { webhookAdminMirrorPayloadSchema, type WebhookAdminPort } from '@solus/contracts/webhook-admin'
 import {
   activityMirrorPayloadSchema,
   sessionRecordUpsertWireSchema,
@@ -18,6 +19,7 @@ import {
   type RunnerDeliverRequest,
   type RunnerDeliverResponse,
 } from './runner-protocol'
+
 
 const log = createLogger('main', 'runner-intake')
 
@@ -40,6 +42,8 @@ export interface RunnerIntakeDeps {
   shares?: ShareManager
   /** A mirrored session's transcript or activity changed: its readers hear it once per batch. */
   onTranscriptChanged?: (sessionId: string) => void
+  /** Solus Cloud's admin view of webhooks; without it a `webhooks` item applies as nothing. */
+  webhookAdmin?: WebhookAdminPort
 }
 
 const cursorRowSchema = z.object({ last_seq: z.number() })
@@ -87,8 +91,22 @@ async function applyItem(runner: RunnerPrincipal, item: RunnerDeliverItem, deps:
       if (!facts.success) throw new PermanentApplyError(`Malformed session facts: ${facts.error.message}`)
       return applySessionFacts(runner, facts.data, deps.shares)
     }
+    case 'webhooks': return applyWebhookAdminItem(runner, item, deps.webhookAdmin)
     default: return applyMirrorItem(origin, { kind: item.kind, payload: item.payload }, deps.shares)
   }
+}
+
+/**
+ * Organization webhook metadata and delivery summaries (docs/plans/webhooks.md §2.7)
+ * go to Solus Cloud through its port, for the host and organization the runner proved.
+ * A service without the port keeps none. A refusal never applies later.
+ */
+async function applyWebhookAdminItem(runner: RunnerPrincipal, item: RunnerDeliverItem, port: WebhookAdminPort | undefined): Promise<void> {
+  const payload = webhookAdminMirrorPayloadSchema.safeParse(item.payload)
+  if (!payload.success) throw new PermanentApplyError(`Malformed webhook records: ${payload.error.message}`)
+  if (!port) return
+  const outcome = await port.intake({ hostId: runner.hostId, organizationId: runner.organizationId, ...payload.data })
+  if (!outcome.ok) throw new PermanentApplyError(`Solus Cloud refused the webhook records: ${outcome.error}`)
 }
 
 /** The session an applied item changed the history of, for the readers who watch it. */
