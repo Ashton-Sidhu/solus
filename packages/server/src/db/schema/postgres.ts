@@ -12,6 +12,7 @@ import * as sessionsSchema from '../../data/sessions/schema'
 import * as transcriptSchema from '../../data/sessions/transcript-schema'
 import * as sharingSchema from '../../sharing/schema'
 import * as tasksSchema from '../../data/tasks/schema'
+import * as webhooksSchema from '../../data/webhooks/schema'
 
 export const tasks = tasksSchema.tasks.pg
 export const task_counters = tasksSchema.taskCounters.pg
@@ -46,3 +47,6 @@ export const workspace_projects = projectsSchema.workspaceProjects.pg
 export const activity = activitySchema.activity.pg
 export const notifications = notificationsSchema.notifications.pg
 export { solusApiReceiptsPostgres as workspace_api_receipts } from '../../data/workspace/schema'
+export const webhooks = webhooksSchema.webhooks.pg
+export const webhook_deliveries = webhooksSchema.webhookDeliveries.pg
+export const webhook_seen_keys = webhooksSchema.webhookSeenKeys.pg

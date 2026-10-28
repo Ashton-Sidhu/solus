@@ -44,6 +44,8 @@ import { receiveAttachmentUpload } from './handlers/attachment-handlers'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { hostDisplayName } from '../platform/host-display-name'
 import { hostIdentity } from '../host/host-identity'
+import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_OUTCOME_HEADER } from '@solus/contracts/webhooks'
+import type { WebhookReceiver } from '../execution/webhooks/receiver'
 
 const log = createLogger('main', 'http')
 
@@ -96,6 +98,8 @@ export interface HttpServerOptions {
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
   /** An integration sign-in's browser callback (docs/plans/mcp-integrations.md §4.3). The flow named by `state` decides whose token it is. */
   completeIntegrationOAuth?: (params: URLSearchParams) => Promise<{ status: 200 | 400 | 500; html: string }>
+  /** The webhook receiver (docs/plans/webhooks.md §3.4). The URL token is the credential, then verification. */
+  webhookReceiver?: Pick<WebhookReceiver, 'receive'>
 }
 
 /** The Node req/res the @hono/node-server adapter exposes as `c.env`. */
@@ -205,7 +209,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.use('*', async (c, next) => {
     if (!viaTunnel(c)) return next()
     const { pathname } = new URL(c.req.url)
-    const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/') || pathname === '/oauth/integration/callback' || pathname === '/oauth/google/callback'
+    const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/') || pathname === '/oauth/integration/callback' || pathname === '/oauth/google/callback' || pathname.startsWith('/hooks/')
     return offered ? next() : c.notFound()
   })
   const establishDelegation = opts.establishDelegation
@@ -251,6 +255,42 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     if (viaTunnel(c)) return c.json(health)
     return c.json({ ...health, name: currentName(), os: hostOperatingSystem() })
   })
+
+  // The webhook receiver (docs/plans/webhooks.md §3.4). Every answer names its
+  // outcome, so the cloud forwarder can tell a final answer from an offline host.
+  const webhookReceiver = opts.webhookReceiver
+  const hookAnswer = (c: Ctx, status: 202 | 401 | 403 | 404 | 405 | 409 | 413 | 429, outcome: string, body: { deliveryId?: string; error?: string }) => {
+    c.header(WEBHOOK_OUTCOME_HEADER, outcome)
+    return c.json(body, status)
+  }
+  app.all('/hooks/:webhookId/:token', async (c) => {
+    if (!webhookReceiver) return hookAnswer(c, 404, 'not_found', { error: 'not found' })
+    if (!['POST', 'PUT', 'PATCH'].includes(c.req.method)) return hookAnswer(c, 405, 'method_not_allowed', { error: 'Use POST, PUT, or PATCH.' })
+    // The rest of a body that is too large is never read, so the connection closes with the answer.
+    const tooLarge = () => {
+      c.header('connection', 'close')
+      return hookAnswer(c, 413, 'too_large', { error: 'The body is larger than 1 MiB.' })
+    }
+    if (Number(c.req.header('content-length') ?? 0) > WEBHOOK_MAX_BODY_BYTES) return tooLarge()
+    let body: Buffer
+    try {
+      body = await readLimitedBody(c.env.incoming, WEBHOOK_MAX_BODY_BYTES)
+    } catch (err) {
+      if (err instanceof BodyTooLargeError) return tooLarge()
+      throw err
+    }
+    const url = new URL(c.req.url)
+    const result = await webhookReceiver.receive({
+      method: c.req.method,
+      webhookId: c.req.param('webhookId'),
+      token: c.req.param('token'),
+      headers: c.req.raw.headers.entries(),
+      query: url.searchParams.entries(),
+      body,
+    })
+    return hookAnswer(c, result.status, result.outcome, result.body)
+  })
+  app.all('/hooks/*', (c) => hookAnswer(c, 404, 'not_found', { error: 'not found' }))
 
   app.get('/oauth/google/callback', async (c) => {
     const result = await completeGoogleOAuthCallback(new URL(c.req.url).searchParams)
@@ -595,3 +635,4 @@ async function receiveMultipart(req: IncomingMessage): Promise<string[]> {
     .filter((file): file is FormidableFile => !!file)
     .map((file) => file.filepath)
 }
+
