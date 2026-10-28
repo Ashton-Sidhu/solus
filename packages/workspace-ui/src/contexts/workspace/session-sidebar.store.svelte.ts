@@ -1105,61 +1105,61 @@ export class SessionSidebarStore {
     })
   }
 
-  /** Every session linked to a task, in the order they were linked: a mounted
-   *  one as its tab states it, any other from its link and the status feed. */
+  /** Every session linked to a task, in the order they were linked. */
   private linkedSessionsOf(record: Task): SidebarSessionChild[] {
     const taskModel = this.session.tasksStore.get(record.id)
-    const linkedSessions = taskModel.sessions.toSorted((a, b) => a.linkedAt - b.linkedAt)
     const seenSessionIds = new Set<string>()
     const children: SidebarSessionChild[] = []
-    const projectKey = record.projectKey ?? undefined
-
-    for (const link of linkedSessions) {
+    for (const link of taskModel.sessions.toSorted((a, b) => a.linkedAt - b.linkedAt)) {
       if (seenSessionIds.has(link.sessionId)) continue
       seenSessionIds.add(link.sessionId)
-      const tabId = this.tabIdBySessionId.get(link.sessionId)
-      const linkServerId = attemptServerId({ link, taskServerId: taskModel.serverId })
-      if (tabId) {
-        const child = this.liveChildFor(tabId)
-        children.push(withLazyActivity({
-          ...child,
-          // A row stands for one session, so it is named by that session. The
-          // task title is the fallback for a session with no name of its own.
-          label: sessionDisplayName({ link, liveTitle: child.label, taskTitle: record.title }),
-          sessionId: link.sessionId,
-          projectKey,
-          serverId: child.serverId ?? linkServerId,
-          provider: child.provider ?? link.provider,
-          modelId: child.modelId ?? link.model,
-          branchName: child.branchName ?? link.branch ?? null,
-        },
-        // A restored tab can exist before its transcript is hydrated. The
-        // durable link still knows when that session was active; do not turn
-        // an empty mounted transcript into the Unix epoch in the picker.
-        () => restoredSessionActivityAt(this.tabActivityAt(tabId), link)))
-        continue
-      }
-      const liveState = this.sessionStatusFeed().stateFor(linkServerId, link.sessionId)
-      const checkout = link.checkoutPath && linkServerId ? this.session.environment.checkouts.get(linkServerId, link.checkoutPath) : undefined
-      children.push({
-        sessionId: link.sessionId,
-        projectKey,
-        branchName: checkout ? checkout.checkout?.branch ?? null : link.branch ?? null,
-        label: sessionDisplayName({ link, taskTitle: record.title }),
-        attention: liveState?.attention ?? null,
-        unread: liveState?.attention === 'error',
-        serverId: linkServerId,
-        provider: link.provider,
-        modelId: link.model,
-        runStartedAt: liveState?.attention === 'running' ? liveState.runStartedAt : 0,
-        lastActivityAt: link.lastActivityAt ?? link.linkedAt,
-        reviewGuideStatus: null,
-      })
+      children.push(this.linkedSessionChild(record, link, attemptServerId({ link, taskServerId: taskModel.serverId })))
     }
-
     // One row per session across its homes: the runner while it is connected,
     // else the cloud record, marked.
     return mergeSessionHomes(children, this.sessionHomes)
+  }
+
+  /** One linked session: a mounted one as its tab states it, any other from
+   *  its link and the status feed. */
+  private linkedSessionChild(record: Task, link: TaskSessionLink, linkServerId: string | null): SidebarSessionChild {
+    const projectKey = record.projectKey ?? undefined
+    const tabId = this.tabIdBySessionId.get(link.sessionId)
+    if (tabId) {
+      const child = this.liveChildFor(tabId)
+      return withLazyActivity({
+        ...child,
+        // A row stands for one session, so it is named by that session. The
+        // task title is the fallback for a session with no name of its own.
+        label: sessionDisplayName({ link, liveTitle: child.label, taskTitle: record.title }),
+        sessionId: link.sessionId,
+        projectKey,
+        serverId: child.serverId ?? linkServerId,
+        provider: child.provider ?? link.provider,
+        modelId: child.modelId ?? link.model,
+        branchName: child.branchName ?? link.branch ?? null,
+      },
+      // A restored tab can exist before its transcript is hydrated. The
+      // durable link still knows when that session was active; do not turn
+      // an empty mounted transcript into the Unix epoch in the picker.
+      () => restoredSessionActivityAt(this.tabActivityAt(tabId), link))
+    }
+    const liveState = this.sessionStatusFeed().stateFor(linkServerId, link.sessionId)
+    const checkout = link.checkoutPath && linkServerId ? this.session.environment.checkouts.get(linkServerId, link.checkoutPath) : undefined
+    return {
+      sessionId: link.sessionId,
+      projectKey,
+      branchName: checkout ? checkout.checkout?.branch ?? null : link.branch ?? null,
+      label: sessionDisplayName({ link, taskTitle: record.title }),
+      attention: liveState?.attention ?? null,
+      unread: liveState?.attention === 'error',
+      serverId: linkServerId,
+      provider: link.provider,
+      modelId: link.model,
+      runStartedAt: liveState?.attention === 'running' ? liveState.runStartedAt : 0,
+      lastActivityAt: link.lastActivityAt ?? link.linkedAt,
+      reviewGuideStatus: null,
+    }
   }
 
   selectTab(tabId: string): void {

@@ -320,7 +320,6 @@ function buildList(query: string, conversations: readonly SessionSearchResult[])
     query,
     sessionsFor: (task) => sessionsByTaskId.get(task.id) ?? [],
     expandedTaskIds: new Set(),
-    openTaskIds: new Set(),
     conversations,
   })
 }

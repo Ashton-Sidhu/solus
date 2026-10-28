@@ -5,14 +5,12 @@
     getWorkspaceContext,
     getStatusBarContext,
     getSessionEnvironmentStore,
-    getSessionSidebarStore,
   } from "../../contexts";
   import { displayDirName } from "../../lib/paths";
   import { isChat } from "@solus/contracts/chat";
   import { worktreeDisplayName } from "../../lib/git-context";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { RunConfig, WorktreeEntry } from "@solus/contracts/types";
-  import ContextMeter from "../ContextMeter.svelte";
   import GitDropdown from "../GitDropdown.svelte";
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { isRunOnHostLocked } from "../servers/run-on";
@@ -38,7 +36,6 @@
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
   const environmentStore = getSessionEnvironmentStore();
-  const sidebarStore = getSessionSidebarStore();
   // "Pinned" means these controls belong to a pane of their own rather than to
   // the workspace's composer — the workspace one is the only place that opens a
   // project or answers the git-dropdown shortcut.
@@ -104,13 +101,10 @@
   let gitInitialView: "worktrees" | "branches" = $state("branches");
   let gitTriggerEl: HTMLButtonElement | null = $state(null);
   // This cluster now lives on the full-width input toolbar row, so the old
-  // width-based collapse no longer applies: dir + usage always show, and branch
+  // width-based collapse no longer applies: dir always shows, and branch
   // shows when the destination controls are enabled. Text truncates to degrade gracefully.
   const showBranch = $derived(showDestination);
   const showDirLabel = true;
-  // The context meter shows only in task mode: a conversation that the sidebar
-  // files under a task row. A loose session does not show it.
-  const showUsage = $derived(!!sess && !!sidebarStore.taskForTab(source)?.taskId);
 
   $effect(() => {
     if (isPinned) return;
@@ -223,16 +217,6 @@
     {@render projectInfo()}
   {/if}
 
-  {#if showUsage}
-    <!-- Composer ladder, rung 1: the usage meter leaves before the rest of the
-         cluster. It is the widest readout here and the only one repeated
-         elsewhere — the project panel carries the same figure — so it buys the
-         project and branch chips a rung of legibility at no cost. `contents`
-         keeps the meter a direct flex item at the widths where it shows. -->
-    <div class="contents @max-[34rem]/composer:hidden">
-      <ContextMeter tabId={sess ? source : ""} />
-    </div>
-  {/if}
   {#if showDestination && !isPinned}
     <RunOnPicker
       run={run ?? session.defaultRunConfig}
