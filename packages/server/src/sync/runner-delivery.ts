@@ -7,6 +7,7 @@ import {
   deliveryDestinations,
   dropQueuedFor,
   listDelivery,
+  markKindUnsupported,
   onDeliveryQueued,
   queueSessionFacts,
   type DeliveryDestination,
@@ -16,7 +17,10 @@ import { isChat } from '@solus/contracts/chat'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import type { FetchLike } from '../admission/access-tokens'
 import { DelegationError } from './delegations'
-import { RUNNER_BATCH_LIMIT, RUNNER_DELIVER_PATH, runnerDeliverResponseSchema, type RunnerDeliverRequest } from './runner-protocol'
+import { RUNNER_BATCH_LIMIT, RUNNER_DELIVER_PATH, runnerDeliverResponseSchema, unknownKindError, type DeliveryKind, type RunnerDeliverRequest } from './runner-protocol'
+
+/** Kinds that a Solus API on the release before them does not know; only these are dropped when a batch is refused whole. */
+const ROLLOUT_KINDS: ReadonlySet<DeliveryKind> = new Set(['webhooks'])
 
 const log = createLogger('main', 'runner-delivery')
 
@@ -292,6 +296,15 @@ export class RunnerDelivery {
       if (items.length === 0) return 'ok'
       const body: RunnerDeliverRequest = { hostId, items }
       const answered = await this.post(apiUrl, token, destination.organizationId, body)
+      // A Solus API on an older release refuses a whole batch that holds a kind it does not
+      // know (`400 invalid_request`). Drop the kinds that are newer than every release
+      // before them, and send the rest again (docs/plans/webhooks.md §5).
+      if (answered.kind === 'refused' && answered.status === 400 && answered.error === 'invalid_request') {
+        const newer = [...new Set(items.map((item) => item.kind))].filter((kind) => ROLLOUT_KINDS.has(kind))
+        if (!newer.length) return 'failed'
+        for (const kind of newer) markKindUnsupported(destination.organizationId, kind)
+        continue
+      }
       if (answered.kind !== 'ok') return 'failed'
       const parsed = runnerDeliverResponseSchema.safeParse(answered.body)
       if (!parsed.success) {
@@ -300,6 +313,10 @@ export class RunnerDelivery {
       }
       const { lastSeq, failed } = parsed.data
       const acked = ackDelivery(destination, lastSeq, failed)
+      // A Solus API that skips a kind it does not know names it: queue no more of it there for now.
+      for (const kind of new Set(failed.flatMap((entry) => items.find((item) => item.seq === entry.seq && entry.error === unknownKindError(item.kind))?.kind ?? []))) {
+        markKindUnsupported(destination.organizationId, kind)
+      }
       log.info('runner_delivered', { hostId, organizationId: destination.organizationId, sent: items.length, acked, lastSeq, failed: failed.length })
       // The API stopped before the end of the batch: an item it may apply later.
       if (lastSeq < items[items.length - 1].seq) {

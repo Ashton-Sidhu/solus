@@ -72,7 +72,16 @@ export const DELIVERY_KINDS = ['session', 'transcript', 'activity', 'shares', 'i
 export const deliveryKindSchema = z.enum(DELIVERY_KINDS)
 export type DeliveryKind = z.infer<typeof deliveryKindSchema>
 
-export const runnerDeliverItemSchema = z.object({ seq: seqSchema, kind: deliveryKindSchema, payload: z.unknown() })
+/**
+ * The kind is text on the wire, not the enum: a host on a newer release may send a kind
+ * this service does not know (docs/plans/webhooks.md §5). The intake skips such an item
+ * and names it in `failed` as `unknown_kind:<kind>`; the rest of the batch applies.
+ */
+export const runnerDeliverItemSchema = z.object({ seq: seqSchema, kind: z.string().min(1).max(64), payload: z.unknown() })
+/** The `failed` error of an item whose kind this service does not know. */
+export function unknownKindError(kind: string): string {
+  return `unknown_kind:${kind}`
+}
 /** One item as it arrives; the sink for its kind parses the payload and refuses one that does not read. */
 export type RunnerDeliverItem = z.infer<typeof runnerDeliverItemSchema>
 

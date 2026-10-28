@@ -113,6 +113,18 @@ describe('Solus API intake of webhook records', () => {
     expect(answer.failed[0].error).toContain('host_not_of_organization')
   })
 
+  test('a kind this service does not know is skipped and named; the known kinds of the batch still apply', async () => {
+    const { calls, value } = port({ ok: true, value: null })
+    const answer = await intake.applyRunnerDelivery(runner, { hostId: 'host-1', items: [item(1), { seq: 2, kind: 'kind_from_a_newer_release', payload: { secret: 'never logged' } }, item(3)] }, { webhookAdmin: value })
+    expect(answer).toEqual({ lastSeq: 3, failed: [{ seq: 2, error: 'unknown_kind:kind_from_a_newer_release' }] })
+    expect(calls).toHaveLength(2)
+  })
+
+  test('the runner route parses a batch with an unknown kind instead of refusing it whole', async () => {
+    const { runnerDeliverRequestSchema } = await import('@solus/server/sync/runner-protocol')
+    expect(runnerDeliverRequestSchema.safeParse({ hostId: 'h', items: [{ seq: 1, kind: 'kind_from_a_newer_release', payload: {} }] }).success).toBe(true)
+  })
+
   test('a service without the port keeps nothing and does not stop the queue', async () => {
     expect(await intake.applyRunnerDelivery(runner, { hostId: 'host-1', items: [item(1)] }, {})).toEqual({ lastSeq: 1, failed: [] })
   })

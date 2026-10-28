@@ -10,7 +10,7 @@ import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { workOrganizationId } from './data/works/works'
 import { taskOrganizationId } from './data/tasks/task-store'
 import { transcriptDestination } from './sync/mirror/transcript-mirror'
-import { appendDelivery, deliveryBacklog, dropQueuedFor } from './sync/delivery-queue'
+import { appendDelivery, deliveryBacklog, dropQueuedFor, retryUnsupportedKinds } from './sync/delivery-queue'
 import { RemoteUpdateService } from './updates/remote-update-service'
 import type { ServerUpdateSupport, SupervisorMessage } from '@solus/contracts/server-update'
 import { UpdateStatusService } from './updates/update-status-service'
@@ -1429,6 +1429,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   const linkNow = uplinkManager?.status()
   if (linkNow?.linked && linkNow.state.observed === 'online') drainWebhooks('server_start')
+  // A kind an organization's Solus API refused during a rollout is tried again after each read of the facts.
+  domainEventUnsubscribes.push(hostOrganizations.onRefreshed(() => retryUnsupportedKinds()))
   // An admin's pause or resume reaches clients when the host reads its organization facts (plan §2.7).
   let pausedWebhooks = new Set<string>()
   hostOrganizations.onChanged(() => {

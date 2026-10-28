@@ -288,6 +288,8 @@ Solus Cloud: see the companion plan.
 
 Solus ships first, because `solus-cloud` copies the uplink contract and pins a Solus commit.
 
+**Rollout of the `webhooks` delivery kind (either order is safe).** A record service built before this release refuses a whole delivery batch with `400 invalid_request` when the batch holds a kind it does not know. So the host drops the `webhooks` items of that organization when a batch with them is refused that way, or when a newer service names them as `unknown_kind:webhooks`. It queues no more of them there until it reads the organization facts again; sessions, tasks, and insights are never blocked. The record service now skips an unknown kind, names it in `failed`, logs `runner_unknown_kinds` (the kinds and the batch size, no payload), and applies the rest. Dropped admin records come back with the next save or delivery of each webhook.
+
 1. **Solus: receiver and store.** Contract, tables, store, and the receiver (§3.4, §3.5) with focused tests: token, each verification scheme and its failure steps, filters, delivery ID, replay key, templates, redaction, and the `x-solus-hook-outcome` header.
 2. **Solus: actions and the log.** The three actions and the delivery log. Tests for fan-out, partial failure, `busy`, and lost access.
 3. **Solus: RPC and desktop/web UI.** Settings, project panel, host settings, command palette, unlink warning.

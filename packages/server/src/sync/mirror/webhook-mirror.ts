@@ -5,7 +5,7 @@ import type { WebhookAdminDeliverySummary, WebhookAdminMirrorPayload, WebhookAdm
 import { LOCAL_ORGANIZATION_ID } from '../../host/host-category'
 import { hostUserId, isHostUserKey } from '../../host/host-user'
 import { createLogger } from '../../logger'
-import { appendDelivery, deliveryActorOf } from '../delivery-queue'
+import { appendDelivery, deliveryActorOf, kindSupported } from '../delivery-queue'
 
 const log = createLogger('webhooks', 'webhook-mirror.ts')
 
@@ -38,6 +38,8 @@ function ownerAccountId(ownerKey: string): string | null {
 
 function queue(webhook: MirroredWebhook, key: string, payload: WebhookAdminMirrorPayload, registered: boolean): void {
   if (!registered || webhook.organizationId === LOCAL_ORGANIZATION_ID) return
+  // A Solus API on an older release does not know the kind yet (delivery-queue.ts).
+  if (!kindSupported(webhook.organizationId, 'webhooks')) return
   appendDelivery({ organizationId: webhook.organizationId, actorUserId: deliveryActorOf(webhook.ownerKey) }, 'webhooks', [{ key, payload }])
 }
 

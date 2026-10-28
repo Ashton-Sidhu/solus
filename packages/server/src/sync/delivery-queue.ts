@@ -183,3 +183,31 @@ export function deliveryBacklog(): Array<{ organizationId: string; pending: numb
   `).all())
   return rows.map((row) => ({ organizationId: row.organization_id, pending: row.pending, failed: row.failed }))
 }
+
+/**
+ * Kinds an organization's Solus API does not know yet, while a release rolls out
+ * (docs/plans/webhooks.md §5): a service built before a kind refuses it. Such a kind is
+ * not queued for that organization, so it never blocks the sessions, tasks, and
+ * insights behind it. It is tried again after the next read of the organization facts.
+ */
+const unsupportedKinds = new Map<string, Set<DeliveryKind>>()
+
+/** The organization's Solus API refused `kind`: drop its queued rows there and queue no more until `retryUnsupportedKinds`. Answers how many rows went. */
+export function markKindUnsupported(organizationId: string, kind: DeliveryKind): number {
+  const kinds = unsupportedKinds.get(organizationId) ?? new Set<DeliveryKind>()
+  kinds.add(kind)
+  unsupportedKinds.set(organizationId, kinds)
+  const dropped = Number(getDb().prepare('DELETE FROM delivery_queue WHERE organization_id = ? AND kind = ?').run(organizationId, kind).changes)
+  log.warn('delivery_kind_unsupported', { organizationId, kind, dropped })
+  return dropped
+}
+
+/** Whether rows of `kind` may be queued for the organization now. */
+export function kindSupported(organizationId: string, kind: DeliveryKind): boolean {
+  return !unsupportedKinds.get(organizationId)?.has(kind)
+}
+
+/** The organization facts were read again: every refused kind is tried again. */
+export function retryUnsupportedKinds(): void {
+  unsupportedKinds.clear()
+}

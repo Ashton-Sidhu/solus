@@ -13,7 +13,10 @@ import type { SessionRecordUpsert } from '@solus/contracts/types'
 import { webhookAdminMirrorPayloadSchema, type WebhookAdminPort } from '@solus/contracts/webhook-admin'
 import {
   activityMirrorPayloadSchema,
+  deliveryKindSchema,
   sessionRecordUpsertWireSchema,
+  unknownKindError,
+  type DeliveryKind,
   transcriptMirrorPayloadSchema,
   type RunnerDeliverItem,
   type RunnerDeliverRequest,
@@ -83,7 +86,7 @@ async function applySessionFacts(runner: RunnerPrincipal, upsert: SessionRecordU
   if (shares && !existing && !privateToOwner) await shares.shareRunnerWrite({ kind: 'session', id: facts.sessionId }, runner, owner)
 }
 
-async function applyItem(runner: RunnerPrincipal, item: RunnerDeliverItem, deps: RunnerIntakeDeps): Promise<void> {
+async function applyItem(runner: RunnerPrincipal, item: RunnerDeliverItem & { kind: DeliveryKind }, deps: RunnerIntakeDeps): Promise<void> {
   const origin = { organizationId: runner.organizationId, hostId: runner.hostId }
   switch (item.kind) {
     case 'session': {
@@ -94,6 +97,10 @@ async function applyItem(runner: RunnerPrincipal, item: RunnerDeliverItem, deps:
     case 'webhooks': return applyWebhookAdminItem(runner, item, deps.webhookAdmin)
     default: return applyMirrorItem(origin, { kind: item.kind, payload: item.payload }, deps.shares)
   }
+}
+
+function isKnownKind(item: RunnerDeliverItem): item is RunnerDeliverItem & { kind: DeliveryKind } {
+  return deliveryKindSchema.safeParse(item.kind).success
 }
 
 /**
@@ -127,11 +134,19 @@ export async function applyRunnerDelivery(runner: RunnerPrincipal, request: Runn
   const failed: RunnerDeliverResponse['failed'] = []
   // A runner that sends items out of order gets them applied in order anyway.
   const items = [...request.items].sort((a, b) => a.seq - b.seq)
+  // A newer host may send a kind this service does not know: skip it, and still apply the rest.
+  const unknownKinds = [...new Set(items.filter((item) => !isKnownKind(item)).map((item) => item.kind))]
+  if (unknownKinds.length) log.warn('runner_unknown_kinds', { hostId: runner.hostId, organizationId: runner.organizationId, kinds: unknownKinds, batchSize: items.length })
   const lastSeq = await getDatabase().transaction(async (db) => {
     const cursor = await readCursor(db, runner)
     let lastSeq = cursor
     for (const item of items) {
       if (item.seq <= lastSeq) continue
+      if (!isKnownKind(item)) {
+        failed.push({ seq: item.seq, error: unknownKindError(item.kind) })
+        lastSeq = item.seq
+        continue
+      }
       await db.run(sql`SAVEPOINT runner_item`)
       try {
         await applyItem(runner, item, deps)

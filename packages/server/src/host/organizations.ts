@@ -68,6 +68,7 @@ export class HostOrganizations {
   private inFlight: Promise<void> | null = null
   private stopped = false
   private readonly listeners = new Set<(standing: HostStanding | null) => void>()
+  private readonly refreshedListeners = new Set<() => void>()
 
   constructor(private readonly deps: HostOrganizationsDeps) {}
 
@@ -108,6 +109,12 @@ export class HostOrganizations {
   /** The account this host is registered to, as the control plane knows it. */
   owner(): HostOwnerIdentity | null {
     return this.standing?.owner ?? null
+  }
+
+  /** Hear every answer the control plane gives, changed or not: a retry that waits for the next read. */
+  onRefreshed(listener: () => void): () => void {
+    this.refreshedListeners.add(listener)
+    return () => { this.refreshedListeners.delete(listener) }
   }
 
   onChanged(listener: (standing: HostStanding | null) => void): () => void {
@@ -178,6 +185,7 @@ export class HostOrganizations {
     }
     if (answer) {
       this.setStanding({ ...answer, refreshedAt: Date.now() })
+      for (const listener of this.refreshedListeners) listener()
       this.schedule(REFRESH_MS)
     } else {
       this.schedule(RETRY_MS)
