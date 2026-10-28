@@ -28,6 +28,7 @@ const SAMPLES: RouteRef[] = [
   { name: 'reviewMode', params: {} as Record<string, never> },
   { name: 'settings', params: { tab: 'voice' } },
   { name: 'settings', params: { tab: 'projects', projectCwd: '/repo/app' } },
+  { name: 'settings', params: { tab: 'webhooks', webhooks: 'q=ci&project=%2Frepo%2Fapp&open=w1&on=host-a' } },
   { name: 'folio', params: {} as Record<string, never> },
   { name: 'notifications', params: {} as Record<string, never> },
   { name: 'automations', params: {} },

@@ -29,6 +29,9 @@
   import GitSection from "./GitSection.svelte";
   import GitSetupSection from "./GitSetupSection.svelte";
   import AgentsSection from "./AgentsSection.svelte";
+  import WebhooksSection from "./WebhooksSection.svelte";
+  import { webhooksStore } from "../../contexts/webhooks/webhooks.store.svelte";
+  import { projectHome, projectRoot } from "../../contexts/workspace/run-location";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
   import { sessionAgentMessages } from "./lib/rail-agents";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
@@ -159,6 +162,14 @@
   const panelSession = $derived(session.sessionFor(sourceId));
   const panelRun = $derived(session.runFor(sourceId));
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
+
+  // The project's webhooks: the section exists only while it has some.
+  $effect(() => untrack(() => webhooksStore.watch()));
+  const projectPath = $derived(projectRoot(panelRun));
+  const projectServerId = $derived(projectHome(panelRun)?.serverId);
+  const projectWebhooks = $derived(
+    projectPath && projectServerId ? webhooksStore.rowsForProject(projectServerId, projectPath) : [],
+  );
 
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
@@ -372,6 +383,14 @@
         messages={panelAgents}
         collapsed={collapsedSections.agents}
         onToggle={() => toggleSection("agents")}
+        onResizePointerDown={startResize}
+      />
+    {/if}
+    {#if projectWebhooks.length > 0}
+      <WebhooksSection
+        rows={projectWebhooks}
+        collapsed={collapsedSections.webhooks}
+        onToggle={() => toggleSection("webhooks")}
         onResizePointerDown={startResize}
       />
     {/if}

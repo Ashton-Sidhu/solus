@@ -6,6 +6,7 @@
   import PlanMessageItem from "../../plan/PlanMessageItem.svelte";
   import PermissionCard from "../PermissionCard.svelte";
   import QuestionCard from "../QuestionCard.svelte";
+  import SecretRequestCard from "../SecretRequestCard.svelte";
   import AgentPlanDecision from "./AgentPlanDecision.svelte";
   import { toasts } from "../../../lib/toasts";
 
@@ -38,7 +39,14 @@
   }
 </script>
 
-{#if request.kind === "question"}
+{#if request.kind === "question" && request.question.kind === "secret"}
+  <!-- The other session's request_secret card: its answer goes to that session, never through respondQuestion. -->
+  <SecretRequestCard
+    {tabId}
+    request={request.question}
+    answer={(questionId, value) => api.secretRequestAnswer(ref.sessionId, questionId, value).catch(answerRefused)}
+  />
+{:else if request.kind === "question"}
   <QuestionCard
     {tabId}
     request={request.question}

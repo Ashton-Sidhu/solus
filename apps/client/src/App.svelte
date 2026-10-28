@@ -42,7 +42,7 @@
   import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
   import { deviceCommands, revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
   import { revealBrowserSurface } from "@solus/workspace-ui/components/browser/lib/surface-reveal";
-  import { settingsOwnerCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
+  import { settingsOwnerCommands, webhookCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
   import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
   import {
     browserRecordingCommands,
@@ -650,6 +650,7 @@
     ...browserRecordingCommands(() => focusLeadingComposer(session.router)),
     ...deviceCommands(session),
     ...settingsOwnerCommands(session),
+    ...webhookCommands(session),
     {
       id: "settings",
       label: "Settings",

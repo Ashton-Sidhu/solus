@@ -29,6 +29,7 @@
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
+  import SecretRequestCard from "./SecretRequestCard.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
   import ConnectCard from "../connections/ConnectCard.svelte";
   import SeatConnectCard from "../seats/SeatConnectCard.svelte";
@@ -819,11 +820,16 @@
           {/if}
 
           {#if sess.questionQueue.length > 0}
-            <QuestionCard
-              tabId={tab.id}
-              request={sess.questionQueue[0]}
-              provider={sess.run.provider}
-            />
+            {#if sess.questionQueue[0].kind === "secret"}
+              <!-- A request_secret card: answered with secretRequestAnswer, never respondQuestion. -->
+              <SecretRequestCard tabId={tab.id} request={sess.questionQueue[0]} />
+            {:else}
+              <QuestionCard
+                tabId={tab.id}
+                request={sess.questionQueue[0]}
+                provider={sess.run.provider}
+              />
+            {/if}
           {/if}
 
           <!-- The card is the *decision* surface, so it only stands while the

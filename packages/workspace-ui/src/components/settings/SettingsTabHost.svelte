@@ -1,6 +1,8 @@
 <script module lang="ts">
+  import { searchWords as webhookWords } from "../webhooks/WebhookHostSettings.svelte";
+  const retentionWords = ["automation", "archived", "recording", "video", "delete", "retention", "days", "history"];
   /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["automation", "archived", "recording", "video", "delete", "retention", "days", "history"];
+  export const searchWords = [...retentionWords, ...webhookWords];
 </script>
 
 <script lang="ts">
@@ -9,13 +11,14 @@
    *  your personal settings. Its analytics consent is on Telemetry. */
   import SettingsSection from "./SettingsSection.svelte";
   import RetentionSetting from "./RetentionSetting.svelte";
+  import WebhookHostSettings from "../webhooks/WebhookHostSettings.svelte";
   import { automationRetentionStore, recordingRetentionStore } from "../../contexts/hosts/host-retention.store.svelte";
 
   let { serverId, searchQuery = "" }: { serverId: string; searchQuery?: string } = $props();
   const matches = (words: string[]) => !searchQuery || words.some((word) => word.includes(searchQuery.toLowerCase()));
 </script>
 
-<SettingsSection label="Retention" visible={matches(searchWords)}>
+<SettingsSection label="Retention" visible={matches(retentionWords)}>
   <RetentionSetting
     {serverId}
     store={automationRetentionStore}
@@ -31,3 +34,7 @@
     inputLabel="Unfiled recording retention in days"
   />
 </SettingsSection>
+
+{#key serverId}
+  <WebhookHostSettings {serverId} visible={matches(webhookWords)} />
+{/key}
