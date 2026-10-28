@@ -5,7 +5,9 @@ import {
   type EnvironmentViewFacts,
 } from '@solus/client-core/environment-view'
 import { EnvironmentViewChoices } from '@solus/workspace-ui/components/project-panel/lib/environment-view'
-import { environmentViewMenu, phoneEnvironmentFacts, transcriptArtifacts } from '../../apps/mobile/src/features/threads/environment-view-menu'
+import { DelegatedSessionsStore, artifactOwners } from '@solus/workspace-ui/components/project-panel/lib/delegated-sessions.store.svelte'
+import { delegatedArtifacts, environmentViewMenu, phoneEnvironmentFacts, transcriptArtifacts } from '../../apps/mobile/src/features/threads/environment-view-menu'
+import type { SessionRecord } from '@solus/contracts/types'
 import type { TranscriptItem } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
 import type { WorkMeta, WorkType } from '@solus/contracts/types'
 
@@ -62,6 +64,74 @@ describe('session artifacts', () => {
     expect(sessionArtifacts(works, 's1').map((w) => w.id)).toEqual(['new', 'old'])
     expect(sessionArtifacts(works, undefined)).toEqual([])
   })
+
+  test('artifacts of the sessions it sent work to count as the session\'s', () => {
+    // WHY: a lead session whose workers made every artifact showed Browser,
+    // although each worker report showed its artifact in the lead's conversation.
+    const works = [
+      work('own', 'artifact', ['lead'], '2026-01-01T00:00:00Z'),
+      work('worker', 'artifact', ['w1'], '2026-02-01T00:00:00Z'),
+      work('worker-doc', 'doc', ['w1'], '2026-03-01T00:00:00Z'),
+      work('stranger', 'artifact', ['other'], '2026-03-01T00:00:00Z'),
+    ]
+    expect(sessionArtifacts(works, 'lead', new Set(['w1'])).map((w) => w.id)).toEqual(['worker', 'own'])
+    // Without the delegated sessions, only the session's own artifacts count.
+    expect(sessionArtifacts(works, 'lead').map((w) => w.id)).toEqual(['own'])
+    expect(environmentViewFor({ ...plain, artifactCount: sessionArtifacts(works, 'lead', new Set(['w1'])).length })).toBe('artifacts')
+  })
+})
+
+describe('delegated sessions on desktop and web', () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  test('the host is read once, and again only when an artifact names a new owner', async () => {
+    const reads: string[] = []
+    let answer: string[] = ['w1']
+    const store = new DelegatedSessionsStore(async (serverId, parentSessionId) => {
+      reads.push(`${serverId}/${parentSessionId}`)
+      return answer
+    })
+    expect(store.delegatedBy('h', 'lead')).toBeUndefined()
+    store.ensureRead('h', 'lead', new Set(['w1']))
+    store.ensureRead('h', 'lead', new Set(['w1']))
+    await settle()
+    expect([...store.delegatedBy('h', 'lead')!]).toEqual(['w1'])
+    store.ensureRead('h', 'lead', new Set(['w1', 'lead']))
+    await settle()
+    // `lead` was not answered for yet, so one more read; then nothing new to ask.
+    store.ensureRead('h', 'lead', new Set(['w1', 'lead']))
+    expect(reads).toEqual(['h/lead', 'h/lead'])
+    // A worker started later makes an artifact: the next read finds it.
+    answer = ['w1', 'w2']
+    store.ensureRead('h', 'lead', new Set(['w1', 'lead', 'w2']))
+    await settle()
+    expect([...store.delegatedBy('h', 'lead')!]).toEqual(['w1', 'w2'])
+    expect(reads).toHaveLength(3)
+  })
+
+  test('a host that fails answers with the sessions read before', async () => {
+    let fail = false
+    const store = new DelegatedSessionsStore(async () => {
+      if (fail) throw new Error('offline')
+      return ['w1']
+    })
+    store.ensureRead('h', 'lead', new Set())
+    await settle()
+    fail = true
+    store.ensureRead('h', 'lead', new Set(['w9']))
+    await settle()
+    expect([...store.delegatedBy('h', 'lead')!]).toEqual(['w1'])
+    const fresh = new DelegatedSessionsStore(async () => { throw new Error('offline') })
+    fresh.ensureRead('h', 'lead', new Set())
+    await settle()
+    // Known, with none: the row falls back instead of waiting forever.
+    expect(fresh.delegatedBy('h', 'lead')?.size).toBe(0)
+  })
+
+  test('artifact owners come from artifacts only', () => {
+    const owners = artifactOwners([work('a', 'artifact', ['s1', 's2'], '2026-01-01T00:00:00Z'), work('d', 'doc', ['s3'], '2026-01-01T00:00:00Z')])
+    expect([...owners].sort()).toEqual(['s1', 's2'])
+  })
 })
 
 describe('per-session choice', () => {
@@ -99,6 +169,26 @@ describe('phone environment menu', () => {
     ])
     for (const item of items) item.onPress()
     expect(chosen).toEqual(['browser', 'builds', 'artifacts'])
+  })
+
+  test('the phone reads the artifacts of the sessions it sent work to, not its own again', async () => {
+    const works = [
+      work('own', 'artifact', ['lead'], '2026-03-01T00:00:00Z'),
+      work('worker', 'artifact', ['w1'], '2026-02-01T00:00:00Z'),
+      work('stranger', 'artifact', ['other'], '2026-03-01T00:00:00Z'),
+    ]
+    const asked: (string | undefined)[] = []
+    const api = {
+      sessionRecordList: async (filter?: { parentSessionId?: string }) => {
+        asked.push(filter?.parentSessionId)
+        return { records: [{ sessionId: 'w1' } as SessionRecord] }
+      },
+      listWorks: async () => works,
+    }
+    expect((await delegatedArtifacts(api, 'lead')).map((w) => w.id)).toEqual(['worker'])
+    expect(asked).toEqual(['lead'])
+    const noWorkers = { ...api, sessionRecordList: async () => ({ records: [] }), listWorks: async () => { throw new Error('not read') } }
+    expect(await delegatedArtifacts(noWorkers, 'lead')).toEqual([])
   })
 
   test('a phone session without artifacts falls back to Browser, after the transcript loads', () => {

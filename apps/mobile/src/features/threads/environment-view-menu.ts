@@ -2,9 +2,12 @@ import {
   ENVIRONMENT_VIEWS,
   ENVIRONMENT_VIEW_LABELS,
   environmentViewFor,
+  sessionArtifacts,
   type EnvironmentView,
   type EnvironmentViewFacts,
 } from '@solus/client-core/environment-view'
+import type { HostApi } from '@solus/client-core/host-api'
+import type { WorkListingMeta } from '@solus/contracts/types'
 import type { ScreenHeaderMenu } from '../../components/ScreenHeader.types'
 import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
@@ -40,6 +43,20 @@ export function transcriptArtifacts(order: readonly string[], item: (id: string)
     }
   }
   return { latestId, count }
+}
+
+/**
+ * The artifact works of the sessions this one sent work to, the last changed
+ * first. Their reports show them in this conversation, but this transcript has
+ * no artifact row for them. The host lists only what the reader may see.
+ */
+export async function delegatedArtifacts(api: Pick<HostApi, 'sessionRecordList' | 'listWorks'>, sessionId: string): Promise<WorkListingMeta[]> {
+  const children = await api.sessionRecordList({ parentSessionId: sessionId })
+  if (children.records.length === 0) return []
+  const delegated = new Set(children.records.map((record) => record.sessionId))
+  // The session's own artifacts come from its transcript.
+  const linkedHere = (work: WorkListingMeta) => work.sessionId === sessionId || !!work.sessionIds?.includes(sessionId)
+  return sessionArtifacts(await api.listWorks(), sessionId, delegated).filter((work) => !linkedHere(work))
 }
 
 /** Window-only choices, keyed by host and session, as on desktop. */

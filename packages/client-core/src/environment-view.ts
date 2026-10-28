@@ -17,7 +17,7 @@ export interface EnvironmentViewFacts {
   chosen?: EnvironmentView
   /** The session shows a simulator or phone now. */
   sessionShowsDevice: boolean
-  /** The number of artifacts this session made or worked on. */
+  /** The number of artifacts this session, or a session it sent work to, made or worked on. */
   artifactCount: number
   /** False until the client has read the session's artifacts once. */
   artifactsKnown: boolean
@@ -39,13 +39,24 @@ export function environmentViewFor(facts: EnvironmentViewFacts): EnvironmentView
   return 'browser'
 }
 
-/** The artifact works linked to a session, the last changed first. */
-export function sessionArtifacts<T extends WorkMeta & { id: string }>(works: Iterable<T>, sessionId: string | undefined): T[] {
+/**
+ * The artifact works of a session, the last changed first: the ones linked to
+ * the session, and the ones linked to a session it sent work to. A worker's
+ * artifact belongs to the worker, but its report shows it in the sender's
+ * conversation, so the sender's view counts it too. Only works the reader can
+ * list count: `works` is the reader's own list.
+ */
+export function sessionArtifacts<T extends WorkMeta & { id: string }>(
+  works: Iterable<T>,
+  sessionId: string | undefined,
+  delegatedSessionIds: ReadonlySet<string> = new Set(),
+): T[] {
   if (!sessionId) return []
+  const linked = (id: string | undefined) => id === sessionId || (id !== undefined && delegatedSessionIds.has(id))
   const artifacts: T[] = []
   for (const work of works) {
     if (work.type !== 'artifact') continue
-    if (work.sessionId === sessionId || work.sessionIds?.includes(sessionId)) artifacts.push(work)
+    if (linked(work.sessionId) || work.sessionIds?.some(linked)) artifacts.push(work)
   }
   return artifacts.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id))
 }

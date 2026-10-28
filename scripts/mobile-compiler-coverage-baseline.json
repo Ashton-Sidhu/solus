@@ -1790,9 +1790,11 @@
     "apps/mobile/src/features/threads/ThreadArtifact.tsx": {
       "compiled": [
         "ArtifactFullScreen",
+        "ArtifactPendingFullScreen",
         "ArtifactWebView",
         "ThreadArtifact",
-        "ThreadArtifactFullScreen"
+        "ThreadArtifactFullScreen",
+        "WorkArtifactFullScreen"
       ],
       "skipped": []
     },
@@ -1981,6 +1983,13 @@
           ]
         }
       ]
+    },
+    "apps/mobile/src/features/threads/use-environment-menu.tsx": {
+      "compiled": [
+        "useDelegatedArtifacts",
+        "useEnvironmentMenu"
+      ],
+      "skipped": []
     },
     "apps/mobile/src/features/threads/use-thread-list.ts": {
       "compiled": [

@@ -17,6 +17,7 @@ import {
   isExternalLink,
   readArtifactHeight,
 } from "./artifact-frame";
+import { useApp } from "../../app/app-context";
 import { useTranscriptItem } from "./use-transcript-items";
 
 const INITIAL_HEIGHT = 120;
@@ -249,11 +250,48 @@ export function ThreadArtifactFullScreen(props: {
   }, [props.store, props.id, needsRead]);
   if (item?.kind !== "artifact") return null;
   if (item.html) return <ArtifactFullScreen html={item.html} title={item.title} onClose={props.onClose} />;
+  return <ArtifactPendingFullScreen error={item.error} onClose={props.onClose} />;
+}
+
+/**
+ * An artifact of a session this one sent work to, full screen. Its transcript
+ * row is in the other session, so the work's saved body is read here.
+ */
+export function WorkArtifactFullScreen(props: {
+  readonly hostId: string;
+  readonly workId: string;
+  readonly title: string;
+  readonly onClose: () => void;
+}) {
+  const app = useApp();
+  const [read, setRead] = useState<{ workId: string; html: string | null; error?: string } | null>(null);
+  useEffect(() => {
+    const api = app.connections.connection(props.hostId)?.api;
+    let current = true;
+    const land = (html: string | null, error?: string) => {
+      if (current) setRead({ workId: props.workId, html, error });
+    };
+    if (!api) land(null, "This host cannot be reached now.");
+    else
+      void api.loadWork(props.workId).then(
+        (work) => (work ? land(work.content) : land(null, "This artifact is no longer available.")),
+        () => land(null, "Could not load this artifact. Try again."),
+      );
+    return () => {
+      current = false;
+    };
+  }, [app, props.hostId, props.workId]);
+  const loaded = read?.workId === props.workId ? read : null;
+  if (loaded?.html) return <ArtifactFullScreen html={loaded.html} title={props.title} onClose={props.onClose} />;
+  return <ArtifactPendingFullScreen error={loaded?.error} onClose={props.onClose} />;
+}
+
+function ArtifactPendingFullScreen(props: { readonly error: string | undefined; readonly onClose: () => void }) {
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={props.onClose}>
       <View className="flex-1 items-center justify-center gap-3 bg-screen">
-        {item.error ? (
-          <Text accessibilityRole="alert" className="text-sm text-foreground-muted">{item.error}</Text>
+        {props.error ? (
+          <Text accessibilityRole="alert" className="text-sm text-foreground-muted">{props.error}</Text>
         ) : (
           <ActivityIndicator accessibilityLabel="Loading artifact" />
         )}

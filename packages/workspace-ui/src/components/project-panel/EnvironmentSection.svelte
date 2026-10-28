@@ -44,6 +44,7 @@
     type EnvironmentView,
   } from "@solus/client-core/environment-view";
   import { environmentViewChoices } from "./lib/environment-view";
+  import { artifactOwners, delegatedSessions } from "./lib/delegated-sessions.store.svelte";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -108,11 +109,16 @@
     if (active && showsDevices && !devicesStore.state(detailServerId) && !devicesStore.unavailable.get(detailServerId)) void devicesStore.load(detailServerId);
   });
 
-  // The view row: the browser, the builds, or this session's artifacts. The
-  // works list is read once per window; new artifacts arrive as events.
-  const artifacts = $derived(sessionArtifacts(session.worksStore.visibleWorks, sessionId));
+  // The view row: the browser, the builds, or this session's artifacts,
+  // including those of the sessions it sent work to. The works list is read
+  // once per window; new artifacts arrive as events.
+  const delegated = $derived(sessionId ? delegatedSessions.delegatedBy(detailServerId, sessionId) : undefined);
+  const artifacts = $derived(sessionArtifacts(session.worksStore.visibleWorks, sessionId, delegated));
   $effect(() => {
     if (active && sessionId) session.worksStore.ensureListed();
+  });
+  $effect(() => {
+    if (active && sessionId) delegatedSessions.ensureRead(detailServerId, sessionId, artifactOwners(session.worksStore.visibleWorks));
   });
   // A draft has no session yet; its choice is kept under the draft.
   const choiceKey = $derived(sessionId ?? sourceId);
@@ -121,10 +127,10 @@
     sessionShowsDevice,
     artifactCount: artifacts.length,
     // A draft has no session, so it has no artifacts to wait for.
-    artifactsKnown: !sessionId || session.worksStore.listAnswered,
+    artifactsKnown: !sessionId || (session.worksStore.listAnswered && !!delegated),
   });
-  // Null while the works list has not answered: the row waits rather than
-  // naming Browser and then changing to Artifacts.
+  // Null until the works list and the delegated sessions answer: the row
+  // waits rather than naming Browser and then changing to Artifacts.
   const view = $derived(environmentViewFor(viewFacts));
   /** A guest opens no browser or device on the host, as the rows before this one. */
   const mayUseHost = $derived(me?.may("host.use") ?? true);
