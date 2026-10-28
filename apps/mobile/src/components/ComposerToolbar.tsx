@@ -124,7 +124,7 @@ export function ComposerActionButton(props: {
   readonly disabled?: boolean;
   readonly icon: ComponentProps<typeof SymbolView>["name"];
   readonly onPress: () => void;
-  readonly variant?: "primary" | "danger";
+  readonly variant?: "primary" | "neutral";
   // Forwarded so a ControlPillMenu can drive this button as its long-press
   // anchor: Android injects onLongPress, iOS injects onTouchStart and onPress.
   readonly onLongPress?: PressableProps["onLongPress"];
@@ -147,8 +147,8 @@ export function ComposerActionButton(props: {
         style={{ width: circleSize, height: circleSize }}
         className={cn(
           "items-center justify-center rounded-full",
-          props.variant === "danger"
-            ? "bg-danger"
+          props.variant === "neutral"
+            ? "bg-subtle-strong"
             : props.disabled
               ? // Neutral, like desktop: a faded accent reads as a broken colour.
                 "bg-subtle-strong"
@@ -160,8 +160,8 @@ export function ComposerActionButton(props: {
           size={smallIconSize}
           weight="semibold"
           tintColorClassName={
-            props.variant === "danger"
-              ? "accent-danger-foreground"
+            props.variant === "neutral"
+              ? "accent-foreground"
               : props.disabled
                 ? "accent-foreground-tertiary"
                 : "accent-primary-foreground"
