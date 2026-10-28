@@ -160,22 +160,20 @@
      and Linux. */
   --solus-titlebar-height: 0px;
   --solus-traffic-light-inset: 0px;
+  /* The window x where the native buttons end. A frame control placed after
+     them keeps the same gap it keeps to the header beside it. */
+  --solus-traffic-light-end: 0px;
   --solus-chrome-row-h: 2.5rem;
-  --solus-titlebar-control-size: 1.75rem;
+  /* The frame toggle is the header's raised pill (`PAGE_SOFT_ICON_BTN`,
+     size-6.5). Its slot is that size, so it centres on the titlebar row and
+     the header beside it starts one gap after its visible edge. */
+  --solus-titlebar-control-size: 1.625rem;
   --solus-titlebar-control-gap: 0.75rem;
-  --solus-titlebar-control-left: max(
-    0.625rem,
-    var(--solus-traffic-light-inset)
-  );
   --solus-titlebar-control-top: max(
     0.625rem,
     calc(
       (var(--solus-titlebar-height) - var(--solus-titlebar-control-size)) / 2
     )
-  );
-  --solus-titlebar-content-inset: calc(
-    var(--solus-titlebar-control-left) + var(--solus-titlebar-control-size) +
-      var(--solus-titlebar-control-gap)
   );
   /* Container */
   --solus-edge-bg: #fbfaf6;
@@ -2605,6 +2603,8 @@ button.solus-token {
 html.is-mac-workspace {
   --solus-titlebar-height: 2.5rem;
   --solus-traffic-light-inset: 5.625rem;
+  /* `trafficLightPosition` x 16 plus three 14px buttons on a 20px pitch. */
+  --solus-traffic-light-end: 4.375rem;
   --solus-chrome-row-h: var(--solus-titlebar-height);
   /* Centre the frame controls on the traffic lights; the 0.625rem floor is
      for a window with no inset titlebar. */

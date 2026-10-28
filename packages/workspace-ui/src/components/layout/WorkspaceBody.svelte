@@ -768,7 +768,7 @@
                  the conversation band, or a page's own chrome row. -->
                         {#if leadingRef?.name !== "settings"}
                           <div
-                            class="no-drag absolute left-[var(--solus-chrome-control-left,var(--solus-titlebar-control-left))] z-20 flex {shell.hasInsetTitlebar
+                            class="no-drag absolute left-(--solus-chrome-control-left) z-20 flex {shell.hasInsetTitlebar
                               ? 'top-[var(--solus-titlebar-control-top)]'
                               : showLeadingBand
                                 ? 'top-1 h-[2.875rem] items-center'
@@ -1063,6 +1063,10 @@
   }
   .workspace-body.sidebar-collapsed .content-column {
     padding-left: var(--solus-pane-gutter);
+    /* The column's own distance from the window edge. The frame toggle is
+       placed in the column but measured against the traffic lights, which
+       are placed in the window. */
+    --solus-column-window-left: var(--solus-pane-gutter);
   }
   /* With the sidebar collapsed the primary column is the leftmost chrome, so a
      primary-slot pane header or full-page view header sits under the traffic
@@ -1072,10 +1076,22 @@
      maximized. No-op off the mac workspace window (the inset var is 0). */
   .workspace-body.sidebar-collapsed .workspace-column,
   .workspace-body.sidebar-collapsed .primary-column {
-    /* The frame toggle owns the first safe app-control slot. Headers beside it
-       begin after the complete control + gap, never at the toggle's own x. */
-    --solus-chrome-control-left: var(--solus-titlebar-control-left);
-    --solus-chrome-lead-inset: var(--solus-titlebar-content-inset);
+    /* The frame toggle owns the first safe app-control slot: one control gap
+       after the traffic lights in window space, so the lights, the toggle,
+       and the header read as one row whether or not the column has a gutter.
+       Headers beside it begin after the complete control + gap, never at the
+       toggle's own x. */
+    --solus-chrome-control-left: max(
+      0.625rem,
+      calc(
+        var(--solus-traffic-light-end) + var(--solus-titlebar-control-gap) -
+          var(--solus-column-window-left, 0px)
+      )
+    );
+    --solus-chrome-lead-inset: calc(
+      var(--solus-chrome-control-left) + var(--solus-titlebar-control-size) +
+        var(--solus-titlebar-control-gap)
+    );
     --solus-page-top-inset: var(--solus-titlebar-height);
   }
   .workspace-body.project-panel-open .content-column {
@@ -1088,6 +1104,7 @@
      project-panel rules above (equal specificity). */
   .workspace-body.page-flush .content-column {
     padding: 0;
+    --solus-column-window-left: 0px;
   }
   .conversation-card {
     background: var(--solus-container-bg);
