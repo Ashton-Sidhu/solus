@@ -8,6 +8,10 @@
   } from "@lucide/svelte";
   import * as ContextMenu from "../ui/context-menu";
   import type { DirectoryEntry } from "@solus/contracts/types";
+  import { formatComboText } from "../../lib/keybindings/match";
+
+  const newFolderKey = formatComboText({ alt: true, code: "KeyN" });
+  const trashKey = formatComboText({ mod: true, code: "Backspace" });
 
   interface Props {
     x: number;
@@ -56,7 +60,7 @@
     <ContextMenu.Item onSelect={() => select(onNewFolder)}>
       <FolderPlusIcon />
       New folder
-      <ContextMenu.Shortcut>⌥N</ContextMenu.Shortcut>
+      <ContextMenu.Shortcut>{newFolderKey}</ContextMenu.Shortcut>
     </ContextMenu.Item>
     {#if entry}
       {@const target = entry}
@@ -68,7 +72,7 @@
       <ContextMenu.Item variant="destructive" onSelect={() => select(() => onTrash(target))}>
         <TrashIcon />
         Move to Trash
-        <ContextMenu.Shortcut>⌘⌫</ContextMenu.Shortcut>
+        <ContextMenu.Shortcut>{trashKey}</ContextMenu.Shortcut>
       </ContextMenu.Item>
     {/if}
     <ContextMenu.Separator />

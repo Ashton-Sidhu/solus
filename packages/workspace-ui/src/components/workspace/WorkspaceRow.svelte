@@ -27,6 +27,8 @@
   import { highlightRuns } from "../../lib/searchHighlight";
   import PresenceStack from "../presence/PresenceStack.svelte";
   import type { PresencePerson } from "../presence/lib/presence-people";
+  import { comboHint } from "../../lib/keybindings/manifest";
+  import { formatComboText } from "../../lib/keybindings/match";
 
   /** One ledger row — the same 44px rhythm for every artifact, pinned or not.
    *  Type is a coloured glyph, never a badge; status is an icon in a fixed
@@ -263,7 +265,7 @@
         onTogglePin();
       }}
       aria-label={item.pinned ? "Unpin" : "Pin"}
-      title={item.pinned ? "Unpin (⌥P)" : "Pin (⌥P)"}
+      title={`${item.pinned ? "Unpin" : "Pin"} (${comboHint("workspace.toggle-pin")})`}
     >
       <PushPinIcon size={14} />
     </button>
@@ -370,7 +372,7 @@
           onDelete();
         }}
         aria-label="Delete document"
-        title="Delete (⌥⌫)"
+        title={`Delete (${formatComboText({ alt: true, code: "Backspace" })})`}
       >
         <TrashIcon size={14} />
       </button>

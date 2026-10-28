@@ -2,6 +2,7 @@
   import { ChevronDown } from "@lucide/svelte";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import { PICKER_RESULT_LABELS, type PickerResultType } from "./lib/picker-preferences";
+  import { comboHint } from "../../../lib/keybindings/manifest";
 
   interface Props {
     value: PickerResultType;
@@ -20,7 +21,7 @@
         type="button"
         class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-workspace-chrome text-muted-foreground shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground max-md:h-11"
         aria-label={`Result type: ${PICKER_RESULT_LABELS[value]}`}
-        title="Result type (⌥T)"
+        title={`Result type (${comboHint("task-picker.result-type")})`}
       >
         <span>{PICKER_RESULT_LABELS[value]}</span>
         <ChevronDown class="size-3 shrink-0 opacity-50" />

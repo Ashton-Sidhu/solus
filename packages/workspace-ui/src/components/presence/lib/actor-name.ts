@@ -1,6 +1,7 @@
 import type { PermissionDecision, RateLimitDecisionAction } from '@solus/contracts/types'
 import { attributionLabel, sameUser, type Attribution, type User, type UserId } from '@solus/contracts/user'
 import { firstName } from '../../users/lib/users'
+import { isMac } from '../../../lib/keybindings/match'
 
 /**
  * How a label names the person who acted (plan 004 D2): "you" only when it is
@@ -76,7 +77,8 @@ export function othersTurnLabel(turnAuthor: User | null | undefined, self: UserI
  */
 export function steerPlaceholder(turnOwner: User | null, hasKeyboard: boolean): string {
   const turn = turnOwner ? `${firstName(turnOwner.displayName)}'s turn` : null
-  if (hasKeyboard) return turn ? `Enter to steer ${turn} · ⌥Enter to queue next` : 'Enter to steer now · ⌥Enter to queue next'
+  const queueKey = isMac ? '⌥Enter' : 'Alt+Enter'
+  if (hasKeyboard) return turn ? `Enter to steer ${turn} · ${queueKey} to queue next` : `Enter to steer now · ${queueKey} to queue next`
   return turn ? `Send to steer ${turn}...` : 'Send to steer this response...'
 }
 

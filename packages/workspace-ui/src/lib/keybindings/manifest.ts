@@ -1,5 +1,5 @@
 import type { BindingDef } from './types'
-import { defaultCombo, formatCombo } from './match'
+import { defaultCombo, formatComboText } from './match'
 
 export const KEYBINDINGS = {
   // ── Global ─────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ export const KEYBINDINGS = {
   'global.session-picker':    { combo: { mod: true, code: 'KeyP' }, web: { alt: true, shift: true, code: 'KeyR' }, scope: 'global', label: 'Session picker',           group: 'Navigation' },
   'global.session-picker-j': { combo: { alt: true, shift: true, code: 'KeyJ' },          scope: 'global',             label: 'Session picker (alt)',     group: 'Navigation' },
   'global.task-picker':       { combo: { alt: true, shift: true, code: 'KeyF' },          scope: 'global',             label: 'Task picker',              group: 'Navigation' },
-  'global.focus-sidebar-task-search': { combo: { ctrl: true, code: 'Slash' },             scope: 'global',             label: 'Focus sidebar task search', group: 'Tasks' },
+  'global.focus-sidebar-task-search': { combo: { ctrl: true, code: 'Slash' }, nonMac: { mod: true, shift: true, code: 'Slash' }, scope: 'global',             label: 'Focus sidebar task search', group: 'Tasks' },
   'global.cycle-perm-mode':   { combo: { alt: true, shift: true, code: 'Tab' },           scope: 'global',             label: 'Cycle permission mode',    group: 'Agent' },
   'global.cycle-model':       { combo: { alt: true, shift: true, code: 'KeyM' },          scope: 'global',             label: 'Cycle model',              group: 'Agent' },
   'global.cycle-agent':       { combo: { alt: true, shift: true, code: 'KeyG' },          scope: 'global',             label: 'Cycle agent',              group: 'Agent' },
@@ -99,7 +99,7 @@ export const KEYBINDINGS = {
   // Not reserved: an exclusive overlay owns Escape outright.
   'pane.close':                   { combo: { code: 'Escape' },                            scope: 'global',             label: 'Close pane',               group: 'View' },
   'conversation.open-files':      { combo: { alt: true, shift: true, code: 'KeyF' }, web: { alt: true, shift: true, code: 'KeyY' }, scope: 'global', label: 'Open changed files',       group: 'Conversation' },
-  'conversation.interrupt':       { combo: { ctrl: true, code: 'KeyC' },                  scope: 'global',             label: 'Stop agent',               group: 'Conversation' },
+  'conversation.interrupt':       { combo: { ctrl: true, code: 'KeyC' }, nonMac: { mod: true, shift: true, code: 'KeyC' }, scope: 'global',             label: 'Stop agent',               group: 'Conversation' },
 
   // ── Diff panel ─────────────────────────────────────────────────────────────
   'review-pane.next-view':        { combo: { alt: true, code: 'BracketRight', shift: true }, scope: 'diff-panel', label: 'Next review view',      group: 'Panel' },
@@ -200,7 +200,7 @@ export const KEYBINDINGS = {
 
   // ── PR review ──────────────────────────────────────────────────────────────
   'pr-review.approve':            { combo: { alt: true, code: 'KeyA' },                    scope: 'pr-review',          label: 'Approve pull request',     group: 'Pull Requests' },
-  'pr-review.copy-link':          { combo: { mod: true, ctrl: true, code: 'KeyC' },         scope: 'pr-review',          label: 'Copy GitHub link',         group: 'Pull Requests' },
+  'pr-review.copy-link':          { combo: { mod: true, ctrl: true, code: 'KeyC' }, nonMac: { mod: true, shift: true, code: 'KeyC' }, scope: 'pr-review',          label: 'Copy GitHub link',         group: 'Pull Requests' },
 
   // ── Diagram ────────────────────────────────────────────────────────────────
   // Bare keys (Delete/Arrows) and ⌘ combos are intentional canvas
@@ -310,5 +310,5 @@ export function bindingsForScope(scope: string): Array<[BindingId, BindingDef]> 
  */
 export function comboHint(id: BindingId): string {
   const combo = defaultCombo(KEYBINDINGS[id])
-  return combo ? formatCombo(combo).join('') : ''
+  return combo ? formatComboText(combo) : ''
 }

@@ -30,6 +30,7 @@
   import { taskOfTab, unlinkTabFromTask } from "../../contexts/workspace/session-task-link";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { checkoutGit } from "../../contexts/workspace/run-location";
+  import { comboHint } from "../../lib/keybindings/manifest";
 
   interface Props {
     x: number;
@@ -379,14 +380,14 @@
       <ContextMenu.Item onSelect={fork}>
         <GitForkIcon />
         Fork Session
-        <ContextMenu.Shortcut>⌥F</ContextMenu.Shortcut>
+        <ContextMenu.Shortcut>{comboHint("global.fork-tab")}</ContextMenu.Shortcut>
       </ContextMenu.Item>
       {#if !checkoutGit(sess?.run)?.worktreePath}
         <ContextMenu.Item disabled={isContinuingWorktree} onSelect={continueWorktree}>
           <TreeStructureIcon class={isContinuingWorktree ? "tab-status-spin" : ""} />
           {isContinuingWorktree ? "Creating Worktree…" : "Continue in Worktree"}
           {#if !isContinuingWorktree}
-            <ContextMenu.Shortcut>⌥W</ContextMenu.Shortcut>
+            <ContextMenu.Shortcut>{comboHint("global.continue-worktree")}</ContextMenu.Shortcut>
           {/if}
         </ContextMenu.Item>
       {/if}
@@ -442,7 +443,7 @@
       <ContextMenu.Item onSelect={share} disabled={!canShare}>
         <ShareIcon />
         Share…
-        <ContextMenu.Shortcut>⌥⇧.</ContextMenu.Shortcut>
+        <ContextMenu.Shortcut>{comboHint("global.share")}</ContextMenu.Shortcut>
       </ContextMenu.Item>
     {/if}
     {#if canSplit}

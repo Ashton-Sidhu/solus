@@ -6,6 +6,7 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import WaveformVisualizer from './WaveformVisualizer.svelte'
   import type { VoiceState } from '../../lib/voice-recorder.svelte'
+  import { comboHint } from '../../lib/keybindings/manifest'
 
   interface Props {
     /** 'bar' = 30px composer controls (InputBar, prompt composer); 'field' = 24px in-field overlay (Input). */
@@ -36,7 +37,7 @@
     onToggle,
     disabled = false,
     waiting = false,
-    idleTooltip = 'Voice input (⌥⇧Space)',
+    idleTooltip = `Voice input (${comboHint('voice.toggle-recorder')})`,
     showMic = true,
     micTextarea = false,
     progressPct = null,

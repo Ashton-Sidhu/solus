@@ -26,6 +26,9 @@
   import { homeRows } from "./lib/open-project-home";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
   import { hostIsManaged } from "./lib/managed-host";
+  import { formatComboText } from "../../lib/keybindings/match";
+
+  const hostKey = formatComboText({ alt: true, code: "KeyH" });
 
   interface Props {
     /** Runs with the host-absolute path the flow committed to. */
@@ -384,8 +387,8 @@
                   {:else}
                     <HostOperatingSystemIcon size={11} class="shrink-0" />
                   {/if}
-                  <span class="truncate">{store.hostLabel || "This Mac"}</span>
-                  <Kbd variant="hint" class="hidden sm:inline-flex">⌥H</Kbd>
+                  <span class="truncate">{store.hostLabel || "This computer"}</span>
+                  <Kbd variant="hint" class="hidden sm:inline-flex">{hostKey}</Kbd>
                   <CaretDownIcon size={9} class="shrink-0" />
                 </button>
               {/snippet}

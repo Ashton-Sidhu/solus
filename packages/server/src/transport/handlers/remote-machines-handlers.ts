@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import type { HostEventMap } from '@solus/contracts/host-events'
-import type { SshAddLink, SshAddResult } from '@solus/contracts/remote-machines'
+import type { SshAddLink, SshAddResult, WslDistroList } from '@solus/contracts/remote-machines'
 import { createLogger } from '../../logger'
 import type { SshClient } from '../../platform/ssh'
 import type { ForwardedHosts } from '../../remote-machines/forwarded-hosts'
 import type { SshProvisioner } from '../../remote-machines/ssh-provisioner'
 import { formatSshTarget, parseSshTarget, resolveSshTarget } from '../../remote-machines/ssh-targets'
+import { wslTarget } from '../../remote-machines/wsl'
 import type { SolusServer } from '../server'
 
 const log = createLogger('main', 'remote-machines-handlers')
@@ -15,6 +16,9 @@ export interface RemoteMachinesDeps {
   provisioner: SshProvisioner
   forwardedHosts: ForwardedHosts
   ssh: Pick<SshClient, 'resolvesToThisMachine'>
+  /** Installs into a WSL distro the release of this host's own version (docs/plans/windows.md §13.6). */
+  wslProvisioner: SshProvisioner
+  listWslDistros(): Promise<WslDistroList>
   broadcast<K extends 'host.sshProgress'>(topic: K, payload: HostEventMap[K]): void
 }
 
@@ -26,6 +30,11 @@ const discoveredSchema = z.object({
   name: z.string(),
   os: z.enum(['macos', 'windows', 'linux']).optional(),
   source: z.enum(['lan', 'tailnet']),
+})
+const wslAddSchema = z.object({
+  distro: z.string().min(1).max(256),
+  deviceLabel: z.string().max(64).optional(),
+  requestId: z.string().min(1).max(128),
 })
 const addSchema = z.object({
   sshTarget: z.string().max(512).optional(),
@@ -73,6 +82,36 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
   })
 
   server.register('hostsListForwarded', () => deps.forwardedHosts.list())
+
+  server.register('hostsListWslDistros', () => deps.listWslDistros())
+
+  server.register('hostsAddWsl', async ([input], ctx): Promise<SshAddResult> => {
+    if (!ctx.deviceId) throw new Error('Adding a WSL distro requires an authenticated device.')
+    const request = wslAddSchema.parse(input)
+    const listed = await deps.listWslDistros()
+    if (listed.status !== 'ready') throw new Error(listed.message)
+    if (!listed.distros.some((distro) => distro.name === request.distro)) throw new Error(`WSL has no distro named ${request.distro}.`)
+    const target = wslTarget(request.distro)
+    const progress = (step: Parameters<Parameters<SshProvisioner['add']>[1]>[0], message: string) => deps.broadcast('host.sshProgress', { requestId: request.requestId, step, message })
+    // A distro takes the computer's name, so the distro names the host.
+    const label = `${request.distro} (WSL)`
+    const outcome = await deps.wslProvisioner.add({ target, deviceLabel: request.deviceLabel ?? 'Solus', label }, progress)
+    if (outcome.status === 'needs-auth') throw new Error(outcome.message)
+    const { host } = outcome
+    if (!host.session) throw new Error(`Solus could not make a session in ${request.distro}.`)
+    progress('forward', `Opening the forward to ${label}`)
+    const forwarded = await deps.forwardedHosts.add({
+      installationId: host.installationId,
+      label,
+      target,
+      os: host.os,
+      remotePort: host.remotePort,
+      identityKey: host.session.identityKey,
+      sessionToken: host.session.sessionToken,
+      startedBySolus: host.startedBySolus,
+    })
+    return { status: 'forwarded', host: forwarded, sessionToken: host.session.sessionToken }
+  })
 
   server.register('hostsRemoveForwarded', async ([input]) => {
     const { installationId, stopRemote } = z.object({ installationId: z.string().min(1), stopRemote: z.boolean() }).parse(input)

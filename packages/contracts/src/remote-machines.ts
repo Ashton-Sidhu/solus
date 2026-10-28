@@ -83,3 +83,30 @@ export interface ForwardedHost {
   /** The host is also linked to the account: a failed forward is then not an error while the tunnel works (D9). */
   isLinked: boolean
 }
+
+/** A WSL distro on a Windows host (docs/plans/windows.md §13.6). */
+export interface WslDistro {
+  name: string
+  /** The distro `wsl` runs with no `-d`. */
+  isDefault: boolean
+  isRunning: boolean
+  version: 1 | 2
+}
+
+/** The distros a Windows host can add, or why it can add none. */
+export type WslDistroList =
+  | { status: 'ready'; distros: WslDistro[] }
+  | { status: 'unavailable'; message: string }
+
+/**
+ * Adds a WSL distro of the host as a machine: the host installs the Linux
+ * release of its own version there, starts it, and holds a forward to it, as for
+ * a machine reached over SSH. Progress arrives on `host.sshProgress`.
+ */
+export interface WslAddRequest {
+  distro: string
+  /** Names this device's session on the new host. */
+  deviceLabel?: string
+  /** Matches the progress events of this request. */
+  requestId: string
+}

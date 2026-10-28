@@ -2,7 +2,7 @@
  * A rename that survives a short lock on Windows. A scanner, an indexer, or
  * antivirus can hold a new file or folder open for a short time, and the
  * rename then fails with EBUSY, EPERM, or EACCES (`docs/plans/windows.md` §5.5).
- * The server has the same rule in `packages/server/src/platform/atomic-write.ts`;
+ * The server has the same rule in `packages/server/src/platform/rename-retry.ts`;
  * the CLI cannot import `@solus/server`, so this is its own small copy.
  * On other platforms this is one rename.
  */

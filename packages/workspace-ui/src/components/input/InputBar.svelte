@@ -903,7 +903,7 @@
           ? null
           : canSteer
             ? {
-                label: "Steer this response · Queue next with ⌥Enter",
+                label: `Steer this response · Queue next with ${isMac ? "⌥" : "Alt+"}Enter`,
                 shortcut: "Enter",
               }
             : isBusy

@@ -24,7 +24,7 @@ const MAX_REDIRECTS = 3
 /** A scan shells out three times; the pane re-asks on every open and event. */
 const CACHE_TTL_MS = 4000
 
-interface Listener {
+export interface Listener {
   pid: number
   port: number
   command: string
@@ -98,6 +98,7 @@ async function scan(): Promise<BrowserDiscoveredTarget[]> {
  * is what makes the port and pid unambiguous regardless of column widths.
  */
 async function listListeningSockets(): Promise<Listener[]> {
+  if (process.platform === 'win32') return listWindowsListeners()
   let output: string
   try {
     output = await runAsync('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-Fpcn'], process.cwd(), { timeout: 5000 })
@@ -126,6 +127,35 @@ async function listListeningSockets(): Promise<Listener[]> {
   return listeners
 }
 
+/**
+ * Windows has no lsof. `netstat -ano` lists every TCP socket with its owner's
+ * process id; IPv4 and IPv6 are asked for separately, at the same time.
+ */
+async function listWindowsListeners(): Promise<Listener[]> {
+  const tables = await Promise.all(['tcp', 'tcpv6'].map((protocol) =>
+    runAsync('netstat', ['-ano', '-p', protocol], process.cwd(), { timeout: 5000 }).catch(() => '')))
+  return tables.flatMap(windowsListeners)
+}
+
+/**
+ * The listening sockets in `netstat -ano` output. The state column is
+ * translated (`LISTENING`, `ABHÖREN`, `À l'écoute`), so a listener is read by
+ * its foreign address instead, which is `0.0.0.0:0` or `[::]:0` in every
+ * language. Exported for its test.
+ */
+export function windowsListeners(output: string): Listener[] {
+  const listeners: Listener[] = []
+  for (const line of output.split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/)
+    if (fields[0] !== 'TCP' || fields.length < 4) continue
+    if (fields[2] !== '0.0.0.0:0' && fields[2] !== '[::]:0') continue
+    const port = portFromSocketName(fields[1])
+    const pid = Number(fields[fields.length - 1])
+    if (port && Number.isInteger(pid) && pid > 0) listeners.push({ pid, port, command: '' })
+  }
+  return listeners
+}
+
 /** `*:5173`, `127.0.0.1:5173`, `[::1]:5173` — the port is after the last colon. */
 function portFromSocketName(name: string): number | null {
   const colon = name.lastIndexOf(':')
@@ -136,7 +166,9 @@ function portFromSocketName(name: string): number | null {
 
 async function workingDirectories(pids: number[]): Promise<Map<number, string>> {
   const result = new Map<number, string>()
-  if (pids.length === 0) return result
+  // Windows has no cheap way to read another process's working directory, so a
+  // Windows offer names its port and no project; the client handles that.
+  if (pids.length === 0 || process.platform === 'win32') return result
   let output: string
   try {
     output = await runAsync('lsof', ['-a', '-p', pids.join(','), '-d', 'cwd', '-Fpn'], process.cwd(), { timeout: 5000 })

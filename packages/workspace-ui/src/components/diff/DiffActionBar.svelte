@@ -6,6 +6,7 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import type { DiffComment, GitCheckout } from "@solus/contracts/types";
   import { checkoutGit, checkoutPlace } from "../../contexts/workspace/run-location";
+  import { formatComboText } from "../../lib/keybindings/match";
 
   interface Props {
     /** Tab that owns the queued comments and receives current-session feedback. */
@@ -213,7 +214,7 @@
           <TooltipUI.Content
             value={startNewSession
               ? "New session on — click to reply in this session"
-              : "New session off — click to send to a new session (⌘⇧↵)"}
+              : `New session off — click to send to a new session (${formatComboText({ mod: true, shift: true, code: "Enter" })})`}
           />
         </TooltipUI.Root>
       {/if}

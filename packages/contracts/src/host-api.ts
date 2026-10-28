@@ -41,7 +41,7 @@ import type { Permission } from './permissions'
 import type { LiveActivityRegistration } from './live-activity'
 import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { HostRoute } from './host-routes'
-import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult } from './remote-machines'
+import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
@@ -332,6 +332,10 @@ export interface SolusAPI {
   hostsAddOverSsh(request: SshAddRequest): Promise<SshAddResult>
   /** The hosts this host reaches through a forward it holds (D7). */
   hostsListForwarded(): Promise<ForwardedHost[]>
+  /** The WSL distros this Windows host can add as machines. */
+  hostsListWslDistros(): Promise<WslDistroList>
+  /** Adds one of this host's WSL distros as a machine it forwards to. */
+  hostsAddWsl(request: WslAddRequest): Promise<SshAddResult>
   /** Closes the forward and forgets the host. With `stopRemote`, also removes the service Solus installed there. */
   hostsRemoveForwarded(args: { installationId: string; stopRemote: boolean }): Promise<{ removed: boolean }>
   /** Links a forwarded host to the account over the same SSH target; its forward stays as a route (D9). */

@@ -253,6 +253,8 @@ export const RPC_INVOKE_METHODS = [
   'connectionsListSessions',
   'hostsAddOverSsh',
   'hostsListForwarded',
+  'hostsListWslDistros',
+  'hostsAddWsl',
   'hostsRemoveForwarded',
   'hostsLinkForwarded',
   'connectionsRevokeDevice',

@@ -14,6 +14,7 @@ import { watchEventLoopStalls } from './host/event-loop-stalls'
 import { warmCliPath } from './cli-env'
 import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
 import { withHostScope } from './execution/seats/acting-identity'
+import { dataFolderInUseMessage, otherServerOnDataFolder } from './host/server-lock'
 import type { AgentId, IpcContext } from '@solus/contracts/types'
 
 const DEFAULT_AGENT_ID: AgentId = 'claude-code'
@@ -48,6 +49,13 @@ export function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
 }
 
 async function bootCoreAsHost(opts: BootCoreOptions): Promise<BootCore> {
+  // Before anything opens the database: a second server on the same data
+  // folder would share it with the first (docs/plans/windows.md §13.2).
+  const owner = await otherServerOnDataFolder()
+  if (owner) {
+    log.error('data_folder_in_use', { pid: owner.pid, port: owner.port })
+    throw new Error(dataFolderInUseMessage(owner))
+  }
   watchEventLoopStalls()
   // The login-shell PATH probe runs off the main thread from here, so it is
   // warm before the first RPC spawns a provider. A caller that beats it pays a

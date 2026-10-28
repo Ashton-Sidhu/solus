@@ -15,6 +15,7 @@
   import EdgeStyleTab from './EdgeStyleTab.svelte'
   import EdgeRouteTab from './EdgeRouteTab.svelte'
   import CommentsTab from './CommentsTab.svelte'
+  import { comboHint } from '../../../lib/keybindings/manifest'
 
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -143,7 +144,7 @@
           type="button"
           class="diagram-inspector__icon-btn"
           onclick={onCollapse}
-          title="Collapse to rail (⌘\)"
+          title={`Collapse to rail (${comboHint('diagram.toggle-inspector')})`}
           aria-label="Collapse inspector"
         >
           <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">

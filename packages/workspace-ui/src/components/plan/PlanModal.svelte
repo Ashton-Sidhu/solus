@@ -29,6 +29,7 @@
   import { setCommentViewer } from "../comments/lib/comment-viewer";
   import { SINGLE_READER } from "../comments/lib/thread";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
+  import { comboHint } from "../../lib/keybindings/manifest";
 
   const commentExtensions = [CommentHighlights];
 
@@ -253,7 +254,7 @@
       onclick={() => (commentsRailOpen = !commentsRailOpen)}
       class="plan-soft-pill"
       class:plan-soft-pill--active={commentsRailOpen}
-      title={commentsRailOpen ? "Hide comments (⌥T)" : "Show comments (⌥T)"}
+      title={`${commentsRailOpen ? "Hide comments" : "Show comments"} (${comboHint("plan-modal.toggle-comments")})`}
       aria-label={commentsRailOpen ? "Hide comments" : "Show comments"}
     >
       <span class="plan-soft-pill__swatch" aria-hidden="true"></span>
@@ -265,7 +266,7 @@
       onclick={handleToggleBookmark}
       class="plan-soft-pill plan-soft-pill--icon"
       class:plan-soft-pill--active={isBookmarked}
-      title={isBookmarked ? "Bookmarked (⌥B)" : "Bookmark (⌥B)"}
+      title={`${isBookmarked ? "Bookmarked" : "Bookmark"} (${comboHint("plan-modal.toggle-bookmark")})`}
       aria-label={isBookmarked ? "Bookmarked" : "Bookmark"}
     >
       <BookmarkSimpleIcon size={14} weight={isBookmarked ? "fill" : "regular"} class={isBookmarked ? "text-(--solus-accent)" : ""} />
@@ -285,7 +286,7 @@
         {#if isPreview}
           <DropdownMenu.Item onSelect={() => { const d = planStore.previewDescriptor; if (d) session.resumeSessionFromDescriptor(d); }}>
             {#if sourceSessionAvailable}<ArrowUpRightIcon size={14} />{:else}<XCircleIcon size={14} class="text-(--solus-status-error)" />{/if}
-            <span class="flex-1 text-left">{sourceSessionAvailable ? "Open session" : "Session no longer available"}</span>{#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">⌥O</Kbd></span>{/if}
+            <span class="flex-1 text-left">{sourceSessionAvailable ? "Open session" : "Session no longer available"}</span>{#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">{comboHint("plan-modal.resume")}</Kbd></span>{/if}
           </DropdownMenu.Item>
           <DropdownMenu.Separator />
         {/if}
@@ -297,7 +298,7 @@
         {/if}
         <DropdownMenu.Item onSelect={copy}>
           {#if copied}<CheckIcon size={14} /><span class="flex-1 text-left">Copied!</span>{:else}<CopyIcon size={14} /><span class="flex-1 text-left">Copy plan</span>{/if}
-          {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">⌥C</Kbd></span>{/if}
+          {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">{comboHint("plan-modal.copy")}</Kbd></span>{/if}
         </DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>

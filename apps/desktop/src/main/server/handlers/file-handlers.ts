@@ -5,19 +5,16 @@ import { join, dirname } from 'path'
 import { existsSync, writeFileSync, statSync } from 'fs'
 import { appendFile, mkdir, stat } from 'fs/promises'
 import { tmpdir } from 'os'
-import { execFile } from 'child_process'
-import type { AgentId, DetectedEditor, DetectedTerminal } from '@solus/contracts/types'
+import type { AgentId, DetectedEditor } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
 import { IMAGE_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@solus/contracts/media-types'
 import { transcribeAudio, warmTranscription } from '@solus/desktop-main/transcription'
 import { readWav } from '@solus/server/transcription/wav'
 import { getVoiceModelStatus, retryParakeetModel } from '@solus/server/model-downloader'
-import { launchInTerminal, resolveTerminal, terminalDisplayName, availableTerminal } from '@solus/desktop-main/terminal-launcher'
-import { findAppBundle } from '@solus/desktop-main/mac-apps'
+import { desktopPlatform } from '@solus/desktop-main/platform/desktop-platform'
 import { EDITOR_APPS, editorApp } from '@solus/desktop-main/editor-apps'
-import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
-import { findOnPath, warmCliPath } from '@solus/server/cli-env'
+import { warmCliPath } from '@solus/server/cli-env'
 import { createLogger } from '@solus/server/logger'
 import { solusDir, resolveHomePath } from '@solus/server/platform/paths'
 import type { SolusServer } from '@solus/server/transport/server'
@@ -25,6 +22,7 @@ import { filePathsToAttachments } from '@solus/server/transport/attachment-utils
 import { allowClientAttachmentReads } from '@solus/desktop-main/client-attachment-read'
 
 const log = createLogger('main', 'file-handlers')
+const { terminal } = desktopPlatform
 
 export interface FileDeps {
   /** The desktop workspace window used by dialogs and screenshots. */
@@ -233,8 +231,8 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const projectPath = resolveHomePath(ctx.session.workingDirectory || '~')
     const command = buildAgentTerminalCommand(agentId, agentBin, sessionId)
     const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
-    const launcher = await launchInTerminal({ command, fallbackTerminalId, cwd: projectPath })
-    if (launcher && process.platform === 'darwin') deps.hideAppWindow()
+    const launcher = await terminal.launch({ command, fallbackTerminalId, cwd: projectPath })
+    if (launcher && terminal.hidesAppAfterLaunch) deps.hideAppWindow()
     return launcher
   })
 
@@ -243,20 +241,15 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const targetPath = resolveHomePath(ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory || '~')
     if (!existsSync(targetPath) || !statSync(targetPath).isDirectory()) return false
 
-    const shellPath = process.env.SHELL && existsSync(process.env.SHELL) ? process.env.SHELL : (process.platform === 'darwin' ? '/bin/zsh' : '/bin/sh')
     const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
-    const launcher = await launchInTerminal({
-      command: `exec ${shellQuote(shellPath)} -l`,
-      fallbackTerminalId,
-      cwd: targetPath,
-    })
-    if (launcher && process.platform === 'darwin') deps.hideAppWindow()
+    const launcher = await terminal.launch({ command: terminal.shellCommand(process.env), fallbackTerminalId, cwd: targetPath })
+    if (launcher && terminal.hidesAppAfterLaunch) deps.hideAppWindow()
     return launcher
   })
 
   server.register('resolveTerminal', (args) => {
     const [fallbackTerminalId] = args
-    return resolveTerminal(fallbackTerminalId ?? 'default-terminal')
+    return terminal.resolve(fallbackTerminalId ?? 'default-terminal')
   })
 
   server.register('detectEditors', async () => {
@@ -265,32 +258,10 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     // login shell probe of its own. One path serves every editor and terminal.
     const cliPath = await warmCliPath()
 
-    const editors: DetectedEditor[] = []
-    for (const app of EDITOR_APPS) {
-      // Either proof of installation counts. Most GUI editors ship their shell
-      // command as an opt-in step, so requiring it hid apps the user has.
-      const binPath = findOnPath(app.bin, cliPath)
-      const appPath = app.macAppBundle ? findAppBundle(app.macAppBundle) : null
-      if (!binPath && !appPath) continue
-      editors.push({ id: app.id, name: app.name, isTerminal: app.isTerminal, binPath })
-    }
-
-    const terminals: DetectedTerminal[] = []
-    for (const app of TERMINAL_APPS) {
-      // The system terminal has no bundle to probe: it is the one that is
-      // always there, and on macOS it has a name of its own.
-      if (app.id === 'default-terminal' && (process.platform === 'darwin' || await availableTerminal(app.id))) {
-        terminals.push({ id: app.id, name: terminalDisplayName(app) })
-        continue
-      }
-      if (process.platform === 'darwin') {
-        if (app.macAppBundle && findAppBundle(app.macAppBundle)) {
-          terminals.push({ id: app.id, name: app.name })
-        }
-        continue
-      }
-      if (findOnPath(app.linuxBin, cliPath)) terminals.push({ id: app.id, name: app.name })
-    }
+    const editors = EDITOR_APPS
+      .map((app) => desktopPlatform.editors.detect(app, cliPath))
+      .filter((editor): editor is DetectedEditor => !!editor)
+    const terminals = await terminal.detect(cliPath)
 
     log.info('editors_detected', { editors: editors.map(e => e.id), terminals: terminals.map(t => t.id) })
     return { editors, terminals }
@@ -307,36 +278,13 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const app = editorApp(editorId)
     if (!app) { log.warn('unknown_editor', { editorId }); return false }
 
-    if (!app.isTerminal) {
-      const appPath = app.macAppBundle ? findAppBundle(app.macAppBundle) : null
-      // `open -a` both launches and raises, so the bundle path needs no separate
-      // activate step the way the shell command does.
-      const binPath = findOnPath(app.bin, await warmCliPath())
-      const [bin, binArgs] = binPath
-        ? [binPath, [...(app.args ?? []), ...filePaths]]
-        : appPath
-          ? ['open', ['-a', appPath, ...filePaths]]
-          : [null, []]
-      if (!bin) { log.warn('editor_not_installed', { editorId }); return false }
-
-      return new Promise<boolean>((resolve) => {
-        execFile(bin, binArgs, (err: Error | null) => {
-          if (err) { log.error('open_editor_failed', { editorId, error: err.message }); resolve(false) }
-          else {
-            if (process.platform === 'darwin' && bin !== 'open' && appPath) {
-              execFile('open', ['-a', appPath], () => {})
-            }
-            resolve(true)
-          }
-        })
-      })
-    }
+    if (!app.isTerminal) return desktopPlatform.editors.open(app, filePaths, await warmCliPath())
 
     const escapedPaths = filePaths.map(p => `"${p.replace(/"/g, '\\"')}"`)
     const command = [app.bin, ...(app.args ?? []), ...escapedPaths].join(' ')
 
-    const launched = await launchInTerminal({ command, fallbackTerminalId: fallbackTerminalId || 'default-terminal', cwd })
-    if (launched && process.platform === 'darwin') deps.hideAppWindow()
+    const launched = await terminal.launch({ command, fallbackTerminalId: fallbackTerminalId || 'default-terminal', cwd })
+    if (launched && terminal.hidesAppAfterLaunch) deps.hideAppWindow()
     return launched
   })
 }

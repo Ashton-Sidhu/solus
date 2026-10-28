@@ -1,6 +1,8 @@
 import type { BindingDef, KeyCombo } from './types'
+import { CURRENT_KEYS, type KeyPlatform } from './key-platform'
 
-export const isMac = globalThis.navigator?.platform.startsWith('Mac') ?? false
+/** True on macOS. For a key fact, ask the `KeyPlatform` (`key-platform.ts`). */
+export const isMac = CURRENT_KEYS.id === 'mac'
 
 // The web shell tags the document root with `solus-web` (same signal
 // settings.context uses). Browsers reserve combos like ⌘T/⌘W/⌘N that a page
@@ -8,24 +10,26 @@ export const isMac = globalThis.navigator?.platform.startsWith('Mac') ?? false
 export const IS_WEB = globalThis.document?.documentElement.classList.contains('solus-web') ?? false
 
 /**
- * The effective default combo for the current platform (web variant on web).
- * `null` when the binding ships unassigned.
+ * The effective default combo for the platform (web variant on web, then the
+ * variant for platforms where `mod` is Ctrl). `null` when the binding ships
+ * unassigned.
  */
-export function defaultCombo(def: BindingDef): KeyCombo | null {
-  return IS_WEB && def.web ? def.web : def.combo
+export function defaultCombo(def: BindingDef, keys: KeyPlatform = CURRENT_KEYS): KeyCombo | null {
+  if (IS_WEB && def.web) return def.web
+  if (keys.primaryModifier === 'ctrl' && def.nonMac) return def.nonMac
+  return def.combo
 }
 
-export function eventMatches(e: KeyboardEvent, combo: KeyCombo): boolean {
+export function eventMatches(e: KeyboardEvent, combo: KeyCombo, keys: KeyPlatform = CURRENT_KEYS): boolean {
   if (e.code !== combo.code) return false
   if (!!combo.alt !== e.altKey) return false
   if (!!combo.shift !== e.shiftKey) return false
   // `mod` names the platform's primary modifier. Explicit secondary modifiers
   // still apply, so `mod + ctrl` means Command-Control on macOS rather than
   // silently dropping Control.
-  const wantsMeta = !!combo.meta || (!!combo.mod && isMac)
-  const wantsCtrl = !!combo.ctrl || (!!combo.mod && !isMac)
-  if (wantsMeta !== e.metaKey) return false
-  if (wantsCtrl !== e.ctrlKey) return false
+  const wanted = effectiveMods(combo, keys)
+  if (wanted.meta !== e.metaKey) return false
+  if (wanted.ctrl !== e.ctrlKey) return false
   return true
 }
 
@@ -68,10 +72,12 @@ const KEY_SYMBOLS = new Map<string, string>(Object.entries({
   Semicolon: ';',
   Quote: "'",
   Equal: '=',
+  Period: '.',
+  Backslash: '\\',
 }))
 
-function codeToLabel(code: string): string {
-  const symbol = KEY_SYMBOLS.get(code)
+function codeToLabel(code: string, keys: KeyPlatform): string {
+  const symbol = keys.keyLabel(code) ?? KEY_SYMBOLS.get(code)
   if (symbol) return symbol
   const m = code.match(/^Key([A-Z])$/)
   if (m) return m[1]
@@ -80,15 +86,14 @@ function codeToLabel(code: string): string {
   return code
 }
 
-export function formatCombo(combo: KeyCombo): string[] {
-  const keys: string[] = []
-  if (combo.mod) keys.push('⌘')
-  if (combo.meta && !(combo.mod && isMac)) keys.push('⌘')
-  if (combo.ctrl && !(combo.mod && !isMac)) keys.push('⌃')
-  if (combo.alt) keys.push('⌥')
-  if (combo.shift) keys.push('⇧')
-  keys.push(codeToLabel(combo.code))
-  return keys
+/** The key labels of a combo: Mac symbols on macOS, key names elsewhere. */
+export function formatCombo(combo: KeyCombo, keys: KeyPlatform = CURRENT_KEYS): string[] {
+  return [...keys.modifierLabels(combo), codeToLabel(combo.code, keys)]
+}
+
+/** A combo as one inline label: `⌘⇧K` on macOS, `Ctrl+Shift+K` elsewhere. */
+export function formatComboText(combo: KeyCombo, keys: KeyPlatform = CURRENT_KEYS): string {
+  return formatCombo(combo, keys).join(keys.separator)
 }
 
 const MODIFIER_CODES = new Set([
@@ -103,12 +108,12 @@ const MODIFIER_CODES = new Set([
  * so record-mode waits for a real key. Meta/Ctrl collapse into `mod` when they
  * match the platform's primary modifier, matching the manifest's convention.
  */
-export function comboFromEvent(e: KeyboardEvent): KeyCombo | null {
+export function comboFromEvent(e: KeyboardEvent, keys: KeyPlatform = CURRENT_KEYS): KeyCombo | null {
   if (MODIFIER_CODES.has(e.code)) return null
   const combo: KeyCombo = { code: e.code }
   if (e.altKey) combo.alt = true
   if (e.shiftKey) combo.shift = true
-  if (isMac) {
+  if (keys.primaryModifier === 'meta') {
     if (e.metaKey) combo.mod = true
     if (e.ctrlKey) combo.ctrl = true
   } else {
@@ -124,20 +129,20 @@ interface EffectiveModifiers {
   ctrl: boolean
 }
 
-function effectiveMods(combo: KeyCombo): EffectiveModifiers {
+function effectiveMods(combo: KeyCombo, keys: KeyPlatform): EffectiveModifiers {
   return {
-    meta: !!combo.meta || (!!combo.mod && isMac),
-    ctrl: !!combo.ctrl || (!!combo.mod && !isMac),
+    meta: !!combo.meta || (!!combo.mod && keys.primaryModifier === 'meta'),
+    ctrl: !!combo.ctrl || (!!combo.mod && keys.primaryModifier === 'ctrl'),
   }
 }
 
 /** Structural equality treating `mod` as the platform's meta/ctrl. */
-export function comboEquals(a: KeyCombo, b: KeyCombo): boolean {
+export function comboEquals(a: KeyCombo, b: KeyCombo, keys: KeyPlatform = CURRENT_KEYS): boolean {
   if (a.code !== b.code) return false
   if (!!a.alt !== !!b.alt) return false
   if (!!a.shift !== !!b.shift) return false
-  const ma = effectiveMods(a)
-  const mb = effectiveMods(b)
+  const ma = effectiveMods(a, keys)
+  const mb = effectiveMods(b, keys)
   return ma.meta === mb.meta && ma.ctrl === mb.ctrl
 }
 
@@ -184,15 +189,16 @@ function codeToAcceleratorKey(code: string): string | null {
 /**
  * Convert a KeyCombo to an Electron accelerator string (main-process only,
  * used for the OS summon shortcuts). Returns null if the key isn't expressible
- * as an accelerator. `mod` maps to CommandOrControl.
+ * as an accelerator. `mod` maps to CommandOrControl. The main process passes
+ * the keys of the operating system it runs on (`DesktopPlatform.keys`).
  */
-export function comboToAccelerator(combo: KeyCombo): string | null {
+export function comboToAccelerator(combo: KeyCombo, keys: KeyPlatform = CURRENT_KEYS): string | null {
   const key = codeToAcceleratorKey(combo.code)
   if (!key) return null
   const parts: string[] = []
   if (combo.mod) parts.push('CommandOrControl')
-  if (combo.meta && !(combo.mod && isMac)) parts.push('Command')
-  if (combo.ctrl && !(combo.mod && !isMac)) parts.push('Control')
+  if (combo.meta && !(combo.mod && keys.primaryModifier === 'meta')) parts.push(keys.metaAccelerator)
+  if (combo.ctrl && !(combo.mod && keys.primaryModifier === 'ctrl')) parts.push('Control')
   if (combo.alt) parts.push('Alt')
   if (combo.shift) parts.push('Shift')
   parts.push(key)

@@ -23,6 +23,8 @@ export type RootStackParamList = {
   PairHost: { link?: string } | undefined
   /** Adds a machine over SSH; a connected host runs SSH. `viaHostId` preselects that host (docs/plans/host-routes.md D6). */
   AddSshHost: { viaHostId?: string } | undefined
+  /** Adds a WSL distro of the Windows host `hostId` as a machine (docs/plans/windows.md §13.6). */
+  AddWslHost: { hostId: string }
   CloudSignIn: undefined
   CloudHosts: undefined
   Hosts: undefined

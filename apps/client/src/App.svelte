@@ -3,7 +3,9 @@
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
   import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
+  import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
   import { addOverSshStore } from "@solus/workspace-ui/components/servers/add-over-ssh.store.svelte";
+  import { addWslDistroStore } from "@solus/workspace-ui/components/servers/add-wsl-distro.store.svelte";
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
   import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
@@ -559,6 +561,7 @@
     },
     ...updateAllPaletteCommands(),
     addOverSshPaletteCommand(),
+    ...addWslDistroPaletteCommands(),
     {
       id: "open-project",
       label: "Open project…",
@@ -808,6 +811,18 @@
 >
   {#snippet children(AddOverSshDialog)}
     <AddOverSshDialog />
+  {/snippet}
+</LazyDialog>
+
+<LazyDialog
+  open={addWslDistroStore.isOpen}
+  load={() => import("@solus/workspace-ui/components/servers/AddWslDistroDialog.svelte")}
+  title="Add a WSL distro"
+  class="w-[28rem]"
+  onclose={() => addWslDistroStore.close()}
+>
+  {#snippet children(AddWslDistroDialog)}
+    <AddWslDistroDialog />
   {/snippet}
 </LazyDialog>
 

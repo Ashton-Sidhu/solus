@@ -16,6 +16,7 @@
   import FatalErrorScene from "@solus/workspace-ui/components/servers/FatalErrorScene.svelte";
   import LazyDialog from "@solus/workspace-ui/components/pickers/LazyDialog.svelte";
   import { addOverSshStore } from "@solus/workspace-ui/components/servers/add-over-ssh.store.svelte";
+  import { addWslDistroStore } from "@solus/workspace-ui/components/servers/add-wsl-distro.store.svelte";
   import { openProjectStore } from "@solus/workspace-ui/components/servers/open-project.store.svelte";
   import { createProjectPicker } from "@solus/workspace-ui/components/servers/project-picker.svelte";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
@@ -454,6 +455,18 @@
     >
       {#snippet children(AddOverSshDialog)}
         <AddOverSshDialog />
+      {/snippet}
+    </LazyDialog>
+
+    <LazyDialog
+      open={addWslDistroStore.isOpen}
+      load={() => import("@solus/workspace-ui/components/servers/AddWslDistroDialog.svelte")}
+      title="Add a WSL distro"
+      class="w-[28rem]"
+      onclose={() => addWslDistroStore.close()}
+    >
+      {#snippet children(AddWslDistroDialog)}
+        <AddWslDistroDialog />
       {/snippet}
     </LazyDialog>
 

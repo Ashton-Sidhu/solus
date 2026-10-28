@@ -18,12 +18,15 @@ export function ForwardedHostsSection(props: {
   readonly hostId: string;
   readonly hostLabel: string;
   readonly onAdd: () => void;
+  /** Adds one of the host's WSL distros; offered on a Windows host only. */
+  readonly onAddWsl: () => void;
   readonly onSignIn: () => void;
 }) {
   const app = useApp();
   const { state, reload, link, remove } = useForwardedHosts(props.hostId, props.hostLabel);
   const signedIn = useListened(app.account.changes, () => app.account.isSignedIn);
   const mayReach = useListened(app.connections.changes, () => app.connections.may(props.hostId, "host.local.reach"));
+  const isWindows = useListened(app.registry.changes, () => app.registry.host(props.hostId)?.os === "windows");
   if (!mayReach) return null;
 
   return (
@@ -40,6 +43,14 @@ export function ForwardedHostsSection(props: {
           accessibilityHint={`${props.hostLabel} runs SSH for this phone`}
           onPress={props.onAdd}
         />
+        {isWindows ? (
+          <SettingsRow
+            icon="plus"
+            label="Add a WSL distro"
+            accessibilityHint={`${props.hostLabel} installs Solus in one of its WSL distros`}
+            onPress={props.onAddWsl}
+          />
+        ) : null}
       </SettingsSection>
       {state.kind === "error" ? (
         <>

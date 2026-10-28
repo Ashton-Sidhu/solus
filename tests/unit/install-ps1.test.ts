@@ -37,8 +37,15 @@ test('current is a junction, which needs no administrator rights, and only an ol
 
 test('the command folder goes on the user PATH, not the machine PATH', () => {
   expect(script).toContain("Join-Path $env:USERPROFILE '.local\\bin'")
-  expect(script).toContain("[Environment]::SetEnvironmentVariable('Path', (@($entries) + $BinDir) -join ';', 'User')")
+  expect(script).toContain("[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')")
   expect(script).not.toContain("'Machine')")
+})
+
+test('the user PATH keeps its value kind, so %VAR% entries still expand', () => {
+  // WHY: [Environment]::SetEnvironmentVariable rewrites the PATH as REG_SZ.
+  expect(script).not.toContain("SetEnvironmentVariable('Path'")
+  expect(script).toContain("$key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')")
+  expect(script).toContain("$key.SetValue('Path', ((@($entries) + $BinDir) -join ';'), $kind)")
 })
 
 test('it runs on Windows PowerShell 5.1', () => {

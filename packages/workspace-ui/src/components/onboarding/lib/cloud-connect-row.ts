@@ -24,7 +24,7 @@ export function cloudConnectRow(input: {
 }): CloudConnectRow {
   const { account, uplink, isLinking } = input
   if (account.kind === 'unavailable') {
-    return { state: 'available', detail: 'This Mac cannot save the sign-in safely' }
+    return { state: 'available', detail: 'This computer cannot save the sign-in safely' }
   }
   if (account.kind === 'signing-in') {
     return { state: 'busy', detail: 'Finish signing in in your browser' }

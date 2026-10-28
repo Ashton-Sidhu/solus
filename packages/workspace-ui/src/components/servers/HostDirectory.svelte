@@ -23,6 +23,7 @@
   import { hostSetupStore } from "./host-setup.store.svelte";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
   import { addOverSshStore } from "./add-over-ssh.store.svelte";
+  import { addWslDistroStore } from "./add-wsl-distro.store.svelte";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
 
   // The registry can point at a host that is no longer saved, so trust the
@@ -71,6 +72,17 @@
       <TerminalIcon size={13} />
       Add machine over SSH
     </Button>
+    {#if addWslDistroStore.windowsHostId}
+      <Button
+        variant="ghost"
+        size="sm"
+        class="-my-1 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+        onclick={() => void addWslDistroStore.open()}
+      >
+        <TerminalIcon size={13} />
+        Add WSL distro
+      </Button>
+    {/if}
   {/snippet}
 
   {#if serversStore.servers.length === 0}

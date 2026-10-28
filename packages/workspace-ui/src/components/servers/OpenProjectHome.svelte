@@ -13,6 +13,9 @@
   import { abbreviateHome } from "../../lib/paths";
   import type { OpenProjectStore } from "./open-project.store.svelte";
   import type { HomeAction, HomeRow } from "./lib/open-project-home";
+  import { formatComboText } from "../../lib/keybindings/match";
+
+  const browseKey = formatComboText({ mod: true, code: "KeyO" });
 
   interface Props {
     store: OpenProjectStore;
@@ -142,7 +145,7 @@
           {/if}
           <span class="min-w-0 flex-1 truncate text-sm">{ACTION_LABELS[row.action]}</span>
           {#if row.action === "browse"}
-            <span class="shrink-0  text-muted-foreground">⌘O</span>
+            <span class="shrink-0  text-muted-foreground">{browseKey}</span>
           {:else if row.action === "github" && store.readiness?.github?.solusLogin}
             <span class="shrink-0 truncate  text-muted-foreground">
               {store.readiness?.github?.solusLogin}

@@ -4,6 +4,8 @@
   import { getWorkspaceContext } from '../../../contexts';
   import { QueueEdit } from './lib/queue-edit.svelte';
   import { requestInputFocus } from '../../../lib/inputFocus';
+  import { formatComboText } from '../../../lib/keybindings/match';
+  const saveKey = formatComboText({ mod: true, code: 'Enter' });
   let { tabId, prompt, onClose }: { tabId: string; prompt: OutboundPrompt; onClose: () => void } = $props();
   const workspace = getWorkspaceContext();
   const edit = new QueueEdit(workspace.queue, tabId, prompt);
@@ -36,7 +38,7 @@
         onchange={(event) => { void edit.add(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
       <button type="button" disabled={edit.busy} onclick={() => fileInput?.click()}
         class="flex cursor-pointer items-center gap-1 text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:opacity-40 pointer-coarse:min-h-11"><PaperclipIcon size={12} />Attach</button>
-      <span class="text-(--solus-text-tertiary) pointer-coarse:hidden">⌘Enter to save · Esc to cancel</span>
+      <span class="text-(--solus-text-tertiary) pointer-coarse:hidden">{saveKey} to save · Esc to cancel</span>
       <span class="flex-1"></span>
       <button type="button" disabled={edit.busy} onclick={close}
         class="cursor-pointer text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11">Cancel</button>

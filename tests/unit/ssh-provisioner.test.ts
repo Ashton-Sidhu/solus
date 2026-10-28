@@ -62,14 +62,18 @@ function stepTexts(calls: Call[]): string[] {
     : `${call.script ?? ''}\n${call.args.join(' ')}`)
 }
 
-async function add(machine: Machine, options: { link?: boolean; place?: RemoteInstallPlace } = {}) {
+async function add(machine: Machine, options: { link?: boolean; place?: RemoteInstallPlace; label?: string } = {}) {
   const { ssh, calls } = fakeSsh(machine)
   const steps: string[] = []
+  const messages: string[] = []
   const outcome = await new SshProvisioner(ssh, options.place).add(
-    { target: TARGET, deviceLabel: 'Ada’s Mac', link: options.link ? { ticket: 'ticket-1', directoryUrl: 'https://app.solus.sh' } : undefined },
-    (step) => steps.push(step),
+    { target: TARGET, deviceLabel: 'Ada’s Mac', link: options.link ? { ticket: 'ticket-1', directoryUrl: 'https://app.solus.sh' } : undefined, label: options.label },
+    (step, message) => {
+      steps.push(step)
+      messages.push(message)
+    },
   )
-  return { outcome, calls, steps, texts: stepTexts(calls) }
+  return { outcome, calls, steps, messages, texts: stepTexts(calls) }
 }
 
 describe('adding a machine over SSH', () => {
@@ -105,6 +109,12 @@ describe('adding a machine over SSH', () => {
   test('a link on a server that already runs links it with the CLI', async () => {
     const { texts } = await add({ installed: true, running: true }, { link: true })
     expect(texts.some((text) => text.includes('connect --no-open') && text.includes('--code ticket-1@app.solus.sh'))).toBe(true)
+  })
+
+  test("a label names the machine in each step, for a WSL distro that reports the computer's name", async () => {
+    const { outcome, messages } = await add({ installed: false, running: false }, { label: 'Ubuntu (WSL)' })
+    expect(messages.slice(1)).toEqual(['Solus is not installed on Ubuntu (WSL)', 'Installing Solus on Ubuntu (WSL)', 'Reading the identity of Ubuntu (WSL)'])
+    expect(outcome.status === 'ready' && outcome.host.label).toBe('Ubuntu (WSL)')
   })
 
   test('a Windows machine is reached through PowerShell and installed with install.ps1', async () => {

@@ -110,6 +110,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                 hostId={hostId}
                 hostLabel={host.label}
                 onAdd={() => navigation.navigate("AddSshHost", { viaHostId: hostId })}
+                onAddWsl={() => navigation.navigate("AddWslHost", { hostId })}
                 onSignIn={() => navigation.navigate("CloudSignIn")}
               />
             ) : null}

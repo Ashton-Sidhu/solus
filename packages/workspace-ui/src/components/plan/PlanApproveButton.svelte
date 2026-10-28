@@ -9,6 +9,13 @@
   import Kbd from "../ui/Kbd.svelte";
   import { runtime } from "../../contexts";
   import type { PlanApprovalMode } from "../../contexts/workspace/session-plan-operations";
+  import { comboHint } from "../../lib/keybindings/manifest";
+
+  const keys = {
+    auto: comboHint("plan-review.approve-auto"),
+    ask: comboHint("plan-review.approve-ask"),
+    worktree: comboHint("plan-review.toggle-worktree"),
+  };
 
   // Primary approve split button: the main segment approves in the default
   // mode from Settings; the caret offers ask-each-step and the worktree
@@ -51,7 +58,7 @@
     Approve
     {#if hasKeyboard}<span
         class="ml-0.5 text-xs tabular-nums opacity-45"
-        >⌥A</span
+        >{keys.auto}</span
       >{/if}
   </button>
   <DropdownMenu.Root bind:open>
@@ -83,7 +90,7 @@
         <RobotIcon size={14} />
         <span class="flex-1 text-left">Ask</span>
         {#if hasKeyboard}<span class="ml-auto"
-            ><Kbd variant="inline">⌥Y</Kbd></span
+            ><Kbd variant="inline">{keys.ask}</Kbd></span
           >{/if}
       </DropdownMenu.Item>
       {#if showNewSessionOption}
@@ -115,7 +122,7 @@
               class="text-(--solus-accent)"
             />{/if}
           {#if hasKeyboard}<span class="ml-auto"
-              ><Kbd variant="inline">⌥W</Kbd></span
+              ><Kbd variant="inline">{keys.worktree}</Kbd></span
             >{/if}
         </DropdownMenu.Item>
       {/if}

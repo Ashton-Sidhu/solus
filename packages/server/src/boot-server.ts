@@ -18,7 +18,7 @@ import { ModelProfilesService, downloadModelProfiles } from './updates/model-pro
 import { detectInstallKind } from './updates/install-kind'
 import { fetchLatestRelease } from './updates/release-sources'
 import { readProviderVersion } from './updates/provider-versions'
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import { rmSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
 import { createServer as createNodeHttpServer, type IncomingMessage, type Server as HttpServer } from 'http'
@@ -164,6 +164,7 @@ import { registerConnectionsHandlers } from './transport/handlers/connections-ha
 import { registerRemoteMachinesHandlers } from './transport/handlers/remote-machines-handlers'
 import { ForwardedHosts } from './remote-machines/forwarded-hosts'
 import { installPlaceFromEnv, SshProvisioner } from './remote-machines/ssh-provisioner'
+import { listWslDistros, machineClient, WslClient } from './remote-machines/wsl'
 import { registerAuthHandlers } from './transport/handlers/auth-handlers'
 import { registerSettingsHandlers } from './transport/handlers/settings-handlers'
 import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './transport/lan-discovery'
@@ -189,11 +190,12 @@ import { onProjectsChanged } from './project-config/projects-manifest'
 import { registerTasksHandlers } from './transport/handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from './model-downloader'
 import { createLogger, isDebugEnabled } from './logger'
+import { acquireLock } from './host/server-lock'
 import { getInstallationId, issueSessionToken, revokeDevice } from './admission/auth'
 import { hostIdentity } from './host/host-identity'
 import { probeHostCapabilities, registerSetupHandlers } from './transport/handlers/setup-handlers'
 import packageJson from '../../../package.json'
-import { dataDir, solusDir } from './platform/paths'
+import { appVersion, dataDir, solusDir } from './platform/paths'
 import { onTasksChanged } from './data/tasks/task-store'
 import { emitSessionTasksChanged } from './data/tasks/task-sessions'
 import { onSessionPullRequestsChanged } from './data/sessions/session-pull-requests'
@@ -281,64 +283,7 @@ export const WEB_UI_PORT = parseInt(process.env.SOLUS_PORT ?? '') || DEFAULT_SER
  */
 export const DEFAULT_TUNNEL_LISTENER_PORT = parseInt(process.env.SOLUS_TUNNEL_PORT ?? '') || 34118
 
-interface LockFileBody {
-  pid: number
-  port: number
-  host: string
-  startedAt: number
-}
-
-const lockFileSchema = z.object({
-  pid: z.number().int().positive(),
-  port: z.number().int().positive(),
-  host: z.string(),
-  startedAt: z.number(),
-}).strict()
 const systemErrorSchema = z.object({ code: z.string().optional() })
-
-function readLock(): LockFileBody | null {
-  const lockFile = join(solusDir(), 'server.lock')
-  if (!existsSync(lockFile)) return null
-  try {
-    const raw = readFileSync(lockFile, 'utf-8')
-    return lockFileSchema.parse(JSON.parse(raw))
-  } catch {
-    return null
-  }
-}
-
-function isAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true } catch { return false }
-}
-
-/**
- * Acquires the single-instance lock. If a live Solus instance owns the lock,
- * returns null and the caller should refuse to boot a second server. Stale
- * locks (dead PID) are reclaimed.
- */
-export function acquireLock(host: string, port: number): { release(): void } | null {
-  const stateDir = solusDir()
-  const lockFile = join(stateDir, 'server.lock')
-  if (!existsSync(stateDir)) mkdirSync(stateDir, { recursive: true })
-
-  const existing = readLock()
-  if (existing && isAlive(existing.pid)) {
-    log.warn('solus_already_running', { pid: existing.pid, host: existing.host, port: existing.port })
-    return null
-  }
-
-  const body: LockFileBody = { pid: process.pid, port, host, startedAt: Date.now() }
-  writeFileSync(lockFile, JSON.stringify(body, null, 2), { mode: 0o600 })
-
-  let released = false
-  return {
-    release: () => {
-      if (released) return
-      released = true
-      try { if (existsSync(lockFile)) unlinkSync(lockFile) } catch {}
-    },
-  }
-}
 
 /** The registration this machine starts with: the environment's, which is read once and stripped, else the one stored on disk. */
 function adoptStartupRegistration(): void {
@@ -593,9 +538,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // rides its own binary channel to subscribed clients only (plan 016, D2).
   const ssh = new SshClient({ run: runDeviceCommand, spawn: spawnHelper })
   // Machines added over SSH, and the forwards to the ones with no account (docs/plans/host-routes.md D6, D7).
-  const sshProvisioner = new SshProvisioner(ssh, installPlaceFromEnv(process.env.SOLUS_SSH_INSTALL_PLACE))
+  // A WSL distro of this Windows host is added the same way, through `wsl.exe` (docs/plans/windows.md §13.6).
+  const machines = machineClient(ssh, new WslClient({ run: runDeviceCommand, spawn: spawnHelper }))
+  const installPlace = installPlaceFromEnv(process.env.SOLUS_SSH_INSTALL_PLACE)
+  const sshProvisioner = new SshProvisioner(machines, installPlace)
+  // A distro gets the release of this host's own version, so the two never skew.
+  const wslProvisioner = new SshProvisioner(machines, { ...installPlace, version: installPlace.version ?? appVersion() })
   const forwardedHosts = new ForwardedHosts({
-    ssh,
+    ssh: machines,
     selfInstallationId: getInstallationId,
     remotePort: (target) => sshProvisioner.remotePort(target),
     onChange: (hosts) => events.broadcast('host.forwardedHostsChanged', { hosts }),
@@ -1716,7 +1666,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   // Every admitted socket may present the person's account token: renewal and `accountPresent` keep their delegation (ADR 0001 §6 item 5).
   registerAuthHandlers(server, establishPresented ? { verify: verifyHostAccessToken, establish: establishPresented } : null)
-  registerRemoteMachinesHandlers(server, { provisioner: sshProvisioner, forwardedHosts, ssh, broadcast: (topic, payload) => events.broadcast(topic, payload) })
+  registerRemoteMachinesHandlers(server, { provisioner: sshProvisioner, wslProvisioner, listWslDistros: () => listWslDistros(runDeviceCommand), forwardedHosts, ssh, broadcast: (topic, payload) => events.broadcast(topic, payload) })
   registerConnectionsHandlers(server, {
     getServerInfo: () => ({
       host,

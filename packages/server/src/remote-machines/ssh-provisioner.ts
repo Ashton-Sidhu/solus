@@ -5,7 +5,8 @@ import type { HostOperatingSystem } from '@solus/contracts/types'
 import { formatLinkCode } from '@solus/contracts/uplink'
 import type { DeviceCommandResult } from '../devices/device-process'
 import { createLogger } from '../logger'
-import { isMissingPosixShell, isSshAuthFailure, powerShellCommand, powerShellLiteral, quoteRemoteArg, type SshClient, type SshRunOptions, type SshTarget } from '../platform/ssh'
+import { isMissingPosixShell, isSshAuthFailure, powerShellCommand, powerShellLiteral, quoteRemoteArg, type SshRunOptions, type SshTarget } from '../platform/ssh'
+import type { MachineClient } from './wsl'
 import { formatSshTarget } from './ssh-targets'
 
 const log = createLogger('main', 'ssh-provisioner')
@@ -28,6 +29,8 @@ export interface RemoteInstallPlace {
   port?: number
   runtimeDir?: string
   binDir?: string
+  /** The release to install; empty means the latest. A WSL distro gets this host's own version. */
+  version?: string
 }
 
 const installPlaceSchema = z.object({
@@ -35,6 +38,7 @@ const installPlaceSchema = z.object({
   port: z.number().int().positive().optional(),
   runtimeDir: z.string().min(1).optional(),
   binDir: z.string().min(1).optional(),
+  version: z.string().min(1).optional(),
 })
 
 /**
@@ -52,6 +56,8 @@ export interface ProvisionRequest {
   authSecret?: string
   link?: SshAddLink
   deviceLabel: string
+  /** What the person calls the machine; its own host name when omitted. A WSL distro reports the computer's name. */
+  label?: string
 }
 
 /** A machine Solus runs on after an add. */
@@ -92,7 +98,8 @@ class AuthNeeded extends Error {}
 
 export class SshProvisioner {
   constructor(
-    private readonly ssh: SshClient,
+    /** Runs the steps over SSH, or in a WSL distro of this host. */
+    private readonly ssh: Pick<MachineClient, 'run'>,
     private readonly place: RemoteInstallPlace = {},
   ) {}
 
@@ -149,7 +156,7 @@ export class SshProvisioner {
   }
 
   /** Reads the machine. On a host with no `sh` (Windows), PowerShell reads it. */
-  async check(request: Pick<ProvisionRequest, 'target' | 'authSecret'>): Promise<RemoteMachine> {
+  async check(request: Pick<ProvisionRequest, 'target' | 'authSecret' | 'label'>): Promise<RemoteMachine> {
     let shell: RemoteMachine['shell'] = 'sh'
     let result = await this.run(request, shell, unixScript('check', this.place), [], STEP_TIMEOUT_MS)
     if (isMissingPosixShell(`${result.stderr}\n${result.stdout}`)) {
@@ -157,7 +164,8 @@ export class SshProvisioner {
       result = await this.run(request, shell, windowsScript('check', this.place, []), [], STEP_TIMEOUT_MS)
     }
     failUnless(result, `Solus could not read ${formatSshTarget(request.target)}.`)
-    return parseCheck(result.stdout, shell)
+    const machine = parseCheck(result.stdout, shell)
+    return request.label ? { ...machine, name: request.label } : machine
   }
 
   /** The port the server listens on now; null when it is not running. */
@@ -256,6 +264,7 @@ function placeVariables(place: RemoteInstallPlace): Array<[string, string]> {
   if (place.port) variables.push(['SOLUS_PORT', String(place.port)])
   if (place.runtimeDir) variables.push(['SOLUS_RUNTIME_DIR', place.runtimeDir])
   if (place.binDir) variables.push(['SOLUS_BIN_DIR', place.binDir])
+  if (place.version) variables.push(['SOLUS_VERSION', place.version])
   return variables
 }
 

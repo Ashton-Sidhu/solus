@@ -7,7 +7,8 @@ import type { HostOperatingSystem } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { secretStore } from '../platform/secrets'
-import type { SshClient, SshForward, SshTarget } from '../platform/ssh'
+import type { SshTarget } from '../platform/ssh'
+import type { MachineClient, MachineForward } from './wsl'
 import { formatSshTarget, parseSshTarget } from './ssh-targets'
 
 const log = createLogger('main', 'forwarded-hosts')
@@ -57,7 +58,8 @@ export interface NewForward {
 }
 
 export interface ForwardedHostsDeps {
-  ssh: SshClient
+  /** Reaches a machine over SSH, or a WSL distro of this host. */
+  ssh: Pick<MachineClient, 'forward'>
   /** This host's installation id: a forwarded route names it as the one machine that can dial it. */
   selfInstallationId: () => string
   /** The port the server there listens on now; it can change when the server restarts. */
@@ -68,7 +70,7 @@ export interface ForwardedHostsDeps {
 }
 
 interface LiveForward {
-  forward: SshForward | null
+  forward: MachineForward | null
   state: ForwardedHostState
   error?: string
   retryMs: number
