@@ -29,6 +29,8 @@ import { AccessTokenVerifier, type TokenVerdict } from './admission/access-token
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
 import { readStoredTunnel, splitLegacyLinkRecord, UplinkLinkManager } from './transport/uplink/link'
 import { HostRegistrar, readStoredRegistration } from './host/host-registration'
+import { createWebhookServices } from './execution/webhooks/webhook-runtime'
+import { sweepSeenKeys } from './data/webhooks/webhook-store'
 import { RunnerDelivery } from './sync/runner-delivery'
 import type { TurnOrganizationDeps } from './execution/sessions/turn-organization'
 import { Delegations, type DelegationScope } from './sync/delegations'
@@ -820,7 +822,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerAutomationHandlers(server)
   // Isolated automations use the same headless SessionRuntime lifecycle as normal
   // background sessions, so their live transcript can be opened mid-run.
-  setAutomationBackgroundSessionDispatcher((o) => opts.sessionRuntime.dispatch.startAutomationSession(o))
+  setAutomationBackgroundSessionDispatcher(({ automationId, automationName, ...o }) => opts.sessionRuntime.dispatch.startUnattendedSession({ ...o, automation: { id: automationId, name: automationName } }))
   setAutomationWorktreeCreator((prompt, cwd, abortSignal, preferences) => (
     opts.sessionRuntime.checkouts.createNamed(cwd, prompt, opts.sessionRuntime, abortSignal, preferences)
   ))
@@ -1359,6 +1361,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     delivery: () => ({ backlog: deliveryBacklog(), error: runnerDelivery?.currentStatus().error ?? null }),
   })
 
+  // Webhooks (docs/plans/webhooks.md): the receiver and its actions. Agents run only
+  // on hosts, so the Solus API has no receiver (§2.1).
+  const webhooks = createWebhookServices(opts.sessionRuntime, {
+    hostId: () => registrar.current()?.hostId ?? null,
+    forwarderSecret: () => null,
+    isPausedByAdmin: () => false,
+    allowsUnverifiedWebhooks: () => false,
+  })
+  // The one sweeper of expired replay keys and delivery IDs.
+  setInterval(() => {
+    sweepSeenKeys(Date.now()).catch((err) => log.warn('webhook_seen_keys_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
+  }, 60 * 60 * 1000).unref()
+
   const { server: http, requestListener, solusApiRouter, doors } = buildHttpServer({
     solusApi: { operations: refreshingSessionIndexOnList(workspaceOperations, () => opts.sessionRuntime.requestSessionIndexRefresh()), ...apiSettings },
     isVerifyingUpdate: () => server.isVerifyingUpdate,
@@ -1384,6 +1399,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     },
     transcribeAudio: opts.transcribeAudio,
     completeIntegrationOAuth: (params) => integrationOAuth.complete(params),
+    webhookReceiver: apiMode ? undefined : webhooks.receiver,
   })
   // A client's records go over its socket, with the socket's principal as their authority (docs/api/README.md).
   if (solusApiRouter) server.register('solusApiRequest', ([request], ctx) => answerSocketRequest(solusApiRouter, request, ctx.principal))

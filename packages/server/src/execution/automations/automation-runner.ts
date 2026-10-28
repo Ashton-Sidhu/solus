@@ -80,14 +80,22 @@ export function hasActiveRun(automationId: string): boolean {
   return false
 }
 
-function prependAutomationRunContext(prompt: string, run: AutomationRun): string {
+function prependAutomationRunContext(prompt: string, run: AutomationRun, context: string | undefined): string {
   const header = [
     'This is an automation run.',
     `Automation run id: ${run.id}`,
     `Automation started at: ${run.startedAt}`,
   ].join('\n')
 
-  return prompt ? `${header}\n\n${prompt}` : header
+  const body = prompt ? `${header}\n\n${prompt}` : header
+  // A webhook that starts the run adds its rendered template (docs/plans/webhooks.md §3.1).
+  return context ? `${body}\n\n[Webhook context]\n${context}` : body
+}
+
+/** What starts a run besides the automation itself. */
+export interface AutomationRunOptions {
+  /** A webhook's rendered template: it goes into the run's prompt after the automation's own prompt. */
+  context?: string
 }
 
 /**
@@ -101,7 +109,7 @@ function prependAutomationRunContext(prompt: string, run: AutomationRun): string
  * CRUD/run tools, on both providers — so an automation cannot create or trigger
  * more automations. This is the fork-bomb guard; everything else is available.
  */
-export async function triggerAutomationRun(automation: Automation): Promise<AutomationRun> {
+export async function triggerAutomationRun(automation: Automation, options: AutomationRunOptions = {}): Promise<AutomationRun> {
   if (updatesPaused) throw new Error('This host is waiting to update Solus. Cancel the update to start an automation.')
   // One run per automation at a time. Overlapping unattended runs of the same
   // automation would race on the same working directory; callers (scheduler,
@@ -123,7 +131,7 @@ export async function triggerAutomationRun(automation: Automation): Promise<Auto
     done: Promise.resolve(),
   }
   activeRuns.set(run.id, entry)
-  entry.done = executeRun(automation, run, entry).finally(() => {
+  entry.done = executeRun(automation, run, entry, options.context).finally(() => {
     activeRuns.delete(run.id)
     runSettledListener?.()
   })
@@ -176,7 +184,7 @@ async function automationActor(automation: Automation): Promise<Actor> {
   return actor
 }
 
-async function executeRun(automation: Automation, run: AutomationRun, entry: ActiveRun): Promise<void> {
+async function executeRun(automation: Automation, run: AutomationRun, entry: ActiveRun, context: string | undefined): Promise<void> {
   // Resolved before the run starts, so a creator who cannot run fails this run, not a later one.
   let actor: Actor
   try {
@@ -186,10 +194,10 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     return
   }
   // The worktree, the fetch it makes, and the turn act as the creator.
-  return withActorScope(actor, () => executeRunAs(automation, run, entry, actor))
+  return withActorScope(actor, () => executeRunAs(automation, run, entry, actor, context))
 }
 
-async function executeRunAs(automation: Automation, run: AutomationRun, entry: ActiveRun, actor: Actor): Promise<void> {
+async function executeRunAs(automation: Automation, run: AutomationRun, entry: ActiveRun, actor: Actor, context: string | undefined): Promise<void> {
   const { action } = automation
   const runId = run.id
   let sessionId: string | undefined
@@ -214,7 +222,7 @@ async function executeRunAs(automation: Automation, run: AutomationRun, entry: A
 
     // Expand any plan/work references into context blocks. Files (@) and skills
     // (/) stay inline in the prompt — the provider resolves those natively.
-    const prompt = prependAutomationRunContext(await composeAutomationPrompt(action), run)
+    const prompt = prependAutomationRunContext(await composeAutomationPrompt(action), run, context)
 
     if (!backgroundSessionDispatcher) {
       throw new Error('Isolated automations require the app to be running with an active control plane.')

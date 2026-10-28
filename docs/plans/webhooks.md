@@ -114,9 +114,9 @@ A managed host has no tunnel. The forwarder sends to the host's own address in `
 
 | Action | What it does | Owner it calls |
 | --- | --- | --- |
-| `start_session` | Starts a new unattended session with the rendered prompt. It uses the action's provider, model, reasoning effort, project folder, and worktree choice. | `prompt-dispatch.ts` `startAutomationSession`, which already takes those fields and the actor. It gets a generic name or a webhook variant; `createSession` needs a client and a tab, which a delivery does not have. |
+| `start_session` | Starts a new unattended session with the rendered prompt. It uses the action's provider, model, reasoning effort, project folder, and worktree choice. | `prompt-dispatch.ts` `startUnattendedSession` (renamed from `startAutomationSession`; the automation is now an optional `automation` field). `createSession` needs a client and a tab, which a delivery does not have. |
 | `send_to_session` | Sends the rendered prompt to one existing session. If the session is busy, the prompt waits in the queue. | `prompt-dispatch.ts` `promptSession(…, 'queue', { actor })` |
-| `run_automation` | Starts one run of a saved automation. The rendered template goes into the run's prompt as the webhook context. | `automation-runner.ts` `triggerAutomationRun(automation, { context })`: a new optional argument, because today the run prompt comes only from the automation (`composeAutomationPrompt`). |
+| `run_automation` | Starts one run of a saved automation. The rendered template goes into the run's prompt as the webhook context. | `automation-runner.ts` `triggerAutomationRun(automation, { context })`: a new optional argument. The context goes after the automation's prompt, under `[Webhook context]`. |
 
 Later action types (create a task, comment on a task) must fit into the same `WebhookAction` union without a model change.
 
@@ -317,6 +317,6 @@ Until step 6 ships, a linked host shows the direct URL if its public URL is set,
 
 The sections marked "proposed" need sign-off: §2.1, §2.4, §2.6, §2.7 (the ownership and admission part), §3.4, and §3.5. In addition:
 
-1. `start_session` through `startAutomationSession` (§3.1): rename it to a generic unattended start, or add a webhook variant?
-2. Mobile version 1 without the editor (§4): is "list, deliveries, pause, replay, Copy, host settings" the right set for a phone?
-3. The `run_automation` context argument (§3.1): a new optional argument on `triggerAutomationRun`, or no template for that action type?
+1. `start_session` through `startAutomationSession` (§3.1): rename it to a generic unattended start, or add a webhook variant? **Answered:** renamed to `startUnattendedSession`.
+2. Mobile version 1 without the editor (§4): is "list, deliveries, pause, replay, Copy, host settings" the right set for a phone? **Answered:** yes.
+3. The `run_automation` context argument (§3.1): a new optional argument on `triggerAutomationRun`, or no template for that action type? **Answered:** the optional argument.

@@ -260,7 +260,8 @@ export type WebhookDeliverySource = 'direct' | 'forwarded' | 'held'
  */
 export type WebhookDeliveryOutcome = 'pending' | 'ran' | 'partial' | 'failed' | 'filtered' | 'duplicate' | 'unverified' | 'not_allowed' | 'paused'
 
-export type WebhookActionStatus = 'skipped' | 'started' | 'queued' | 'busy' | 'failed'
+/** `matched` is for a dry run only: the action would run. */
+export type WebhookActionStatus = 'skipped' | 'matched' | 'started' | 'queued' | 'busy' | 'failed'
 
 export interface WebhookFilterResult {
   filter: WebhookFilter

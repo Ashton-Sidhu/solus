@@ -71,10 +71,9 @@ describe('automation model resolution', () => {
     const plane = new SessionRuntime(new Map([['claude-code', fake.value as never]]))
     planes.push(plane)
 
-    const session = await plane.dispatch.startAutomationSession({
+    const session = await plane.dispatch.startUnattendedSession({
       prompt: 'sync the docs',
-      automationId: 'automation-1',
-      automationName: 'Docs sync',
+      automation: { id: 'automation-1', name: 'Docs sync' },
       provider: 'claude-code',
       modelId: null,
       reasoningEffort: 'medium',
@@ -94,10 +93,9 @@ describe('automation model resolution', () => {
     const plane = new SessionRuntime(new Map([['claude-code', fake.value as never]]))
     planes.push(plane)
 
-    const session = await plane.dispatch.startAutomationSession({
+    const session = await plane.dispatch.startUnattendedSession({
       prompt: 'sync the docs',
-      automationId: 'automation-1',
-      automationName: 'Docs sync',
+      automation: { id: 'automation-1', name: 'Docs sync' },
       provider: 'claude-code',
       modelId: 'claude-sonnet-5',
       reasoningEffort: 'medium',

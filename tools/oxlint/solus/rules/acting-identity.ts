@@ -42,6 +42,7 @@ const hostNameFiles = new Map([
   ['packages/server/src/execution/sessions/restart-recovery.ts', 'recovery of the host’s own runs'],
   ['packages/server/src/execution/orchestration/orchestrate-sessions.ts', 'the orchestrator stops and answers as the host'],
   ['packages/server/src/execution/automations/automation-runner.ts', 'a system automation is the host’s'],
+  ['packages/server/src/execution/webhooks/webhook-runtime.ts', 'a webhook of the host’s own user, or of no person, is the host’s'],
   ['packages/server/src/execution/agents/tools/worktree-tools.ts', 'a session with no known person'],
   ['packages/server/src/execution/agents/codex/codex-agent.ts', 'the host login’s shared app-server'],
   ['packages/server/src/providers/github/git-credential.ts', 'finds the installed Solus CLI'],

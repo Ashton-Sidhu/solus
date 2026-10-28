@@ -16,6 +16,7 @@ import { readWebhookSecrets, verificationSecretOf } from '../../data/webhooks/we
 import { readDeliveryProof, type ProvenDelivery } from './delivery-proof'
 import { renderKey, requestData, storedRequest, type WebhookRequestData } from './request-data'
 import { verifyRequest } from './verification'
+import { emitWebhookDelivery } from './webhook-events'
 
 const log = createLogger('webhooks', 'receiver.ts')
 
@@ -122,6 +123,7 @@ export function createWebhookReceiver(deps: WebhookReceiverDeps) {
       actions: [],
     }
     await insertDelivery(delivery)
+    emitWebhookDelivery({ id: delivery.id, webhookId: webhook.id, receivedAt: delivery.receivedAt, arrivedAt, source: delivery.source, outcome, reason, replayOf: null })
     log.info('webhook_delivery_refused', { webhookId: webhook.id, deliveryId: delivery.id, outcome, step: failure?.step ?? null })
     return delivery.id
   }
@@ -179,6 +181,7 @@ export function createWebhookReceiver(deps: WebhookReceiverDeps) {
       verificationFailure: null,
       actions: [],
     })
+    emitWebhookDelivery({ id: deliveryId, webhookId: webhook.id, receivedAt: proven.receivedAt, arrivedAt, source: proven.source, outcome: 'pending', reason: null, replayOf: null })
     log.info('webhook_delivery_accepted', { webhookId: webhook.id, deliveryId, source: proven.source })
     // The sender does not wait for an agent.
     setImmediate(() => void deps.runDelivery({ webhook, deliveryId, data }))

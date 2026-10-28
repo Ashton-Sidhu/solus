@@ -376,13 +376,14 @@ export class PromptDispatch {
     return { ...started, sessionId }
   }
 
-  /** Start an isolated automation as a normal headless session. The session id
-   *  resolves at session_init so the UI can attach while `done` continues to
-   *  track the same backend RunHandle through completion. */
-  async startAutomationSession(req: {
+  /** Start an unattended session (an automation run or a webhook action) as a
+   *  normal headless session. The session id resolves at session_init so the UI
+   *  can attach while `done` continues to track the same backend RunHandle
+   *  through completion. */
+  async startUnattendedSession(req: {
     prompt: string
-    automationId: string
-    automationName: string
+    /** The automation that starts it; absent for a webhook action, whose prompt names the webhook. */
+    automation?: { id: string; name: string }
     provider: AgentId
     modelId: string | null
     reasoningEffort: ReasoningEffort
@@ -391,7 +392,7 @@ export class PromptDispatch {
     abortSignal?: AbortSignal
     /** The automation's captured preferences (plans/018 §6); absent means the built-in defaults. */
     executionPreferences?: ExecutionPreferences
-    /** The person the automation runs for (plans/019 decision 4). */
+    /** The person the work runs for (plans/019 decision 4). */
     actor: Actor
   }): Promise<{ sessionId: string; done: Promise<{ output?: string }> }> {
     // No seat, no run: a creator whose seat is not connected fails the run with SEAT_REQUIRED.
@@ -407,7 +408,7 @@ export class PromptDispatch {
       worktreeBaseBranch: null,
       reasoningEffort: req.reasoningEffort,
       fastMode: false,
-      // The automation default.
+      // The default of unattended work.
       permissionMode: 'full-access',
       rateLimitBehavior: 'queue',
       ...unattendedModelInputFor(req.provider, req.modelId, req.executionPreferences),
@@ -432,14 +433,10 @@ export class PromptDispatch {
         solusToolbox.tasks,
         solusToolbox.config,
       ),
-      options: {
-        prompt: req.prompt,
-        promptSource: 'automation',
-        displayPrompt: req.prompt,
-        via: 'automation',
-        automationId: req.automationId,
-        automationName: req.automationName,
-      },
+      // `promptSource: 'automation'` is the source of every unattended prompt: it waits out a rate limit and a pending update the same way.
+      options: req.automation
+        ? { prompt: req.prompt, promptSource: 'automation', displayPrompt: req.prompt, via: 'automation', automationId: req.automation.id, automationName: req.automation.name }
+        : { prompt: req.prompt, promptSource: 'automation', displayPrompt: req.prompt },
     })
     const cancel = () => lifecycle.cancel()
     if (req.abortSignal) {
