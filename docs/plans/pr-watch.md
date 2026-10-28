@@ -123,9 +123,15 @@ belongs to a session, not to a task.
     characters with HTML comments removed. It ends with what to do and how to
     stop the watch. Every client draws the wake as a host notice row
     (`HostNoticeRow`, shared with the background command wake), not a prompt
-    bubble: an eye, the words "Pull request watch", and the news in a few
-    words ("#42 · checks failed, new comments"); the full text opens from the
-    row. The glyph is red only when the news needs the agent. A client
+    bubble: an eye, the words "Pull request watch", the pull request number,
+    and each piece of news as an icon with a count ("#42 ⊗ 3 💬 2"). The
+    icon's colour gives the state: red for failing, a conflict or a close;
+    green for passing; amber for no checks yet; violet for comments; muted
+    for a stopped watch. While the row is folded, a hover or keyboard focus
+    shows a one-line tooltip with the news in words ("Pull request #42: 3
+    checks failed, 2 new comments"). A touch has no hover: a tap opens the full
+    text. A screen reader hears the news in words ("3 checks failed, 2 new
+    comments"). The full text opens from the row. The glyph is red only when the news needs the agent. A client
     knows a wake by its first line (`client-core/pull-request-watch-wake.ts`),
     because a history row keeps no origin; a test runs the host's template
     through that reader so the two cannot drift.

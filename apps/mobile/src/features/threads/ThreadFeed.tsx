@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type ReactNode,
   type RefObject,
 } from "react";
 import {
@@ -29,6 +30,7 @@ import Animated, { FadeIn, type SharedValue } from "react-native-reanimated";
 
 import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
+import { PullRequestWatchMarks } from "./PullRequestWatchMarks";
 import { CopyTextButton } from "../../components/CopyTextButton";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import {
@@ -69,7 +71,11 @@ import { ThreadTurnImages } from "./ThreadTurnImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import { ThreadMcpApp } from "./ThreadMcpApp";
-import { pullRequestWatchWake, pullRequestWatchWakeSummary } from "@solus/client-core/pull-request-watch-wake";
+import {
+  pullRequestWatchWake,
+  pullRequestWatchWakeMarks,
+  pullRequestWatchWakeSummary,
+} from "@solus/client-core/pull-request-watch-wake";
 import { backgroundCommandWake, backgroundCommandWakeSummary } from "@solus/client-core/background-command-wake";
 import { TerminalOutput } from "../../components/TerminalOutput";
 import { useSearchMessageJump } from "./use-search-message-jump";
@@ -179,6 +185,9 @@ const AssistantMessageRow = memo(function AssistantMessageRow(props: {
 function HostNoticeRow(props: {
   readonly label: string;
   readonly summary: string;
+  /** Drawn in place of the summary while the row is folded: the news as
+   *  icons. The accessibility label keeps the summary in words. */
+  readonly marks?: ReactNode;
   readonly attention: boolean;
   readonly icon: AppSymbolName;
   readonly text: string;
@@ -211,7 +220,9 @@ function HostNoticeRow(props: {
               />
             </WorkLogIconSlot>
             <Text className="shrink-0 text-sm text-foreground-muted">{props.label}</Text>
-            {expanded || !props.summary ? null : (
+            {expanded || !props.summary ? null : props.marks ? (
+              props.marks
+            ) : (
               <Text className="min-w-0 flex-1 text-sm text-foreground-muted opacity-70" numberOfLines={1}>
                 {props.summary}
               </Text>
@@ -252,6 +263,7 @@ const UserTurnRow = memo(function UserTurnRow(props: ComponentProps<typeof UserM
       <HostNoticeRow
         label="Pull request watch"
         summary={`#${watch.number}${words ? ` · ${words}` : ""}`}
+        marks={<PullRequestWatchMarks wake={watch} marks={pullRequestWatchWakeMarks(watch)} />}
         attention={watch.attention}
         icon="eye"
         text={item.text}
