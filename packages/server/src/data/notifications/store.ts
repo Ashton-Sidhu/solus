@@ -101,6 +101,7 @@ function resourceKeyOf(resource: NotificationResource): string {
   switch (resource.kind) {
     case 'work': return `work:${resource.workId}`
     case 'task': return `task:${resource.taskId}`
+    case 'session': return `session:${resource.sessionId}`
     case 'pr': return `pr:${prKey(resource.pr)}`
     case 'automation': return `automation:${resource.automationId}`
     case 'review_job': return `review_job:${resource.job}:${prKey(resource.pr)}`

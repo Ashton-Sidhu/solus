@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { EMPTY_SESSION_VIEW, type SessionView } from '@solus/contracts/session-state'
 import type { SessionRecord, SessionStatus } from '@solus/contracts/types'
-import { THREAD_UNDO_NOTICE_MS, ThreadUndoNotices } from '../../apps/mobile/src/features/home/thread-undo-notice'
+import { THREAD_UNDO_NOTICE_MS, ThreadUndoNotices, undoNotice } from '../../apps/mobile/src/features/home/thread-undo-notice'
 import { threadKey, type SolusThreadShell } from '../../apps/mobile/src/features/threads/thread-directory'
 import { ThreadListState, type ThreadListConnection } from '../../apps/mobile/src/features/threads/thread-list-state'
 import {
@@ -135,20 +135,20 @@ describe('thread list Undo (pingdotgg/t3code#21401)', () => {
     // WHY: a double press must not un-settle twice or fight a later action.
     const notices = new ThreadUndoNotices()
     let undone = 0
-    notices.show({ action: 'Settled', threadKey: 'a', undo: () => { undone += 1 } })
-    notices.undo()
-    notices.undo()
+    notices.show(undoNotice('Settled', 'a', () => { undone += 1 }))
+    notices.act()
+    notices.act()
     expect(undone).toBe(1)
     expect(notices.current()).toBeNull()
   })
 
   test('Undo is offered for five seconds, and a newer action takes the slot', () => {
     const notices = new ThreadUndoNotices()
-    notices.show({ action: 'Settled', threadKey: 'a', undo: () => {} })
+    notices.show(undoNotice('Settled', 'a', () => {}))
     jest.advanceTimersByTime(THREAD_UNDO_NOTICE_MS - 1_000)
-    notices.show({ action: 'Archived', threadKey: 'b', undo: () => {} })
+    notices.show(undoNotice('Archived', 'b', () => {}))
     jest.advanceTimersByTime(THREAD_UNDO_NOTICE_MS - 1)
-    expect(notices.current()?.action).toBe('Archived')
+    expect(notices.current()?.message).toBe('Archived thread')
     jest.advanceTimersByTime(1)
     expect(notices.current()).toBeNull()
     expect(jest.getTimerCount()).toBe(0)
@@ -157,7 +157,7 @@ describe('thread list Undo (pingdotgg/t3code#21401)', () => {
   test('a new action on the same thread dismisses its Undo; one on another thread does not', () => {
     // WHY: after a snooze then a wake from the row, Undo would snooze it again.
     const notices = new ThreadUndoNotices()
-    notices.show({ action: 'Snoozed', threadKey: 'a', undo: () => {} })
+    notices.show(undoNotice('Snoozed', 'a', () => {}))
     notices.dismiss('b')
     expect(notices.current()?.threadKey).toBe('a')
     notices.dismiss('a')

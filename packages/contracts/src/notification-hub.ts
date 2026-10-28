@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod'
+import { shareRoleSchema } from './sharing'
 import { attributionSchema, type Attribution } from './user'
 
 /** Bumped when a source answers a new shape. A client treats an older source as unsupported, not empty. */
@@ -39,6 +40,7 @@ export type NotificationPr = z.infer<typeof notificationPrSchema>
 export const notificationResourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('work'), workId: z.string().min(1), revisionId: z.number().int().optional() }),
   z.object({ kind: z.literal('task'), taskId: z.string().min(1) }),
+  z.object({ kind: z.literal('session'), sessionId: z.string().min(1) }),
   z.object({ kind: z.literal('pr'), pr: notificationPrSchema }),
   z.object({
     kind: z.literal('automation'),
@@ -72,18 +74,23 @@ export const notificationFactsSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('automation.finished'), status: z.enum(['succeeded', 'failed', 'cancelled']) }),
   z.object({ kind: z.literal('review_job.finished'), status: z.enum(['ready', 'failed']), error: z.string().max(500).optional() }),
   z.object({ kind: z.literal('mention'), threadId: z.string().optional() }),
+  /** Another person's session was shared with the reader, or their role on it went up (docs/plans/shared-with-you.md §4.4). `teamId` names the team share that reached them. */
+  z.object({ kind: z.literal('session.shared'), role: shareRoleSchema, teamId: z.string().optional() }),
+  /** The reader's own share of another person's session was removed. */
+  z.object({ kind: z.literal('session.unshared') }),
 ])
 export type NotificationFacts = z.infer<typeof notificationFactsSchema>
 export type NotificationKind = NotificationFacts['kind']
 
 export const NOTIFICATION_KINDS = [
   'work.review_requested', 'work.review_decided', 'task.assigned', 'pr.assigned', 'pr.review_requested',
-  'automation.finished', 'review_job.finished', 'mention',
+  'automation.finished', 'review_job.finished', 'mention', 'session.shared', 'session.unshared',
 ] as const satisfies readonly NotificationKind[]
 
 /** Kinds a person causes for someone else: their own action never alerts them. */
 export const OTHER_PERSON_KINDS: ReadonlySet<NotificationKind> = new Set([
   'work.review_requested', 'work.review_decided', 'task.assigned', 'pr.assigned', 'pr.review_requested', 'mention',
+  'session.shared', 'session.unshared',
 ])
 
 export const notificationSummarySchema = z.object({

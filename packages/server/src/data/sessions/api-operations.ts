@@ -19,7 +19,7 @@ import { scopeClause } from '../scope'
 import { apiScope, projectIdsForKeys, projectKeyForId, requireResource, requireScope } from '../workspace/context'
 import { pageOf, readCursor, seekClause } from '../workspace/page'
 import { workspaceResourceVisibility } from '../tasks/resource-visibility'
-import { getSessionRecord, readSessionMetadataPage, sessionListedClause, sessionRecordsIndexing, upsertSessionRecord } from './session-records'
+import { getSessionRecord, readSessionMetadataPage, sessionListedClause, sessionRecordsIndexing, upsertSessionRecord, type SessionPageReader } from './session-records'
 import { readApiTranscript } from './api-transcript'
 import { admitSessionRecord, SessionAdmissionConflict, type SessionAdmission } from './session-admissions'
 import { resolveSessionLineageById } from './session-lineage'
@@ -73,27 +73,35 @@ export class SessionApiOperations {
     const projects = await projectIdsForKeys(context, records.flatMap(session => session.projectRemote ? [session.projectRemote] : []))
     const links = records.length ? await readSessionPullRequests(apiScope(context), records.map(session => session.sessionId)) : {}
     const access = await this.shares.accessOf(context.principal, 'session', records.map(session => session.sessionId))
-    return records.map(session => ({
-      id: session.sessionId, home: context.home, organizationId: session.organizationId === 'local' ? null : session.organizationId,
-      ownerKey: session.ownerKey, role: access.get(session.sessionId)?.role ?? 'none', version: String(session.lastActivityAt),
-      createdAt: new Date(session.createdAt).toISOString(), updatedAt: new Date(session.lastActivityAt).toISOString(),
-      provider: session.provider, title: withinNameLimit(session.title), customTitle: withinNameLimit(session.customTitle),
-      projectId: session.projectRemote ? projects.get(session.organizationId)?.get(session.projectRemote) ?? null : null,
-      projectPath: session.projectPath, projectRemote: session.projectRemote, runnerHostId: session.runnerHostId,
-      status: session.status, model: session.model, reasoningEffort: session.reasoningEffort ?? null,
-      parentSessionId: session.parentSessionId, rootSessionId: session.rootSessionId,
-      publication: session.publication, size: session.size,
-      cwd: session.cwd, slug: withinNameLimit(session.slug), isWorktree: session.isWorktree, branch: session.branch, projectRoot: session.projectRoot, delegation: session.delegation,
-      state: session.state ?? null,
-      view: session.view ?? null,
-      listed: session.listed ?? true,
-      pullRequests: links[session.sessionId] ?? [],
-    }))
+    return records.map(session => {
+      const item: WorkspaceSession = {
+        id: session.sessionId, home: context.home, organizationId: session.organizationId === 'local' ? null : session.organizationId,
+        ownerKey: session.ownerKey, role: access.get(session.sessionId)?.role ?? 'none', version: String(session.lastActivityAt),
+        createdAt: new Date(session.createdAt).toISOString(), updatedAt: new Date(session.lastActivityAt).toISOString(),
+        provider: session.provider, title: withinNameLimit(session.title), customTitle: withinNameLimit(session.customTitle),
+        projectId: session.projectRemote ? projects.get(session.organizationId)?.get(session.projectRemote) ?? null : null,
+        projectPath: session.projectPath, projectRemote: session.projectRemote, runnerHostId: session.runnerHostId,
+        status: session.status, model: session.model, reasoningEffort: session.reasoningEffort ?? null,
+        parentSessionId: session.parentSessionId, rootSessionId: session.rootSessionId,
+        publication: session.publication, size: session.size,
+        cwd: session.cwd, slug: withinNameLimit(session.slug), isWorktree: session.isWorktree, branch: session.branch, projectRoot: session.projectRoot, delegation: session.delegation,
+        state: session.state ?? null,
+        view: session.view ?? null,
+        listed: session.listed ?? true,
+        pullRequests: links[session.sessionId] ?? [],
+      }
+      if (session.sharedBy !== undefined && session.grantedAt !== undefined) {
+        item.sharedBy = session.sharedBy
+        item.grantedAt = session.grantedAt
+      }
+      return item
+    })
   }
 
   /** Who reads a page: the caller's person, for their view and list. */
-  private reader(context: WorkspaceRequestContext) {
-    return { personKey: ownerKeyOf(actorFor(context.principal)), now: Date.now() }
+  private reader(context: WorkspaceRequestContext): SessionPageReader {
+    const { principal } = context
+    return { personKey: ownerKeyOf(actorFor(principal)), teamIds: principal.kind === 'org-member' ? principal.teamIds : [], now: Date.now() }
   }
 
   /** One record with the caller's view, or 404. */

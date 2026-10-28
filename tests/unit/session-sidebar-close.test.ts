@@ -90,6 +90,7 @@ describe('session sidebar dismissal', () => {
     Object.assign(store, {
       sessionRows: [],
       workingRows: [],
+      sharedRows: [],
       snoozedTasks: [],
       completedTasks: [],
       activeTasks: [],

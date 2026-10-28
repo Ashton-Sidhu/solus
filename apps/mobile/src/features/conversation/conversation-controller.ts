@@ -51,7 +51,9 @@ import { SessionSuggestionsFeed } from './session-suggestions'
 export type ConversationPhase =
   | { kind: 'loading' }
   | { kind: 'ready' }
-  | { kind: 'error'; message: string }
+  /** `noAccess`: the host refused the reader, who has no role on the session
+   *  (docs/plans/shared-with-you.md §4.5). */
+  | { kind: 'error'; message: string; noAccess?: boolean }
 
 export interface ConversationTarget {
   hostId: string
@@ -299,6 +301,10 @@ export class ConversationController {
     } catch (error) {
       if (generation !== this.loadGeneration) return
       this.held = null
+      if (error instanceof Error && rpcErrorCode(error) === 'FORBIDDEN') {
+        this.setPhase({ kind: 'error', message: error.message, noAccess: true })
+        return
+      }
       this.setPhase({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
     }
   }

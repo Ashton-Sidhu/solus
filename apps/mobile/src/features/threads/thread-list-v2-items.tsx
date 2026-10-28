@@ -28,6 +28,7 @@ import { formatWorkingDuration } from "./floating-working-status";
 import { useThreadListTime, type ThreadListClock } from "./thread-list-clock";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
 import { resolveSnoozePresets, resolveThreadListV2SnoozeMenuSelection, snoozeWakeLabel } from "./thread-snooze";
+import { sharedRoleLabel } from "./shared-with-you";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   isChatSession,
@@ -213,6 +214,15 @@ export const ThreadListV2SettledShelfHeader = memo(function ThreadListV2SettledS
   return <ThreadListV2ShelfHeader {...props} kind="settled" />;
 });
 
+/** Heads the sessions another person shared with this person
+    (docs/plans/shared-with-you.md). */
+export const ThreadListV2SharedSectionHeader = memo(function ThreadListV2SharedSectionHeader(props: {
+  readonly count: number;
+  readonly pane?: "screen" | "sidebar";
+}) {
+  return <ThreadListV2Section label="Shared with you" count={props.count} pane={props.pane} />;
+});
+
 /** Heads the archived threads a search found. They are not in the list. */
 export const ThreadListV2ArchivedSectionHeader = memo(function ThreadListV2ArchivedSectionHeader(props: {
   readonly pane?: "screen" | "sidebar";
@@ -321,6 +331,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const list = useThreadListState();
   const record = thread.record;
   const title = threadTitle(record);
+  // Another person's session: the row names the reader's role on it.
+  const sharedRole = sharedRoleLabel(record);
   const snoozedRow = props.snoozed === true;
   const archivedRow = props.archived === true;
   const dormant = useSwipeRowDormant(props.activationKey);
@@ -678,6 +690,21 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         ) : (
           <View className="flex-1" />
         )}
+        {sharedRole ? (
+          <View className="flex-row items-center gap-1" accessibilityLabel={`Shared with you, ${sharedRole}`}>
+            <SymbolView name="person.2" size={12} tintColorClassName={rowAppearance.mutedIconTintClassName} />
+            <Text
+              className={cn(
+                "text-xs",
+                selected
+                  ? selectedThreadRowColors.mutedForegroundClassName
+                  : rowAppearance.mutedForegroundClassName,
+              )}
+            >
+              {sharedRole}
+            </Text>
+          </View>
+        ) : null}
         {pr ? (
           <View className="flex-row items-center gap-1" accessibilityLabel={pr.accessibilityLabel}>
             <SymbolView
@@ -796,6 +823,19 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               {title}
             </Text>
           </View>
+          {sharedRole ? (
+            <Text
+              accessibilityLabel={`Shared with you, ${sharedRole}`}
+              className={cn(
+                "text-xs",
+                selected
+                  ? selectedThreadRowColors.mutedForegroundClassName
+                  : rowAppearance.tertiaryForegroundClassName,
+              )}
+            >
+              {sharedRole}
+            </Text>
+          ) : null}
           <Text
             className={cn(
               "text-sm tabular-nums",

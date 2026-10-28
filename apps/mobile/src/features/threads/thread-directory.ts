@@ -5,6 +5,7 @@ import type { ProjectEntry, SessionRecord } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 import type { HostRegistry } from '../hosts/host-registry'
+import { ShareArrivals } from './shared-with-you'
 
 /**
  * Every session on every host this device knows, as one list: the Solus side
@@ -83,6 +84,8 @@ export class ThreadDirectory {
    *  (`loadChildren`); the list answers only top-level sessions. */
   private children = new Map<string, SolusThreadShell>()
   private openedSearchResults = new Map<string, SolusThreadShell>()
+  private readonly shareArrivals = new ShareArrivals()
+  private readonly shareListeners = new Set<(threads: readonly SolusThreadShell[]) => void>()
 
   constructor(
     private readonly registry: HostRegistry,
@@ -106,6 +109,13 @@ export class ThreadDirectory {
   unlistedThreads = (): readonly SolusThreadShell[] => this.merged.unlisted
 
   projects = (): readonly SolusProjectShell[] => this.merged.projects
+
+  /** Hears the sessions a read finds newly shared with this person, newest
+   *  grant first (docs/plans/shared-with-you.md §5). */
+  subscribeShares(listener: (threads: readonly SolusThreadShell[]) => void): () => void {
+    this.shareListeners.add(listener)
+    return () => { this.shareListeners.delete(listener) }
+  }
 
   /** A search can find a session beyond the directory's recent pages. */
   rememberSearchResult(thread: SolusThreadShell): void {
@@ -193,6 +203,12 @@ export class ThreadDirectory {
       && connection.state.sessionGeneration === generation
     if (!isCurrent) return
     this.set(hostId, next)
+    if (next.kind === 'loaded') {
+      const threads = next.value.threads
+      const shared = this.shareArrivals.take(hostId, threads.map((thread) => thread.record))
+        .map((record) => threads.find((thread) => thread.record === record)!)
+      if (shared.length > 0) for (const listener of Array.from(this.shareListeners)) listener(shared)
+    }
     if (retryAfterMs !== null) this.retries.set(hostId, setTimeout(() => void this.load(hostId, attempt + 1), retryAfterMs))
   }
 
@@ -221,6 +237,7 @@ export class ThreadDirectory {
     clearTimeout(this.retries.get(hostId))
     this.retries.delete(hostId)
     this.hosts.delete(hostId)
+    this.shareArrivals.forget(hostId)
     this.children = new Map([...this.children].filter(([, child]) => child.hostId !== hostId))
     this.openedSearchResults = new Map([...this.openedSearchResults].filter(([, thread]) => thread.hostId !== hostId))
     this.remerge()

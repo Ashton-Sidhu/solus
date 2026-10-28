@@ -12,6 +12,7 @@ import {
 import { worktreeProjectRoot, type SessionRecord, type SessionStatus } from "@solus/contracts/types";
 
 import { relativeTime } from "../../lib/time";
+import { isSharedWithReader } from "./shared-with-you";
 import type { SolusThreadShell } from "./thread-directory";
 import { effectiveSnoozed } from "./thread-snooze";
 
@@ -311,6 +312,10 @@ export interface ThreadListV2Layout {
   /** Index in `items` where the Snoozed shelf header belongs. The header is
       still rendered when the shelf is collapsed and no snoozed rows exist. */
   readonly snoozedShelfHeaderIndex: number | null;
+  /** Threads another person owns that are in this person's list. */
+  readonly sharedCount: number;
+  /** Index in `items` where the Shared with you header belongs. */
+  readonly sharedHeaderIndex: number | null;
   /** Total settled threads in scope, including rows hidden by collapse/paging. */
   readonly settledCount: number;
   /** Index in `items` where the Settled shelf header belongs. */
@@ -366,6 +371,12 @@ export interface ThreadListV2SettledShelfListItem {
   readonly disabled: boolean;
 }
 
+export interface ThreadListV2SharedSectionListItem {
+  readonly type: "v2-shared-section";
+  readonly key: "v2-shared-section";
+  readonly count: number;
+}
+
 export interface ThreadListV2ArchivedSectionListItem {
   readonly type: "v2-archived-section";
   readonly key: "v2-archived-section";
@@ -374,6 +385,7 @@ export interface ThreadListV2ArchivedSectionListItem {
 
 export type ThreadListV2ListItem =
   | ThreadListV2ThreadListItem
+  | ThreadListV2SharedSectionListItem
   | ThreadListV2SnoozedShelfListItem
   | ThreadListV2SettledShelfListItem
   | ThreadListV2ArchivedSectionListItem;
@@ -385,6 +397,7 @@ export function isThreadListV2ListItem(value: {
 }): value is ThreadListV2ListItem {
   return (
     value.type === "v2-thread" ||
+    value.type === "v2-shared-section" ||
     value.type === "v2-snoozed-shelf" ||
     value.type === "v2-settled-shelf" ||
     value.type === "v2-archived-section"
@@ -411,6 +424,7 @@ function sameThreadRow(previousItem: ThreadListV2ThreadListItem, nextItem: Threa
     a.provider === b.provider &&
     a.projectPath === b.projectPath &&
     a.projectRoot === b.projectRoot &&
+    a.role === b.role &&
     a.lastActivityAt === b.lastActivityAt
   );
 }
@@ -454,6 +468,8 @@ export function threadListV2ListItemsAreEqual(
         previous.snoozable === item.snoozable &&
         previous.showTrailingDivider === item.showTrailingDivider
       );
+    case "v2-shared-section":
+      return previous.type === "v2-shared-section" && previous.count === item.count;
     case "v2-snoozed-shelf":
       return (
         previous.type === "v2-snoozed-shelf" &&
@@ -520,14 +536,16 @@ function isListed(thread: SolusThreadShell, view: SessionView, facts: ThreadList
 }
 
 /**
- * Builds the shared mobile order: active → snoozed shelf → settled →
- * archived search results. Parked
+ * Builds the shared mobile order: active → Shared with you → snoozed shelf →
+ * settled → archived search results. Parked
  * work remains reachable without competing with either the inbox or settled
  * history.
  */
 export function buildThreadListV2ListItems(input: {
   readonly items: ReadonlyArray<ThreadListV2Item>;
   readonly facts: ThreadListV2Facts;
+  readonly sharedCount?: number;
+  readonly sharedHeaderIndex?: number | null;
   readonly snoozedCount?: number;
   readonly snoozedShelfExpanded?: boolean;
   readonly snoozedShelfHeaderIndex?: number | null;
@@ -560,6 +578,8 @@ export function buildThreadListV2ListItems(input: {
       showTrailingDivider: false,
     };
   });
+  const sharedCount = input.sharedCount ?? 0;
+  const sharedHeaderIndex = input.sharedHeaderIndex ?? null;
   const snoozedCount = input.snoozedCount ?? 0;
   const snoozedShelfHeaderIndex = input.snoozedShelfHeaderIndex ?? null;
   const settledCount = input.settledCount ?? 0;
@@ -567,10 +587,15 @@ export function buildThreadListV2ListItems(input: {
   const archivedCount = input.archivedCount ?? 0;
   const archivedHeaderIndex = input.archivedHeaderIndex ?? null;
   const settledEnd = archivedHeaderIndex ?? threadItems.length;
-  const activeEnd = snoozedShelfHeaderIndex ?? settledShelfHeaderIndex ?? settledEnd;
+  const sharedEnd = snoozedShelfHeaderIndex ?? settledShelfHeaderIndex ?? settledEnd;
+  const activeEnd = sharedHeaderIndex ?? sharedEnd;
   const snoozedEnd = settledShelfHeaderIndex ?? settledEnd;
   const result: ThreadListV2ListItem[] = threadItems.slice(0, activeEnd);
   const shelfDisabled = input.shelfPreferencesLoading === true;
+  if (sharedHeaderIndex !== null && sharedCount > 0) {
+    result.push({ type: "v2-shared-section", key: "v2-shared-section", count: sharedCount });
+    result.push(...threadItems.slice(sharedHeaderIndex, sharedEnd));
+  }
   if (snoozedShelfHeaderIndex !== null && snoozedCount > 0) {
     result.push({
       type: "v2-snoozed-shelf",
@@ -651,9 +676,12 @@ function matchesSearch(
 }
 
 /**
- * Partitions visible threads into the active card block and the snoozed and
- * settled shelves. Active threads keep creation order, newest first, so a
- * working thread never jumps; settled threads read newest settle first. A
+ * Partitions visible threads into the active card block, Shared with you, and
+ * the snoozed and settled shelves. Active threads keep creation order, newest
+ * first, so a working thread never jumps; settled threads read newest settle
+ * first. A thread another person owns is in Shared with you and in no other
+ * group, newest grant first (docs/plans/shared-with-you.md §2 rule 1); its row
+ * still shows whether it is snoozed or settled. A
  * thread out of this person's list does not show. While the person searches,
  * the ones they archived that match follow the shelves, newest activity
  * first; an idle one that matches shows on its shelf like a listed one.
@@ -686,6 +714,7 @@ export function buildThreadListV2Items(input: {
   const knownProjectKeys = input.knownProjectKeys ?? new Set<string>();
 
   const active: SolusThreadShell[] = [];
+  const shared: SolusThreadShell[] = [];
   const settled: SolusThreadShell[] = [];
   const snoozed: SolusThreadShell[] = [];
   const archived: SolusThreadShell[] = [];
@@ -713,10 +742,16 @@ export function buildThreadListV2Items(input: {
     }
     if (!isListed(thread, view, input.facts) && !isFound) continue;
     // Snooze outranks settlement until the thread wakes.
-    if (effectiveSnoozed(view, now)) {
+    const isSnoozed = effectiveSnoozed(view, now);
+    if (isSnoozed && (nextSnoozeWakeAt === null || view.snoozedUntil! < nextSnoozeWakeAt)) {
+      nextSnoozeWakeAt = view.snoozedUntil!;
+    }
+    if (isSharedWithReader(thread.record)) {
+      shared.push(thread);
+      continue;
+    }
+    if (isSnoozed) {
       snoozed.push(thread);
-      const wakeAt = view.snoozedUntil!;
-      if (nextSnoozeWakeAt === null || wakeAt < nextSnoozeWakeAt) nextSnoozeWakeAt = wakeAt;
       continue;
     }
     if (threadState(thread, input.facts).settledAt !== null) {
@@ -757,6 +792,19 @@ export function buildThreadListV2Items(input: {
     const wokeAt = threadWokeAt(threadView(thread, input.facts), now);
     items.push({ thread, variant: "card", snoozed: false, wokeAt, isLast: false });
   }
+  const sharedHeaderIndex = shared.length > 0 ? items.length : null;
+  const grantTime = (thread: SolusThreadShell) => thread.record.grantedAt ?? thread.record.lastActivityAt;
+  shared.sort((left, right) => grantTime(right) - grantTime(left));
+  for (const thread of shared) {
+    const view = threadView(thread, input.facts);
+    if (effectiveSnoozed(view, now)) {
+      items.push({ thread, variant: "slim", snoozed: true, isLast: false });
+    } else if (threadState(thread, input.facts).settledAt !== null) {
+      items.push({ thread, variant: "slim", snoozed: false, isLast: false });
+    } else {
+      items.push({ thread, variant: "card", snoozed: false, wokeAt: threadWokeAt(view, now), isLast: false });
+    }
+  }
   const snoozedShelfHeaderIndex = orderedSnoozed.length > 0 ? items.length : null;
   for (const thread of visibleSnoozed) {
     items.push({ thread, variant: "slim", snoozed: true, isLast: false });
@@ -777,6 +825,8 @@ export function buildThreadListV2Items(input: {
   return {
     items,
     hiddenSettledCount: orderedSettled.length - pagedSettled.length,
+    sharedCount: shared.length,
+    sharedHeaderIndex,
     snoozedCount: orderedSnoozed.length,
     snoozedShelfHeaderIndex,
     settledCount: orderedSettled.length,

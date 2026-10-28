@@ -11,7 +11,8 @@ import type { NotificationReader } from './store'
  * and the host itself have no personal hub. `mayOpenShared` is the caller's
  * current access to a work or a task; every row is checked with it before a page
  * or a count is cut. Pull requests, automations, and review jobs are host-wide
- * records: the read's organization scope is their access rule.
+ * records: the read's organization scope is their access rule. A removed share of a
+ * session is shown without the check: it is about losing access.
  */
 export function notificationReaderFor(
   principal: Principal,
@@ -24,6 +25,8 @@ export function notificationReaderFor(
   return {
     actor,
     mayOpen: (notification: HubNotification) => {
+      // A removed share tells the reader about a session they can no longer open.
+      if (notification.facts.kind === 'session.unshared') return Promise.resolve(true)
       const resource = sharedResourceOf(notification.resource)
       if (!resource) return Promise.resolve(true)
       const key = `${resource.kind}:${resource.id}`
@@ -41,5 +44,6 @@ export function notificationReaderFor(
 function sharedResourceOf(resource: NotificationResource): ShareResource | null {
   if (resource.kind === 'work') return { kind: 'work', id: resource.workId }
   if (resource.kind === 'task') return { kind: 'task', id: resource.taskId }
+  if (resource.kind === 'session') return { kind: 'session', id: resource.sessionId }
   return null
 }

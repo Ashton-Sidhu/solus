@@ -45,17 +45,25 @@ export function NotificationsScreen({ navigation }: ScreenProps<'Notifications'>
   const open = (row: HubRow) => {
     const key = hubRowKey(row.sourceId, row.notification.id)
     if (row.notification.readAt === null && app.notifications.canChange(key)) void app.notifications.setRead(key, true)
-    const destination = nativeDestination(row.notification.resource)
+    const destination = nativeDestination(row.notification)
+    if (destination.kind === 'none') return
     if (destination.kind === 'unsupported') {
       Alert.alert(row.notification.summary.title, destination.message)
       return
     }
-    void openPullRequest(row, destination.pr)
+    if (destination.kind === 'pull-request') {
+      void openPullRequest(row, destination.pr)
+      return
+    }
+    // The session is on the host that sent the notification; that host checks access when it opens.
+    const hostId = hostIdOf(row)
+    if (hostId) navigation.navigate('Thread', { hostId, sessionId: destination.sessionId })
+    else Alert.alert(row.notification.summary.title, 'Open this session in Solus on your computer or on the web.')
   }
 
   // The host that sent the notification is asked first, then every other host.
   const openPullRequest = async (row: HubRow, pr: NotificationPr) => {
-    const sourceHostId = row.sourceId.startsWith('host:') ? row.sourceId.slice('host:'.length) : null
+    const sourceHostId = hostIdOf(row)
     const hostIds = app.registry.hosts().map((host) => host.id).sort((a, b) => Number(b === sourceHostId) - Number(a === sourceHostId))
     const found = await app.pullRequests.locate(pr, hostIds)
     if (found) {
@@ -177,6 +185,11 @@ export function NotificationsScreen({ navigation }: ScreenProps<'Notifications'>
       }
     />
   )
+}
+
+/** The host a host source names; null for a source that is not a host. */
+function hostIdOf(row: HubRow): string | null {
+  return row.sourceId.startsWith('host:') ? row.sourceId.slice('host:'.length) : null
 }
 
 /** T3 Code's swipe action, shown in the row as a small circle. */

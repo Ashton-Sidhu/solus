@@ -2536,6 +2536,9 @@ export interface SessionMeta {
   /** The session is out of the person's list (docs/plans/session-archive.md).
    *  The session picker still lists it, with a mark. */
   archived?: boolean
+  /** Another person owns the session and the reader has a role on it
+   *  (docs/plans/shared-with-you.md). The session picker marks it "Shared". */
+  shared?: boolean
 }
 
 export interface SessionDelegation {
@@ -2619,6 +2622,10 @@ export interface SessionRecord {
   pullRequests?: SessionPullRequestLink[]
   /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
   role?: ResourceRole
+  /** Who shared another person's session with the reader directly — a person or team share — as a person key; absent otherwise (docs/plans/shared-with-you.md). */
+  sharedBy?: string
+  /** When that share last gave the reader access or a higher role, in ms. */
+  grantedAt?: number
 }
 
 /** `SessionDelegation` less the two ids the record already carries. */
@@ -2626,7 +2633,7 @@ export type SessionRecordDelegation = Omit<SessionDelegation, 'parentSessionId' 
 
 /** `sessionRecordUpsert`: a field left out keeps the stored value; `lastActivityAt`
  *  is always the caller's. The organization is the caller's, never an argument. */
-export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'ownerKey' | 'state' | 'view' | 'listed' | 'pullRequests' | 'role'>> {
+export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'ownerKey' | 'state' | 'view' | 'listed' | 'pullRequests' | 'role' | 'sharedBy' | 'grantedAt'>> {
   sessionId: string
   provider: AgentId
   projectPath: string

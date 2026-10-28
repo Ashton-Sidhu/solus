@@ -431,6 +431,10 @@ export const workspaceSessionSchema = z.strictObject({
   view: workspaceSessionViewSchema.nullable(),
   /** Whether the session is in the caller's list (docs/plans/session-archive.md). */
   listed: z.boolean(),
+  /** Who shared another person's session with the caller directly (a person or team share), as a person key. Absent otherwise (docs/plans/shared-with-you.md). */
+  sharedBy: workspaceIdSchema.optional(),
+  /** When that share last gave the caller access or a higher role, in ms. */
+  grantedAt: z.number().int().min(0).optional(),
   /** The pull requests the session works on. */
   pullRequests: z.array(workspaceSessionPullRequestSchema).max(500),
 }).meta({ description: 'Storage and organization do not grant visibility. Explicit sharing or a verified parent relationship may grant access. `updatedAt` is the last activity.', examples: [{ id: 'session_example', home: { kind: 'organization', serviceId: 'api_example', organizationId: 'org_example' }, organizationId: 'org_example', ownerKey: 'user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', provider: 'codex', title: 'Review the API', customTitle: null, projectId: 'project_example', projectPath: 'project-example', projectRemote: null, runnerHostId: 'host_example', status: 'idle', model: null, reasoningEffort: null, parentSessionId: null, rootSessionId: null, publication: 'published', size: 0, cwd: '/home/example/project', slug: null, isWorktree: false, branch: 'main', projectRoot: '/home/example/project', delegation: null, state: null, view: null, listed: true, pullRequests: [] }] })

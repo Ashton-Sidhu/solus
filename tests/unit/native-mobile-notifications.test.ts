@@ -117,6 +117,6 @@ describe('native notifications hub', () => {
   })
 
   test('a resource the app has no screen for says where it opens', () => {
-    expect(nativeDestination({ kind: 'task', taskId: 't' })).toEqual({ kind: 'unsupported', message: 'This app does not show tasks yet. Open it in Solus on your computer or on the web.' })
+    expect(nativeDestination({ resource: { kind: 'task', taskId: 't' }, facts: { kind: 'task.assigned' } })).toEqual({ kind: 'unsupported', message: 'This app does not show tasks yet. Open it in Solus on your computer or on the web.' })
   })
 })

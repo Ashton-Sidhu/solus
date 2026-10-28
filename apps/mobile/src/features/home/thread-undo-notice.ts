@@ -5,10 +5,19 @@ import { Listeners } from "../../lib/listeners";
 export type ThreadUndoAction = "Settled" | "Snoozed" | "Archived";
 
 export interface ThreadUndoNotice {
-  readonly action: ThreadUndoAction;
+  /** What the notice says: "Settled thread", or a new share. */
+  readonly message: string;
+  /** Its one action: Undo after a list action, Open after a share. */
+  readonly actionLabel: "Undo" | "Open";
   readonly threadKey: string;
-  /** The inverse command: un-settle, wake, or return to the list. */
-  readonly undo: () => void;
+  /** The inverse command (un-settle, wake, or return to the list), or
+   *  opening the shared thread. */
+  readonly act: () => void;
+}
+
+/** The notice after a settle, snooze, or archive. */
+export function undoNotice(action: ThreadUndoAction, threadKey: string, undo: () => void): ThreadUndoNotice {
+  return { message: `${action} thread`, actionLabel: "Undo", threadKey, act: undo };
 }
 
 /** How long Undo is offered (pingdotgg/t3code#21401). */
@@ -17,7 +26,8 @@ export const THREAD_UNDO_NOTICE_MS = 5_000;
 /**
  * The one Undo the thread lists offer, after a settle, snooze, or archive
  * succeeds on the host, as desktop and web offer Undo after a snooze or an
- * archive. A newer action replaces it. A new action on the same thread
+ * archive. A new share takes the same slot with Open
+ * (docs/plans/shared-with-you.md §6). A newer action replaces it. A new action on the same thread
  * dismisses it: its Undo would act against that action. One store serves Home
  * and the navigation sidebar, so an action in one dismisses the other's notice.
  */
@@ -46,12 +56,12 @@ export class ThreadUndoNotices {
     this.changes.notify();
   }
 
-  /** Runs the shown notice's Undo once: a second press finds no notice. */
-  undo(): void {
+  /** Runs the shown notice's action once: a second press finds no notice. */
+  act(): void {
     const notice = this.notice;
     if (notice === null) return;
     this.dismiss();
-    notice.undo();
+    notice.act();
   }
 
   private clearExpiry(): void {

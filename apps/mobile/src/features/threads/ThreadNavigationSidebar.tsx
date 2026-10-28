@@ -43,6 +43,7 @@ import {
   ThreadListV2ArchivedSectionHeader,
   ThreadListV2Row,
   ThreadListV2SettledShelfHeader,
+  ThreadListV2SharedSectionHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
 } from "./thread-list-v2-items";
@@ -298,6 +299,8 @@ function ThreadNavigationSidebarPane(
     const items: SidebarListItem[] = buildThreadListV2ListItems({
       items: threadListV2Layout.items,
       facts,
+      sharedCount: threadListV2Layout.sharedCount,
+      sharedHeaderIndex: threadListV2Layout.sharedHeaderIndex,
       snoozedCount: threadListV2Layout.snoozedCount,
       snoozedShelfExpanded,
       snoozedShelfHeaderIndex: threadListV2Layout.snoozedShelfHeaderIndex,
@@ -542,6 +545,8 @@ function ThreadNavigationSidebarPane(
               pane="sidebar"
             />
           );
+        case "v2-shared-section":
+          return <ThreadListV2SharedSectionHeader count={item.count} pane="sidebar" />;
         case "v2-archived-section":
           return <ThreadListV2ArchivedSectionHeader pane="sidebar" />;
         case "v2-show-more":

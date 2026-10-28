@@ -56,6 +56,11 @@
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import { nextTaskAfterLeaving } from "../../contexts/workspace/session-sidebar-selection";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
+  import { sharesStore } from "../../contexts/sharing/shares.store.svelte";
+  import { sessionListStore } from "../../contexts/workspace/session-list.store.svelte";
+  import { shareToast } from "../../contexts/workspace/shared-sessions";
+  import { noticeUnopenableSession } from "../../contexts/sharing/unopenable-session";
+  import { memberByKey } from "../users/lib/organization-people";
   import {
     filterSidebarTasks,
     prChipForChoices,
@@ -120,6 +125,8 @@
         y: number;
       }
     | { kind: "pinned"; pin: PinnedSession; x: number; y: number }
+    /** A shared session in the list with no conversation open here. */
+    | { kind: "listed"; row: SidebarTask; x: number; y: number }
     | {
         kind: "pull-request";
         row: SidebarTask;
@@ -147,13 +154,16 @@
     requestInputFocus();
   }
   let savedSessionsOpen = $state(false);
+  /** Open by default, and opened again when a new share arrives. */
+  let sharedSectionOpen = $state(true);
   /** Closed by default: busy rows stay out of the way until they need you. */
   let workingSectionOpen = $state(false);
   let snoozedShelfOpen = $state(false);
   let completedShelfOpen = $state(false);
 
   function toggleSection(section: SidebarSection) {
-    if (section === "working") workingSectionOpen = !workingSectionOpen;
+    if (section === "shared") sharedSectionOpen = !sharedSectionOpen;
+    else if (section === "working") workingSectionOpen = !workingSectionOpen;
     else if (section === "snoozed") snoozedShelfOpen = !snoozedShelfOpen;
     else completedShelfOpen = !completedShelfOpen;
   }
@@ -172,12 +182,16 @@
   const searchedSessionRows = $derived(
     filterSidebarTasks(sidebarStore.sessionRows, taskQuery),
   );
+  const searchedSharedRows = $derived(
+    filterSidebarTasks(sidebarStore.sharedRows, taskQuery),
+  );
   const searchedWorkingRows = $derived(
     filterSidebarTasks(sidebarStore.workingRows, taskQuery),
   );
-  /** Every open row in list order: sessions, then working rows. Selection
-   *  ranges, bulk actions and "the next row" all read this one order. */
-  const openRows = $derived([...searchedSessionRows, ...searchedWorkingRows]);
+  /** Every open row in list order: sessions, shared, then working rows.
+   *  Selection ranges, bulk actions and "the next row" all read this one
+   *  order. */
+  const openRows = $derived([...searchedSessionRows, ...searchedSharedRows, ...searchedWorkingRows]);
   const isSearching = $derived(taskQuery.trim().length > 0);
   const searchedSnoozedTasks = $derived(
     filterSidebarTasks(sidebarStore.snoozedTasks, taskQuery),
@@ -205,9 +219,11 @@
     buildSidebarListItems({
       drafts: sidebarStore.draftRows,
       sessions: searchedSessionRows,
+      shared: searchedSharedRows,
       working: searchedWorkingRows,
       snoozed: searchedSnoozedTasks,
       completed: searchedCompletedTasks,
+      isSharedOpen: sharedSectionOpen || isSearching,
       isWorkingOpen: workingSectionOpen || isSearching,
       isSnoozedOpen: snoozedShelfOpen,
       isCompletedOpen: isCompletedShelfExpanded,
@@ -242,6 +258,43 @@
       sidebarNow = Date.now();
     }, SIDEBAR_COMPLETED_RETENTION_CHECK_MS);
     return () => window.clearInterval(clock);
+  });
+
+  /** The owner's name, as the organization's directory has it. */
+  function personName(personKey: string | null): string | null {
+    return personKey ? (memberByKey(sharesStore.directory, personKey)?.displayName ?? null) : null;
+  }
+
+  // A direct share opens Shared with you and says who shared what. The toast
+  // takes no focus: the composer keeps the caret (docs/plans/shared-with-you.md §5).
+  onMount(() =>
+    sessionListStore.onNewShares((granted) => {
+      sharedSectionOpen = true;
+      for (const listed of granted) {
+        if (!listed.share) continue;
+        const { message, description } = shareToast(personName(listed.share.sharedBy), listed.title, listed.share.role);
+        toasts.info(message, {
+          description,
+          action: {
+            label: "Open",
+            onAction: () => {
+              void session.revealSession(listed.sessionId, listed.serverId).then((tabId) => {
+                if (tabId === null) noticeUnopenableSession(listed.serverId, listed.sessionId);
+                requestInputFocus();
+              });
+            },
+          },
+        });
+      }
+    }),
+  );
+
+  // Names on shared rows come from the organization's directory: read it once
+  // there is a shared row to name.
+  $effect(() => {
+    if (sidebarStore.sharedRows.length > 0 && !sharesStore.directoryLoaded) {
+      untrack(() => void sharesStore.loadDirectory().catch(() => {}));
+    }
   });
 
   /** Scoping the column produces a different list, so an offset into the old
@@ -661,8 +714,16 @@
     event: MouseEvent | PointerEvent,
     task: SidebarTask,
   ) {
-    // A session with no conversation here has its actions on the row.
-    if (!task.tabIds[0]) return;
+    // A session with no conversation here has its actions on the row; a
+    // shared one also archives from the menu.
+    if (!task.tabIds[0]) {
+      if (task.share && task.sessionId) {
+        event.preventDefault();
+        event.stopPropagation();
+        sessionContextMenu = { kind: "listed", row: task, x: event.clientX, y: event.clientY };
+      }
+      return;
+    }
     openSessionContextMenu(event, { kind: "tab", tabId: task.tabIds[0] });
   }
 
@@ -700,6 +761,7 @@
   {@const prChoices = sidebarStore.prChoicesFor(task)}
   <TaskRow
     {task}
+    shareOwner={task.share ? (memberByKey(sharesStore.directory, task.share.ownerKey) ?? null) : null}
     prChip={prChipForChoices(prChoices)}
     {prChoices}
     onPath={sidebarStore.onScreenRowId === task.id}
@@ -1121,7 +1183,11 @@
                 aria-expanded={item.isOpen}
                 onclick={() => toggleSection(item.section)}
               >
-                {item.section === "working" ? "Working" : "Completed"}
+                {item.section === "shared"
+                  ? "Shared with you"
+                  : item.section === "working"
+                    ? "Working"
+                    : "Completed"}
                 <span
                   class="h-px min-w-4 flex-1 bg-sidebar-border/50"
                   aria-hidden="true"
@@ -1148,6 +1214,7 @@
             <div
               class="-mx-2 px-2 [content-visibility:auto] [overflow-clip-margin:0.5rem] {item.section ===
                 'sessions' ||
+              item.section === 'shared' ||
               item.section === 'working'
                 ? '[contain-intrinsic-size:auto_62px]'
                 : '[contain-intrinsic-size:auto_36px]'} {item.section ===
@@ -1321,13 +1388,27 @@
                 )
             : undefined,
         onArchive:
-          sessionRow && sidebarStore.canShelve(sessionRow)
+          sessionRow && sidebarStore.canArchive(sessionRow)
             ? () => removeTask(sessionRow)
             : undefined,
       }}
       onCloseTab={closeSession}
       closeTabLabel="Close Tab"
       closeTabIsDestructive={false}
+      onClose={closeSessionContextMenu}
+    />
+  {:else if sessionContextMenu.kind === "listed"}
+    {@const listedRow = sessionContextMenu.row}
+    <SessionContextMenu
+      x={sessionContextMenu.x}
+      y={sessionContextMenu.y}
+      sessionId={listedRow.sessionId}
+      serverId={listedRow.serverId}
+      rowActions={{
+        onArchive: sidebarStore.canArchive(listedRow)
+          ? () => removeTask(listedRow)
+          : undefined,
+      }}
       onClose={closeSessionContextMenu}
     />
   {:else if sessionContextMenu.kind === "pull-request"}
