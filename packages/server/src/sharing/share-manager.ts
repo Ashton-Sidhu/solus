@@ -41,6 +41,7 @@ import { workspaceProjects } from '../projects/schema'
 import { notifications } from '../data/notifications/schema'
 import { recordNotification } from '../data/notifications/store'
 import { hostAttribution } from '../data/stored-attribution'
+import { webhooks } from '../data/webhooks/schema'
 import type { SharesMirrorPayload } from '../sync/runner-protocol'
 
 const log = createLogger('main', 'share-manager')
@@ -505,6 +506,10 @@ export class ShareManager {
     switch (resource.kind) {
       case 'automation':
         return automationHomeOf(resource.id)
+      case 'webhook': {
+        const row = homeRowSchema.nullish().parse(await this.deps.db.get(sql`SELECT owner_key, organization_id FROM ${webhooks} WHERE id = ${resource.id}`))
+        return row ? { ownerKey: row.owner_key, organizationId: row.organization_id } : null
+      }
       case 'project':
       case 'notification': {
         const row = homeRowSchema.nullish().parse(await this.deps.db.get(resource.kind === 'project'

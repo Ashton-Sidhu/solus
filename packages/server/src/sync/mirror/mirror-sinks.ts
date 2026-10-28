@@ -95,7 +95,7 @@ async function applyInsights(origin: MirrorOrigin, payload: InsightsMirrorPayloa
 }
 
 /** Lands one mirrored item in its organization. Throws `PermanentApplyError` for a payload the domain's schema refuses. */
-export async function applyMirrorItem(origin: MirrorOrigin, item: { kind: Exclude<DeliveryKind, 'session'>; payload: unknown }, shares?: ShareManager): Promise<void> {
+export async function applyMirrorItem(origin: MirrorOrigin, item: { kind: Exclude<DeliveryKind, 'session' | 'webhooks'>; payload: unknown }, shares?: ShareManager): Promise<void> {
   const { kind, payload } = item
   switch (kind) {
     case 'shares': {

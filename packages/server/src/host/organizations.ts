@@ -35,6 +35,8 @@ export interface HostStanding {
   category: HostCategory
   owner: HostOwnerIdentity | null
   organizations: HostOrganization[]
+  /** The webhooks of this host an organization admin paused (docs/plans/webhooks.md §2.7). */
+  pausedWebhookIds?: string[]
   /** When the control plane last answered (epoch ms). */
   refreshedAt: number
 }
@@ -66,6 +68,7 @@ export class HostOrganizations {
   private inFlight: Promise<void> | null = null
   private stopped = false
   private readonly listeners = new Set<(standing: HostStanding | null) => void>()
+  private readonly refreshedListeners = new Set<() => void>()
 
   constructor(private readonly deps: HostOrganizationsDeps) {}
 
@@ -88,9 +91,30 @@ export class HostOrganizations {
     return this.organization(organizationId)?.policy ?? DEFAULT_ORGANIZATION_POLICY
   }
 
+  /** An organization admin paused this webhook (docs/plans/webhooks.md §2.7). */
+  isWebhookPausedByAdmin(webhookId: string): boolean {
+    return this.pausedWebhookIds().includes(webhookId)
+  }
+
+  /** Every webhook of this host an organization admin paused; none before the first answer. */
+  pausedWebhookIds(): string[] {
+    return this.standing?.pausedWebhookIds ?? []
+  }
+
+  /** The organization lets an unverified webhook start its work (plan §3.7). Off by default. */
+  allowsUnverifiedWebhooks(organizationId: string): boolean {
+    return this.policyFor(organizationId)?.allowsUnverifiedWebhooks === true
+  }
+
   /** The account this host is registered to, as the control plane knows it. */
   owner(): HostOwnerIdentity | null {
     return this.standing?.owner ?? null
+  }
+
+  /** Hear every answer the control plane gives, changed or not: a retry that waits for the next read. */
+  onRefreshed(listener: () => void): () => void {
+    this.refreshedListeners.add(listener)
+    return () => { this.refreshedListeners.delete(listener) }
   }
 
   onChanged(listener: (standing: HostStanding | null) => void): () => void {
@@ -161,6 +185,7 @@ export class HostOrganizations {
     }
     if (answer) {
       this.setStanding({ ...answer, refreshedAt: Date.now() })
+      for (const listener of this.refreshedListeners) listener()
       this.schedule(REFRESH_MS)
     } else {
       this.schedule(RETRY_MS)

@@ -114,6 +114,11 @@ class FakeApi {
   permanentSeqs = new Set<number>()
   /** An item the API cannot apply yet: the batch stops before it, once. */
   transientSeq: number | null = null
+  /**
+   * A Solus API that does not know some kinds yet: `old` refuses the whole batch with
+   * `400 invalid_request` (a release before this fix); `new` skips the item and names it.
+   */
+  unknownKinds: { kinds: Set<string>; release: 'old' | 'new' } | null = null
   private waiters: Array<() => void> = []
   private server: Server | null = null
   url = ''
@@ -137,9 +142,12 @@ class FakeApi {
         if (request.url !== '/runner/deliver') return json(404, { error: 'not found' })
         const body = deliverBodySchema.parse(JSON.parse(raw))
         this.batches.push({ authorization, body })
+        const unknown = this.unknownKinds
+        if (unknown?.release === 'old' && body.items.some((item) => unknown.kinds.has(item.kind))) return json(400, { error: 'invalid_request' })
         let lastSeq = 0
         const failed: Array<{ seq: number; error: string }> = []
         for (const item of body.items) {
+          if (unknown?.kinds.has(item.kind)) { failed.push({ seq: item.seq, error: `unknown_kind:${item.kind}` }); lastSeq = item.seq; continue }
           if (item.seq === this.transientSeq) { this.transientSeq = null; break }
           if (this.permanentSeqs.has(item.seq)) failed.push({ seq: item.seq, error: 'gone' })
           lastSeq = item.seq
@@ -393,6 +401,55 @@ describe('runner delivery', () => {
       expect(api.items()).toHaveLength(3)
       expect(queue.deliveryBacklog()).toEqual([{ organizationId: 'org1', pending: 0, failed: 1 }])
       expect(runner.currentStatus().error).toBeNull()
+    } finally {
+      await runner.stop()
+      await api.stop()
+      queue.dropQueuedFor(bobIn('org1'))
+    }
+  })
+
+  for (const release of ['old', 'new'] as const) {
+    test(`a Solus API on the ${release} release that does not know \`webhooks\` never blocks the queue (docs/plans/webhooks.md §5)`, async () => {
+      const api = new FakeApi()
+      await api.start()
+      api.online = false
+      api.unknownKinds = { kinds: new Set(['webhooks']), release }
+      const runner = startDelivery(api)
+      try {
+        queueLine('before')
+        queue.appendDelivery(bobIn('org1'), 'webhooks', [{ key: 'webhook:wh-1', payload: { webhooks: [] } }])
+        queueLine('after')
+        api.online = true
+        await until(() => queue.deliveryDestinations().length === 0)
+        // The transcript rows on both sides of the refused kind landed; the webhook rows left the queue.
+        expect(api.items().filter((item) => item.kind === 'transcript').map((item) => (item.payload as { message: { content: string } }).message.content)).toContain('after')
+        expect(queue.deliveryBacklog()).toEqual([])
+        // No more webhook rows are queued for that organization until the facts are read again.
+        expect(queue.kindSupported('org1', 'webhooks')).toBe(false)
+        expect(queue.kindSupported('org2', 'webhooks')).toBe(true)
+        queue.retryUnsupportedKinds()
+        expect(queue.kindSupported('org1', 'webhooks')).toBe(true)
+      } finally {
+        await runner.stop()
+        await api.stop()
+        queue.retryUnsupportedKinds()
+      }
+    })
+  }
+
+  test('a batch refused whole with no rollout kind in it still fails: nothing else is dropped', async () => {
+    const api = new FakeApi()
+    await api.start()
+    api.online = false
+    api.unknownKinds = { kinds: new Set(['transcript']), release: 'old' }
+    const runner = startDelivery(api)
+    try {
+      queueLine('kept')
+      api.online = true
+      await until(() => api.batches.length > 0)
+      await tick()
+      expect(queue.listDelivery(bobIn('org1'), 10)).toHaveLength(1)
+      expect(queue.kindSupported('org1', 'transcript')).toBe(true)
     } finally {
       await runner.stop()
       await api.stop()

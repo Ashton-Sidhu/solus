@@ -44,6 +44,7 @@ export type SettingsTab =
   | 'experimental'
   | 'projects'
   | 'keybindings'
+  | 'webhooks'
 
 const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'account',
@@ -68,6 +69,7 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'experimental',
   'projects',
   'keybindings',
+  'webhooks',
 ])
 
 function isSettingsTab(value: string): value is SettingsTab {
@@ -104,7 +106,9 @@ export interface RouteParams {
    *  row drills into its own span. */
   insights: { traceId?: string; spanId?: string; sessionId?: string }
   reviewMode: Record<string, never>
-  settings: { tab?: SettingsTab; projectCwd?: string }
+  /** `webhooks` is the Webhooks page's view (its filters and the open webhook),
+   *  as query text, so a link opens the same view (docs/plans/webhooks.md §4). */
+  settings: { tab?: SettingsTab; projectCwd?: string; webhooks?: string }
   folio: Record<string, never>
   automations: { automationId?: string }
   /** The notifications hub (plans/015): every source's notifications addressed to the person. */
@@ -368,12 +372,17 @@ export const ROUTES: RouteTable = {
         if (!isSettingsTab(tab)) return null
         settingsTab = tab
       }
+      const rest = optional(cwd.join('/'))
+      if (settingsTab === 'webhooks') return rest ? { tab: settingsTab, webhooks: rest } : { tab: settingsTab }
       return {
         tab: settingsTab,
-        projectCwd: optional(cwd.join('/')),
+        projectCwd: rest,
       }
     },
-    serialize: (p) => (p.projectCwd ? `${p.tab ?? 'projects'}/${p.projectCwd}` : p.tab ?? ''),
+    serialize: (p) => {
+      if (p.tab === 'webhooks') return p.webhooks ? `webhooks/${p.webhooks}` : 'webhooks'
+      return p.projectCwd ? `${p.tab ?? 'projects'}/${p.projectCwd}` : p.tab ?? ''
+    },
     placement: 'destination',
     returnsOnClose: true,
     // The nav column paints to the window's top edge, so the page clears the

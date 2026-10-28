@@ -156,6 +156,8 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
     isSignedOut: () => false,
     dialOrganizationId: (host) => host.uplink?.organizationIds?.[0] ?? null,
     organizationId: () => null,
+    solusApiRoutes: () => [],
+    solusApiAccessToken: async () => null,
     fetch: options.fetch ?? healthFetch({}),
     clientVersion: '1.4.0',
     setTimeoutFn: timers.setTimeoutFn,

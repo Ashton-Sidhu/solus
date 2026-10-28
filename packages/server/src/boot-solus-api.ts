@@ -1,4 +1,6 @@
 import { sql } from 'drizzle-orm'
+import type { WebhookAdminPort } from '@solus/contracts/webhook-admin'
+import { registerWebhookAdminHandlers } from './transport/handlers/webhook-admin-handlers'
 import { createServer, type RequestListener, type Server as HttpServer } from 'node:http'
 import { workspacePresence } from './transport/solus-api/presence'
 import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
@@ -78,6 +80,13 @@ export interface SolusApiServiceOptions {
    * (docs/plans/session-archive.md); without it, it reads none.
    */
   accountCredential?: AccountCredentialSource
+  /**
+   * Solus Cloud's organization admin view of webhooks (docs/plans/webhooks.md §2.7):
+   * the `webhooks` items of a host's delivery queue go to it, and `webhookAdminList`,
+   * `webhookAdminPause`, and `webhookAdminResume` call it. Without it those methods do
+   * not exist and the items keep nothing.
+   */
+  webhookAdmin?: WebhookAdminPort
 }
 
 /** The service's own work runs as the host; each request sets its person's scope (plans/019-acting-identity.md). */
@@ -117,6 +126,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   const workLive = new WorkLiveManager({ publish: (clientIds, type, payload) => { void events.publishToRoom({ kind: 'work', id: payload.workId }, clientIds, type, payload) } })
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
   const presence = workspacePresence(server, events)
+  if (options.webhookAdmin) registerWebhookAdminHandlers(server, options.webhookAdmin)
   registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port })
   const { requestListener, routes, solusApiRouter, doors } = buildHttpServer({
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
@@ -125,7 +135,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     resolveShareSecret: secret => shares.resolveLinkSecret(secret),
     shareLinks: new ShareLinkResolver({ shares, hostRoutes: options.hostRoutes }),
     runner: {
-      deliver: (runner, request) => applyRunnerDelivery(runner, request, { shares, onTranscriptChanged: sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) } }),
+      deliver: (runner, request) => applyRunnerDelivery(runner, request, { shares, webhookAdmin: options.webhookAdmin, onTranscriptChanged: sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) } }),
     },
   })
   // A client's records go over its socket, with the socket's principal as their authority (docs/api/README.md).

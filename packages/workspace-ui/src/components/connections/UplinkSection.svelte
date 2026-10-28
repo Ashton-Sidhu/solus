@@ -7,8 +7,10 @@
    *  on the machine or a paired device — changes them; an owner who arrived through
    *  the tunnel sees them and cannot change them. A managed host never shows them:
    *  Solus cloud owns them (managed-hosts.md §1). */
+  import { untrack } from "svelte";
   import { localApi } from "@solus/client-core/local-api";
-  import { accountStore, linkDescription, registrationDescription, uplinkStore } from "../../contexts";
+  import { accountStore, linkDescription, registrationDescription, uplinkStore, webhooksStore } from "../../contexts";
+  import { unlinkWebhookWarning } from "../webhooks/lib/webhook-reachability";
   import { hostWebsiteUrl } from "../../contexts/connections/host-routes";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
@@ -75,9 +77,18 @@
       : linkDescription(uplink),
   );
 
+  // The unlink confirmation counts the host's webhooks that use the cloud URL (docs/plans/webhooks.md §2.2).
+  $effect(() => untrack(() => webhooksStore.watch()));
+
   function toggleLink() {
     if (busy || hostControl !== "manage") return;
-    void (isLinked ? uplinkStore.unlink(serverId) : uplinkStore.link(serverId));
+    if (!isLinked) {
+      void uplinkStore.link(serverId);
+      return;
+    }
+    const warning = unlinkWebhookWarning(webhooksStore.cloudUrlCount(serverId));
+    if (warning && !confirm(`Stop making this host reachable from the internet? ${warning}`)) return;
+    void uplinkStore.unlink(serverId);
   }
 </script>
 

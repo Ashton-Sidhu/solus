@@ -190,6 +190,8 @@ export class SolusApp {
       isSignedOut: () => this.account.isSignedOut(),
       dialOrganizationId: (host) => this.account.dialOrganizationId(host),
       organizationId: () => this.account.organizationId,
+      solusApiRoutes: (organizationId) => this.account.solusApiRoutes(organizationId),
+      solusApiAccessToken: (options) => this.account.solusApiAccessToken(options),
       fetch: platform.fetch,
       clientVersion: platform.appVersion ?? 'unknown',
       healthNonce: platform.accountCrypto?.randomBytes ? () => toBase64Url(platform.accountCrypto!.randomBytes!(16)) : undefined,

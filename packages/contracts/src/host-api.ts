@@ -40,6 +40,20 @@ import type { DesktopUpdateStatus } from './desktop-update-types'
 import type { HostUpdateStatus } from './host-update-types'
 import type { Permission } from './permissions'
 import type { LiveActivityRegistration } from './live-activity'
+import type {
+  HostWebhookSettings,
+  HostWebhookSettingsPatch,
+  Webhook,
+  WebhookCreateInput,
+  WebhookDelivery,
+  WebhookDeliveryQuery,
+  WebhookDeliverySummary,
+  WebhookDryRunRequest,
+  WebhookDryRunResult,
+  WebhookUpdateInput,
+  WebhookWithUrl,
+} from './webhooks'
+import type { WebhookAdminList, WebhookAdminOutcome, WebhookAdminRef } from './webhook-admin'
 import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { HostRoute } from './host-routes'
 import type { ForwardedHost, SshAddLink, SshAddRequest, SshAddResult, WslAddRequest, WslDistroList } from './remote-machines'
@@ -896,6 +910,32 @@ export interface SolusAPI {
   /** The newest `perAutomation` runs of every automation, newest first within each. */
   automationRecentRuns(perAutomation: number): Promise<AutomationRunPoint[]>
   automationReadRun(automationId: string, runId: string): Promise<AutomationRun | null>
+
+  /** Every webhook the caller may see (docs/plans/webhooks.md §4). Never the token. */
+  webhookList(): Promise<Webhook[]>
+  /** One webhook; with its URL and token only for its owner. */
+  webhookRead(id: string): Promise<Webhook | WebhookWithUrl | null>
+  webhookCreate(input: WebhookCreateInput): Promise<WebhookWithUrl>
+  /** Pause and resume are `enabled`; `copiedUrl` records the URL the owner copied. */
+  webhookUpdate(id: string, patch: WebhookUpdateInput): Promise<Webhook | null>
+  webhookDelete(id: string): Promise<boolean>
+  /** A new token: the old URL stops working at once. */
+  webhookRotate(id: string): Promise<WebhookWithUrl | null>
+  webhookListDeliveries(id: string, query?: WebhookDeliveryQuery): Promise<WebhookDeliverySummary[]>
+  webhookReadDelivery(id: string, deliveryId: string): Promise<WebhookDelivery | null>
+  /** Runs a stored delivery again, for every action or for one (plan §3.3). */
+  webhookReplay(id: string, deliveryId: string, actionId?: string): Promise<WebhookDeliverySummary>
+  /** Tests a sample request against actions; starts nothing, stores nothing. `webhookId` also checks its verification. */
+  webhookDryRun(request: WebhookDryRunRequest): Promise<WebhookDryRunResult>
+  hostWebhookSettingsRead(): Promise<HostWebhookSettings>
+  hostWebhookSettingsUpdate(patch: HostWebhookSettingsPatch): Promise<HostWebhookSettings>
+  /** Answers a `secret` card: the value, or null to decline. The value goes to the host's secret-ref store only, never to the transcript. */
+  secretRequestAnswer(sessionId: string, questionId: string, value: string | null): Promise<boolean>
+  /** The Solus API: the organization webhooks of every host, for an organization admin. */
+  webhookAdminList(organizationId: string): Promise<WebhookAdminOutcome<WebhookAdminList>>
+  /** The Solus API: an admin pause. The forwarder refuses the webhook at once; the host within 5 minutes. */
+  webhookAdminPause(ref: WebhookAdminRef): Promise<WebhookAdminOutcome<null>>
+  webhookAdminResume(ref: WebhookAdminRef): Promise<WebhookAdminOutcome<null>>
 
   skillsList(): Promise<import('./skill-types').SkillListResult>
   skillsRemove(name: string): Promise<import('./skill-types').SkillRemoveResult>

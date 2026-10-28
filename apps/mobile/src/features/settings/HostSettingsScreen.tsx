@@ -124,6 +124,15 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               />
             </SettingsSection>
 
+            <SettingsSection title="Webhooks">
+              <SettingsRow
+                icon="bolt.horizontal.circle"
+                label="Webhooks"
+                value="Requests from other services that start agent work"
+                onPress={() => navigation.navigate("Webhooks", { hostId })}
+              />
+            </SettingsSection>
+
             <View className="gap-3">
               <SettingsSection title="Solus">
                 <SettingsValueRow

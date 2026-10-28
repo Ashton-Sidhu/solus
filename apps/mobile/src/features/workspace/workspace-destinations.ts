@@ -21,6 +21,9 @@ export const SETTINGS_PAGE_ROUTES: ReadonlySet<string> = new Set([
   'HostSettings',
   'HostAccess',
   'Integrations',
+  'Webhooks',
+  'Webhook',
+  'WebhookDelivery',
   'GitHubConnection',
   'About',
 ])

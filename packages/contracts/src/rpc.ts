@@ -567,6 +567,26 @@ export const RPC_INVOKE_METHODS = [
   'automationRecentRuns',
   'automationReadRun',
 
+  // Webhooks (docs/plans/webhooks.md §5): pause is the `enabled` field through webhookUpdate
+  'webhookList',
+  'webhookRead',
+  'webhookCreate',
+  'webhookUpdate',
+  'webhookDelete',
+  'webhookRotate',
+  'webhookListDeliveries',
+  'webhookReadDelivery',
+  'webhookReplay',
+  'webhookDryRun',
+  'hostWebhookSettingsRead',
+  'hostWebhookSettingsUpdate',
+  // The private card of request_secret (docs/plans/webhooks.md §3.6)
+  'secretRequestAnswer',
+  // Organization admins, on the Solus API (docs/plans/webhooks.md §2.7)
+  'webhookAdminList',
+  'webhookAdminPause',
+  'webhookAdminResume',
+
 
   // PR checks cache + renderer activity hint
   'prChecks',

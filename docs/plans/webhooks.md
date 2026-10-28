@@ -80,8 +80,9 @@ Solus Cloud has no presence signal for a personal host today. The forwarder does
 A held request comes to the host late. A verification timestamp check (§3.7) must then compare the sender's timestamp with the time the forwarder received the request, not with the arrival time. If the host trusted a plain `received-at` header, an attacker who captured one signed request could send it again later with an old `received-at`, and pass the timestamp check. So the forwarder must prove its delivery ID and receive time.
 
 - **Forwarder secret.** When a host links, Solus Cloud makes a random secret for that host and gives it to the host in the link answer. The host keeps it in its secret store next to the connector token (`transport/uplink/link.ts`), not in `host-link.json`. Solus Cloud keeps it sealed, and a new link makes a new secret.
-- **Proof header.** The forwarder sends `x-solus-hook-delivery-id`, `x-solus-hook-received-at`, and `x-solus-hook-proof`: an HMAC-SHA256, with the forwarder secret, of `hostId.webhookId.deliveryId.receivedAt`.
+- **Proof header.** The forwarder sends `x-solus-hook-delivery-id`, `x-solus-hook-received-at`, and `x-solus-hook-proof`: an HMAC-SHA256, with the forwarder secret, of `hostId.webhookId.deliveryId.receivedAt`. `receivedAt` is epoch milliseconds as decimal text, and the proof is lowercase hex (`packages/contracts/src/webhooks.ts`).
 - **Host rules.** The host trusts the delivery ID and the receive time only with a valid proof. Without a valid proof, it treats the request as direct: the receive time is the arrival time, and it ignores the delivery ID. The host clamps a receive time that is later than the arrival time to the arrival time, so a forwarder clock that runs ahead does not fail every timestamp check.
+- **Source.** With a valid proof, a request that arrives more than 60 seconds after its receive time is logged as `held`, else as `forwarded`. No other header is needed.
 - **Run once.** With a valid proof, the host runs each delivery ID once. It keeps the IDs for 25 hours, longer than the 24-hour hold, in the same dedupe table as the replay keys (§5).
 
 This is a shared secret, not a token signed with a key of our own, so it does not conflict with the `solus-cloud` rule that tokens are signed only through Better Auth's `signJWT`.
@@ -94,7 +95,7 @@ A managed host has no tunnel. The forwarder sends to the host's own address in `
 
 - A webhook belongs to one person (`owner_key`) and one organization (`organization_id`), the same as an automation. The access policy treats it as an owned resource (`ownedIdAt('webhook', 0)`).
 - Every action runs as that person. The sender is not a person in Solus.
-- An action that starts organization work goes through the normal admission (`turn-organization.ts`): on an attached machine the Solus API must accept a new session, and the organization policy applies. For example, with `allowsPersonalHosts: false`, a webhook on a laptop cannot start organization work. The editor checks this when the user saves, and the action checks it again when it runs.
+- An action that starts organization work goes through the normal admission (`turn-organization.ts`): on an attached machine the Solus API must accept a new session, and the organization policy applies. For example, with `allowsPersonalHosts: false`, a webhook on a laptop cannot start organization work. The editor checks this when the user saves, and the action checks it again when it runs. As built: the save check is `unattendedOrganizationRefusal` in `turn-organization.ts`, which reads the policy through `HostOrganizations.policyFor` and refuses an enabled organization webhook on a personal host when `allowsPersonalHosts` is off, or an unverified one when `allowsUnverifiedWebhooks` is off. A paused webhook may still be saved. Note: turn admission itself does not read `allowsPersonalHosts` (the contract says that policy refuses no turn), so this check applies to webhooks only, at save time.
 - The URL mode and holding do not change ownership or admission.
 
 **Organization admins (decided: they can see and pause).** An **organization webhook** is a webhook with an organization ID other than `local`. Admins of that organization can see it and pause it on every host. They cannot edit it, delete it, read its token or secret, or read request bodies.
@@ -106,6 +107,7 @@ A managed host has no tunnel. The forwarder sends to the host's own address in `
 - **Why not turn admission.** Admission does not see every organization turn: on a personal machine, a continuation of an organization session does not call Solus Cloud, and on an attached machine the host acts with a cached delegation token (`turn-organization.ts`, `sync/delegations.ts`). A check at the receiver stops a paused webhook before it starts any work, for every action type.
 - **What the owner sees:** when the host learns about the pause (its next read of its organization facts), the webhook shows **Paused by organization admin**. Only an admin can resume it. The owner can still delete it.
 - **Access policy:** the `webhookAdminList`, `webhookAdminPause`, and `webhookAdminResume` methods need the organization admin role. They read the Solus API, not a host.
+- **As built.** The shapes are in `packages/contracts/src/webhook-admin.ts`, matched with `solus-cloud`. The host queues a `webhooks` item (`{ webhooks: WebhookAdminRecord[], deliveries: WebhookAdminDeliverySummary[] }`) on its delivery queue for each save, delete, and finished delivery of an organization webhook whose owner has an account. The Solus API gives each item to the `webhookAdmin` port of `createSolusApiService` as `intake({ hostId, organizationId, ...item })`, with the host and organization the runner proved; a refusal skips the item for good. The three admin methods are on the collaboration plane, exist only where the port is given, and pass the calling member's account ID to the port, which decides who is an organization admin; each answers the port's outcome. The cloud names the delivery summary `WebhookDeliverySummary`; here that name is the host's log summary, so the admin one is `WebhookAdminDeliverySummary` (same shape).
 
 ## 3. Webhooks on the host
 
@@ -113,9 +115,9 @@ A managed host has no tunnel. The forwarder sends to the host's own address in `
 
 | Action | What it does | Owner it calls |
 | --- | --- | --- |
-| `start_session` | Starts a new unattended session with the rendered prompt. It uses the action's provider, model, reasoning effort, project folder, and worktree choice. | `prompt-dispatch.ts` `startAutomationSession`, which already takes those fields and the actor. It gets a generic name or a webhook variant; `createSession` needs a client and a tab, which a delivery does not have. |
+| `start_session` | Starts a new unattended session with the rendered prompt. It uses the action's provider, model, reasoning effort, project folder, and worktree choice. | `prompt-dispatch.ts` `startUnattendedSession` (renamed from `startAutomationSession`; the automation is now an optional `automation` field). `createSession` needs a client and a tab, which a delivery does not have. |
 | `send_to_session` | Sends the rendered prompt to one existing session. If the session is busy, the prompt waits in the queue. | `prompt-dispatch.ts` `promptSession(…, 'queue', { actor })` |
-| `run_automation` | Starts one run of a saved automation. The rendered template goes into the run's prompt as the webhook context. | `automation-runner.ts` `triggerAutomationRun(automation, { context })`: a new optional argument, because today the run prompt comes only from the automation (`composeAutomationPrompt`). |
+| `run_automation` | Starts one run of a saved automation. The rendered template goes into the run's prompt as the webhook context. | `automation-runner.ts` `triggerAutomationRun(automation, { context })`: a new optional argument. The context goes after the automation's prompt, under `[Webhook context]`. |
 
 Later action types (create a task, comment on a task) must fit into the same `WebhookAction` union without a model change.
 
@@ -175,7 +177,7 @@ The receiver accepts `POST`, `PUT`, and `PATCH` on `/hooks/:webhookId/:token` (`
 2. Unknown webhook or wrong token → `404`. The server compares the token in constant time. A wrong token and an unknown webhook get the same answer.
 3. More than 60 deliveries in one minute → `429`. This is before verification on purpose: an unsigned flood must not cost one signature check for each request.
 4. Verification fails → `401`. The deliveries log stores the step that failed (§3.7).
-5. Paused by the owner or by an organization admin (§2.7) → `409`. This is after verification so that a sender without the secret cannot learn from the status code that the token is valid.
+5. An unverified organization webhook whose organization does not allow it (§3.7) → `403`, outcome `not_allowed`. Paused by the owner or by an organization admin (§2.7) → `409`. This is after verification so that a sender without the secret cannot learn from the status code that the token is valid.
 6. A delivery ID with a valid proof (§2.5), seen in the last 25 hours → `202`, logged as `duplicate`.
 7. Replay key seen in the last 7 days → `202`, logged as `duplicate`. This also applies to a delivery that was `filtered` the first time: a sender's redelivery after the user edits a filter is a duplicate, and the user replays it from the log instead.
 8. Otherwise → `202` with the `deliveryId`. Solus tests the filters of each action and runs the actions that match, after the answer. The sender does not wait for an agent. If no action matches, the delivery is logged as `filtered`, and each action row shows the filter that failed.
@@ -251,7 +253,7 @@ Desktop and web (shared Svelte UI):
   - Filters: host, project, state, last outcome (for example "failing"), URL mode, owner, and organization. A text search matches the name and the project. The filters are kept in the URL of the page, so a link opens the same view.
   - A host that is not connected shows one row: "<host> is not connected. Its webhooks are not shown." The table never shows old rows as current.
   - A row opens the editor, the URL with Copy and Rotate, the deliveries, and the dry run.
-  - Organization admins get a second view, **Organization**, that reads the Solus API (§2.7). It shows the organization webhooks of all members, with Pause and Resume.
+  - Organization admins get a second view, **Organization**, that reads the Solus API (§2.7). It shows the organization webhooks of all members, with Pause and Resume. As built: Settings → Webhooks has "Hosts" and "Organization" tabs when the person belongs to an organization; the page URL keeps `view=organization` and `aorg=<id>`. The view reads `webhookAdminList` on `solusApiId(organizationId)`. A refusal shows as "Only an organization admin can see this view." or "That host does not deliver to this organization.", and a failed call shows "The Solus API did not answer. Try again." with Retry, never a blank list. Mobile shows the same list in the Webhooks screen ("This host" / "Organization"), through a new mobile connection to the organization's Solus API (`HostConnections.solusApi`).
 - **Project panel → Webhooks**: the webhooks of this project, with state and last delivery. A row opens the webhook in Settings.
 - **Host settings**: **Hold webhooks while offline** (linked hosts) and **Public URL** (all hosts).
 - **Command palette**: "New webhook" and "Open webhooks".
@@ -273,10 +275,10 @@ Mobile (`apps/mobile/`): a Webhooks screen in host settings. This is a new React
 
 Solus:
 
-- Types in a new `packages/contracts/src/webhooks.ts`: `Webhook`, `WebhookAction`, `WebhookFilter`, `WebhookVerification`, `WebhookUrl` (`{ mode: 'cloud' | 'direct' | 'none', path, url }`), `WebhookDelivery`, `WebhookActionResult`. A list read never gives the token. Create, Rotate, and `webhookRead` (for the owner) give it; Copy is a client action on that value, not a method.
+- Types in a new `packages/contracts/src/webhooks.ts`: `Webhook`, `WebhookAction`, `WebhookFilter`, `WebhookVerification`, `WebhookUrl` (`{ mode: 'cloud' | 'direct' | 'none', path, url }`), `WebhookDelivery`, `WebhookActionResult`. A list read never gives the token: `Webhook` has only `urlMode`, and `WebhookWithUrl` adds `url`. Create, Rotate, and `webhookRead` (for the owner) give it; Copy is a client action on that value, not a method.
 - RPC methods: `webhookList`, `webhookRead`, `webhookCreate`, `webhookUpdate` (pause is the `enabled` field of the record, so there is no separate method), `webhookDelete`, `webhookRotate`, `webhookListDeliveries`, `webhookReadDelivery`, `webhookReplay`, `webhookDryRun`, `secretRequestAnswer`, `hostWebhookSettingsRead`, `hostWebhookSettingsUpdate`, and the admin methods `webhookAdminList`, `webhookAdminPause`, `webhookAdminResume` (Solus API). Each needs `rpc.ts`, `host-api.ts`, `permissions.ts`, `rpc-planes.ts`, and an access-policy entry.
 - Event topics: `webhook.changed` and `webhook.delivery` (a short summary only, never the body).
-- Uplink contract (`packages/contracts/src/uplink.ts`, copied to `solus-cloud` by `contracts:sync`): `allowsUnverifiedWebhooks` on `organizationPolicySchema`, the forwarder secret in the link answer, the hold setting on the link, the drain request, and the drain answer with the lost count for each webhook ID.
+- Uplink contract (`packages/contracts/src/uplink.ts`, copied to `solus-cloud` by `contracts:sync`): `allowsUnverifiedWebhooks` on `organizationPolicySchema`, the forwarder secret in the link answer, the hold setting on the link, the drain request, and the drain answer with the lost count for each webhook ID. As built, matched with `solus-cloud`: `allowsUnverifiedWebhooks` on each policy (optional in the schema, so older control planes stay valid; absent means off); `pausedWebhookIds` at the top level of the organizations answer; `forwarderSecret` (`hfs_` and 52 base32 characters, and the HMAC key is its UTF-8 bytes) on the `POST` link answer and, while linked, on the `GET` boot check, which also gives `holdWebhooks` (a managed host gets its secret only from the boot check); `PUT /v1/hosts/:id/link/hooks` takes and answers `{ holdWebhooks }`, or `409 host_not_linked`; `POST /v1/hosts/:id/hooks/drain` takes `{}` and answers `{ lost: { <webhookId>: count } }`, or `503 hook_inbox_unavailable` with `retry-after` (ask again), or `404` from a control plane without the forwarder. The host shows a cloud URL only when it holds a forwarder secret. The receiver accepts webhook IDs of `[A-Za-z0-9._~-]{1,128}` and tokens of `[A-Za-z0-9._~-]{1,256}`.
 - Tables (drizzle, SQLite and Postgres): `webhooks`, `webhook_deliveries`, and `webhook_seen_keys` (one table for the replay keys and the proven delivery IDs: `kind`, `key`, `expires_at`, with one sweeper). The host public URL is a new field of the host settings record (`host/`). The token and the verification secret go into the secret store (`platform/secrets.ts`), not into a table.
 - Server code: data in `packages/server/src/data/webhooks/`, the receiver and the action runner in `packages/server/src/execution/webhooks/`, the RPC handler in `transport/handlers/webhook-handlers.ts`, and the drain call in `transport/uplink/`.
 
@@ -285,6 +287,8 @@ Solus Cloud: see the companion plan.
 ## 6. Steps and release order
 
 Solus ships first, because `solus-cloud` copies the uplink contract and pins a Solus commit.
+
+**Rollout of the `webhooks` delivery kind (either order is safe).** A record service built before this release refuses a whole delivery batch with `400 invalid_request` when the batch holds a kind it does not know. So the host drops the `webhooks` items of that organization when a batch with them is refused that way, or when a newer service names them as `unknown_kind:webhooks`. It queues no more of them there until it reads the organization facts again; sessions, tasks, and insights are never blocked. The record service now skips an unknown kind, names it in `failed`, logs `runner_unknown_kinds` (the kinds and the batch size, no payload), and applies the rest. Dropped admin records come back with the next save or delivery of each webhook.
 
 1. **Solus: receiver and store.** Contract, tables, store, and the receiver (§3.4, §3.5) with focused tests: token, each verification scheme and its failure steps, filters, delivery ID, replay key, templates, redaction, and the `x-solus-hook-outcome` header.
 2. **Solus: actions and the log.** The three actions and the delivery log. Tests for fan-out, partial failure, `busy`, and lost access.
@@ -316,6 +320,6 @@ Until step 6 ships, a linked host shows the direct URL if its public URL is set,
 
 The sections marked "proposed" need sign-off: §2.1, §2.4, §2.6, §2.7 (the ownership and admission part), §3.4, and §3.5. In addition:
 
-1. `start_session` through `startAutomationSession` (§3.1): rename it to a generic unattended start, or add a webhook variant?
-2. Mobile version 1 without the editor (§4): is "list, deliveries, pause, replay, Copy, host settings" the right set for a phone?
-3. The `run_automation` context argument (§3.1): a new optional argument on `triggerAutomationRun`, or no template for that action type?
+1. `start_session` through `startAutomationSession` (§3.1): rename it to a generic unattended start, or add a webhook variant? **Answered:** renamed to `startUnattendedSession`.
+2. Mobile version 1 without the editor (§4): is "list, deliveries, pause, replay, Copy, host settings" the right set for a phone? **Answered:** yes.
+3. The `run_automation` context argument (§3.1): a new optional argument on `triggerAutomationRun`, or no template for that action type? **Answered:** the optional argument.

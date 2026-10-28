@@ -55,6 +55,12 @@ export type RootStackParamList = {
   GitHubConnection: { hostId: string }
   /** The remote MCP servers one host knows, their tools, and the way to add one. */
   Integrations: { hostId: string }
+  /** The webhooks of one host and its two webhook settings (docs/plans/webhooks.md §4). */
+  Webhooks: { hostId: string }
+  /** One webhook: Pause, Copy URL, and its deliveries. */
+  Webhook: { hostId: string; webhookId: string }
+  /** One delivery of a webhook, with its action results and Replay. */
+  WebhookDelivery: { hostId: string; webhookId: string; deliveryId: string }
   About: undefined
   PullRequest: { hostId: string; projectPath: string; number: number }
   /** Submit a review (`review`) or comment on the conversation (`comment`), as a sheet. */

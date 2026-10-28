@@ -10,7 +10,7 @@ import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { workOrganizationId } from './data/works/works'
 import { taskOrganizationId } from './data/tasks/task-store'
 import { transcriptDestination } from './sync/mirror/transcript-mirror'
-import { appendDelivery, deliveryBacklog, dropQueuedFor } from './sync/delivery-queue'
+import { appendDelivery, deliveryBacklog, dropQueuedFor, retryUnsupportedKinds } from './sync/delivery-queue'
 import { RemoteUpdateService } from './updates/remote-update-service'
 import type { ServerUpdateSupport, SupervisorMessage } from '@solus/contracts/server-update'
 import { UpdateStatusService } from './updates/update-status-service'
@@ -27,10 +27,18 @@ import { buildHttpServer } from './transport/http'
 import { answerSocketRequest } from './transport/solus-api/router'
 import { AccessTokenVerifier, type TokenVerdict } from './admission/access-tokens'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
-import { readStoredTunnel, registerAndLink, splitLegacyLinkRecord, UplinkLinkManager } from './transport/uplink/link'
+import { readStoredTunnel, registerAndLink, splitLegacyLinkRecord, UplinkLinkManager, type WebhookDrainReason } from './transport/uplink/link'
 import { HostRegistrar, readStoredRegistration } from './host/host-registration'
+import { createWebhookServices } from './execution/webhooks/webhook-runtime'
+import { createWebhookService } from './execution/webhooks/webhook-service'
+import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhook-events'
+import { registerWebhookHandlers } from './transport/handlers/webhook-handlers'
+import { setWebhookToolServices } from './execution/agents/tools/webhook-tools'
+import { takeSecretRef } from './execution/sessions/secret-requests'
+import { readDelivery, sweepSeenKeys } from './data/webhooks/webhook-store'
+import { mirrorWebhook, mirrorWebhookDelivery } from './sync/mirror/webhook-mirror'
 import { RunnerDelivery } from './sync/runner-delivery'
-import type { TurnOrganizationDeps } from './execution/sessions/turn-organization'
+import { unattendedOrganizationRefusal, type TurnOrganizationDeps } from './execution/sessions/turn-organization'
 import { Delegations, type DelegationScope } from './sync/delegations'
 import { remoteWorkspaceOperations } from './sync/remote-operations'
 import { useOrganizationAttachment } from './host/organization-attachment'
@@ -566,6 +574,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const domainEventUnsubscribes = [
     codeIntel.onStatusChanged((status) => events.broadcast('codeIntel.statusChanged', status)),
     onAutomationsChanged((event) => events.broadcast('automation.changed', event)),
+    onWebhookChanged((event) => events.broadcast('webhook.changed', event)),
+    onWebhookDelivery((delivery) => events.broadcast('webhook.delivery', delivery)),
     onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
     onWorksChanged((change) => events.broadcast('works.changed', change)),
     onWorkDeleted((change) => events.prepareBroadcast('works.changed', change)),
@@ -829,7 +839,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerAutomationHandlers(server)
   // Isolated automations use the same headless SessionRuntime lifecycle as normal
   // background sessions, so their live transcript can be opened mid-run.
-  setAutomationBackgroundSessionDispatcher((o) => opts.sessionRuntime.dispatch.startAutomationSession(o))
+  setAutomationBackgroundSessionDispatcher(({ automationId, automationName, ...o }) => opts.sessionRuntime.dispatch.startUnattendedSession({ ...o, automation: { id: automationId, name: automationName } }))
   setAutomationWorktreeCreator((prompt, cwd, abortSignal, preferences) => (
     opts.sessionRuntime.checkouts.createNamed(cwd, prompt, opts.sessionRuntime, abortSignal, preferences)
   ))
@@ -1192,6 +1202,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     localClient.registrationChanged()
   }
   // What `uplinkStatus` answers: the registration, and apart from it, the link.
+  /** Set once the webhook services exist; an online link before then asks again through the next online. */
+  let drainWebhooks: (reason: WebhookDrainReason) => void = () => {}
   const uplinkStatus = () => ({ registration: registrar.status(), link: uplinkManager.status() })
   const broadcastUplinkStatus = () => { if (uplinkManager) events.broadcast('host.uplinkStatusChanged', uplinkStatus()) }
   const registrar = new HostRegistrar({
@@ -1216,6 +1228,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // status line follows this instead of waiting for a reload.
     onStatusChanged: broadcastUplinkStatus,
     provisionedLink: readHostLinkEnv,
+    onOnline: (reason) => drainWebhooks(reason),
   })
   followRegistration(registrar.current())
   // The attachment is stored with the registration (organization-vms §4): a deleted host is personal again.
@@ -1368,6 +1381,77 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     delivery: () => ({ backlog: deliveryBacklog(), error: runnerDelivery?.currentStatus().error ?? null }),
   })
 
+  // Webhooks (docs/plans/webhooks.md): the receiver and its actions. Agents run only
+  // on hosts, so the Solus API has no receiver (§2.1).
+  const webhookFacts = {
+    hostId: () => registrar.current()?.hostId ?? null,
+    forwarderSecret: () => uplinkManager?.forwarderSecret() ?? null,
+    isPausedByAdmin: (webhookId: string) => hostOrganizations.isWebhookPausedByAdmin(webhookId),
+    allowsUnverifiedWebhooks: (organizationId: string) => hostOrganizations.allowsUnverifiedWebhooks(organizationId),
+  }
+  const webhooks = createWebhookServices(opts.sessionRuntime, webhookFacts)
+  const webhookService = createWebhookService({
+    ...webhookFacts,
+    urls: {
+      hostId: webhookFacts.hostId,
+      cloudReady: () => webhookFacts.forwarderSecret() !== null,
+      publicUrl: () => getServerSettings().webhookPublicUrl ?? null,
+    },
+    takeSecretRef: (secretRef, sessionId) => takeSecretRef(secretRef, sessionId),
+    organizationRefusal: (organizationId, work) => unattendedOrganizationRefusal(organizationId, hostOrganizations, work)?.message ?? null,
+    onDeleted: (webhook) => mirrorWebhook(webhook, { deleted: true, registered: registrar.current() !== null }),
+  })
+  // Organization webhooks and their delivery summaries go to the organization's Solus API for its admins (plan §2.7).
+  domainEventUnsubscribes.push(
+    onWebhookChanged((event) => { if (event.kind === 'saved') mirrorWebhook(event.webhook, { registered: registrar.current() !== null }) }),
+    onWebhookDelivery((summary) => {
+      if (summary.outcome === 'pending') return
+      void (async () => {
+        const [webhook, delivery] = await Promise.all([webhookService.read(summary.webhookId), readDelivery(summary.id)])
+        if (webhook && delivery) mirrorWebhookDelivery(webhook, delivery, { registered: registrar.current() !== null })
+      })().catch((err) => log.warn('webhook_mirror_failed', { webhookId: summary.webhookId, deliveryId: summary.id, error: err instanceof Error ? err.message : String(err) }))
+    }),
+  )
+  setWebhookToolServices({ webhooks: webhookService, actions: webhooks.actions })
+  registerWebhookHandlers(server, {
+    actions: webhooks.actions,
+    webhooks: webhookService,
+    link: {
+      linked: () => !!uplinkManager?.currentTunnel(),
+      holdWhileOffline: () => uplinkManager?.holdWebhooks() ?? null,
+      setHoldWhileOffline: async (hold) => { await uplinkManager?.setHoldWebhooks(hold) },
+    },
+  })
+  // The host asks Solus cloud for its held webhook requests when its link comes online (plan §2.4).
+  drainWebhooks = (reason) => {
+    void uplinkManager?.drainWebhooks()
+      .then(async (answer) => {
+        if (answer?.kind === 'retry') {
+          // The inbox did not answer: ask again after the time Solus cloud named.
+          setTimeout(() => drainWebhooks(reason), answer.afterMs).unref()
+          return
+        }
+        if (answer) await webhookService.recordLost(Object.entries(answer.lost).map(([webhookId, count]) => ({ webhookId, count })))
+        log.info('webhook_drain_asked', { reason, answered: answer !== null })
+      })
+      .catch((err) => log.warn('webhook_drain_failed', { reason, error: err instanceof Error ? err.message : String(err) }))
+  }
+  const linkNow = uplinkManager?.status()
+  if (linkNow?.linked && linkNow.state.observed === 'online') drainWebhooks('server_start')
+  // A kind an organization's Solus API refused during a rollout is tried again after each read of the facts.
+  domainEventUnsubscribes.push(hostOrganizations.onRefreshed(() => retryUnsupportedKinds()))
+  // An admin's pause or resume reaches clients when the host reads its organization facts (plan §2.7).
+  let pausedWebhooks = new Set<string>()
+  hostOrganizations.onChanged(() => {
+    const paused = new Set(hostOrganizations.pausedWebhookIds())
+    for (const id of new Set([...paused, ...pausedWebhooks])) if (paused.has(id) !== pausedWebhooks.has(id)) void webhookService.announce(id)
+    pausedWebhooks = paused
+  })
+  // The one sweeper of expired replay keys and delivery IDs.
+  setInterval(() => {
+    sweepSeenKeys(Date.now()).catch((err) => log.warn('webhook_seen_keys_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
+  }, 60 * 60 * 1000).unref()
+
   const { server: http, requestListener, solusApiRouter, doors } = buildHttpServer({
     solusApi: { operations: refreshingSessionIndexOnList(workspaceOperations, () => opts.sessionRuntime.requestSessionIndexRefresh()), ...apiSettings },
     isVerifyingUpdate: () => server.isVerifyingUpdate,
@@ -1393,6 +1477,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     },
     transcribeAudio: opts.transcribeAudio,
     completeIntegrationOAuth: (params) => integrationOAuth.complete(params),
+    webhookReceiver: apiMode ? undefined : webhooks.receiver,
   })
   // A client's records go over its socket, with the socket's principal as their authority (docs/api/README.md).
   if (solusApiRouter) server.register('solusApiRequest', ([request], ctx) => answerSocketRequest(solusApiRouter, request, ctx.principal))

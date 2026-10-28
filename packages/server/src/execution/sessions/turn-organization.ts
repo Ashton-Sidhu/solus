@@ -9,6 +9,8 @@ import { isChat } from '@solus/contracts/chat'
 import { parseUserKey } from '@solus/contracts/user'
 import { isHostUserKey } from '../../host/host-user'
 import type { HostOrganizations } from '../../host/organizations'
+import { hostCategory } from '../../host/host-category'
+import type { HostCategory } from '@solus/contracts/uplink'
 import { ownerKeyOf, type Actor } from '../../admission/actor'
 import type { TurnRefusal } from '@solus/contracts/organization-scope'
 import { z } from 'zod'
@@ -266,3 +268,33 @@ export function applyPendingAssignment(sessionId: string): void {
   void assignSessionOrganization(sessionId, birth.organizationId, birth)
 }
 
+/** Why unattended organization work may not start from this host, for the person who set it up. */
+export interface UnattendedWorkRefusal {
+  code: TurnRefusal
+  message: string
+}
+
+/**
+ * Why work that starts with no person at the keyboard — the actions of a webhook —
+ * may not start in `organizationId` from this host; null when it may
+ * (docs/plans/webhooks.md §2.7, §3.7). A webhook is checked when it is saved, so the
+ * person who sets it up hears the refusal then, not on a delivery later. It reads the
+ * policy where admission reads the host's organizations: `HostOrganizations.policyFor`.
+ * Local work has no policy.
+ */
+export function unattendedOrganizationRefusal(
+  organizationId: string,
+  organizations: Pick<HostOrganizations, 'policyFor'>,
+  work: { unverified: boolean },
+  category: HostCategory = hostCategory(),
+): UnattendedWorkRefusal | null {
+  const policy = organizations.policyFor(organizationId)
+  if (!policy) return null
+  if (category === 'personal' && !policy.allowsPersonalHosts) {
+    return { code: 'PERSONAL_HOSTS_NOT_ALLOWED', message: 'This organization does not allow its work to start on a personal computer. Set up the webhook on a cloud or self-hosted machine of the organization.' }
+  }
+  if (work.unverified && policy.allowsUnverifiedWebhooks !== true) {
+    return { code: 'ORGANIZATION_NOT_ALLOWED', message: 'This organization does not allow unverified webhooks. Choose a verification scheme.' }
+  }
+  return null
+}

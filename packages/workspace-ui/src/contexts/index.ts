@@ -104,6 +104,10 @@ export { accountSyncStore } from './account/account-sync.store.svelte'
 /** This client's copy of the agent profile. */
 export { agentProfileLocalStore } from './seats/agent-profile-local.store.svelte'
 export { presenceStore } from './presence/presence.store.svelte'
+/** Every connected host's webhooks, joined into one list (docs/plans/webhooks.md §4). */
+export { webhooksStore } from './webhooks/webhooks.store.svelte'
+/** An organization's webhooks of all members, for its admins (docs/plans/webhooks.md §2.7). */
+export { webhookAdminStore } from './webhooks/webhook-admin.store.svelte'
 export type { SeatRequest } from './seats/seats.store.svelte'
 
 /** Session sidebar navigation and historical-session loading. */

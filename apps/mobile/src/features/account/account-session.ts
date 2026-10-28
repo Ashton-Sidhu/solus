@@ -200,6 +200,18 @@ export class AccountSession {
     return this.oauth.accessToken({ kind: 'host', hostId: host.uplink.hostId }, options)
   }
 
+  /** An access token for an organization's Solus API; null when signed out. */
+  solusApiAccessToken(options?: { refused?: string }): Promise<string | null> {
+    if (!this.identity) return Promise.resolve(null)
+    return this.oauth.accessToken({ kind: 'api' }, options)
+  }
+
+  /** The routes the directory lists for an organization's Solus API; empty when it lists none. */
+  solusApiRoutes(organizationId: string): DirectoryWorkspace['routes'] {
+    if (this.directory.kind !== 'loaded') return []
+    return this.directory.workspaces.find((workspace) => workspace.organizationId === organizationId)?.routes ?? []
+  }
+
   /** True when the phone holds no sign-in: it ended or was never made. */
   isSignedOut(): boolean {
     return !this.identity

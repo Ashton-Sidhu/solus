@@ -13,6 +13,8 @@ import { classifyVisibilityReturn, type WakeSignal } from '@solus/client-core/wa
 import type { ConnectionStatus, WsTransport, WsTransportOptions } from '@solus/client-core/ws-transport'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import { permissionsAllow, type Permission } from '@solus/contracts/permissions'
+import type { HostRoute } from '@solus/contracts/host-routes'
+import { solusApiId } from '@solus/contracts/uplink'
 import { Listeners } from '../../lib/listeners'
 import type { HostRegistry, NativeHost } from './host-registry'
 
@@ -45,6 +47,10 @@ export interface HostConnectionsDeps {
   dialOrganizationId(host: NativeHost): string | null
   /** The organization this device works in; it scopes record reads. */
   organizationId(): string | null
+  /** The routes of an organization's Solus API, as the account directory lists them; empty when it lists none. */
+  solusApiRoutes(organizationId: string): readonly HostRoute[]
+  /** An access token for the Solus API (`kind: 'api'`); `refused` names a kept one the service refused. */
+  solusApiAccessToken(options?: { refused?: string }): Promise<string | null>
   fetch: typeof fetch
   /** This build's version, as About shows it; diagnostics name it. */
   clientVersion: string
@@ -196,6 +202,56 @@ export class HostConnections {
       if (key === 'capabilities') created.hostVersion = created.facts.value('capabilities')?.version ?? created.hostVersion
     })
     this.connections.set(host.id, created)
+    link.start()
+    return created
+  }
+
+  /**
+   * The connection to an organization's Solus API, keyed `workspace:<organizationId>`,
+   * dialed on first use through its tunnel route (docs/plans/workspace-and-machines.md §3).
+   * It is not a host: it has no registry entry and no saved identity, and the grant
+   * names it. Null while the account directory lists no route for the organization.
+   */
+  solusApi(organizationId: string): HostConnection | null {
+    const serviceId = solusApiId(organizationId)
+    const existing = this.connections.get(serviceId)
+    if (existing) return existing
+    const routes = () => this.deps.solusApiRoutes(organizationId).filter((route) => route.kind === 'tunnel')
+    const [route] = dialableRoutes(routes(), '')
+    if (!route) return null
+
+    let connection: HostConnection | null = null
+    const transport = this.deps.createTransport({
+      serverUrl: route.url,
+      serverId: serviceId,
+      sessionToken: '',
+      grants: { acquire: (options) => this.deps.solusApiAccessToken(options), isSignedOut: () => this.deps.isSignedOut() },
+      dialOrganizationId: () => organizationId,
+      organizationId: this.deps.organizationId,
+    })
+    const link = new HostLink({
+      hostId: serviceId,
+      transport,
+      api: asHostApi(transport.buildSolusApi()),
+      routes,
+      // The grant is minted for this service only: any route that answers `/health` may carry it.
+      answersAsHost: async (url, signal) => !!(await readHostHealth(this.deps.fetch, url, signal)),
+      onReadinessChange: () => {
+        if (!connection) return
+        connection.syncState()
+        this.changes.notify()
+      },
+      onOutcome: () => {
+        if (!connection) return
+        connection.syncState()
+        this.changes.notify()
+      },
+      setTimeoutFn: this.deps.setTimeoutFn,
+      clearTimeoutFn: this.deps.clearTimeoutFn,
+    })
+    const created = new HostConnection(serviceId, link, transport)
+    connection = created
+    this.connections.set(serviceId, created)
     link.start()
     return created
   }

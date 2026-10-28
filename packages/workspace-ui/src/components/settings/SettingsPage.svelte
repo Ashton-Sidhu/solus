@@ -28,6 +28,7 @@
     Server as HostIcon,
     Plug as PlugIcon,
     Blocks as McpIcon,
+    Webhook as WebhookIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
@@ -71,6 +72,7 @@
   import SettingsTabHost, { searchWords as hostSearch } from "./SettingsTabHost.svelte";
   import SettingsTabOrganization, { searchWords as organizationSearch } from "./SettingsTabOrganization.svelte";
   import DeviceSettings from "../devices/DeviceSettings.svelte";
+  import SettingsTabWebhooks, { searchWords as webhooksSearch } from "../webhooks/SettingsTabWebhooks.svelte";
   import { settingsHost } from "./lib/settings-host.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Sidebar from "../ui/sidebar";
@@ -219,6 +221,14 @@
       group: "Capabilities",
       desktopOnly: true,
     },
+    // One table for the webhooks of every connected host (docs/plans/webhooks.md §4).
+    {
+      id: "webhooks",
+      label: "Webhooks",
+      description: "Let other services start agent work on your hosts.",
+      icon: WebhookIcon,
+      group: "Capabilities",
+    },
     // Host-scoped, so it stays visible on web and mobile: the devices are on
     // the host, and every client can show them.
     {
@@ -301,6 +311,7 @@
     providers: ["claude", "claude code", "codex", "agent", "harness", "seat", "sign in", "login", "cli"],
     telemetry: [...analyticsSearch, ...keywordsOf(telemetrySearch)],
     host: hostSearch,
+    webhooks: webhooksSearch,
     experimental: keywordsOf(experimentalSearch),
   };
 
@@ -570,6 +581,8 @@
     {#key selectedSettingsHost.serverId}
       <DeviceSettings serverId={selectedSettingsHost.serverId} />
     {/key}
+  {:else if session.settingsTab === "webhooks"}
+    <SettingsTabWebhooks />
   {:else if session.settingsTab === "keybindings"}
     <SettingsTabKeybindings bind:searchQuery={() => pageQuery, setSearchQuery} />
   {/if}
@@ -788,7 +801,7 @@
            pane shows margin instead. `w-full` keeps it from overflowing
            panes narrower than that. The MCP page is a catalog with a
            category rail, not a column of rows, so it takes a wider measure. -->
-      <div class="mx-auto w-full pt-8 pb-12 {session.settingsTab === 'mcp' ? 'max-w-6xl' : 'max-w-3xl'}">
+      <div class="mx-auto w-full pt-8 pb-12 {session.settingsTab === 'mcp' || session.settingsTab === 'webhooks' ? 'max-w-6xl' : 'max-w-3xl'}">
         <!-- A host page heads itself with the host's name and address. -->
         {#if !openHostLabel}
           <header class="mb-10 flex flex-col gap-1.5">

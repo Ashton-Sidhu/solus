@@ -50,6 +50,9 @@ import { OrganizationSettingsScreen } from '../features/settings/OrganizationSet
 import { HostSettingsScreen } from '../features/settings/HostSettingsScreen'
 import { HostAccessScreen } from '../features/settings/HostAccessScreen'
 import { IntegrationsScreen } from '../features/settings/IntegrationsScreen'
+import { WebhooksScreen } from '../features/webhooks/WebhooksScreen'
+import { WebhookScreen } from '../features/webhooks/WebhookScreen'
+import { WebhookDeliveryScreen } from '../features/webhooks/WebhookDeliveryScreen'
 import { AgentDefaultsScreen } from '../features/settings/AgentDefaultsScreen'
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen'
 import { GitHubConnectionScreen } from '../features/settings/GitHubConnectionScreen'
@@ -160,6 +163,9 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'HostSettings',
   'HostAccess',
   'Integrations',
+  'Webhooks',
+  'Webhook',
+  'WebhookDelivery',
   'GitHubConnection',
   'About',
   'PullRequestReview',
@@ -342,6 +348,9 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />
             <Stack.Screen name="HostAccess" component={HostAccessScreen} options={{ title: 'Access' }} />
             <Stack.Screen name="Integrations" component={IntegrationsScreen} options={{ title: 'MCP' }} />
+            <Stack.Screen name="Webhooks" component={WebhooksScreen} options={{ title: 'Webhooks' }} />
+            <Stack.Screen name="Webhook" component={WebhookScreen} options={{ title: 'Webhook' }} />
+            <Stack.Screen name="WebhookDelivery" component={WebhookDeliveryScreen} options={{ title: 'Delivery' }} />
             <Stack.Screen name="AgentDefaults" component={AgentDefaultsScreen} options={{ title: 'Agent defaults' }} />
             <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: 'Notifications' }} />
             <Stack.Screen name="GitHubConnection" component={GitHubConnectionScreen} options={{ title: 'GitHub' }} />

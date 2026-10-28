@@ -2062,9 +2062,20 @@ export class WorkspaceContext implements SurfaceContext {
     return this.router.params('settings')?.projectCwd ?? null
   }
 
-  showSettings(tab: SettingsTab = 'general', via: Via = 'click') {
+  /** The Webhooks page's view, as query text; empty when the page has none. */
+  get settingsWebhooksView(): string {
+    return this.router.params('settings')?.webhooks ?? ''
+  }
+
+  /** Change the Webhooks page's view in place: a filter is not a step back. */
+  setSettingsWebhooksView(webhooks: string) {
+    this.router.navigate({ name: 'settings', params: webhooks ? { tab: 'webhooks', webhooks } : { tab: 'webhooks' } }, { replace: true })
+  }
+
+  /** `webhooks` is the Webhooks page's view, as `webhooks-view.ts` writes it. */
+  showSettings(tab: SettingsTab = 'general', via: Via = 'click', webhooks?: string) {
     this.ui.unifiedPickerOpen = false
-    this.showPage({ name: 'settings', params: { tab } }, via, 'settings')
+    this.showPage({ name: 'settings', params: webhooks ? { tab, webhooks } : { tab } }, via, 'settings')
     track('settings_opened', { tab, via })
   }
 
