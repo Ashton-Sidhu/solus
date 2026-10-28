@@ -112,6 +112,10 @@ export const sharesMirrorPayloadSchema = z.object({
     actions: z.array(z.string()).max(32).nullable().optional(),
     /** The link's expiry on the host's clock; null never. */
     expiresAt: z.number().nullable().optional(),
+    /** When the row last gave access or a higher role; absent from an older host, read as `createdAt`. */
+    grantedAt: z.number().nullable().optional(),
+    /** The name of the person who made the grant; absent from an older host. */
+    grantedByName: z.string().max(200).nullable().optional(),
   })),
 })
 export type SharesMirrorPayload = z.infer<typeof sharesMirrorPayloadSchema>

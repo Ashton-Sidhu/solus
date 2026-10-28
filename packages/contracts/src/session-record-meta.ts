@@ -33,5 +33,7 @@ export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
     publication: record.publication,
   }
   if (record.view?.archivedAt != null) meta.archived = true
+  // The host answers `owner` only to the session's owner (access.ts `standingOf`).
+  if (record.role && record.role !== 'owner' && record.role !== 'none') meta.shared = true
   return meta
 }

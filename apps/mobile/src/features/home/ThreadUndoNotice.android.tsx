@@ -55,7 +55,7 @@ export function ThreadUndoNotice(props: { readonly visible: boolean }) {
 
 function SwipeableUndoNotice(props: { readonly notice: Notice }) {
   const { notice } = props;
-  const message = `${notice.action} thread`;
+  const message = notice.message;
   const insets = useSafeAreaInsets();
   const translation = useSharedValue(0);
   const width = useSharedValue(0);
@@ -126,18 +126,18 @@ function SwipeableUndoNotice(props: { readonly notice: Notice }) {
               pointerEvents="none"
               style={StyleSheet.absoluteFill}
             />
-            <SymbolView name="checkmark.circle" size={20} tintColorClassName="accent-icon" />
+            <SymbolView name={notice.actionLabel === "Open" ? "person.2" : "checkmark.circle"} size={20} tintColorClassName="accent-icon" />
             <Text className="min-w-0 flex-1 text-sm font-t3-bold text-foreground" numberOfLines={1}>
               {message}
             </Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Undo: ${message}`}
+              accessibilityLabel={`${notice.actionLabel}: ${message}`}
               className="active:opacity-60"
               hitSlop={8}
-              onPress={() => threadUndoNotices.undo()}
+              onPress={() => threadUndoNotices.act()}
             >
-              <Text className="text-sm font-t3-bold text-primary-text">Undo</Text>
+              <Text className="text-sm font-t3-bold text-primary-text">{notice.actionLabel}</Text>
             </Pressable>
           </View>
         </Animated.View>

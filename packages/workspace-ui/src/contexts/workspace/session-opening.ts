@@ -28,6 +28,7 @@ import { type GitRefreshResult } from '../git/session-environment.store.svelte'
 import { findLastUserIndex, parentSessionIdOf } from './session.utils'
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { SessionUnavailableError } from './session-errors'
+import { sessionListStore } from './session-list.store.svelte'
 import { quotedReplyDraft } from '@solus/client-core/quoted-reply'
 import { applyWorktreeOfferResolution } from '../../components/conversation/lib/worktree-offer'
 import type { SessionEnvironmentWorkspace } from '../git/session-environment.store.svelte'
@@ -320,6 +321,8 @@ export class SessionOpening {
   ): Promise<string> {
     // A session ref crossing the client names its host — there is no probe.
     if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
+    // Every way into a session without a tab comes here: a shared one is no longer new.
+    sessionListStore.markOpened(meta.sessionId)
     // The workspace service keeps the record and no transcript: while the runner
     // is offline the session opens read-only (docs/plans/cloud-service-model.md R8).
     if (!hosts.hasExecution(meta.serverId)) {

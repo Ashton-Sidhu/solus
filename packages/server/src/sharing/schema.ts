@@ -28,6 +28,10 @@ export const aclEntry = defineTable('acl_entry', {
   expires_at: bigint(),
   granted_by_user_id: text({ notNull: true }),
   created_at: bigint({ notNull: true }),
+  /** When the row last gave its subject access or a higher role, in ms; null on a row made before the column existed, read as `created_at` (docs/plans/shared-with-you.md §4.1). */
+  granted_at: bigint(),
+  /** The name of the person who made the grant, for "Alex shared …"; null on an older row and for the host itself. */
+  granted_by_name: text(),
   organization_id: ORGANIZATION,
 }, {
   indexes: [

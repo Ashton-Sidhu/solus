@@ -10,6 +10,7 @@ import { SolusApiError } from '../../admission/workspace-error'
 import type { ShareManager } from '../../sharing/share-manager'
 import { requireResource } from '../workspace/context'
 import { notificationReaderFor } from './access'
+import { recordSharedSessions } from './shared-sessions'
 import {
   countNotifications, listNotifications, NotificationCursorError, setNotificationArchived, setNotificationRead,
   type NotificationReader,
@@ -30,12 +31,18 @@ export class NotificationApiOperations {
     const query = workspaceNotificationQuerySchema.parse(input)
     const filter: NotificationFilter = { view: query.view }
     if (query.kind) filter.kinds = [query.kind]
-    const page = await this.read(context, (reader) => listNotifications(reader, { filter, cursor: query.cursor, limit: query.limit }))
+    const page = await this.read(context, async (reader) => {
+      await recordSharedSessions(reader)
+      return listNotifications(reader, { filter, cursor: query.cursor, limit: query.limit })
+    })
     return { items: page.items, nextCursor: page.cursor }
   }
 
   count(context: WorkspaceRequestContext): Promise<NotificationCount> {
-    return this.read(context, (reader) => countNotifications(reader))
+    return this.read(context, async (reader) => {
+      await recordSharedSessions(reader)
+      return countNotifications(reader)
+    })
   }
 
   async setRead(context: WorkspaceRequestContext, id: string, input: WorkspaceNotificationRead): Promise<HubNotification> {

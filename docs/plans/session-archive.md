@@ -33,7 +33,10 @@ snoozed session came back to the active list on each reload.
   theirs that they did not archive and that was active in the last 30 days,
   that they snoozed, or that waits on an open pull request. A session is theirs
   when they own it, when they prompted or organized it, or when it has no
-  owner (a machine's personal sessions).
+  owner (a machine's personal sessions). A session that another person
+  shared directly with them (a person or team share) is in their list too,
+  until they archive it; a later grant brings it back
+  (`docs/plans/shared-with-you.md` §2).
 - **session picker** — the search that finds any session, archived ones too.
 
 Do not say "closed", "hidden" or "dismissed" for an archived session. Closing a

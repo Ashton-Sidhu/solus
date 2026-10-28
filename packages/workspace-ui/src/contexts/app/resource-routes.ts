@@ -5,6 +5,7 @@ import { connectionsNav } from '../../components/connections/connections-nav.sve
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
 import { toasts } from '../../lib/toasts'
+import { noticeUnopenableSession } from '../sharing/unopenable-session'
 
 /**
  * Where a surface asks to go, named by the resource rather than by the pane,
@@ -83,7 +84,7 @@ async function openSessionBeside(session: WorkspaceContext, sessionId: string, s
     // An empty id: the host keeps only the record, which resume has opened read-only.
     if (tabId === '') return
     if (!tabId) {
-      toasts.error("Couldn't find that conversation")
+      if (!noticeUnopenableSession(serverId, sessionId)) toasts.error("Couldn't find that conversation")
       return
     }
     if (session.hasCompanionPanes) session.openTabAsSurface(tabId)

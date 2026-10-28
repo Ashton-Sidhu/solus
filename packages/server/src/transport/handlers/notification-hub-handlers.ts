@@ -1,6 +1,7 @@
 import { NOTIFICATION_HUB_VERSION } from '@solus/contracts/notification-hub'
 import { isHostOwner, type Principal } from '../../admission/principal'
 import { notificationReaderFor } from '../../data/notifications/access'
+import { recordSharedSessions } from '../../data/notifications/shared-sessions'
 import {
   countNotifications, listNotifications, setNotificationArchived, setNotificationRead, type NotificationReader,
 } from '../../data/notifications/store'
@@ -24,8 +25,17 @@ export function registerNotificationHubHandlers(server: SolusServer, deps: { sha
   }
 
   server.register('notificationsCapability', () => ({ version: NOTIFICATION_HUB_VERSION }))
-  server.register('notificationsList', ([request], ctx) => listNotifications(readerFor(ctx.principal), request ?? {}))
-  server.register('notificationsCount', (_args, ctx) => countNotifications(readerFor(ctx.principal)))
+  // The reader's session shares are written as they read (docs/plans/shared-with-you.md §4.4).
+  server.register('notificationsList', async ([request], ctx) => {
+    const reader = readerFor(ctx.principal)
+    await recordSharedSessions(reader)
+    return listNotifications(reader, request ?? {})
+  })
+  server.register('notificationsCount', async (_args, ctx) => {
+    const reader = readerFor(ctx.principal)
+    await recordSharedSessions(reader)
+    return countNotifications(reader)
+  })
   server.register('notificationsSetRead', ([request], ctx) => setNotificationRead(readerFor(ctx.principal), request))
   server.register('notificationsSetArchived', ([request], ctx) => setNotificationArchived(readerFor(ctx.principal), request))
 }

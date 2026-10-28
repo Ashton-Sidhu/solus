@@ -8,6 +8,7 @@
     Laptop as LaptopIcon,
     Moon as MoonIcon,
     Sun as SunIcon,
+    User as UserIcon,
     LoaderCircle as SpinnerGapIcon,
     X as XIcon,
   } from "@lucide/svelte";
@@ -37,9 +38,14 @@
     type SidebarTask,
   } from "./lib/task-list";
   import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
+  import UserAvatar from "../users/UserAvatar.svelte";
+  import type { User } from "@solus/contracts/user";
+  import { shareRoleText } from "../../contexts/workspace/shared-sessions";
 
   interface Props {
     task: SidebarTask;
+    /** The owner of a shared row's session, when the directory names them. */
+    shareOwner?: User | null;
     prChip: PrChipModel | null;
     prChoices: TaskPrChoice[];
     /** True while the session you are reading is this row's session or one it
@@ -97,6 +103,7 @@
   }
   let {
     task,
+    shareOwner = null,
     prChip,
     prChoices,
     onPath,
@@ -140,7 +147,8 @@
   // vertical budget on it as on the work you are actually doing — which is what
   // made the column read as a wall. The slim row keeps every affordance; it
   // just stops claiming the space of live work.
-  const isSlim = $derived(task.lifecycle !== "active");
+  // A shared row keeps its card in every state: Shared with you has no shelf.
+  const isSlim = $derived(task.lifecycle !== "active" && !task.share);
   const reviewGuideStatus = $derived(aggregateReviewGuideStatus(sessions));
   const reviewGuideTooltipStatus = $derived(
     aggregateReviewGuideStatus(
@@ -565,7 +573,28 @@
             <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{task.projectLabel}</span
             >
-            {#if showsHost}
+            {#if task.share}
+              <!-- Whose session it is, and what the reader may do in it. The
+                   owner's face stands in for their name; the role is words. -->
+              <span class="shrink-0">·</span>
+              <span
+                class="flex min-w-0 shrink items-center gap-1"
+                title={shareOwner ? `${shareOwner.displayName} · ${shareRoleText(task.share.role)}` : shareRoleText(task.share.role)}
+              >
+                {#if shareOwner}
+                  <UserAvatar user={shareOwner} size={14} />
+                {:else}
+                  <span
+                    class="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_10%,transparent)] text-muted-foreground"
+                    aria-hidden="true"
+                  >
+                    <UserIcon size={10} />
+                  </span>
+                {/if}
+                <span class="min-w-0 truncate">{shareRoleText(task.share.role)}</span>
+              </span>
+            {/if}
+            {#if showsHost && !task.share}
               <!-- The separator is pure decoration, and local is the default
                    every row would otherwise repeat. A remote session names its
                    host as well as its operating system: remote and SaaS clients

@@ -4,6 +4,7 @@
  */
 
 import type { HubNotification, NotificationKind } from '@solus/contracts/notification-hub'
+import type { ShareRole } from '@solus/contracts/sharing'
 import type { HubSourceState } from './hub-client'
 
 /** What happened, in a few words, for one row. */
@@ -23,6 +24,8 @@ export function notificationHeadline(notification: HubNotification): string {
       return facts.status === 'ready' ? `${job} ready` : `${job} failed`
     }
     case 'mention': return 'Mentioned you'
+    case 'session.shared': return `Shared with you · ${shareRoleLabel(facts.role)}`
+    case 'session.unshared': return 'Removed your access'
   }
 }
 
@@ -31,7 +34,17 @@ export function notificationError(notification: HubNotification): string | null 
   return notification.facts.kind === 'review_job.finished' ? notification.facts.error ?? null : null
 }
 
-export type NotificationKindGroup = 'reviews' | 'tasks' | 'pull-requests' | 'automations' | 'guides' | 'mentions'
+/** A share role as a person reads it: "Can edit". */
+export function shareRoleLabel(role: ShareRole): string {
+  switch (role) {
+    case 'viewer': return 'Can view'
+    case 'commenter': return 'Can comment'
+    case 'editor': return 'Can edit'
+    case 'custom': return 'Custom access'
+  }
+}
+
+export type NotificationKindGroup = 'reviews' | 'tasks' | 'pull-requests' | 'automations' | 'guides' | 'mentions' | 'shares'
 
 /** The kind filter's choices: each names the kinds it shows. */
 export const NOTIFICATION_KIND_GROUPS: readonly { value: NotificationKindGroup; label: string; kinds: readonly NotificationKind[] }[] = [
@@ -41,6 +54,7 @@ export const NOTIFICATION_KIND_GROUPS: readonly { value: NotificationKindGroup; 
   { value: 'automations', label: 'Automations', kinds: ['automation.finished'] },
   { value: 'guides', label: 'Guides and lenses', kinds: ['review_job.finished'] },
   { value: 'mentions', label: 'Mentions', kinds: ['mention'] },
+  { value: 'shares', label: 'Shared with you', kinds: ['session.shared', 'session.unshared'] },
 ]
 
 export function kindsForGroups(groups: readonly NotificationKindGroup[]): NotificationKind[] {

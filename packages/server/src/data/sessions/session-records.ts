@@ -18,6 +18,7 @@ import { provisionedOrganizationId } from '../../host/host-category'
 import { hostUserKey } from '../../host/host-user'
 import { scopeClause } from '../scope'
 import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
+import { aclEntry } from '../../sharing/schema'
 import { sessionPullRequests, sessionRecords, sessionStates, sessionViews } from './schema'
 import { stateFromColumns, viewFromColumns } from './session-state-columns'
 
@@ -87,8 +88,29 @@ const recordWithStateRowSchema = recordRowSchema.extend({
   archived_at: z.number().nullable(),
   snoozed_until: z.number().nullable(),
   snooze_note: z.string().nullable(),
+  shared_by: z.string().nullable(),
+  granted_at: z.coerce.number().nullable(),
   listed: z.coerce.number(),
 })
+
+/**
+ * The latest direct share of the session that names the reader — a `user`
+ * entry for them or a `team` entry for a team they are in — as one column of it
+ * (docs/plans/shared-with-you.md §4.2). An organization entry and a link are not
+ * direct shares: they give access, not a place in the list. Null when none.
+ */
+function directShare(reader: SessionPageReader, column: SQL): SQL {
+  const { personKey, teamIds = [], now } = reader
+  if (!personKey) return sql`NULL`
+  const subjects = [sql`(acl.subject_kind = 'user' AND acl.subject_id = ${personKey})`]
+  if (teamIds.length) subjects.push(sql`(acl.subject_kind = 'team' AND acl.subject_id IN (${sql.join(teamIds.map((teamId) => sql`${teamId}`), sql`, `)}))`)
+  return sql`(SELECT ${column} FROM ${aclEntry} AS acl
+    WHERE acl.resource_kind = 'session' AND acl.resource_id = session_records.session_id
+      AND (${sql.join(subjects, sql` OR `)}) AND (acl.expires_at IS NULL OR acl.expires_at > ${now})
+    ORDER BY COALESCE(acl.granted_at, acl.created_at) DESC LIMIT 1)`
+}
+
+const GRANTED_AT = sql`COALESCE(acl.granted_at, acl.created_at)`
 
 /**
  * Whether a session is in the reader's list (docs/plans/session-archive.md):
@@ -96,13 +118,18 @@ const recordWithStateRowSchema = recordRowSchema.extend({
  * view row) — they did not archive it, and it was active recently, they snoozed it, or it
  * waits on an open pull request. Reads the `session_views` row the page
  * joins for the reader.
+ *
+ * A direct share lists the session too, until the reader archives it; a grant
+ * made after that archive lists it again (docs/plans/shared-with-you.md §2).
+ * Its grant counts as activity, so a session shared today is listed however
+ * old it is.
  */
 export function sessionListedClause(reader: SessionPageReader): SQL {
   const { personKey, now } = reader
-  return sql`(session_views.archived_at IS NULL
-  AND (session_records.owner_key = ${personKey ?? ''} OR session_views.person_key IS NOT NULL)
-  AND (
-    session_records.last_activity_at >= ${now - SESSION_LIST_IDLE_MS}
+  const since = now - SESSION_LIST_IDLE_MS
+  const grantedAt = directShare(reader, GRANTED_AT)
+  const active = sql`(
+    session_records.last_activity_at >= ${since}
     OR session_views.snoozed_until IS NOT NULL
     OR EXISTS (
       SELECT 1 FROM ${sessionPullRequests}
@@ -110,7 +137,12 @@ export function sessionListedClause(reader: SessionPageReader): SQL {
         AND session_pull_requests.source <> 'dismissed'
         AND (session_pull_requests.pr_state IS NULL OR session_pull_requests.pr_state NOT IN ('merged', 'closed', 'missing'))
     )
-  ))`
+  )`
+  return sql`((session_views.archived_at IS NULL
+  AND (session_records.owner_key = ${personKey ?? ''} OR session_views.person_key IS NOT NULL)
+  AND ${active})
+  OR (${grantedAt} > COALESCE(session_views.archived_at, -1)
+  AND (${active} OR ${grantedAt} >= ${since})))`
 }
 
 function delegationFromRow(row: RecordRow): SessionRecordDelegation | null {
@@ -191,6 +223,8 @@ export async function getSessionRecords(scope: RecordScope, sessionIds: readonly
 /** Who reads a page: their person key, for their own view and list; null for a reader who is no person. */
 export interface SessionPageReader {
   personKey: string | null
+  /** The teams the reader is in, which a team share names. */
+  teamIds?: readonly string[]
   now: number
 }
 
@@ -201,13 +235,23 @@ export interface SessionPageReader {
  */
 export async function readSessionMetadataPage(where: SQL, limit: number, time: 'created_at' | 'last_activity_at' = 'created_at', reader: SessionPageReader = { personKey: null, now: Date.now() }): Promise<SessionRecord[]> {
   const rows = recordWithStateRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT ${RECORD_WITH_STATE_COLUMNS}, CASE WHEN ${sessionListedClause(reader)} THEN 1 ELSE 0 END AS listed
+    SELECT ${RECORD_WITH_STATE_COLUMNS},
+      ${directShare(reader, sql`acl.granted_by_user_id`)} AS shared_by, ${directShare(reader, GRANTED_AT)} AS granted_at,
+      CASE WHEN ${sessionListedClause(reader)} THEN 1 ELSE 0 END AS listed
     FROM ${sessionRecords}
     LEFT JOIN ${sessionStates} ON session_states.session_id = session_records.session_id
     LEFT JOIN ${sessionViews} ON session_views.session_id = session_records.session_id AND session_views.person_key = ${reader.personKey ?? ''}
     WHERE ${where} ORDER BY session_records.${sql.identifier(time)} DESC, session_records.session_id DESC LIMIT ${limit}
   `))
-  return rows.map((row) => ({ ...recordFromRow(row), state: stateFromColumns(row), view: viewFromColumns(row), listed: row.listed === 1 }))
+  return rows.map((row) => {
+    const record: SessionRecord = { ...recordFromRow(row), state: stateFromColumns(row), view: viewFromColumns(row), listed: row.listed === 1 }
+    // Only another person's session carries its share: the owner's own is never "shared with you".
+    if (row.shared_by !== null && row.granted_at !== null && row.owner_key !== reader.personKey) {
+      record.sharedBy = row.shared_by
+      record.grantedAt = row.granted_at
+    }
+    return record
+  })
 }
 
 /**

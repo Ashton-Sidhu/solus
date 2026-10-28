@@ -2,11 +2,11 @@ import type { DraftRow } from './draft-list'
 import type { SidebarTask } from './task-list'
 
 /** Where a row sits in the one list. */
-export type SidebarSection = 'sessions' | 'working' | 'snoozed' | 'completed'
+export type SidebarSection = 'sessions' | 'shared' | 'working' | 'snoozed' | 'completed'
 
 /**
- * One entry of the sidebar's single list. Drafts, the sessions, the Working
- * section, and the Snoozed and Completed sections are one list with section headers as entries
+ * One entry of the sidebar's single list. Drafts, the sessions, Shared with
+ * you, the Working section, and the Snoozed and Completed sections are one list with section headers as entries
  * (docs/plans/sidebar-motion.md, step 3), so a row that changes section, and a
  * draft that arrives or leaves, animate like any other change of order.
  */
@@ -21,10 +21,13 @@ export interface SidebarListInput {
   /** Open sessions that are not working. Every row stands for one session; a
    *  session linked to a task names it on a chip. */
   sessions: readonly SidebarTask[]
+  /** Other people's sessions in the reader's list (docs/plans/shared-with-you.md). */
+  shared: readonly SidebarTask[]
   /** Open sessions whose agent is busy without the user. */
   working: readonly SidebarTask[]
   snoozed: readonly SidebarTask[]
   completed: readonly SidebarTask[]
+  isSharedOpen: boolean
   isWorkingOpen: boolean
   isSnoozedOpen: boolean
   isCompletedOpen: boolean
@@ -43,7 +46,7 @@ export interface SidebarListInput {
 function taskItem(task: SidebarTask, section: SidebarSection): SidebarListItem {
   // A working row keeps the card it had, so a row that starts or finishes a
   // turn slides between sections rather than changing shape.
-  const variant = section === 'sessions' || section === 'working' ? 'card' : 'slim'
+  const variant = section === 'sessions' || section === 'shared' || section === 'working' ? 'card' : 'slim'
   return { kind: 'task', key: `${task.id}:${variant}`, section, task }
 }
 
@@ -73,6 +76,7 @@ export function buildSidebarListItems(input: SidebarListInput): SidebarListItem[
     // Sessions are the body of the list: a header would only divide them from
     // nothing, so they stand bare and cannot collapse.
     ...input.sessions.map((task) => taskItem(task, 'sessions')),
+    ...section('shared', input.shared, input.isSharedOpen, input.shelfRevealTaskId),
     ...section('working', input.working, input.isWorkingOpen, input.shelfRevealTaskId),
     ...section('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealTaskId),
     ...section('completed', input.completed, input.isCompletedOpen, input.shelfRevealTaskId),

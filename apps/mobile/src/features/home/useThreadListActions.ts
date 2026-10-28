@@ -9,7 +9,7 @@ import type { SolusThreadShell } from "../threads/thread-directory";
 import { threadTitle, watchRefusalMessage, type ThreadPrWatchTarget } from "../threads/threadListV2";
 import { useThreadListState } from "../threads/use-thread-list";
 import { withThreadDismissal } from "./thread-dismissal";
-import { threadUndoNotices, type ThreadUndoAction } from "./thread-undo-notice";
+import { threadUndoNotices, undoNotice, type ThreadUndoAction } from "./thread-undo-notice";
 
 /**
  * The thread list's actions on Solus sessions: settle and un-settle, snooze
@@ -31,7 +31,7 @@ async function offerUndo(
   undo: () => void,
 ): Promise<boolean> {
   const succeeded = await done;
-  if (succeeded) threadUndoNotices.show({ action, threadKey: thread.key, undo });
+  if (succeeded) threadUndoNotices.show(undoNotice(action, thread.key, undo));
   return succeeded;
 }
 

@@ -21,9 +21,11 @@ function list(overrides: Partial<SidebarListInput> = {}) {
   return buildSidebarListItems({
     drafts: [],
     sessions: [],
+    shared: [],
     working: [],
     snoozed: [],
     completed: [],
+    isSharedOpen: true,
     isWorkingOpen: true,
     isSnoozedOpen: true,
     isCompletedOpen: true,

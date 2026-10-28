@@ -13,7 +13,8 @@ import {
   reconcileSidebarTasks,
   sessionRowLifecycle,
   isInWorkingSection,
-  isWorkingStatus,
+  sidebarSectionOf,
+  sortSharedRows,
   projectFilterChoices,
   resolveProjectFilter,
   sortSidebarRowsByCreation,
@@ -68,6 +69,7 @@ import { snoozeWakeDelay } from '../../components/session/lib/task-snooze'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { sessionPrLink, sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { sessionListStore, type ListedSession, type SessionListTarget } from './session-list.store.svelte'
+import { isUnopenedShare } from './shared-sessions'
 import { canDriveSession } from '../sharing/resource-roles'
 import { projectHome, runHost, workingPlace } from './run-location'
 import { visibleInWindow } from '@solus/client-core/organization-filter'
@@ -215,6 +217,8 @@ export class SessionSidebarStore {
     tab: Tab,
     linkedTask: SidebarLinkedTask | undefined,
   ): SidebarTask {
+    // A task of the reader's around it keeps it out of Shared with you: the task is theirs.
+    const share = linkedTask ? undefined : sessionListStore.listed(session.id)?.share
     const environment = this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run)
     const projectKey = environmentProjectKey(environment, session.run)
     const attention = getAttentionState(session, tab, this.planStore.plans)
@@ -244,6 +248,7 @@ export class SessionSidebarStore {
       woke: lifecycle.woke,
       tabIds: [tabId],
       linkedTask,
+      share,
     }
   }
 
@@ -258,6 +263,7 @@ export class SessionSidebarStore {
     const lifecycle = sessionRowLifecycle(state, null, this.lifecycleNow)
     const rowId = `session:${listed.sessionId}`
     const linkedTask = this.session.tasksStore.taskForSession(listed.sessionId)
+    const share = listed.share
     return {
       id: rowId,
       key: rowId,
@@ -270,7 +276,7 @@ export class SessionSidebarStore {
       serverId: listed.serverId,
       status: taskStatusFor(null, !!state?.settledAt),
       attention: null,
-      unread: false,
+      unread: isUnopenedShare(share, sessionListStore.openedGrantAt(listed.sessionId)),
       createdAt: listed.createdAt,
       runStartedAt: 0,
       lifecycle: lifecycle.lifecycle,
@@ -281,6 +287,7 @@ export class SessionSidebarStore {
       woke: lifecycle.woke,
       tabIds: [],
       linkedTask: linkedTask ? { taskId: linkedTask.id, title: linkedTask.title } : undefined,
+      share,
     }
   }
 
@@ -491,9 +498,10 @@ export class SessionSidebarStore {
   })
 
   /** The sessions the list shows bare: active sessions that are not working.
-   *  A settled or snoozed session is on its shelf. */
+   *  A settled or snoozed session is on its shelf. Another person's session is
+   *  in Shared with you. */
   sessionRows: SidebarTask[] = $derived(sortRowsByReturn(
-    this.openRows.filter((row) => !isWorkingStatus(row.status)),
+    this.openRows.filter((row) => sidebarSectionOf(row) === 'sessions'),
     (row) => this.returnOrder.returnedAt(row),
   ))
 
@@ -502,13 +510,24 @@ export class SessionSidebarStore {
    *  user, and lands on top of the sessions. */
   workingRows: SidebarTask[] = $derived(this.openRows.filter(isInWorkingSection))
 
+  /** Shared with you (docs/plans/shared-with-you.md): other people's sessions
+   *  in this person's list, in every state, newest grant first. A row with
+   *  unsent work and no pane is in Drafts, as a session of their own is. A
+   *  shared session nested under one of the reader's sessions stays nested. */
+  sharedRows: SidebarTask[] = $derived.by(() => {
+    const parked = this.parkedSessionTabIds
+    return sortSharedRows(this.inFilter(this.withoutNested(this.catalogTasks).filter((row) =>
+      sidebarSectionOf(row) === 'shared' && !row.tabIds.some((tabId) => parked.has(tabId)),
+    )))
+  })
+
   snoozedTasks: SidebarTask[] = $derived(
-    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => task.lifecycle === 'snoozed'))
+    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => sidebarSectionOf(task) === 'snoozed'))
       .toSorted((a, b) => a.snoozedUntil - b.snoozedUntil || a.id.localeCompare(b.id)),
   )
   /** The Completed shelf: settled sessions, newest first. */
   completedTasks: SidebarTask[] = $derived(
-    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => task.lifecycle === 'completed'))
+    this.inFilter(this.withoutNested(this.catalogTasks).filter((task) => sidebarSectionOf(task) === 'completed'))
       .toSorted((a, b) => b.completedAt - a.completedAt || a.id.localeCompare(b.id)),
   )
 
@@ -1016,6 +1035,13 @@ export class SessionSidebarStore {
     return target !== null && canDriveSession(target.serverId, target.sessionId)
   }
 
+  /** Whether the row's session can be archived. Archive writes the reader's
+   *  own view, so a session shared with them to view archives too
+   *  (docs/plans/shared-with-you.md §2, rule 4). */
+  canArchive(row: SidebarTask): boolean {
+    return this.canShelve(row) || (!!row.share && this.sessionOfRow(row) !== null)
+  }
+
   /** Snooze a row's session on its host. `until` of null wakes it now, which
    *  is what the row's own Wake button and the undo toast both call. A prompt
    *  also wakes a session, on the host. */
@@ -1064,7 +1090,13 @@ export class SessionSidebarStore {
       : null
     this.preparedOpen = null
     const meta = await (prepared ?? readSessionMeta(row.serverId, row.sessionId))
-    if (meta) await this.session.opening.resumeSession(meta)
+    if (meta) {
+      await this.session.opening.resumeSession(meta)
+      return
+    }
+    // A stale row of a shared session: say why it does not open.
+    const { noticeUnopenableSession } = await import('../sharing/unopenable-session')
+    noticeUnopenableSession(row.serverId, row.sessionId)
   }
 
   /**
@@ -1185,7 +1217,7 @@ export class SessionSidebarStore {
    *  one on screen, in the order the column lists them, wrapping at the ends.
    *  With no row on screen, start from the top or the bottom. */
   async selectAdjacentRow(delta: 1 | -1): Promise<void> {
-    const rows = [...this.sessionRows, ...this.workingRows]
+    const rows = [...this.sessionRows, ...this.sharedRows, ...this.workingRows]
     if (!rows.length) return
     const index = rows.findIndex((row) => row.id === this.onScreenRowId)
     const next = index === -1
@@ -1213,7 +1245,7 @@ export class SessionSidebarStore {
   closeTabs(tabIds: string[], via: Via = 'click'): void {
     const activeTabId = this.session.activeTabId
     const closesActiveTab = tabIds.includes(activeTabId)
-    const openRows = [...this.sessionRows, ...this.workingRows]
+    const openRows = [...this.sessionRows, ...this.sharedRows, ...this.workingRows]
     const sidebarTasks = [
       ...openRows,
       ...this.snoozedTasks,
@@ -1282,7 +1314,7 @@ export class SessionSidebarStore {
    * client.
    */
   removeRow(row: SidebarTask): void {
-    const target = this.canShelve(row) ? this.sessionOfRow(row) : null
+    const target = this.canArchive(row) ? this.sessionOfRow(row) : null
     this.closeTask(row)
     if (!target) return
     void this.archiveOnHost(target)

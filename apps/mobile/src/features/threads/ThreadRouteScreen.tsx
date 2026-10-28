@@ -50,6 +50,7 @@ function OpeningThreadLoadingScreen() {
 
 /** Shows recovery only after the target route has reached a terminal unavailable state. */
 function ThreadUnavailableScreen(props: {
+  readonly title?: string;
   readonly detail: string;
   readonly actionLabel: string;
   readonly onAction: () => void;
@@ -66,7 +67,7 @@ function ThreadUnavailableScreen(props: {
       className="bg-screen flex-1"
     >
       <EmptyState
-        title="Thread unavailable"
+        title={props.title ?? "Thread unavailable"}
         detail={props.detail}
         actionLabel={props.actionLabel}
         onAction={props.onAction}
@@ -257,7 +258,21 @@ function ThreadRouteContent(props: {
         className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas"
         onLayout={(event) => setColumnWidth(event.nativeEvent.layout.width)}
       >
-        {meta.phase.kind === "error" && !hasRows ? (
+        {meta.phase.kind === "error" && meta.phase.noAccess === true ? (
+          // The session is named, never the host: the host answered, and only
+          // its owner can give access (docs/plans/shared-with-you.md §4.5).
+          // This app does not read people's names, so the owner is not named.
+          <ThreadUnavailableScreen
+            title="You don't have access to this session"
+            detail={
+              props.shellTitle || runTitle
+                ? `Ask the owner of ${props.shellTitle || runTitle} to share it with you.`
+                : "Ask its owner to share it with you."
+            }
+            actionLabel="Try again"
+            onAction={() => void store.controller.load()}
+          />
+        ) : meta.phase.kind === "error" && !hasRows ? (
           <ThreadUnavailableScreen
             detail={`This conversation could not be opened: ${meta.phase.message}`}
             actionLabel="Try again"

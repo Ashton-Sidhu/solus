@@ -41,7 +41,7 @@ import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { HomeListOptionsProvider } from "../home/home-list-options";
 import { threadKey, type SolusThreadShell } from "../threads/thread-directory";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
-import { useThreadListRefresh } from "../threads/use-thread-list";
+import { useSharedWithYouNotices, useThreadListRefresh } from "../threads/use-thread-list";
 import { useAgentLiveActivity } from "../live-activity/use-agent-live-activity";
 import {
   ANDROID_WORKSPACE_RAIL_WIDTH,
@@ -389,6 +389,8 @@ export function AdaptiveWorkspaceLayout(props: {
     },
     [layout.usesSplitView, routeName, navigation, selectedThreadKey, props.location.routeKey],
   );
+  // A new share's notice opens the thread as the sidebar does.
+  useSharedWithYouNotices(handleSelectThread);
 
   const contextValue = useMemo(
     () => ({

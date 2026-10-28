@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
+import { z } from 'zod'
 import type { SessionState, SessionView } from '@solus/contracts/session-state'
 import type { SessionMeta, SessionRecord, SessionRecordStatus } from '@solus/contracts/types'
 import type { ResourceRole } from '@solus/contracts/sharing'
@@ -10,6 +11,7 @@ import { keepEqual } from '@solus/client-core/keep-equal'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { rememberRoles } from '../sharing/resource-roles'
 import { visibleInWindow } from '@solus/client-core/organization-filter'
+import { newGrants, sessionShareOf, type SessionShare } from './shared-sessions'
 
 /** A session in a person's list, as a row without a conversation draws it. */
 export interface ListedSession {
@@ -40,6 +42,39 @@ export interface ListedSession {
   /** What its first history page is read with, so a click can ask for the
    *  page before the session's metadata arrives. */
   opensWith: Pick<SessionMeta, 'provider' | 'projectPath' | 'cwd'>
+  /** Set when another person owns the session: it is in Shared with you
+   *  (docs/plans/shared-with-you.md). */
+  share?: SessionShare
+}
+
+/** What this client last knew of a shared session that left the list, for
+ *  the notice when it does not open (docs/plans/shared-with-you.md §4.5). */
+export interface FormerShare {
+  title: string | null
+  share: SessionShare
+}
+
+/** The shared sessions this person opened, by session id, with the grant that
+ *  was current when they opened it. Kept on this device. */
+const OPENED_SHARES_KEY = 'solus:opened-shared-sessions'
+const OPENED_SHARES_LIMIT = 500
+const openedSharesSchema = z.array(z.tuple([z.string(), z.number()]))
+
+function loadOpenedShares(): [string, number][] {
+  try {
+    const raw = globalThis.localStorage?.getItem(OPENED_SHARES_KEY)
+    return raw ? openedSharesSchema.catch([]).parse(JSON.parse(raw)) : []
+  } catch {
+    return []
+  }
+}
+
+function saveOpenedShares(opened: Map<string, number>): void {
+  try {
+    globalThis.localStorage?.setItem(OPENED_SHARES_KEY, JSON.stringify([...opened].slice(-OPENED_SHARES_LIMIT)))
+  } catch {
+    // A full or blocked store only costs the unread dot.
+  }
 }
 
 /** Where a session is in this person's list: its shared settle, and their own
@@ -94,8 +129,17 @@ export class SessionListStore {
   /** This person's view of each session they archived or snoozed. */
   private viewsBySession = new SvelteMap<string, SessionView>()
   private watchedServerIds = new Set<string>()
+  /** Per home, the latest grant this client told the reader about. */
+  private grantsSeenUntil = new Map<string, number>()
+  private shareListeners = new Set<(granted: ListedSession[]) => void>()
+  private formerShares = new Map<string, FormerShare>()
+  private openedShares = new SvelteMap<string, number>(loadOpenedShares())
 
-  constructor(private readonly hosts: SessionListHosts = registryHosts) {}
+  constructor(
+    private readonly hosts: SessionListHosts = registryHosts,
+    /** Shares granted before this time do not toast (`newGrants`). */
+    private readonly startedAt = Date.now(),
+  ) {}
 
   /** Read every connected home's list. A home that fails the read keeps what
    *  it answered last time. */
@@ -114,6 +158,7 @@ export class SessionListStore {
     const answered = new Set(records.map((record) => record.sessionId))
     for (const [sessionId, listed] of this.listedBySession) {
       if (listed.homeServerId !== serverId || answered.has(sessionId)) continue
+      this.rememberFormerShare(listed)
       this.listedBySession.delete(sessionId)
       this.statesBySession.delete(sessionId)
       this.viewsBySession.delete(sessionId)
@@ -138,6 +183,7 @@ export class SessionListStore {
         branch: record.branch,
         ownerKey: record.ownerKey,
         opensWith: { provider: record.provider, projectPath: record.projectPath, cwd: record.cwd ?? '' },
+        share: sessionShareOf(record),
       }
       if (record.role) listed.role = record.role
       this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))
@@ -145,6 +191,28 @@ export class SessionListStore {
       this.writeView(record.sessionId, record.view)
     }
     sessionPullRequestsStore.adopt(serverId, records)
+    this.announceNewGrants(serverId, records)
+  }
+
+  /** Tell the listeners of each direct share this read shows for the first time. */
+  private announceNewGrants(serverId: string, records: readonly SessionRecord[]): void {
+    const { granted, seenUntil } = newGrants(
+      records.flatMap((record) => this.listedBySession.get(record.sessionId) ?? []),
+      this.grantsSeenUntil.get(serverId) ?? this.startedAt,
+    )
+    this.grantsSeenUntil.set(serverId, seenUntil)
+    if (granted.length) for (const listener of this.shareListeners) listener(granted)
+  }
+
+  /** A shared session leaves the list: keep whose it was for the notice when it does not open. */
+  private rememberFormerShare(listed: ListedSession): void {
+    if (listed.share) this.formerShares.set(listed.sessionId, { title: listed.title, share: listed.share })
+  }
+
+  /** Hear of each direct share a list read shows for the first time. */
+  onNewShares(listener: (granted: ListedSession[]) => void): () => void {
+    this.shareListeners.add(listener)
+    return () => this.shareListeners.delete(listener)
   }
 
   /** A forgotten host's sessions leave the list. One its Solus API keeps stays,
@@ -177,6 +245,10 @@ export class SessionListStore {
     events.subscribe('session.titleChanged', ({ sessionId, title }) => {
       const listed = this.listedBySession.get(sessionId)
       if (listed && listed.title !== title) this.listedBySession.set(sessionId, { ...listed, title })
+    })
+    // A share gives or takes a place in the reader's list (docs/plans/shared-with-you.md §2).
+    events.subscribe('share.changed', ({ resource }) => {
+      if (resource.kind === 'session') void this.loadHost(serverId)
     })
   }
 
@@ -214,6 +286,26 @@ export class SessionListStore {
   /** Every session in this person's list. */
   listed(sessionId: string): ListedSession | undefined {
     return this.listedBySession.get(sessionId)
+  }
+
+  /** What this client knew of a shared session, listed or not any more. */
+  shareFacts(sessionId: string): FormerShare | undefined {
+    const listed = this.listedBySession.get(sessionId)
+    return listed?.share ? { title: listed.title, share: listed.share } : this.formerShares.get(sessionId)
+  }
+
+  /** The grant that was current when this person last opened the session. */
+  openedGrantAt(sessionId: string): number | undefined {
+    return this.openedShares.get(sessionId)
+  }
+
+  /** The person opened a session: a shared one stops showing as new. */
+  markOpened(sessionId: string): void {
+    const grantedAt = this.listedBySession.get(sessionId)?.share?.grantedAt
+    if (grantedAt == null || this.openedShares.get(sessionId) === grantedAt) return
+    this.openedShares.delete(sessionId)
+    this.openedShares.set(sessionId, grantedAt)
+    saveOpenedShares(this.openedShares)
   }
 
   get sessions(): ListedSession[] {

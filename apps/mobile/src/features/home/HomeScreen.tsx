@@ -26,6 +26,7 @@ import {
   ThreadListV2ArchivedSectionHeader,
   ThreadListV2Row,
   ThreadListV2SettledShelfHeader,
+  ThreadListV2SharedSectionHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
 } from "../threads/thread-list-v2-items";
@@ -334,6 +335,8 @@ export function HomeScreen(props: HomeScreenProps) {
       buildThreadListV2ListItems({
         items: threadListV2Layout.items,
         facts: props.facts,
+        sharedCount: threadListV2Layout.sharedCount,
+        sharedHeaderIndex: threadListV2Layout.sharedHeaderIndex,
         snoozedCount: threadListV2Layout.snoozedCount,
         snoozedShelfExpanded,
         snoozedShelfHeaderIndex: threadListV2Layout.snoozedShelfHeaderIndex,
@@ -376,6 +379,9 @@ export function HomeScreen(props: HomeScreenProps) {
             onToggle={toggleSettledShelf}
           />
         );
+      }
+      if (item.type === "v2-shared-section") {
+        return <ThreadListV2SharedSectionHeader count={item.count} />;
       }
       if (item.type === "v2-archived-section") {
         return <ThreadListV2ArchivedSectionHeader />;

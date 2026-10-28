@@ -258,7 +258,7 @@
       </span>
       <span class="min-w-0 flex-1">
         <span class="block truncate {attention === 'running' || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
-          >{@render marked(highlightWordRuns(pickerSessionTitle(row), query))}{#if row.kind === "conversation" && row.meta.archived}<span class="ml-1.5 text-micro text-(--solus-text-tertiary)" data-testid="picker-session-archived">Archived</span>{/if}</span
+          >{@render marked(highlightWordRuns(pickerSessionTitle(row), query))}{#if row.kind === "conversation" && row.meta.shared}<span class="ml-1.5 text-micro text-(--solus-text-tertiary)" data-testid="picker-session-shared">Shared</span>{/if}{#if row.kind === "conversation" && row.meta.archived}<span class="ml-1.5 text-micro text-(--solus-text-tertiary)" data-testid="picker-session-archived">Archived</span>{/if}</span
         >
         <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
           >{#if row.reason && row.reason.field !== "title" && row.reason.field !== "messages"}{row.reason.field === "id" ? "ID" : row.reason.field === "branch" ? "Branch" : "PR"}: {@render marked(highlightWordRuns(row.reason.text, query))}{:else if row.hit}{@render marked(snippetRuns(row.hit.snippet))}{:else}{pickerSessionProject(row)}{/if}</span

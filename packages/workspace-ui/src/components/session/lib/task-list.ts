@@ -4,6 +4,8 @@ import type { Session } from '@solus/contracts/types'
 import type { Task, TaskPrSnapshot } from '@solus/contracts/task-types'
 import type { AttentionState } from '../../../lib/sessionUtils'
 import type { ListProjectOption } from '../../ui/list-page/list-page'
+import { shareSortAt, type SessionShare } from '../../../contexts/workspace/shared-sessions'
+import type { SidebarSection } from './sidebar-list-items'
 
 /** The sidebar's state vocabulary. Narrower than `AttentionState`: the column
  *  reports what a task wants from a person, so "finished but unread" is not a
@@ -327,6 +329,10 @@ export interface SidebarTask {
   /** The task this session is linked to, named on a chip. A task has no row
    *  of its own: the chip opens its page. */
   linkedTask?: SidebarLinkedTask
+  /** Another person's session, with no task of the reader's around it: the
+   *  row is in Shared with you and in no other section
+   *  (docs/plans/shared-with-you.md). */
+  share?: SessionShare
 }
 
 export interface SidebarLinkedTask {
@@ -502,9 +508,30 @@ export function isWorkingStatus(status: TaskStatus): boolean {
 }
 
 /** Whether a row folds into the Working section until it comes back to the
- *  user with a question, a plan, an error, or a finished turn. */
-export function isInWorkingSection(row: Pick<SidebarTask, 'status'>): boolean {
-  return isWorkingStatus(row.status)
+ *  user with a question, a plan, an error, or a finished turn. Another
+ *  person's session stays in Shared with you while it runs. */
+export function isInWorkingSection(row: Pick<SidebarTask, 'status' | 'share'>): boolean {
+  return !row.share && isWorkingStatus(row.status)
+}
+
+/**
+ * The one section a row is in. Another person's session is in Shared with you
+ * whatever its state: running, settled, or snoozed
+ * (docs/plans/shared-with-you.md §2). The reader's own rows go by their
+ * lifecycle, then by whether their agent is busy.
+ */
+export function sidebarSectionOf(row: Pick<SidebarTask, 'status' | 'share' | 'lifecycle'>): SidebarSection {
+  if (row.share) return 'shared'
+  if (row.lifecycle === 'snoozed') return 'snoozed'
+  if (row.lifecycle === 'completed') return 'completed'
+  return isInWorkingSection(row) ? 'working' : 'sessions'
+}
+
+/** Shared with you, newest grant first; a session no direct share gave goes
+ *  by its last activity. */
+export function sortSharedRows(rows: readonly SidebarTask[]): SidebarTask[] {
+  const sortAt = (row: SidebarTask) => (row.share ? shareSortAt(row.share) : 0)
+  return rows.toSorted((a, b) => sortAt(b) - sortAt(a) || a.id.localeCompare(b.id))
 }
 
 /** Order the sessions newest first by when each row last came back to the

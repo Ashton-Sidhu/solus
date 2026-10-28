@@ -16,13 +16,13 @@ export function ThreadUndoNotice(props: { readonly visible: boolean }) {
     threadUndoNotices.current,
   );
   const insets = useSafeAreaInsets();
-  const message = notice === null ? null : `${notice.action} thread`;
+  const message = notice?.message ?? null;
   useEffect(() => {
     if (props.visible && message !== null && Platform.OS === "ios") {
       AccessibilityInfo.announceForAccessibility(message);
     }
   }, [props.visible, message]);
-  if (!props.visible || message === null) return null;
+  if (!props.visible || notice === null || message === null) return null;
   return (
     <View
       className="absolute inset-x-3 z-[100]"
@@ -33,18 +33,18 @@ export function ThreadUndoNotice(props: { readonly visible: boolean }) {
         className="flex-row items-center gap-3 rounded-[20px] border border-border bg-card px-4 py-3"
         accessibilityLiveRegion="polite"
       >
-        <SymbolView name="checkmark.circle" size={20} tintColorClassName="accent-icon" />
+        <SymbolView name={notice.actionLabel === "Open" ? "person.2" : "checkmark.circle"} size={20} tintColorClassName="accent-icon" />
         <Text className="min-w-0 flex-1 text-sm font-t3-bold text-foreground" numberOfLines={1}>
           {message}
         </Text>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Undo: ${message}`}
+          accessibilityLabel={`${notice.actionLabel}: ${message}`}
           className="active:opacity-60"
           hitSlop={8}
-          onPress={() => threadUndoNotices.undo()}
+          onPress={() => threadUndoNotices.act()}
         >
-          <Text className="text-sm font-t3-bold text-primary-text">Undo</Text>
+          <Text className="text-sm font-t3-bold text-primary-text">{notice.actionLabel}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"

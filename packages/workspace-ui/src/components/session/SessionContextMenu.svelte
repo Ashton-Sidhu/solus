@@ -351,7 +351,9 @@
         Snooze…
       </ContextMenu.Item>
     {/if}
-    {#if canDrive && rowActions?.onArchive}
+    <!-- Archive writes the reader's own view, so a member who may only read a
+         shared session archives it too (docs/plans/shared-with-you.md §2). -->
+    {#if rowActions?.onArchive}
       <ContextMenu.Item
         onSelect={() => {
           onClose();
@@ -362,7 +364,7 @@
         Archive
       </ContextMenu.Item>
     {/if}
-    {#if canDrive && rowActions?.onUnarchive}
+    {#if rowActions?.onUnarchive}
       <ContextMenu.Item
         onSelect={() => {
           onClose();
@@ -373,7 +375,7 @@
         Return to List
       </ContextMenu.Item>
     {/if}
-    {#if (unreadSessionId && unreadServerId) || (canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze || rowActions?.onArchive || rowActions?.onUnarchive))}
+    {#if (unreadSessionId && unreadServerId) || rowActions?.onArchive || rowActions?.onUnarchive || (canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze))}
       <ContextMenu.Separator />
     {/if}
     {#if sess?.agentSessionId}

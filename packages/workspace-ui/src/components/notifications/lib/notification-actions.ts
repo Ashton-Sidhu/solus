@@ -22,6 +22,10 @@ export function notificationDestination(notification: HubNotification, serverId:
       return { label: 'Open work', route: { kind: 'work', workId: resource.workId, title: notification.summary.title, serverId } }
     case 'task':
       return { label: 'Open task', route: { kind: 'task', taskId: resource.taskId, serverId } }
+    case 'session':
+      // A removed share opens too: the host refuses, and the reader sees who
+      // owns the session (docs/plans/shared-with-you.md §4.5).
+      return { label: 'Open conversation', route: { kind: 'session', sessionId: resource.sessionId, serverId } }
     case 'pr':
     case 'review_job': {
       const { host, owner, repo, number, url } = resource.pr
