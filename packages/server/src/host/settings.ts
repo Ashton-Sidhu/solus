@@ -28,6 +28,7 @@ const persistedServerSettingsSchema = z.object({
   trustLocalNetwork: z.boolean().optional(),
   insightsOptInOrganizationIds: z.array(z.string().min(1)).optional(),
   projectsBaseDirectory: z.string().optional(),
+  webhookPublicUrl: z.string().optional(),
   /** Read key by key in `storedHostConfig`, so one bad key does not cost the rest. */
   hostConfig: z.looseObject({}).optional(),
   hostUser: z.object({
@@ -61,6 +62,11 @@ export interface ServerSettings {
    * primary action puts a clone. Empty means the home folder.
    */
   projectsBaseDirectory?: string
+  /**
+   * The host public URL (docs/plans/webhooks.md §1): where the user exposes this
+   * host (a reverse proxy, ngrok). A webhook's direct URL starts with it.
+   */
+  webhookPublicUrl?: string
   /** The config this host serves to the clients that administer it. */
   hostConfig: HostConfig
   /** The host's own user (plans/012 §1). Minted once by `hostUserSettings`. */
@@ -101,6 +107,7 @@ export function getServerSettings(): ServerSettings {
         trustLocalNetwork: parsed?.trustLocalNetwork === true,
         insightsOptInOrganizationIds: parsed?.insightsOptInOrganizationIds ?? [],
         projectsBaseDirectory: normalizeProjectsBaseDirectory(parsed?.projectsBaseDirectory),
+        webhookPublicUrl: parsed.webhookPublicUrl,
         hostUser: parsed?.hostUser,
         hostConfig: storedHostConfig(parsed.hostConfig),
       }
@@ -207,6 +214,14 @@ export function setTrustLocalNetwork(trustLocalNetwork: boolean): ServerSettings
 export function setProjectsBaseDirectory(path: string): ServerSettings {
   _settings = { ...getServerSettings(), projectsBaseDirectory: normalizeProjectsBaseDirectory(path) }
   persistSettings(_settings)
+  return _settings
+}
+
+/** Null clears the host public URL; a webhook then has no direct URL. */
+export function setWebhookPublicUrl(url: string | null): ServerSettings {
+  _settings = { ...getServerSettings(), webhookPublicUrl: url ? url.replace(/\/+$/, '') : undefined }
+  persistSettings(_settings)
+  log.info('webhook_public_url_changed', { isSet: url !== null })
   return _settings
 }
 

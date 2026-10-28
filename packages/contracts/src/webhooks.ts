@@ -329,6 +329,21 @@ export const webhookSampleRequestSchema = z.object({
 })
 export type WebhookSampleRequest = z.input<typeof webhookSampleRequestSchema>
 
+export interface WebhookDeliveryQuery {
+  outcomes?: WebhookDeliveryOutcome[]
+  /** Deliveries that arrived before this time: the next page. */
+  before?: number
+  limit?: number
+}
+
+export const webhookDryRunRequestSchema = z.object({
+  actions: z.array(webhookActionSchema).min(1).max(WEBHOOK_MAX_ACTIONS),
+  sample: webhookSampleRequestSchema,
+  /** A saved webhook: with `sample.verify`, its verification checks the sample. */
+  webhookId: z.string().min(1).optional(),
+})
+export type WebhookDryRunRequest = z.input<typeof webhookDryRunRequestSchema>
+
 // ─── Host settings (plan §2.3, §4) ───
 
 export interface HostWebhookSettings {

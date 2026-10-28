@@ -39,13 +39,23 @@ export async function eventVisibleTo(principal: Principal, event: HostEvent, sha
     }
     return resource !== null && await shares.roleFor(principal, resource) !== 'none'
   }
-  // An automation is its owner's and the administrators' (docs/plans/access-model.md §4 D4).
-  // A deletion names only an id, which tells nothing; a client that listed it drops it.
-  if (event.type === 'automation.changed' && event.payload.kind !== 'deleted') {
-    return await shares.roleFor(principal, { kind: 'automation', id: event.payload.automation.id }) !== 'none'
-  }
+  const owned = ownedResourceOf(event)
+  if (owned) return await shares.roleFor(principal, owned) !== 'none'
   if (!resource) return !GUEST_ONLY_HIDDEN.has(event.type) || principal.kind === 'org-member'
   return await shares.roleFor(principal, resource) !== 'none'
+}
+
+/**
+ * The owned resource an event names: an automation and a webhook are their
+ * owner's and the administrators' (docs/plans/access-model.md §4 D4,
+ * docs/plans/webhooks.md §2.7). A deletion names only an id, which tells nothing;
+ * a client that listed it drops it.
+ */
+function ownedResourceOf(event: HostEvent): { kind: 'automation' | 'webhook'; id: string } | null {
+  if (event.type === 'automation.changed' && event.payload.kind !== 'deleted') return { kind: 'automation', id: event.payload.automation.id }
+  if (event.type === 'webhook.changed' && event.payload.kind !== 'deleted') return { kind: 'webhook', id: event.payload.webhook.id }
+  if (event.type === 'webhook.delivery') return { kind: 'webhook', id: event.payload.webhookId }
+  return null
 }
 
 /** For an event about one person only, whether this principal is that person; null for any other event. */

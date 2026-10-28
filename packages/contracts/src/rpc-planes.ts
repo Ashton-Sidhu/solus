@@ -502,6 +502,18 @@ export const RPC_PLANES = {
   automationListRuns: 'collaboration',
   automationRecentRuns: 'collaboration',
   automationReadRun: 'collaboration',
+  webhookList: 'execution',
+  webhookRead: 'execution',
+  webhookCreate: 'execution',
+  webhookUpdate: 'execution',
+  webhookDelete: 'execution',
+  webhookRotate: 'execution',
+  webhookListDeliveries: 'execution',
+  webhookReadDelivery: 'execution',
+  webhookReplay: 'execution',
+  webhookDryRun: 'execution',
+  hostWebhookSettingsRead: 'execution',
+  hostWebhookSettingsUpdate: 'execution',
 
   // PR checks
   prChecks: 'collaboration',

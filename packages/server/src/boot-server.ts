@@ -30,6 +30,9 @@ import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/upli
 import { readStoredTunnel, splitLegacyLinkRecord, UplinkLinkManager } from './transport/uplink/link'
 import { HostRegistrar, readStoredRegistration } from './host/host-registration'
 import { createWebhookServices } from './execution/webhooks/webhook-runtime'
+import { createWebhookService } from './execution/webhooks/webhook-service'
+import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhook-events'
+import { registerWebhookHandlers } from './transport/handlers/webhook-handlers'
 import { sweepSeenKeys } from './data/webhooks/webhook-store'
 import { RunnerDelivery } from './sync/runner-delivery'
 import type { TurnOrganizationDeps } from './execution/sessions/turn-organization'
@@ -566,6 +569,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const domainEventUnsubscribes = [
     codeIntel.onStatusChanged((status) => events.broadcast('codeIntel.statusChanged', status)),
     onAutomationsChanged((event) => events.broadcast('automation.changed', event)),
+    onWebhookChanged((event) => events.broadcast('webhook.changed', event)),
+    onWebhookDelivery((delivery) => events.broadcast('webhook.delivery', delivery)),
     onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
     onWorksChanged((change) => events.broadcast('works.changed', change)),
     onWorkDeleted((change) => events.prepareBroadcast('works.changed', change)),
@@ -1363,11 +1368,24 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   // Webhooks (docs/plans/webhooks.md): the receiver and its actions. Agents run only
   // on hosts, so the Solus API has no receiver (§2.1).
-  const webhooks = createWebhookServices(opts.sessionRuntime, {
+  const webhookFacts = {
     hostId: () => registrar.current()?.hostId ?? null,
-    forwarderSecret: () => null,
-    isPausedByAdmin: () => false,
-    allowsUnverifiedWebhooks: () => false,
+    forwarderSecret: (): Buffer | null => null,
+    isPausedByAdmin: (_webhookId: string) => false,
+    allowsUnverifiedWebhooks: (_organizationId: string) => false,
+  }
+  const webhooks = createWebhookServices(opts.sessionRuntime, webhookFacts)
+  registerWebhookHandlers(server, {
+    actions: webhooks.actions,
+    webhooks: createWebhookService({
+      ...webhookFacts,
+      urls: {
+        hostId: webhookFacts.hostId,
+        cloudReady: () => webhookFacts.forwarderSecret() !== null,
+        publicUrl: () => getServerSettings().webhookPublicUrl ?? null,
+      },
+    }),
+    link: { linked: () => false, holdWhileOffline: () => null, setHoldWhileOffline: async () => {} },
   })
   // The one sweeper of expired replay keys and delivery IDs.
   setInterval(() => {

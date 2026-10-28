@@ -91,6 +91,8 @@ const PERMISSION_OF_METHOD = {
   browserRequestCookieAccess: 'host.admin',
   browserImportCookies: 'host.admin',
   hostSetInsightsOptIn: 'host.admin',
+  // The host public URL and the hold switch change how every webhook of the host is reached.
+  hostWebhookSettingsUpdate: 'host.admin',
   // Arbitrary SQL cannot be held to the caller's own turns, so it reads every turn: an administrator's (access-model.md §4 D2).
   metricsRunSql: 'host.admin',
   deviceConfigure: 'host.admin',
@@ -231,7 +233,8 @@ const PERMISSION_OF_METHOD = {
   tasksListAssigneeCandidates: HOST_USE, tasksListCandidates: HOST_USE, tasksImport: HOST_USE,
   tasksSearchComments: HOST_USE, tasksPrepareForSession: HOST_USE, tasksLinkedTo: HOST_USE, outboxList: HOST_USE,
   outboxAck: HOST_USE, outboxApply: HOST_USE, automationCreate: HOST_USE, automationList: HOST_USE,
-  automationRecentRuns: HOST_USE, prChecks: HOST_USE, browserRuntimeStatus: HOST_USE, browserListTargets: HOST_USE,
+  automationRecentRuns: HOST_USE, webhookList: HOST_USE, webhookCreate: HOST_USE, webhookDryRun: HOST_USE,
+  hostWebhookSettingsRead: HOST_USE, prChecks: HOST_USE, browserRuntimeStatus: HOST_USE, browserListTargets: HOST_USE,
   browserListPages: HOST_USE, browserOpen: HOST_USE, browserClose: HOST_USE, browserNavigate: HOST_USE,
   browserSetViewport: HOST_USE, browserSetAppearance: HOST_USE, browserSnapshot: HOST_USE, browserInteract: HOST_USE,
   browserAttachSurface: HOST_USE, browserDetachSurface: HOST_USE, browserReportSurface: HOST_USE,
@@ -258,7 +261,7 @@ type PermissionLeaf = (typeof PERMISSION_OF_METHOD)[keyof typeof PERMISSION_OF_M
 export type Permission = Prefixes<PermissionLeaf>
 
 /** Every kind of resource (docs/plans/access-model.md §1). An insight is one turn and its spans in Insights; a browserProfile is one person's cookie jar in a project (member-isolation.md §6). */
-export type ResourceKind = ShareResourceKind | 'integration' | 'notification' | 'automation' | 'project' | 'insight' | 'browserProfile'
+export type ResourceKind = ShareResourceKind | 'integration' | 'notification' | 'automation' | 'webhook' | 'project' | 'insight' | 'browserProfile'
 
 /**
  * A resource a control acts on: its kind and id, and the reader's standing on it
@@ -401,6 +404,10 @@ export const RESOURCE_ACTION_OF_METHOD = {
   automationRead: 'read', automationListRuns: 'read', automationReadRun: 'read',
   automationUpdate: 'edit', automationSetEnabled: 'edit', automationDelete: 'edit',
   automationRun: 'drive', automationCancel: 'drive',
+  // Webhooks (docs/plans/webhooks.md §2.7): owned like an automation. The handler gives the token to the owner only.
+  webhookRead: 'read', webhookListDeliveries: 'read', webhookReadDelivery: 'read',
+  webhookUpdate: 'edit', webhookDelete: 'edit', webhookRotate: 'edit',
+  webhookReplay: 'drive',
   // Projects: every member lists the organization's projects; changing one is its owner's or an administrator's.
   workspaceProjectUpdate: 'edit', workspaceProjectRemove: 'edit',
   // Notifications are personal: only their recipient, the owner, marks one.
