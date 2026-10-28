@@ -70,6 +70,10 @@ export class WorksStore {
   private nextLoadToken = 0
   /** The in-flight listWorks load, shared by every caller that asks meanwhile. */
   private listLoad: Promise<void> | null = null
+  private hasListed = false
+  /** True once a works list has answered in this window, so a reader can tell
+   *  "no works" from "not read yet". A host that failed counts as answered. */
+  listAnswered = $state(false)
   /** In-flight saved-record reads for works no pane has open, keyed by work.
    *  Concurrent callers share one read instead of firing duplicate loadWork IPC. */
   private savedReads = new Map<string, Promise<Work | null>>()
@@ -476,6 +480,14 @@ export class WorksStore {
     void this.readSaved(workId, 'agent-update')
   }
 
+  /** List the works once for this window, for a surface that only reads them.
+   *  Later changes arrive as events; an organization switch lists them again. */
+  ensureListed(): void {
+    if (this.hasListed) return
+    this.hasListed = true
+    void this.loadAll()
+  }
+
   loadAll(): Promise<void> {
     if (this.listLoad) return this.listLoad
     const load = (async () => {
@@ -523,6 +535,7 @@ export class WorksStore {
       } finally {
         this.listLoad = null
         this.listLoading = false
+        this.listAnswered = true
       }
     })()
     this.listLoad = load

@@ -6,7 +6,7 @@ import { useMemo } from "react";
 import { Platform, View } from "react-native";
 
 import type { AppNativeStackNavigationOptions } from "../../native/StackHeader";
-import type { ScreenHeaderAction } from "../../components/ScreenHeader.types";
+import type { ScreenHeaderAction, ScreenHeaderMenu } from "../../components/ScreenHeader.types";
 import type { RootStackParamList } from "../../navigation/routes";
 import { AppText as Text } from "../../components/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
@@ -22,7 +22,8 @@ const HEADER_ACTION_WIDTH = 53;
  * start with no history gets a way to the thread list instead), and the
  * header actions that have Solus counterparts — the project's files, the
  * host's pull requests (only when the session has a linked pull request), your
- * notifications, and a new thread in the same project. T3's terminal,
+ * notifications, a new thread in the same project, and the environment menu
+ * (the desktop Environment card's Browser, Builds, and Artifacts row). T3's terminal,
  * git, and merge-back controls have no Solus equivalent on the phone.
  */
 export function useThreadHeaderOptions(props: {
@@ -38,6 +39,8 @@ export function useThreadHeaderOptions(props: {
   readonly faviconRoot: string | null;
   /** Whether a pull request is linked to the session; without one the pull requests action is hidden. */
   readonly hasLinkedPullRequests: boolean;
+  /** The environment menu: Browser, Builds, or Artifacts for this session. */
+  readonly environmentMenu: ScreenHeaderMenu;
 }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { hostId, projectPath, hasLinkedPullRequests } = props;
@@ -88,7 +91,7 @@ export function useThreadHeaderOptions(props: {
   // On iPad the title sits at the leading edge, beside the Back button.
   const customTitle = Boolean(faviconRoot && subtitle && Platform.OS === "ios");
   const titleWidth =
-    props.columnWidth - BACK_ITEM_WIDTH - ACTION_GROUP_INSET - actions.length * HEADER_ACTION_WIDTH;
+    props.columnWidth - BACK_ITEM_WIDTH - ACTION_GROUP_INSET - (actions.length + 1) * HEADER_ACTION_WIDTH;
   const titleAlignment = Platform.OS === "ios" && Platform.isPad ? "items-start" : "items-center";
   const options: AppNativeStackNavigationOptions = {
     headerShown: true,
@@ -127,6 +130,7 @@ export function useThreadHeaderOptions(props: {
     optionsVersion: [props.title, subtitle, faviconRoot, titleWidth],
     subtitleLeading: favicon(13),
     actions,
+    menus: [props.environmentMenu],
     onBack: () => {
       // Read the history at press time: it changes without re-rendering this screen.
       if (navigation.canGoBack()) navigation.goBack();

@@ -1,5 +1,7 @@
 <script lang="ts">
   import {
+    AppWindow as ArtifactIcon,
+    Check as CheckIcon,
     ChevronRight as CaretRightIcon,
     Folder as FolderIcon,
     Globe as GlobeIcon,
@@ -26,7 +28,7 @@
   import TerminalAppLogo from "../settings/TerminalAppLogo.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
+  import MenuRow, { type ActionRowIcon, type ActionRowItem } from "./MenuRow.svelte";
   import FileManagerIcon from "./FileManagerIcon.svelte";
   import solusIcon from "../../../../../resources/icon.iconset/icon_32x32@2x.png";
   import UsageMeters from "./UsageMeters.svelte";
@@ -34,6 +36,14 @@
   import { worktreeProjectRoot } from "@solus/contracts/types";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
+  import {
+    ENVIRONMENT_VIEWS,
+    ENVIRONMENT_VIEW_LABELS,
+    environmentViewFor,
+    sessionArtifacts,
+    type EnvironmentView,
+  } from "@solus/client-core/environment-view";
+  import { environmentViewChoices } from "./lib/environment-view";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -88,15 +98,53 @@
     if (!opened && fileManager) toasts.error(`Couldn’t open this folder in ${fileManagerNameFor(fileManager)}`);
   }
 
-  // The Devices row is for projects that build a mobile app (at the root or
-  // in a subfolder), or a conversation already showing a device. It counts
-  // Builds, before a simulator or phone is opened.
+  // Builds are for projects that build a mobile app (at the root or in a
+  // subfolder), or a conversation already showing a device.
   const deviceProject = $derived(active && projectRoot ? devicesStore.project(detailServerId, projectRoot) : undefined);
-  const sessionShowsDevice = $derived(devicesStore.previewsFor(detailServerId, session.sessionFor(sourceId)?.id).length > 0);
+  const sessionId = $derived(session.sessionFor(sourceId)?.id);
+  const sessionShowsDevice = $derived(devicesStore.previewsFor(detailServerId, sessionId).length > 0);
   const showsDevices = $derived(!!deviceProject?.isMobileApp || sessionShowsDevice);
   $effect(() => {
     if (active && showsDevices && !devicesStore.state(detailServerId) && !devicesStore.unavailable.get(detailServerId)) void devicesStore.load(detailServerId);
   });
+
+  // The view row: the browser, the builds, or this session's artifacts. The
+  // works list is read once per window; new artifacts arrive as events.
+  const artifacts = $derived(sessionArtifacts(session.worksStore.visibleWorks, sessionId));
+  $effect(() => {
+    if (active && sessionId) session.worksStore.ensureListed();
+  });
+  // A draft has no session yet; its choice is kept under the draft.
+  const choiceKey = $derived(sessionId ?? sourceId);
+  const viewFacts = $derived({
+    chosen: environmentViewChoices.chosenFor(detailServerId, choiceKey),
+    sessionShowsDevice,
+    artifactCount: artifacts.length,
+    // A draft has no session, so it has no artifacts to wait for.
+    artifactsKnown: !sessionId || session.worksStore.listAnswered,
+  });
+  // Null while the works list has not answered: the row waits rather than
+  // naming Browser and then changing to Artifacts.
+  const view = $derived(environmentViewFor(viewFacts));
+  /** A guest opens no browser or device on the host, as the rows before this one. */
+  const mayUseHost = $derived(me?.may("host.use") ?? true);
+  const VIEW_ICON = { browser: GlobeIcon, builds: SmartphoneIcon, artifacts: ArtifactIcon } satisfies Record<EnvironmentView, ActionRowIcon>;
+  let viewMenuOpen = $state(false);
+  let viewMenuAnchor = $state<HTMLElement | null>(null);
+
+  function openView(target: EnvironmentView) {
+    if (target === "browser") session.openBrowser();
+    else if (target === "builds") openRunApp(session, detailServerId, sessionId);
+    // The session's last changed artifact, or the works gallery when it has none.
+    else if (artifacts[0]) session.openWork(artifacts[0].id);
+    else session.openFolio();
+    requestInputFocus();
+  }
+
+  function chooseView(target: EnvironmentView) {
+    environmentViewChoices.choose(detailServerId, choiceKey, target);
+    openView(target);
+  }
 
   const actionRows = $derived.by<(ActionRowItem & { run: () => void })[]>(
     () => [
@@ -118,31 +166,6 @@
           requestInputFocus();
         },
       },
-      // The third way into this environment, beside its files and its shell:
-      // look at what it serves. Its login is cleared from the browser pane.
-      {
-        key: "browser",
-        label: "Browser",
-        icon: GlobeIcon,
-        phase: "idle",
-        disabled: !(me?.may("host.use") ?? true),
-        run: () => {
-          session.openBrowser();
-          requestInputFocus();
-        },
-      },
-      // App execution starts with the project and chosen device.
-      ...(showsDevices ? [{
-        key: "devices",
-        label: "Builds",
-        icon: SmartphoneIcon,
-        phase: "idle" as const,
-        disabled: !(me?.may("host.use") ?? true),
-        run: () => {
-          openRunApp(session, detailServerId, session.sessionFor(sourceId)?.id);
-          requestInputFocus();
-        },
-      }] : []),
     ],
   );
 </script>
@@ -208,7 +231,77 @@
           onActivate={row.run}
         />
     {/each}
+    <!-- One row for what the environment shows. The row opens this session's
+         view; the caret lets the user choose another, kept for the session. -->
+    <div class="split-row">
+      <MenuRow
+        split
+        item={{
+          key: "view",
+          label: view ? ENVIRONMENT_VIEW_LABELS[view] : "Checking session…",
+          icon: VIEW_ICON[view ?? "browser"],
+          badge: view === "artifacts" && artifacts.length > 1 ? String(artifacts.length) : undefined,
+          phase: view ? "idle" : "loading",
+          disabled: !view || !mayUseHost,
+          tooltip: view === "artifacts" ? artifacts[0]?.title || undefined : undefined,
+        }}
+        onActivate={() => {
+          if (view) openView(view);
+        }}
+      />
+      <button
+        type="button"
+        class="split-caret"
+        class:is-open={viewMenuOpen}
+        aria-label="Choose what to show"
+        title="Choose what to show"
+        aria-haspopup="menu"
+        aria-expanded={viewMenuOpen}
+        disabled={!mayUseHost}
+        onclick={(event) => {
+          if (viewMenuOpen) {
+            viewMenuOpen = false;
+            return;
+          }
+          viewMenuAnchor = event.currentTarget;
+          viewMenuOpen = true;
+        }}
+      >
+        <CaretRightIcon size={11} />
+      </button>
+    </div>
   </div>
+  <DropdownMenu.Root bind:open={viewMenuOpen}>
+    <DropdownMenu.Content
+      customAnchor={viewMenuAnchor}
+      side="left"
+      align="start"
+      sideOffset={10}
+      alignOffset={-6}
+      collisionPadding={8}
+      onInteractOutside={(event) => {
+        if (viewMenuAnchor?.contains(event.target as Node | null)) event.preventDefault();
+      }}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        requestInputFocus();
+      }}
+      class="w-[min(17rem,calc(100vw-2rem))]"
+    >
+      {#each ENVIRONMENT_VIEWS as option (option)}
+        {@const OptionIcon = VIEW_ICON[option]}
+        <DropdownMenu.Item aria-checked={option === view} role="menuitemradio" onSelect={() => chooseView(option)}>
+          <OptionIcon />
+          <span class="min-w-0 flex-1 truncate">{ENVIRONMENT_VIEW_LABELS[option]}</span>
+          {#if option === "artifacts" && artifacts.length > 1}
+            <DropdownMenu.Shortcut class="tabular-nums">{artifacts.length}</DropdownMenu.Shortcut>
+          {:else if option === view}
+            <CheckIcon class="size-4 shrink-0" />
+          {/if}
+        </DropdownMenu.Item>
+      {/each}
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
   <DropdownMenu.Root bind:open={openInMenuOpen}>
     <DropdownMenu.Content
       customAnchor={openInAnchor}

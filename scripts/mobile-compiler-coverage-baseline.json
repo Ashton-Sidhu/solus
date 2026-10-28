@@ -1785,7 +1785,8 @@
       "compiled": [
         "ArtifactFullScreen",
         "ArtifactWebView",
-        "ThreadArtifact"
+        "ThreadArtifact",
+        "ThreadArtifactFullScreen"
       ],
       "skipped": []
     },

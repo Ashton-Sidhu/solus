@@ -23,6 +23,14 @@ import { threadFaviconRoot, threadProjectPath } from "./threadListV2";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import type { ThreadContentPresentation, ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
+import { ThreadArtifactFullScreen } from "./ThreadArtifact";
+import {
+  chooseEnvironmentView,
+  chosenEnvironmentView,
+  environmentViewMenu,
+  phoneEnvironmentFacts,
+  transcriptArtifacts,
+} from "./environment-view-menu";
 
 type ConversationRecord = NonNullable<LastRoute["record"]>;
 
@@ -205,6 +213,23 @@ function ThreadRouteContent(props: {
   // On iPad the thread is a column narrower than the window; the header's
   // title view must fit that column, not the window.
   const [columnWidth, setColumnWidth] = useState<number | null>(null);
+  // The environment menu reads the artifacts the loaded transcript shows. It
+  // waits for the first page, so it never names Browser and then Artifacts.
+  const latestArtifactId = useListened(store.order, () => transcriptArtifacts(store.orderSnapshot(), (id) => store.item(id)).latestId);
+  const artifactCount = useListened(store.order, () => transcriptArtifacts(store.orderSnapshot(), (id) => store.item(id)).count);
+  // Read per render, so a route reused for another session never shows this one's choice.
+  const [, setChoiceVersion] = useState(0);
+  const chosenView = chosenEnvironmentView(hostId, props.sessionId);
+  const [openArtifact, setOpenArtifact] = useState<{ sessionId: string; id: string } | null>(null);
+  const openArtifactId = openArtifact?.sessionId === props.sessionId ? openArtifact.id : null;
+  const environmentMenu = environmentViewMenu(
+    phoneEnvironmentFacts({ chosen: chosenView, artifactCount, artifactsKnown: meta.phase.kind !== "loading" || hasRows }),
+    (view) => {
+      chooseEnvironmentView(hostId, props.sessionId, view);
+      setChoiceVersion((version) => version + 1);
+      if (view === "artifacts" && latestArtifactId) setOpenArtifact({ sessionId: props.sessionId, id: latestArtifactId });
+    },
+  );
   const header = useThreadHeaderOptions({
     title,
     columnWidth: columnWidth ?? window.width,
@@ -214,6 +239,7 @@ function ThreadRouteContent(props: {
     projectPath: chat || !props.projectPath ? null : props.projectPath,
     faviconRoot: props.faviconRoot,
     hasLinkedPullRequests,
+    environmentMenu,
   });
 
   const historyControls = useMemo<ThreadFeedHistoryControls | undefined>(
@@ -251,9 +277,13 @@ function ThreadRouteContent(props: {
         subtitleLeading={header.subtitleLeading}
         onBack={layout.usesSplitView ? undefined : header.onBack}
         actions={header.actions}
+        menus={header.menus}
         groupActions
         hideBottomBorder
       />
+      {openArtifactId ? (
+        <ThreadArtifactFullScreen store={store} id={openArtifactId} onClose={() => setOpenArtifact(null)} />
+      ) : null}
       <View
         className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas"
         onLayout={(event) => setColumnWidth(event.nativeEvent.layout.width)}

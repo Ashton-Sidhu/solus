@@ -232,3 +232,35 @@ export const ThreadArtifact = memo(function ThreadArtifact(props: {
     </View>
   );
 });
+
+/**
+ * The session's artifact full screen, opened from the thread header's
+ * environment menu. A saved `html_path` version is read first, as in the feed.
+ */
+export function ThreadArtifactFullScreen(props: {
+  readonly store: ConversationStore;
+  readonly id: string;
+  readonly onClose: () => void;
+}) {
+  const item = useTranscriptItem(props.store, props.id);
+  const needsRead = item?.kind === "artifact" && !item.html && !!item.contentVersion && !item.loading && !item.error;
+  useEffect(() => {
+    if (needsRead) void props.store.controller.ensureArtifact(props.id);
+  }, [props.store, props.id, needsRead]);
+  if (item?.kind !== "artifact") return null;
+  if (item.html) return <ArtifactFullScreen html={item.html} title={item.title} onClose={props.onClose} />;
+  return (
+    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={props.onClose}>
+      <View className="flex-1 items-center justify-center gap-3 bg-screen">
+        {item.error ? (
+          <Text accessibilityRole="alert" className="text-sm text-foreground-muted">{item.error}</Text>
+        ) : (
+          <ActivityIndicator accessibilityLabel="Loading artifact" />
+        )}
+        <Pressable accessibilityRole="button" onPress={props.onClose} className="min-h-11 justify-center px-4">
+          <Text className="font-t3-medium text-sm text-foreground">Close</Text>
+        </Pressable>
+      </View>
+    </Modal>
+  );
+}
