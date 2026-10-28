@@ -33,6 +33,8 @@ import { createWebhookServices } from './execution/webhooks/webhook-runtime'
 import { createWebhookService } from './execution/webhooks/webhook-service'
 import { onWebhookChanged, onWebhookDelivery } from './execution/webhooks/webhook-events'
 import { registerWebhookHandlers } from './transport/handlers/webhook-handlers'
+import { setWebhookToolServices } from './execution/agents/tools/webhook-tools'
+import { takeSecretRef } from './execution/sessions/secret-requests'
 import { sweepSeenKeys } from './data/webhooks/webhook-store'
 import { RunnerDelivery } from './sync/runner-delivery'
 import type { TurnOrganizationDeps } from './execution/sessions/turn-organization'
@@ -1375,16 +1377,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     allowsUnverifiedWebhooks: (_organizationId: string) => false,
   }
   const webhooks = createWebhookServices(opts.sessionRuntime, webhookFacts)
+  const webhookService = createWebhookService({
+    ...webhookFacts,
+    urls: {
+      hostId: webhookFacts.hostId,
+      cloudReady: () => webhookFacts.forwarderSecret() !== null,
+      publicUrl: () => getServerSettings().webhookPublicUrl ?? null,
+    },
+    takeSecretRef: (secretRef, sessionId) => takeSecretRef(secretRef, sessionId),
+  })
+  setWebhookToolServices({ webhooks: webhookService, actions: webhooks.actions })
   registerWebhookHandlers(server, {
     actions: webhooks.actions,
-    webhooks: createWebhookService({
-      ...webhookFacts,
-      urls: {
-        hostId: webhookFacts.hostId,
-        cloudReady: () => webhookFacts.forwarderSecret() !== null,
-        publicUrl: () => getServerSettings().webhookPublicUrl ?? null,
-      },
-    }),
+    webhooks: webhookService,
     link: { linked: () => false, holdWhileOffline: () => null, setHoldWhileOffline: async () => {} },
   })
   // The one sweeper of expired replay keys and delivery IDs.

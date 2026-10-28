@@ -685,7 +685,8 @@ export interface QuestionRequest {
   questions: QuestionItem[]
   /** An answer to this question is sent as a new message, not a provider callback. */
   responseMode?: 'message'
-  kind?: 'standard' | 'mcp_form' | 'mcp_url'
+  /** `secret`: a private card from `request_secret`; it is answered with `secretRequestAnswer`, never `respondQuestion` (docs/plans/webhooks.md §3.6). */
+  kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret'
   message?: string
   url?: string
   serverName?: string
@@ -1936,7 +1937,7 @@ export type NormalizedEvent =
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
-  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url'; turnAuthor?: User }
+  | { type: 'question_request'; questionId: string; questions: QuestionItem[]; responseMode?: 'message'; kind?: 'standard' | 'mcp_form' | 'mcp_url' | 'secret'; turnAuthor?: User }
   /** Provider context compaction. Claude can report one completed interval by
    *  duration and its token counts; Codex can report start and stop item
    *  boundaries. A stop that is not `failed` draws the compaction divider. */

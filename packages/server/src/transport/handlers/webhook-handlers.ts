@@ -16,6 +16,7 @@ import { requestData } from '../../execution/webhooks/request-data'
 import { verifyRequest } from '../../execution/webhooks/verification'
 import type { WebhookActionRunner } from '../../execution/webhooks/action-runner'
 import type { WebhookService } from '../../execution/webhooks/webhook-service'
+import { answerSecretRequest } from '../../execution/sessions/secret-requests'
 
 /** What the host's link says about webhooks (plan §2.3): the hold switch is stored in Solus Cloud. */
 export interface WebhookLinkSettings {
@@ -88,6 +89,9 @@ export function registerWebhookHandlers(server: SolusServer, deps: WebhookHandle
     }
     return { verification, actions: actions.dryRun(request.actions, data) }
   })
+
+  // The answer of a `secret` card (plan §3.6). It never passes through respondQuestion.
+  server.register('secretRequestAnswer', async ([sessionId, questionId, value]) => answerSecretRequest(sessionId, questionId, value))
 
   server.register('hostWebhookSettingsRead', async () => hostSettings())
 

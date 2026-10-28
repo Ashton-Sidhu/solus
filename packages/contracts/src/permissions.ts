@@ -368,7 +368,7 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // Sessions — a suggestion a person who may prompt sends or dismisses
   sessionSuggest: 'drive.propose', sessionSuggestionWithdraw: 'drive.propose',
   // Sessions — the agent's cards: what it may run, its questions, its plan, a rate limit
-  respondPermission: 'drive.approve', respondQuestion: 'drive.approve', decideSessionPlan: 'drive.approve',
+  respondPermission: 'drive.approve', respondQuestion: 'drive.approve', secretRequestAnswer: 'drive.approve', decideSessionPlan: 'drive.approve',
   acceptPlan: 'drive.approve', rateLimitDecision: 'drive.approve',
   attachUpload: 'drive.attach', attachUploadToken: 'drive.attach',
   deviceOpen: 'drive.devices', deviceClose: 'drive.devices',

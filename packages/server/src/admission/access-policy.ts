@@ -131,6 +131,7 @@ export const RESOURCE_LOCATORS = {
   switchSessionAgent: sessionIdAt(0),
   respondPermission: ctxAt(0),
   respondQuestion: ctxAt(0),
+  secretRequestAnswer: sessionIdAt(0),
   rateLimitDecision: ctxAt(0),
   cancelQueuedPrompt: ctxAt(0),
   editQueuedPrompt: ctxAt(0),

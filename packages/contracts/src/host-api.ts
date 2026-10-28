@@ -916,6 +916,8 @@ export interface SolusAPI {
   webhookDryRun(request: WebhookDryRunRequest): Promise<WebhookDryRunResult>
   hostWebhookSettingsRead(): Promise<HostWebhookSettings>
   hostWebhookSettingsUpdate(patch: HostWebhookSettingsPatch): Promise<HostWebhookSettings>
+  /** Answers a `secret` card: the value, or null to decline. The value goes to the host's secret-ref store only, never to the transcript. */
+  secretRequestAnswer(sessionId: string, questionId: string, value: string | null): Promise<boolean>
 
   skillsList(): Promise<import('./skill-types').SkillListResult>
   skillsRemove(name: string): Promise<import('./skill-types').SkillRemoveResult>

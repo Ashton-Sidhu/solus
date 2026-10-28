@@ -575,6 +575,8 @@ export const RPC_INVOKE_METHODS = [
   'webhookDryRun',
   'hostWebhookSettingsRead',
   'hostWebhookSettingsUpdate',
+  // The private card of request_secret (docs/plans/webhooks.md §3.6)
+  'secretRequestAnswer',
 
 
   // PR checks cache + renderer activity hint

@@ -50,6 +50,16 @@ export const SOLUS_TOOL_GROUPS = [
     'list_automation_runs',
     'read_automation_run',
   ] },
+  { id: 'webhooks', label: 'Webhooks', tools: [
+    'create_webhook',
+    'update_webhook',
+    'delete_webhook',
+    'rotate_webhook',
+    'list_webhooks',
+    'read_webhook_delivery',
+    'dry_run_webhook',
+    'request_secret',
+  ] },
   { id: 'connections', label: 'Connections', tools: [
     'connection_status',
     'connect_integration',
