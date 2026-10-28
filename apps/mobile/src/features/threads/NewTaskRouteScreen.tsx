@@ -39,6 +39,7 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import type { PickedFile } from "../conversation/lib/attachments";
+import { LeadSessionChoice } from "../conversation/lib/lead-session";
 import { modelLabel, modelOptionsSummary, offersPlanToggle, PERMISSION_MODE_ICON, PERMISSION_MODE_TEXT } from "../conversation/lib/run-settings";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
@@ -495,6 +496,37 @@ function PlanModeToggle(props: {
   );
 }
 
+/**
+ * Makes the new session a lead, which coordinates workers and does not
+ * implement. The choice goes with the first prompt and is fixed after it.
+ */
+function LeadToggle(props: {
+  readonly disabled: boolean;
+  readonly meta: ConversationMeta;
+  readonly store: ConversationStore;
+}) {
+  const app = useApp();
+  const [choice] = useState(() => new LeadSessionChoice());
+  const toggle = () => {
+    // An empty change keeps the new run inside what the agent offers and shows it.
+    if (choice.choose(props.store.controller.run, !props.meta.lead, app.personal.current().leadModel, app.personal.runSettings())) {
+      props.store.controller.updateRun({});
+    }
+  };
+  return (
+    <ComposerInlineControl
+      accessibilityHint="Splits the work across other sessions and reports back, instead of doing it itself. Fixed once the session starts."
+      accessibilityLabel="Delegate work to other sessions"
+      disabled={props.disabled}
+      icon="person.2"
+      label="Delegate"
+      onPress={toggle}
+      selected={props.meta.lead}
+      showChevron={false}
+    />
+  );
+}
+
 function NewTaskDraftContent(props: {
   readonly store: ConversationStore;
   readonly sessionId: string;
@@ -836,6 +868,7 @@ function NewTaskDraftContent(props: {
                     />
                   </View>
                   <PlanModeToggle disabled={isComposerInteractionLocked} meta={meta} store={store} />
+                  <LeadToggle disabled={isComposerInteractionLocked} meta={meta} store={store} />
                 </View>
                 <ComposerActionButton
                   accessibilityLabel={

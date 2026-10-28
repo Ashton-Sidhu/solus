@@ -84,6 +84,42 @@ archive and snooze (`view`), and its pull requests.
 - A new prompt returns a session to the list of the person it is for.
 - The `organize_session` tool can archive and unarchive a session.
 
+### Sidebar views
+
+On desktop and web, **Settings → Appearance → Layout → Sidebar view** (or "Group sidebar
+by project" / "Group sidebar by status" in the command palette) selects how
+the sidebar groups the list. The setting is personal and syncs with the
+other personal settings. The default is **By status**.
+
+- **By status** shows the sessions, then Shared with you, the Working
+  section, and the Snoozed and Completed shelves.
+- **By project** shows one folder per project for the open sessions,
+  working or not, in the project filter's order. In a folder, the session that
+  you last sent a prompt to is first. A reply, a wake, or an automation prompt
+  does not move a session. A draft is at the top of its project's folder, as a
+  one-line row with a pencil; a project with only a draft has a folder too.
+  Shared with you, Snoozed, and Completed stay at the bottom.
+  - Click a folder, or press Enter, to open or close it. → opens a closed
+    folder and then moves into its sessions. ← goes back to the folder and then
+    closes it. A closed folder shows its count. It still shows the session
+    that is on screen. A search opens every folder.
+  - In both views, the sessions that a session started are listed one step in
+    below it, behind a guide line. They are open while you are in that
+    session or one of them, and close when you click into another session.
+    Click the session's row to open it and them; click the chip after the
+    title that counts them, or press → and ← on the row, to fold or unfold
+    them while you read. A folded row still shows the session that is on screen.
+    While one of them is on screen, the session and its sessions sit on one
+    raised card.
+  - The + on a folder header, and **New session** in its right-click menu,
+    start a session in that project on the host of its checkout. **Copy
+    path** copies the checkout path.
+  - The project filter shows only the folder of that project.
+  - Each client keeps which folders are closed, across reloads.
+
+The phone app has its own thread list and does not have this setting
+(`docs/plans/sidebar-project-view.md`).
+
 ## Organization sessions
 
 A record from the Solus API names its runner (`runnerHostId`). When a

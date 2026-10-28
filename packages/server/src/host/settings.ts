@@ -249,7 +249,8 @@ function normalizeMetricsRetentionDays(value: number | undefined): number {
 }
 
 function isAvailable(selection: TextGenerationModelSelection): boolean {
-  return !!findOnPath(AGENT_BIN[selection.provider], getCliPath())
+  const bin = AGENT_BIN[selection.provider]
+  return !!bin && !!findOnPath(bin, getCliPath())
     && !!MODEL_PROFILES[selection.provider]?.[selection.model]
 }
 

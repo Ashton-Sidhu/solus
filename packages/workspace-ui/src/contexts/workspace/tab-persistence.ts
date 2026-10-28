@@ -58,6 +58,8 @@ export interface PersistedTab {
   /** The session's first dated message, so a restored row keeps its place in
    *  the sidebar before its transcript loads. */
   startedAt?: number | null
+  /** The person's last send, so a restored row keeps its place in its project folder. */
+  lastSentAt?: number | null
 }
 
 export interface PersistedTabs {

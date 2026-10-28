@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { HostEventMap } from '@solus/contracts/host-events'
-import type { SshAddLink, SshAddProgress, SshAddResult, WslDistroList } from '@solus/contracts/remote-machines'
+import { wslHostLabel, type SshAddLink, type SshAddProgress, type SshAddResult, type SshAddStep, type WslDistroList } from '@solus/contracts/remote-machines'
 import { createLogger } from '../../logger'
 import type { SshClient } from '../../platform/ssh'
 import type { ForwardedHosts } from '../../remote-machines/forwarded-hosts'
@@ -47,6 +47,13 @@ const addSchema = z.object({
 })
 
 export function registerRemoteMachinesHandlers(server: SolusServer, deps: RemoteMachinesDeps): void {
+  /** Sends each step of one add, with the install's percentage when it moves. */
+  const progressOf = (requestId: string) => (step: SshAddStep, message: string, percent?: number) => {
+    const event: SshAddProgress = { requestId, step, message }
+    if (percent !== undefined) event.percent = percent
+    deps.broadcast('host.sshProgress', event)
+  }
+
   server.register('hostsAddOverSsh', async ([input], ctx): Promise<SshAddResult> => {
     if (!ctx.deviceId) throw new Error('Adding a machine over SSH requires an authenticated device.')
     const request = addSchema.parse(input)
@@ -61,11 +68,7 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
     if (!request.link && await deps.ssh.resolvesToThisMachine(target)) throw new Error('That SSH target is this computer.')
     const outcome = await deps.provisioner.add(
       { target, authSecret: request.authSecret, link: request.link, deviceLabel: request.deviceLabel ?? 'Solus' },
-      (step, message, percent) => {
-        const event: SshAddProgress = { requestId: request.requestId, step, message }
-        if (percent !== undefined) event.percent = percent
-        deps.broadcast('host.sshProgress', event)
-      },
+      progressOf(request.requestId),
     )
     if (outcome.status === 'needs-auth') return { status: 'needs-auth', sshTarget: formatSshTarget(target), message: outcome.message }
     const { host } = outcome
@@ -98,9 +101,8 @@ export function registerRemoteMachinesHandlers(server: SolusServer, deps: Remote
     if (listed.status !== 'ready') throw new Error(listed.message)
     if (!listed.distros.some((distro) => distro.name === request.distro)) throw new Error(`WSL has no distro named ${request.distro}.`)
     const target = wslTarget(request.distro)
-    const progress = (step: Parameters<Parameters<SshProvisioner['add']>[1]>[0], message: string) => deps.broadcast('host.sshProgress', { requestId: request.requestId, step, message })
-    // A distro takes the computer's name, so the distro names the host.
-    const label = `${request.distro} (WSL)`
+    const progress = progressOf(request.requestId)
+    const label = wslHostLabel(request.distro)
     const outcome = await deps.wslProvisioner.add({ target, deviceLabel: request.deviceLabel ?? 'Solus', label }, progress)
     if (outcome.status === 'needs-auth') throw new Error(outcome.message)
     const { host } = outcome

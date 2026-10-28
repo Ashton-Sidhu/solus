@@ -6,6 +6,11 @@
   import { getTranscriptDisclosure } from "../lib/transcript-disclosure.svelte";
   import { liveActivityClock } from "../../../lib/shared-clock";
   import AgentConversationCard from "./AgentConversationCard.svelte";
+  import ArtifactChip from "./ArtifactChip.svelte";
+  import { chipTotals } from "@solus/client-core/session-artifact-chips";
+  import { getWorkspaceContext } from "../../../contexts";
+  import { runHost } from "../../../contexts/workspace/run-location";
+  import { ensureLinkedArtifacts, linkedArtifacts } from "./lib/linked-artifacts.svelte";
   import { agentConversationMeta } from "./agent-conversation-meta.store.svelte";
   import {
     agentConversationGroupElapsedMs,
@@ -48,6 +53,22 @@
   const disclosure = getTranscriptDisclosure();
   const view = $derived(disclosure.forKey(`agents:${cards[0]?.id}`));
   const expanded = $derived(view.openedByUser ?? summary.needsPerson);
+
+  // Folded, the header totals what the sessions linked; open, each row shows its own.
+  const session = getWorkspaceContext();
+  const caller = $derived({
+    sessionId: session.sessionFor(tabId)?.id,
+    serverId: runHost(session.sessionFor(tabId)?.run),
+  });
+  $effect(() => {
+    if (!isBatch) return;
+    for (const ref of refs) ensureLinkedArtifacts(ref, caller);
+  });
+  const totals = $derived(isBatch ? chipTotals(refs.map((ref) => linkedArtifacts(ref, caller))) : []);
+
+  function openCallerArtifacts() {
+    if (caller.sessionId) session.openArtifacts(caller.sessionId);
+  }
 </script>
 
 {#if !isBatch}
@@ -57,39 +78,56 @@
     {/each}
   </div>
 {:else}
-  <TranscriptCard
-    title={summary.title}
-    target={summary.status}
-    {expanded}
-    bodyLayout="rows"
-    failed={summary.failed && !summary.live}
-    waiting={summary.needsPerson}
-    ariaLabel={`${summary.title}, ${summary.status}`}
-    data-testid="agent-conversation-group"
-    {skipMotion}
-    onOpen={() => (view.openedByUser = !expanded)}
-  >
-    {#snippet glyph()}
-      <span class="flex items-center -space-x-1.5">
-        {#each refs.slice(0, STACKED_AVATARS) as ref (ref.sessionId)}
-          <AgentAvatar provider={agentConversationMeta.metaFor(ref.sessionId)?.provider ?? ref.provider} />
-        {/each}
-        {#if refs.length > STACKED_AVATARS}
-          <span
-            class="relative inline-flex size-6 items-center justify-center rounded-full border border-[color-mix(in_oklch,var(--foreground)_10%,transparent)] bg-[color-mix(in_oklch,var(--foreground)_2%,var(--solus-tx-card-bg))] dark:border-[color-mix(in_oklch,white_5%,transparent)] dark:bg-[color-mix(in_oklch,white_3%,var(--solus-tx-card-bg))] text-[0.625rem] font-medium tabular-nums text-muted-foreground ring-2 ring-(--solus-tx-card-bg)"
-          >
-            +{refs.length - STACKED_AVATARS}
+  <div class="@container/agents">
+    <TranscriptCard
+      title={summary.title}
+      target={summary.status}
+      {expanded}
+      bodyLayout="rows"
+      failed={summary.failed && !summary.live}
+      waiting={summary.needsPerson}
+      ariaLabel={`${summary.title}, ${summary.status}`}
+      data-testid="agent-conversation-group"
+      {skipMotion}
+      onOpen={() => (view.openedByUser = !expanded)}
+    >
+      {#snippet glyph()}
+        <span class="flex items-center -space-x-1.5">
+          {#each cards.slice(0, STACKED_AVATARS) as message (message.id)}
+            {@const ref = message.agentConversationRef!}
+            <AgentAvatar provider={agentConversationMeta.metaFor(ref.sessionId)?.provider ?? ref.provider} />
+          {/each}
+          {#if refs.length > STACKED_AVATARS}
+            <span
+              class="relative inline-flex size-6 items-center justify-center rounded-full border border-[color-mix(in_oklch,var(--foreground)_10%,transparent)] bg-[color-mix(in_oklch,var(--foreground)_2%,var(--solus-tx-card-bg))] dark:border-[color-mix(in_oklch,white_5%,transparent)] dark:bg-[color-mix(in_oklch,white_3%,var(--solus-tx-card-bg))] text-[0.625rem] font-medium tabular-nums text-muted-foreground ring-2 ring-(--solus-tx-card-bg)"
+            >
+              +{refs.length - STACKED_AVATARS}
+            </span>
+          {/if}
+        </span>
+      {/snippet}
+      {#snippet rail()}
+        {#if !expanded && totals.length > 0}
+          <!-- Dropped before the title is: below 40rem the totals hide, and the
+               rows still show every item once the group opens. -->
+          <span class="hidden items-center gap-1 @min-[40rem]/agents:inline-flex" data-testid="agent-group-artifacts">
+            {#each totals as total (total.kind)}
+              <ArtifactChip
+                tone={total.tone}
+                label={total.label}
+                pullRequestState={total.pullRequestState}
+                onclick={openCallerArtifacts}
+              />
+            {/each}
           </span>
         {/if}
-      </span>
-    {/snippet}
-    {#snippet rail()}
-      <span class="font-mono">{elapsed}</span>
-    {/snippet}
-    {#snippet body()}
-      {#each cards as message, index (message.id)}
-        <AgentConversationCard ref={message.agentConversationRef!} {tabId} skipMotion accentIndex={index} grouped />
-      {/each}
-    {/snippet}
-  </TranscriptCard>
+        <span class="font-mono">{elapsed}</span>
+      {/snippet}
+      {#snippet body()}
+        {#each cards as message, index (message.id)}
+          <AgentConversationCard ref={message.agentConversationRef!} {tabId} skipMotion accentIndex={index} grouped />
+        {/each}
+      {/snippet}
+    </TranscriptCard>
+  </div>
 {/if}

@@ -1,77 +1,40 @@
 import { ActivityIndicator, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { sshAddStatusCard } from "@solus/client-core/ssh-progress";
+import { wslHostLabel } from "@solus/contracts/remote-machines";
 
 import { AppText as Text } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { ScreenScrollView } from "../../components/ScreenScrollView";
 import type { ScreenProps } from "../../navigation/routes";
 import { ConnectionSheetButton } from "../connection/ConnectionSheetButton";
-import { SettingsChoiceRow } from "../settings/components/SettingsChoiceRow";
 import { SettingsNote } from "../settings/components/SettingsNote";
 import { SettingsRow } from "../settings/components/SettingsRow";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { StageRow } from "../threads/WorktreeSetupCard";
-import { distroNote } from "./lib/wsl-add";
 import { useWslAdd } from "./use-wsl-add";
 
 /**
- * Adds a WSL distro of a Windows host as a machine (docs/plans/windows.md §13.6).
- * The Windows host installs Solus in the distro and reaches it; a link to the
- * account makes it reachable from the phone too.
+ * Adds the WSL distro chosen in a Windows host's settings as a machine
+ * (docs/plans/windows.md §5.13). The Windows host installs Solus in the distro,
+ * reaches it, and keeps it running; a link to the account makes it reachable
+ * from the phone too.
  */
 export function AddWslHostScreen({ navigation, route }: ScreenProps<"AddWslHost">) {
   const insets = useSafeAreaInsets();
-  const add = useWslAdd(route.params.hostId);
+  const add = useWslAdd(route.params.hostId, route.params.distro);
   const { phase, hostLabel } = add;
 
   return (
-    <SettingsScreen title="Add a WSL distro">
+    <SettingsScreen title={`Add ${wslHostLabel(route.params.distro)}`}>
       <ScreenScrollView
         contentInsetAdjustmentBehavior="automatic"
         className="flex-1"
         contentContainerClassName="gap-6 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
-        {phase.kind === "loading" ? (
-          <View className="flex-row items-center gap-3 p-4">
-            <ActivityIndicator accessibilityLabel="Reading the WSL distros" colorClassName="accent-icon-muted" />
-            <Text className="text-lg text-foreground">Reading the WSL distros</Text>
-          </View>
-        ) : phase.kind === "form" ? (
-          <>
-            {phase.distros.length > 0 ? (
-              <View className="gap-3">
-                <SettingsSection title={`Distros on ${hostLabel}`}>
-                  {phase.distros.map((distro, index) => (
-                    <SettingsChoiceRow
-                      key={distro.name}
-                      separated={index > 0}
-                      label={distro.name}
-                      description={distroNote(distro)}
-                      selected={distro.name === add.distro}
-                      onPress={() => add.setDistro(distro.name)}
-                    />
-                  ))}
-                </SettingsSection>
-                <SettingsNote>
-                  {`${hostLabel} installs Solus in the distro, so the distro needs nothing installed. Only ${hostLabel} reaches it until you link it to your account.`}
-                </SettingsNote>
-              </View>
-            ) : null}
-            {add.error ? <ErrorBanner message={add.error} /> : null}
-            <View className="android:flex-row android:justify-end">
-              <ConnectionSheetButton
-                icon="arrow.right"
-                label="Add distro"
-                tone="primary"
-                disabled={!add.distro}
-                onPress={() => void add.submit()}
-              />
-            </View>
-          </>
-        ) : phase.kind === "running" ? (
+        {phase.kind === "running" ? (
           <View className="gap-3">
             <SettingsSection title={`${hostLabel} is adding the distro`}>
               {phase.progress.length === 0 ? (
@@ -81,7 +44,7 @@ export function AddWslHostScreen({ navigation, route }: ScreenProps<"AddWslHost"
                 </View>
               ) : (
                 <View className="px-4 py-2">
-                  {sshAddStatusCard(phase.progress, { target: add.distro ?? "", standing: "running", resultMessage: "", error: "" }).steps.map((step) => (
+                  {sshAddStatusCard(phase.progress, { target: wslHostLabel(route.params.distro), standing: "running", resultMessage: "", error: "" }).steps.map((step) => (
                     <StageRow key={step.id} step={step} compact />
                   ))}
                 </View>
@@ -90,7 +53,12 @@ export function AddWslHostScreen({ navigation, route }: ScreenProps<"AddWslHost"
             <SettingsNote>This can take a few minutes the first time, while Solus installs in the distro.</SettingsNote>
           </View>
         ) : phase.kind === "failed" ? (
-          <ErrorBanner message={phase.message} />
+          <View className="gap-3">
+            <ErrorBanner message={phase.message} />
+            <View className="android:flex-row android:justify-end">
+              <ConnectionSheetButton icon="arrow.clockwise" label="Try again" tone="primary" onPress={() => void add.retry()} />
+            </View>
+          </View>
         ) : (
           <View className="gap-5">
             <View className="gap-1.5">

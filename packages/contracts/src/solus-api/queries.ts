@@ -45,7 +45,7 @@ export const workspaceSessionQuerySchema = z.strictObject({
   projectId: workspaceIdSchema.optional(),
   /** One repository's sessions on every machine that ran them, by repository key (`github.com/acme/web`; project-model §1). */
   repositoryKey: z.string().min(1).max(512).optional(),
-  provider: z.enum(['claude-code', 'codex', 'opencode']).optional(),
+  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
   /** `created` (the default) pages by when a session started; `activity` by its last activity, so a
    *  client that lists the most recent sessions stops after its first pages. */
   order: z.enum(['created', 'activity']).optional(),
@@ -59,7 +59,7 @@ export const workspaceSessionSearchQuerySchema = z.strictObject({
   /** One repository's sessions on every machine that ran them, by repository key
    *  (project-model §1). Answered by the workspace service; a machine searches by `projectRoot`. */
   repositoryKey: z.string().min(1).max(512).optional(),
-  provider: z.enum(['claude-code', 'codex', 'opencode']).optional(),
+  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
   /** Match names and metadata only; read no message. */
   namesOnly: z.enum(['true', 'false']).optional(),
   /** Only sessions last active at or after this instant (ms). */
@@ -74,7 +74,7 @@ export const workspaceInsightQuerySchema = z.strictObject({
   userId: workspaceIdSchema.optional(),
   hostId: workspaceIdSchema.optional(),
   sessionId: workspaceIdSchema.optional(),
-  provider: z.enum(['claude-code', 'codex', 'opencode']).optional(),
+  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
 })
 /** A record's activity: its newest `limit` rows, oldest first. One bounded answer: no cursor. */
 export const workspaceActivityQuerySchema = z.strictObject({

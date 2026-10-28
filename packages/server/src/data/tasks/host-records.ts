@@ -23,7 +23,7 @@ const sessionRecordRowSchema = z.object({
   session_id: z.string(),
   agent_session_id: z.string().nullable(),
   session_title: z.string().nullable(),
-  session_provider: z.enum(['claude', 'claude-code', 'codex', 'opencode']).nullable(),
+  session_provider: z.enum(['claude', 'claude-code', 'codex', 'opencode', 'replay']).nullable(),
   session_model: z.string().nullable(),
   session_server_id: z.string().nullable(),
   branch: z.string().nullable(),

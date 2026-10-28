@@ -328,6 +328,7 @@ export class SessionDrafts {
       draft.task = spec.task
       draft.boundWorkId = spec.boundWorkId ?? null
       draft.prReview = spec.prReview ?? null
+      draft.isLead = spec.isLead ?? false
       draft.applyRun(alignRunProvider(spec.run, this.workspace.defaultRunConfig.provider))
       this.sessionDrafts.set(draftId, draft)
       this.readStartTarget(draft)

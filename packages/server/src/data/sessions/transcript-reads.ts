@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { historyPageIsFull, startsHistoryTurn, type SessionHistoryPage, type WireSessionLoadMessage, type SessionMessageWindow, type SessionMessageWindowRequest } from '@solus/contracts/session-history'
+import { historyPageIsFull, historyPageMustCut, startsHistoryTurn, type SessionHistoryPage, type WireSessionLoadMessage, type SessionMessageWindow, type SessionMessageWindowRequest } from '@solus/contracts/session-history'
 import { activitySchema, type Activity } from '@solus/contracts/activity'
 import { LINEAGE_SWITCH_ID_PREFIX } from '../activity/activity'
 import { getDatabase } from '../../db/database'
@@ -17,7 +17,7 @@ import { sessionTranscripts } from './transcript-schema'
  * can hand it back without knowing what it is.
  */
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
+const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 
 /** A mirrored row as the runner projected it; every field the wire contract names, nothing else. */
 const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
@@ -60,7 +60,7 @@ const messageSchema: z.ZodType<WireSessionLoadMessage> = z.object({
   status: z.enum(['ok', 'error']).optional(),
   errorHead: z.string().optional(),
   contentBytes: z.number().optional(),
-  agentConversationResult: z.object({ sessionId: z.string().optional(), messageId: z.string().optional(), provider: z.enum(['claude-code', 'codex', 'opencode']).optional(), serverId: z.string().optional() }).optional(),
+  agentConversationResult: z.object({ sessionId: z.string().optional(), messageId: z.string().optional(), provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(), serverId: z.string().optional() }).optional(),
   artifactWorkRef: z.object({ workId: z.string(), title: z.string(), contentVersion: z.number().int().optional() }).optional(),
   workUpdateSucceeded: z.boolean().optional(),
 })
@@ -163,9 +163,10 @@ function positionOf(cursor: string): number {
 const PAGE_SCAN_ROWS = 500
 
 /** The newest `turnLimit` user turns, or the `turnLimit` turns before the
- * cursor, within the page's row and byte budget; `before` names the next older
- * page, or null at the start. Rows are read newest-first in bounded chunks
- * until the page's first turn starts or the budget runs out. */
+ * cursor; `before` names the next older page, or null at the start. Rows are
+ * read newest-first in bounded chunks until the page's first turn starts, or
+ * the page is full at a turn start. Only a turn past the hard budget is cut
+ * inside. */
 export async function readTranscriptPage(scope: RecordScope, sessionId: string, turnLimit: number, before?: string): Promise<SessionHistoryPage> {
   const db = getDatabase()
   const page: Array<z.infer<typeof rowSchema>> = []
@@ -184,8 +185,9 @@ export async function readTranscriptPage(scope: RecordScope, sessionId: string, 
     for (const row of rows) {
       page.push(row)
       bytes += Buffer.byteLength(row.message)
-      const turnsComplete = startsHistoryTurn(messageSchema.parse(JSON.parse(row.message))) && ++turns >= turnLimit
-      if (turnsComplete || historyPageIsFull(page.length, bytes)) {
+      const pageEnds = startsHistoryTurn(messageSchema.parse(JSON.parse(row.message)))
+        && (++turns >= turnLimit || historyPageIsFull(page.length, bytes))
+      if (pageEnds || historyPageMustCut(page.length, bytes)) {
         const first = page.at(-1)!
         const older = await db.all(sql`
           SELECT position FROM ${sessionTranscripts}

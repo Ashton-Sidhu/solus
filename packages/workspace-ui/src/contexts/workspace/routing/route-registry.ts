@@ -117,6 +117,9 @@ export interface RouteParams {
   /** A goal belongs to a thread, so the pane names the session — not whichever
    *  tab happened to open it, which may since have closed. */
   goal: { sessionId: string; serverId?: string }
+  /** What a session produced or linked, and what the sessions it started did.
+   *  Names the session, as `goal` does, not the tab that opened it. */
+  artifacts: { sessionId: string; serverId?: string }
   /** The one surface for reading a local change: map, guide, and diff. `view`
    *  is which face is showing; `scope` is *which* change all three read. An
    *  absent scope is the branch review — the whole branch against its target,
@@ -445,6 +448,20 @@ export const ROUTES: RouteTable = {
     defaultWeight: 0.34,
     // No component: the goal surface only exists in the shells that have no
     // project panel to put it in (mobile web), which renders its own.
+  },
+  artifacts: {
+    parse: (s) => {
+      const { id, serverId } = parseScopedId(s)
+      if (!id) return null
+      return serverId ? { sessionId: id, serverId } : { sessionId: id }
+    },
+    serialize: (p) => serializeScopedId(p.sessionId, p.serverId),
+    // A surface beside its conversation; "in main pane" makes it the
+    // destination. An open that names no target must say `companion`.
+    placement: 'either',
+    surfaceKey: (p) => p.sessionId,
+    defaultWeight: 0.34,
+    component: () => import('../../../components/session/artifacts/ArtifactsSurface.svelte'),
   },
   review: {
     parse: (s) => {

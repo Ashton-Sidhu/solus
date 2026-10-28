@@ -42,11 +42,10 @@ describe('the server preview wears the theme the reader sees', () => {
     }
   })
 
-  test('a render takes its accent from the render palette, not the app chrome', () => {
-    // WHY: the workshop chose slate blue for light renders so a selected tab or
-    // button does not compete with the app's terracotta chrome. The selected
-    // fill is a tint of that same accent: a grey wash inside an accent border
-    // reads as a muddy box.
+  test('a render takes its accent from the render palette, the brand terracotta', () => {
+    // WHY: a render's accent is the brand terracotta in both modes, so an
+    // artifact reads as Solus. The selected fill is a tint of that same
+    // accent: a grey wash inside an accent border reads as a muddy box.
     for (const appearance of ['light', 'dark'] as const) {
       const values = SOLUS_THEME_SNAPSHOT[appearance]
       const css = sandboxThemeCss(appearance === 'dark', (variable) => values[variable])
@@ -55,7 +54,10 @@ describe('the server preview wears the theme the reader sees', () => {
       expect(css).toContain(`--chart-1:${values['--solus-render-accent']};`)
       expect(css).toContain(`--accent-surface:${values['--solus-render-accent-light']};`)
     }
-    expect(SOLUS_THEME_SNAPSHOT.light['--solus-render-accent']).not.toBe(SOLUS_THEME_SNAPSHOT.light['--solus-accent'])
+    for (const appearance of ['light', 'dark'] as const) {
+      const values = SOLUS_THEME_SNAPSHOT[appearance]
+      expect(values['--solus-render-accent']).toBe(values['--solus-accent'])
+    }
   })
 
   test('a mock-up of Solus can still wear the app accent', () => {

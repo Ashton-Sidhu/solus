@@ -1,5 +1,6 @@
 import { ClaudeBackend } from './claude/claude-backend'
 import { CodexBackend } from './codex/codex-backend'
+import { createReplayBackend } from './replay/replay-gate'
 import type { AgentBackend } from './agent-backend'
 import type { AgentId } from '@solus/contracts/types'
 
@@ -9,8 +10,11 @@ import type { AgentId } from '@solus/contracts/types'
  * doubles are ever bundled into release builds.
  */
 export function createBackends(): Map<AgentId, AgentBackend> {
-  return new Map<AgentId, AgentBackend>([
+  const backends = new Map<AgentId, AgentBackend>([
     ['claude-code', new ClaudeBackend()],
     ['codex', new CodexBackend()],
   ])
+  const replay = createReplayBackend()
+  if (replay) backends.set('replay', replay)
+  return backends
 }

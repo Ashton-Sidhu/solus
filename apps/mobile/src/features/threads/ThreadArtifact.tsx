@@ -17,7 +17,6 @@ import {
   isExternalLink,
   readArtifactHeight,
 } from "./artifact-frame";
-import { useApp } from "../../app/app-context";
 import { useTranscriptItem } from "./use-transcript-items";
 
 const INITIAL_HEIGHT = 120;
@@ -233,72 +232,3 @@ export const ThreadArtifact = memo(function ThreadArtifact(props: {
     </View>
   );
 });
-
-/**
- * The session's artifact full screen, opened from the thread header's
- * environment menu. A saved `html_path` version is read first, as in the feed.
- */
-export function ThreadArtifactFullScreen(props: {
-  readonly store: ConversationStore;
-  readonly id: string;
-  readonly onClose: () => void;
-}) {
-  const item = useTranscriptItem(props.store, props.id);
-  const needsRead = item?.kind === "artifact" && !item.html && !!item.contentVersion && !item.loading && !item.error;
-  useEffect(() => {
-    if (needsRead) void props.store.controller.ensureArtifact(props.id);
-  }, [props.store, props.id, needsRead]);
-  if (item?.kind !== "artifact") return null;
-  if (item.html) return <ArtifactFullScreen html={item.html} title={item.title} onClose={props.onClose} />;
-  return <ArtifactPendingFullScreen error={item.error} onClose={props.onClose} />;
-}
-
-/**
- * An artifact of a session this one sent work to, full screen. Its transcript
- * row is in the other session, so the work's saved body is read here.
- */
-export function WorkArtifactFullScreen(props: {
-  readonly hostId: string;
-  readonly workId: string;
-  readonly title: string;
-  readonly onClose: () => void;
-}) {
-  const app = useApp();
-  const [read, setRead] = useState<{ workId: string; html: string | null; error?: string } | null>(null);
-  useEffect(() => {
-    const api = app.connections.connection(props.hostId)?.api;
-    let current = true;
-    const land = (html: string | null, error?: string) => {
-      if (current) setRead({ workId: props.workId, html, error });
-    };
-    if (!api) land(null, "This host cannot be reached now.");
-    else
-      void api.loadWork(props.workId).then(
-        (work) => (work ? land(work.content) : land(null, "This artifact is no longer available.")),
-        () => land(null, "Could not load this artifact. Try again."),
-      );
-    return () => {
-      current = false;
-    };
-  }, [app, props.hostId, props.workId]);
-  const loaded = read?.workId === props.workId ? read : null;
-  if (loaded?.html) return <ArtifactFullScreen html={loaded.html} title={props.title} onClose={props.onClose} />;
-  return <ArtifactPendingFullScreen error={loaded?.error} onClose={props.onClose} />;
-}
-
-function ArtifactPendingFullScreen(props: { readonly error: string | undefined; readonly onClose: () => void }) {
-  return (
-    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={props.onClose}>
-      <View className="flex-1 items-center justify-center gap-3 bg-screen">
-        {props.error ? (
-          <Text accessibilityRole="alert" className="text-sm text-foreground-muted">{props.error}</Text>
-        ) : (
-          <ActivityIndicator accessibilityLabel="Loading artifact" />
-        )}
-        <Pressable accessibilityRole="button" onPress={props.onClose} className="min-h-11 justify-center px-4">
-          <Text className="font-t3-medium text-sm text-foreground">Close</Text>
-        </Pressable>
-      </View>
-    </Modal>
-  );
-}

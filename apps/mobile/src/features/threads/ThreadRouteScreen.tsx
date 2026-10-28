@@ -3,6 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { isChat } from "@solus/contracts/chat";
 import { hostPathBaseName } from "@solus/contracts/host-path";
+import { allSessionArtifacts } from "@solus/contracts/session-artifacts";
 import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
 import type { SessionRecord } from "@solus/contracts/types";
 import { useEffect, useMemo, useState } from "react";
@@ -23,6 +24,7 @@ import { threadFaviconRoot, threadProjectPath } from "./threadListV2";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
 import type { ThreadContentPresentation, ThreadFeedHistoryControls } from "./ThreadFeed";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
+import { useSessionArtifacts } from "./artifacts/use-session-artifacts";
 import { useEnvironmentMenu } from "./use-environment-menu";
 
 type ConversationRecord = NonNullable<LastRoute["record"]>;
@@ -198,6 +200,7 @@ function ThreadRouteContent(props: {
     () =>
       ((app.threadList.facts().pullRequests.get(threadKey(hostId, props.sessionId)) ?? props.recordPullRequests)?.length ?? 0) > 0,
   );
+  const { snapshot: artifacts } = useSessionArtifacts(hostId, props.sessionId, true);
   const chat = isChat(props.projectPath);
   const title = props.shellTitle || runTitle || "New session";
   const headerSubtitle = [chat ? null : lastFolderName(props.projectPath), props.hostLabel]
@@ -206,13 +209,7 @@ function ThreadRouteContent(props: {
   // On iPad the thread is a column narrower than the window; the header's
   // title view must fit that column, not the window.
   const [columnWidth, setColumnWidth] = useState<number | null>(null);
-  const environment = useEnvironmentMenu({
-    store,
-    hostId,
-    sessionId: props.sessionId,
-    status: meta.status,
-    transcriptLoaded: meta.phase.kind !== "loading" || hasRows,
-  });
+  const environmentMenu = useEnvironmentMenu({ hostId, sessionId: props.sessionId, artifacts: artifacts.state });
   const header = useThreadHeaderOptions({
     title,
     columnWidth: columnWidth ?? window.width,
@@ -222,7 +219,12 @@ function ThreadRouteContent(props: {
     projectPath: chat || !props.projectPath ? null : props.projectPath,
     faviconRoot: props.faviconRoot,
     hasLinkedPullRequests,
-    environmentMenu: environment.menu,
+    sessionId: props.sessionId,
+    artifacts: {
+      count: artifacts.state.kind === "ready" ? allSessionArtifacts(artifacts.state.artifacts).length : null,
+      unread: artifacts.unread,
+    },
+    environmentMenu,
   });
 
   const historyControls = useMemo<ThreadFeedHistoryControls | undefined>(
@@ -264,7 +266,6 @@ function ThreadRouteContent(props: {
         groupActions
         hideBottomBorder
       />
-      {environment.artifactScreen}
       <View
         className="flex-1 bg-screen android:overflow-hidden android:rounded-t-[28px] android:bg-thread-canvas"
         onLayout={(event) => setColumnWidth(event.nativeEvent.layout.width)}

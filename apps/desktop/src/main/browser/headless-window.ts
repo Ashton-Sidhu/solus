@@ -7,6 +7,7 @@ import {
   type BrowserSurfaceDriver,
 } from '@solus/server/browser/surface-driver'
 import { ChromiumBrowserDriver } from './chromium-driver'
+import { guardBrowserPartition } from './guard-browser-partition'
 
 const log = createLogger('browser', 'headless-window.ts')
 
@@ -36,6 +37,7 @@ export function registerBrowserHeadlessHost(): void {
 }
 
 async function openHeadlessGuest(request: BrowserHeadlessOpenRequest): Promise<BrowserSurfaceDriver> {
+  guardBrowserPartition(request.partition)
   const window = new BrowserWindow({
     show: false,
     width: INITIAL_WIDTH,

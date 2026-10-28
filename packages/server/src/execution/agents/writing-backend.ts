@@ -36,7 +36,8 @@ export async function writingBackendFor(
       .map((provider) => ({ provider, model: DEFAULT_TEXT_GENERATION_MODELS[provider] })),
   ]
   for (const { provider, model } of candidates) {
-    if (!findOnPath(AGENT_BIN[provider], getCliPath())) continue
+    const bin = AGENT_BIN[provider]
+    if (!bin || !findOnPath(bin, getCliPath())) continue
     let seat: TurnSeat | null | undefined
     try {
       seat = await seatFor?.(provider)

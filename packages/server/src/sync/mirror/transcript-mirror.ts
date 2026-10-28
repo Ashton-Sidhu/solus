@@ -192,7 +192,7 @@ export class TranscriptMirror {
 
 const interruptedRowSchema = z.object({
   session_id: z.string(),
-  provider: z.enum(['claude-code', 'codex', 'opencode']),
+  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
   project_path: z.string(),
 })
 

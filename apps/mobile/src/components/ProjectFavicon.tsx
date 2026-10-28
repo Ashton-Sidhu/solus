@@ -2,7 +2,11 @@ import { SymbolView } from "./AppSymbol";
 import { Image } from "expo-image";
 import { memo, useLayoutEffect, useMemo, useState } from "react";
 import { View } from "react-native";
+import { hostPathBaseName } from "@solus/contracts/host-path";
+import { projectBadgeColors, projectInitials } from "@solus/contracts/project-badge";
 import { useApp, useListened } from "../app/app-context";
+import { AppText as Text } from "./AppText";
+import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import { useProjectFaviconUrl } from "../lib/project-favicon-url";
 
 import {
@@ -49,6 +53,7 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
       faviconUrl={renderableFaviconUrl}
       open={props.open}
       projectTitle={props.projectTitle}
+      badgeName={(props.workspaceRoot && hostPathBaseName(props.workspaceRoot)) || props.projectTitle}
       size={size}
     />
   );
@@ -60,6 +65,8 @@ function ProjectFaviconImage(props: {
   readonly faviconUrl: string | null;
   readonly open?: boolean;
   readonly projectTitle: string;
+  /** The folder's name, as desktop and web name the badge. */
+  readonly badgeName: string;
   readonly size: number;
 }) {
   const faviconRequest = useMemo(
@@ -82,6 +89,9 @@ function ProjectFaviconImage(props: {
   );
 
   const requestIsActive = faviconRequest !== null && activeFaviconRequest === faviconRequest;
+  const { themeAppearance } = useAppearancePreferences();
+  const initials = projectInitials(props.badgeName);
+  const badge = projectBadgeColors(props.badgeName, themeAppearance === "dark" ? "dark" : "light");
   const showImage = requestIsActive && status === "loaded";
 
   return (
@@ -93,8 +103,27 @@ function ProjectFaviconImage(props: {
         justifyContent: "center",
       }}
     >
-      {/* Folder icon fallback (matches web's FolderIcon); a chat shows a bubble */}
-      {!showImage ? (
+      {/* No favicon: the project's initials on its own colour, as on desktop and
+          web. A chat shows a bubble, and a name with no letters a folder. */}
+      {!showImage && !props.chat && initials ? (
+        <View
+          style={{
+            width: props.size,
+            height: props.size,
+            borderRadius: props.size * 0.22,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: badge.background,
+          }}
+        >
+          <Text
+            allowFontScaling={false}
+            style={{ color: badge.foreground, fontSize: props.size * 0.48, fontWeight: "600", lineHeight: props.size * 0.6 }}
+          >
+            {initials}
+          </Text>
+        </View>
+      ) : !showImage ? (
         <SymbolView
           name={
             props.chat

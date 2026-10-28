@@ -95,6 +95,7 @@ import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabase, getDatabase } from './db/database'
 import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, ownPublishedSessionIds, useSessionIndexState } from './data/sessions/session-records'
+import { isLeadSession } from './data/sessions/lead-sessions'
 import { sessionIndexComplete } from './db/session-indexer'
 import { assertRpcAccess } from './admission/access-policy'
 import { LOCAL_ORGANIZATION_ID } from './admission/principal'
@@ -199,6 +200,7 @@ import { appVersion, dataDir, solusDir } from './platform/paths'
 import { onTasksChanged } from './data/tasks/task-store'
 import { emitSessionTasksChanged } from './data/tasks/task-sessions'
 import { onSessionPullRequestsChanged } from './data/sessions/session-pull-requests'
+import { emitSessionArtifactsChanged, onSessionArtifactsChanged } from './data/sessions/session-artifacts'
 import { onPullRequestWatchesChanged, stopSessionPullRequestWatches } from './data/sessions/pull-request-watches'
 import { onSessionReadStateChanged, onSessionStateChanged } from './data/sessions/session-states'
 import { onOutboxChanged } from './sync/outbox/outbox-store'
@@ -590,13 +592,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onSessionStateChanged((sessionId, state) => events.broadcast('session.stateChanged', { sessionId, state })),
     onSessionReadStateChanged((sessionId, viewedAt) => events.broadcast('session.readStateChanged', { sessionId, viewedAt })),
     // A link carries whether it is watched (docs/plans/pr-watch.md).
-    onPullRequestWatchesChanged((sessionId) => events.broadcast('session.pullRequestsChanged', { sessionId })),
+    onPullRequestWatchesChanged((sessionId) => {
+      events.broadcast('session.pullRequestsChanged', { sessionId })
+      void emitSessionArtifactsChanged(sessionId)
+    }),
     onSessionPullRequestsChanged((sessionId) => {
       events.broadcast('session.pullRequestsChanged', { sessionId })
+      // A session's artifacts list its pull requests (docs/plans/session-artifacts.md).
+      void emitSessionArtifactsChanged(sessionId)
       void emitSessionTasksChanged(ANY_ORGANIZATION, sessionId).catch((error) => {
         log.warn('session_pull_request_tasks_notify_failed', { sessionId, error: String(error) })
       })
     }),
+    onSessionArtifactsChanged((sessionId) => events.broadcast('session.artifactsChanged', { sessionId })),
     onWorkspaceProjectsChanged(() => events.broadcast('workspaceProjects.changed', {})),
     onProjectsChanged(() => events.broadcast('projects.changed', {})),
     onTurnRowWritten((change) => events.broadcast('metrics.turnsChanged', change)),
@@ -630,7 +638,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   // Every exchange between sessions — agent tools, a person answering from a
   // card, delivery of results — goes through the one orchestrator.
-  const orchestrator = orchestrateSessions(opts.sessionRuntime)
+  // A lead's reports wait until its last open message settles (docs/plans/lead-session.md).
+  const orchestrator = orchestrateSessions(opts.sessionRuntime, isLeadSession)
   // Every turn and every new session, from a client or an agent, passes one admission
   // (`PromptDispatch.admitTurn`). The delegations join it once the link exists.
   const turnAdmission: TurnOrganizationDeps = {

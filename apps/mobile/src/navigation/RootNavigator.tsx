@@ -65,6 +65,7 @@ import { PullRequestEditSheet } from '../features/prs/PullRequestEditSheet'
 import { PullRequestLabelsScreen } from '../features/prs/PullRequestLabelsScreen'
 import { PullRequestFilterSearchScreen } from '../features/prs/PullRequestFilterSearchScreen'
 import { FilesScreen } from '../features/files/FilesScreen'
+import { ArtifactsScreen } from '../features/threads/artifacts/ArtifactsScreen'
 import { FileScreen } from '../features/files/FileScreen'
 import { useKeyboardCommand } from '../features/keyboard/use-keyboard-command'
 import type { RootStackParamList } from './routes'
@@ -315,7 +316,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen name="PairHost" component={PairHostScreen} options={{ title: 'Connect to a host' }} />
           <Stack.Screen name="AddSshHost" component={AddSshHostScreen} options={{ title: 'Add over SSH' }} />
           <Stack.Screen name="ChooseSshKey" component={ChooseSshKeyScreen} options={{ title: 'Identity file' }} />
-          <Stack.Screen name="AddWslHost" component={AddWslHostScreen} options={{ title: 'Add a WSL distro' }} />
+          <Stack.Screen name="AddWslHost" component={AddWslHostScreen} options={{ title: 'Add WSL distro' }} />
           <Stack.Screen name="CloudSignIn" component={CloudSignInScreen} options={{ title: 'Solus Cloud' }} />
           <Stack.Screen name="CloudHosts" component={CloudHostsScreen} options={{ title: 'Your hosts' }} />
           <Stack.Screen name="Hosts" component={HostsScreen} options={{ title: 'Hosts', headerLargeTitle: true }} />
@@ -390,6 +391,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           />
           <Stack.Screen name="Files" component={FilesScreen} options={{ title: 'Files' }} />
           <Stack.Screen name="File" component={FileScreen} options={{ title: 'File' }} />
+          <Stack.Screen name="ThreadArtifacts" component={ArtifactsScreen} options={{ title: 'Artifacts' }} />
         </Stack.Navigator>
       </NavigationContainer>
     </WorkspaceTabsProvider>

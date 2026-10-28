@@ -55,8 +55,8 @@ import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
 
 const DISCOVERY_INTERVAL_MS = 30_000
 
-/** The tab the add-host dialog shows: a pairing link, an address and code, or SSH. */
-export type AddHostMode = 'link' | 'manual' | 'ssh'
+/** What the add-host dialog shows: a pairing link, an address and code, SSH, or the add of a WSL distro chosen in the nearby list. */
+export type AddHostMode = 'link' | 'manual' | 'ssh' | 'wsl'
 
 export interface ServerItem {
   id: string

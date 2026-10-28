@@ -27,6 +27,7 @@ import {
   type AgentRowPresentation,
   type AgentTone,
 } from "./agent-card-presentation";
+import { AgentGroupArtifactTotals, AgentRowArtifacts, useCallerArtifacts } from "./AgentArtifactChips";
 import { agentCandidates, agentRoster } from "./agent-roster";
 import { useTranscriptItems } from "./use-transcript-items";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
@@ -197,6 +198,8 @@ export function ThreadAgentGroup(props: {
   const navigation = useNavigation<Navigation>();
   const rows = useAgentPresentations(props.store, props.itemIds);
   const hostId = props.store.controller.hostId;
+  const callerSessionId = props.store.controller.run.sessionId;
+  const callerArtifacts = useCallerArtifacts(hostId, callerSessionId);
   if (rows.length === 0) return null;
   const grouped = rows.length > 1;
   const summary = summarizeAgents(rows);
@@ -246,10 +249,30 @@ export function ThreadAgentGroup(props: {
           <SymbolView name={props.expanded ? "chevron.up" : "chevron.down"} size={11} tintColor={props.iconSubtleColor} />
         </Pressable>
       ) : null}
+      {grouped && !props.expanded ? (
+        <AgentGroupArtifactTotals
+          hostId={hostId}
+          callerSessionId={callerSessionId}
+          callerArtifacts={callerArtifacts}
+          sessionIds={rows.flatMap((row) => (row.sessionId ? [row.sessionId] : []))}
+        />
+      ) : null}
       {!grouped || props.expanded ? (
         <View className="mb-1 gap-px rounded-xl border border-border bg-card/30 p-1">
           {rows.map((row) => (
-            <AgentRow key={row.id} row={row} onOpen={open} onOpenProvider={(itemId) => navigation.push("ThreadSubagent", { hostId, conversationId: conversationIdOf(props.store), itemId })} className="rounded-lg px-3 py-3" />
+            <View key={row.id}>
+              <AgentRow row={row} onOpen={open} onOpenProvider={(itemId) => navigation.push("ThreadSubagent", { hostId, conversationId: conversationIdOf(props.store), itemId })} className="rounded-lg px-3 py-3" />
+              {/* Outside the row, so a chip opens its item and never the session. */}
+              {row.sessionId ? (
+                <AgentRowArtifacts
+                  hostId={hostId}
+                  callerSessionId={callerSessionId}
+                  callerArtifacts={callerArtifacts}
+                  sessionId={row.sessionId}
+                  className="-mt-1.5 pb-3 pl-8 pr-3"
+                />
+              ) : null}
+            </View>
           ))}
         </View>
       ) : null}
@@ -292,13 +315,28 @@ function ThreadAgentsSheetContent(props: { readonly store: ConversationStore; re
   const { store, navigation } = props;
   const rows = useAgentRoster(store);
   const hostId = store.controller.hostId;
+  const callerSessionId = store.controller.run.sessionId;
+  const callerArtifacts = useCallerArtifacts(hostId, callerSessionId);
   const open = (sessionId: string) => navigation.dispatch(StackActions.replace("Thread", { hostId, sessionId }));
   return (
     <ThreadAgentsSheetFrame navigation={navigation}>
       {rows.length === 0 ? (
         <Text className="pt-6 text-center text-sm text-foreground-muted">No agents in this turn.</Text>
       ) : (
-        rows.map((row) => <AgentRow key={row.id} row={row} onOpen={open} onOpenProvider={(itemId) => navigation.dispatch(StackActions.replace("ThreadSubagent", { hostId, conversationId: conversationIdOf(store), itemId }))} className="border-b border-border py-3.5" />)
+        rows.map((row) => (
+          <View key={row.id} className="border-b border-border">
+            <AgentRow row={row} onOpen={open} onOpenProvider={(itemId) => navigation.dispatch(StackActions.replace("ThreadSubagent", { hostId, conversationId: conversationIdOf(store), itemId }))} className="py-3.5" />
+            {row.sessionId ? (
+              <AgentRowArtifacts
+                hostId={hostId}
+                callerSessionId={callerSessionId}
+                callerArtifacts={callerArtifacts}
+                sessionId={row.sessionId}
+                className="-mt-2 pb-3.5 pl-5"
+              />
+            ) : null}
+          </View>
+        ))
       )}
     </ThreadAgentsSheetFrame>
   );

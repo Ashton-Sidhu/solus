@@ -35,7 +35,7 @@ import { isChat } from '@solus/contracts/chat'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { pickerProjectKeys } from '../../components/session/unified-picker/lib/picker-rows'
 import { SidebarSessionStatusFeed } from '../../components/session/lib/sidebar-session-status'
-import { nestedRowParents, visibleNestedSessions } from '../../components/session/lib/session-tree'
+import { nestedRowParents } from '../../components/session/lib/session-tree'
 import { SidebarReturnOrder } from '../../components/session/lib/sidebar-return-order'
 import {
   attemptServerId,
@@ -368,29 +368,34 @@ export class SessionSidebarStore {
     return byRowId
   })
 
-  /** Rows whose delegated sessions the user folded away. View state for this
-   *  client only, so it is not saved. */
-  private collapsedNestedRowIds = new SvelteSet<string>()
+  /**
+   * The drawer of started sessions follows the conversation on screen: open
+   * under the row on its path, closed under every other row. The caret and
+   * the keys override that for one row, and the override lasts until the
+   * conversation on screen changes, so a fold the person made holds while
+   * they read, and clicking away closes the drawer. View state for this
+   * client only, so it is not saved.
+   */
+  private nestedFoldOverride = $state<{ rowId: string; onScreenRowId: string | null; isOpen: boolean } | null>(null)
 
-  /** The delegated sessions listed under a row. */
+  /** Every delegated session under a row, folded or not. The row decides
+   *  which it draws (`visibleNestedSessions`). */
   nestedSessionsFor(row: SidebarTask): SidebarSessionChild[] {
-    return visibleNestedSessions(
-      this.nestedSessionsByRowId.get(row.id) ?? [],
-      this.collapsedNestedRowIds.has(row.id),
-      this.session.onScreenTabId,
-    )
+    return this.nestedSessionsByRowId.get(row.id) ?? []
   }
 
-  hasNestedSessions(row: SidebarTask): boolean {
-    return this.nestedSessionsByRowId.has(row.id)
-  }
-
-  isNestedCollapsed(row: SidebarTask): boolean {
-    return this.collapsedNestedRowIds.has(row.id)
+  isNestedOpen(row: SidebarTask): boolean {
+    const override = this.nestedFoldOverride
+    if (override?.rowId === row.id && override.onScreenRowId === this.onScreenRowId) return override.isOpen
+    return row.id === this.onScreenRowId
   }
 
   toggleNestedSessions(row: SidebarTask): void {
-    if (!this.collapsedNestedRowIds.delete(row.id)) this.collapsedNestedRowIds.add(row.id)
+    this.setNestedOpen(row, !this.isNestedOpen(row))
+  }
+
+  setNestedOpen(row: SidebarTask, isOpen: boolean): void {
+    this.nestedFoldOverride = { rowId: row.id, onScreenRowId: this.onScreenRowId, isOpen }
   }
 
   private withoutNested(rows: SidebarTask[]): SidebarTask[] {
@@ -429,6 +434,19 @@ export class SessionSidebarStore {
     for (const tabId of task.tabIds) {
       const session = this.session.sessionFor(tabId)
       if (session) latest = Math.max(latest, lastActivityAt(session))
+    }
+    return latest
+  }
+
+  /**
+   * When the person last sent a prompt to a row's session from a composer, or
+   * 0. It changes once per send, never per streamed message, so the project
+   * view may order its folders by it.
+   */
+  sentAtFor(task: SidebarTask): number {
+    let latest = 0
+    for (const tabId of task.tabIds) {
+      latest = Math.max(latest, this.session.sessionFor(tabId)?.lastSentAt ?? 0)
     }
     return latest
   }

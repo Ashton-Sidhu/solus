@@ -32,6 +32,9 @@
   import { agentConversationMeta } from "./agent-conversation-meta.store.svelte";
   import AgentPlanDecision from "./AgentPlanDecision.svelte";
   import AgentRequestCard from "./AgentRequestCard.svelte";
+  import ArtifactChipRow from "./ArtifactChipRow.svelte";
+  import { ensureLinkedArtifacts, linkedArtifacts } from "./lib/linked-artifacts.svelte";
+  import { openArtifact } from "../../session/artifacts/lib/artifact-open";
   import { liveActivityClock } from "../../../lib/shared-clock";
   import { conversationIsVisible } from "../lib/conversation-visibility";
   import { runHost } from "../../../contexts/workspace/run-location";
@@ -72,6 +75,16 @@
   });
 
   const meta = $derived(agentConversationMeta.metaFor(ref.sessionId));
+
+  // What the session linked: its pull requests, works, files, and automations.
+  const caller = $derived({
+    sessionId: session.sessionFor(tabId)?.id,
+    serverId: runHost(session.sessionFor(tabId)?.run),
+  });
+  $effect(() => {
+    if (!neverStarted) ensureLinkedArtifacts(ref, caller);
+  });
+  const linked = $derived(neverStarted ? [] : linkedArtifacts(ref, caller));
   let now = $state(Date.now());
   const cardState = $derived(agentConversationCardState(ref));
   const live = $derived(isLiveAgentConversationState(cardState));
@@ -111,6 +124,13 @@
         openInSplit: (openedTabId) => session.openTabAsSurface(openedTabId),
       },
       options,
+    );
+  }
+
+  function openAllLinked() {
+    session.router.navigate(
+      { name: "artifacts", params: { sessionId: ref.sessionId, serverId } },
+      { target: "companion" },
     );
   }
 
@@ -158,6 +178,17 @@
       onOpenSecondary={neverStarted ? undefined : () => open({ split: true })}
       trailing={neverStarted ? undefined : rowActions}
     />
+    {#if linked.length > 0}
+      <!-- Indented to the title, as the answer below is. Outside the row, so a
+           chip opens its item and never the session. -->
+      <div class="-mt-0.5 pr-2 pb-1.5 pl-[2.625rem]">
+        <ArtifactChipRow
+          items={linked}
+          onOpen={(artifact) => openArtifact(session, artifact, ref.sessionId, serverId)}
+          onOpenAll={openAllLinked}
+        />
+      </div>
+    {/if}
     {#if needsDecision}
       <!-- Indented to the title: px-2, the 24px avatar, and the 10px gap. -->
       <!-- A click in the answer must not open the session. -->

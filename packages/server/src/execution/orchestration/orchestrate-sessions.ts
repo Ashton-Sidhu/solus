@@ -9,8 +9,9 @@ import { SessionOrchestrator, turnEnding } from './session-orchestrator'
 /** The host's session orchestrator, running its turns on `sessionRuntime` and
  *  hearing back from it through the control plane's hooks. `isLead` names the
  *  sessions whose reports are held until their last open message settles. No
- *  session is a lead now: tasks lost their lead role, and the lead contract
- *  waits for a new trigger. */
+ *  session is a lead now: the lead contract is session-owned and does not
+ *  depend on a task; the person chose it before the first message
+ *  (docs/plans/lead-session.md, `isLeadSession`). */
 export function orchestrateSessions(
   sessionRuntime: SessionRuntime,
   isLead: (sessionId: string) => Promise<boolean> = async () => false,

@@ -36,7 +36,7 @@ import type {
  * first-dispatch bind, and the session-keyed reads the sidebar and breadcrumb
  * hydrate from. */
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
+const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const taskSessionRoleSchema = z.enum(['working', 'referenced'])
 const taskSessionLinkRowSchema = z.object({
   task_id: z.string(),

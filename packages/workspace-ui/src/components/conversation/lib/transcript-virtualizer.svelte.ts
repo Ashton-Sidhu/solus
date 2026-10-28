@@ -63,16 +63,22 @@ export class TranscriptVirtualizer {
     this.content = content
     this.observer = new ResizeObserver((entries) => {
       let changed = false
+      let arrived = false
       for (const entry of entries) {
         if (!(entry.target instanceof HTMLElement)) continue
         const key = this.nodes.get(entry.target)
-        if (key) changed = this.geometry.measure(key, entry.borderBoxSize[0]?.blockSize ?? entry.target.offsetHeight) || changed
+        if (key) {
+          const isFirst = !this.geometry.isMeasured(key)
+          const rowChanged = this.geometry.measure(key, entry.borderBoxSize[0]?.blockSize ?? entry.target.offsetHeight)
+          changed = rowChanged || changed
+          arrived = (isFirst && rowChanged) || arrived
+        }
       }
       if (changed) {
         this.geometry.rebuild()
         this.revision++
       }
-      this.holdAnchor()
+      this.holdAnchor(arrived)
       this.refresh()
     })
     for (const node of this.nodes.keys()) this.observer.observe(node)
@@ -140,12 +146,20 @@ export class TranscriptVirtualizer {
    *  which moved the anchor, which moved the range, which mounted the row
    *  again, in a loop. */
   rendered(): void {
-    // Rows added above the reader move them by a whole page of history; that
-    // is held even mid-scroll. A row that measures differently is not.
+    // Rows added above the reader move them by a whole page of history, and a
+    // row measured for the first time replaces an estimate that can be
+    // thousands of pixels short. Both are new content, held even mid-scroll.
+    // A known row that measures differently is drift, and is not.
     const keysMoved = this.pendingShift !== 0
     this.pendingShift = 0
     let changed = false
-    for (const [node, key] of this.nodes) changed = this.geometry.measure(key, node.getBoundingClientRect().height) || changed
+    let arrived = false
+    for (const [node, key] of this.nodes) {
+      const isFirst = !this.geometry.isMeasured(key)
+      const rowChanged = this.geometry.measure(key, node.getBoundingClientRect().height)
+      changed = rowChanged || changed
+      arrived = (isFirst && rowChanged) || arrived
+    }
     if (changed) {
       this.geometry.rebuild()
       this.revision++
@@ -155,7 +169,7 @@ export class TranscriptVirtualizer {
       this.isOpeningAtEnd = false
       this.anchor = null
       this.scroll.scrollTop = this.scroll.scrollHeight
-    } else this.holdAnchor(keysMoved)
+    } else this.holdAnchor(keysMoved || arrived)
     this.refresh()
   }
 
@@ -187,7 +201,7 @@ export class TranscriptVirtualizer {
    *  scroll moves the viewport, not the content, so it never counts. While
    *  the reader scrolls, a small drift is left alone rather than fought:
    *  their scroll already moves the view, and a write would stop it. */
-  private holdAnchor(keysMoved = false): void {
+  private holdAnchor(isNewContent = false): void {
     const anchor = this.anchor
     if (!anchor || !this.scroll) return
     if (!anchor.element.isConnected) {
@@ -198,7 +212,7 @@ export class TranscriptVirtualizer {
     if (!Number.isFinite(top)) return
     const shift = top - anchor.top
     const readerScrolling = performance.now() < this.readerScrollUntil
-    if (Math.abs(shift) >= 0.5 && (keysMoved || !readerScrolling)) this.scroll.scrollTop += shift
+    if (Math.abs(shift) >= 0.5 && (isNewContent || !readerScrolling)) this.scroll.scrollTop += shift
     anchor.top = top
   }
 

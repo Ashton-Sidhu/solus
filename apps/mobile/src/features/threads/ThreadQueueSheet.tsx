@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/ThreadQueueControl.tsx (MIT, see UPSTREAM.md).
 // T3's `ThreadQueue` form-sheet route and its header frame. Edit opens the
-// message in the thread's composer, as T3; Move up and Move down replace dragging.
+// message in the thread's composer, as T3. Queued messages keep their order.
 import { isSteerableStatus, modelLabelFor, type QueuedPromptSnapshot } from "@solus/contracts/types";
 import type { SessionQueueMutation } from "@solus/contracts/session-queue";
 import * as Haptics from "expo-haptics";
@@ -22,7 +22,7 @@ import type { ConversationStore } from "../conversation/conversation-store";
 import { PROVIDERS } from "../conversation/lib/run-settings";
 import { beginQueuedMessageEdit } from "./queued-message-edit";
 
-type QueueAction = "steer" | "edit" | "up" | "down" | "remove";
+type QueueAction = "steer" | "edit" | "remove";
 
 /** The model an entry runs with, named as the model picker names it. */
 function entryModel(entry: QueuedPromptSnapshot): string | null {
@@ -39,7 +39,7 @@ function entryTitle(entry: QueuedPromptSnapshot): string {
 
 /**
  * The prompts waiting behind the running turn, as a sheet over its thread.
- * Each can steer the turn now, be edited, move up or down, or leave. A queue
+ * Each can be sent now, be edited, or leave. A queue
  * held after a restart resumes from here.
  */
 export function ThreadQueueSheet({ route, navigation }: ScreenProps<"ThreadQueue">) {
@@ -92,7 +92,7 @@ function ThreadQueueSheetContent(props: { readonly store: ConversationStore; rea
     }
   };
   const change = (mutation: SessionQueueMutation) => run(() => store.controller.changeQueue(mutation));
-  const act = (entry: QueuedPromptSnapshot, index: number, action: QueueAction) => {
+  const act = (entry: QueuedPromptSnapshot, action: QueueAction) => {
     void Haptics.selectionAsync();
     const revision = entry.revision ?? 0;
     switch (action) {
@@ -102,10 +102,6 @@ function ThreadQueueSheetContent(props: { readonly store: ConversationStore; rea
         beginQueuedMessageEdit(store, entry);
         props.onClose();
         return;
-      case "up":
-        return void change({ kind: "move", queueId: entry.queueId, revision, beforeQueueId: entries[index - 1]?.queueId ?? null });
-      case "down":
-        return void change({ kind: "move", queueId: entry.queueId, revision, beforeQueueId: entries[index + 2]?.queueId ?? null });
       case "remove":
         return void change({ kind: "remove", queueId: entry.queueId, revision });
     }
@@ -139,12 +135,13 @@ function ThreadQueueSheetContent(props: { readonly store: ConversationStore; rea
               actions={[
                 ...(isPrompt
                   ? [
-                      {
-                        id: "steer",
-                        title: "Steer now",
-                        attributes: { disabled: !steerable },
-                        image: Platform.OS === "ios" ? "arrow.turn.left.up" : "arrow_upward",
-                      },
+                      ...(steerable
+                        ? [{
+                            id: "steer",
+                            title: "Send now",
+                            image: Platform.OS === "ios" ? "arrow.up" : "arrow_upward",
+                          }]
+                        : []),
                       {
                         id: "edit",
                         title: "Edit",
@@ -153,18 +150,17 @@ function ThreadQueueSheetContent(props: { readonly store: ConversationStore; rea
                       },
                     ]
                   : []),
-                { id: "up", title: "Move up", attributes: { disabled: busy || index === 0 } },
-                { id: "down", title: "Move down", attributes: { disabled: busy || index === entries.length - 1 } },
                 { id: "remove", title: "Remove", attributes: { disabled: busy, destructive: true } },
               ]}
-              onPressAction={({ nativeEvent }) => act(entry, index, nativeEvent.event as QueueAction)}
+              // SAFETY: the menu only reports the ids of the actions listed above.
+              onPressAction={({ nativeEvent }) => act(entry, nativeEvent.event as QueueAction)}
             >
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={title}
                 accessibilityHint="Opens this message for editing"
                 disabled={!isPrompt || busy}
-                onPress={() => act(entry, index, "edit")}
+                onPress={() => act(entry, "edit")}
                 className="min-h-14 flex-1 flex-row items-center gap-2.5 py-2.5 active:opacity-70"
               >
                 <View className="min-w-0 flex-1 gap-0.5">
@@ -184,15 +180,14 @@ function ThreadQueueSheetContent(props: { readonly store: ConversationStore; rea
                 {entry.held ? (
                   <Text className="shrink-0 text-2xs uppercase tracking-wide text-foreground-muted">Held</Text>
                 ) : null}
-                {isPrompt ? (
+                {steerable ? (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Steer with message ${index + 1} now`}
-                    disabled={!steerable}
-                    onPress={() => act(entry, index, "steer")}
-                    className="h-8 shrink-0 justify-center rounded-full bg-primary px-3 active:opacity-70 disabled:opacity-40"
+                    accessibilityLabel={`Send ${title} now`}
+                    onPress={() => act(entry, "steer")}
+                    className="h-8 shrink-0 justify-center rounded-full bg-primary px-3 active:opacity-70"
                   >
-                    <Text className="font-t3-medium text-xs text-primary-foreground">Steer</Text>
+                    <Text className="font-t3-medium text-xs text-primary-foreground">Send now</Text>
                   </Pressable>
                 ) : null}
               </Pressable>

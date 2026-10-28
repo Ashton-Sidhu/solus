@@ -5,7 +5,7 @@ import { z } from 'zod'
 const pinnedSessionRowsSchema = z.array(z.object({
   session_id: z.string(),
   server_id: z.string(),
-  provider: z.enum(['claude-code', 'codex', 'opencode']),
+  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
   model: z.string().nullable(),
   title: z.string(),
   cwd: z.string(),

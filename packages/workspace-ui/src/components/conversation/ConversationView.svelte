@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { HISTORY_PREFETCH_SCREENS } from "@solus/client-core/session-history-page";
   import { provideTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import { createArtifactRevisionIndexer } from "./lib/artifact-revisions";
   import { provideArtifactRevisions } from "./lib/artifact-revisions-context";
@@ -307,16 +308,17 @@
     }
   }
 
-  // Infinite scroll reveals one bounded page whenever the user nears the top.
-  // The scroll position is anchored across the insert so the previously-visible
-  // messages stay put rather than jumping when content is added above them.
-  const NEAR_TOP_PX = 300;
+  // Infinite scroll reads the next page while the reader is still a few
+  // screens from the top, so it arrives before they reach it. The scroll
+  // position is anchored across the insert so the previously-visible messages
+  // stay put rather than jumping when content is added above them.
+  const nearTop = (el: HTMLElement) => el.scrollTop <= el.clientHeight * HISTORY_PREFETCH_SCREENS;
   // `force` is a tap on the button at the top of the thread rather than a
   // scroll that arrived there, so it does not ask where the scroller is.
   async function maybeLoadOlder(opts?: { force?: boolean }) {
     const el = scrollEl;
     if (!el || loadingOlder) return;
-    if (!opts?.force && el.scrollTop > NEAR_TOP_PX) return;
+    if (!opts?.force && !nearTop(el)) return;
     if (!hasOlderTurnsToLoad || (historyError && !opts?.force)) return;
 
     loadingOlder = true;
@@ -333,6 +335,8 @@
       loadingOlder = false;
     }
     backfillShortTranscript();
+    // A short page can leave the reader still near the top: read the next one.
+    if (isVisible && !arriving && !historyError) void maybeLoadOlder();
   }
 
   function handleScroll() {
@@ -342,7 +346,7 @@
     if (!el || !isVisible || arriving) return;
     endFollow?.measure();
     viewState.position = endFollow?.atEnd ? null : virtualizer.position();
-    if (el.scrollTop <= NEAR_TOP_PX) void maybeLoadOlder();
+    if (nearTop(el)) void maybeLoadOlder();
   }
 
   // Load history for navigation; virtualization still bounds mounted rows.
@@ -406,7 +410,7 @@
 
   const hasOlderTurnsToLoad = $derived(sess?.historyTruncated ?? false);
 
-  // The message navigator is a right-gutter rail in wide layouts only. The rail
+  // The message navigator is a left-gutter rail in wide layouts only. The rail
   // itself hides when the gutter is too narrow.
   const showMessageNavigation = $derived(shell.hasProjectPanel);
   // Gate on showMessageNavigation: without this the derived rebuilds on every
@@ -604,6 +608,14 @@
       );
     },
     { enabled: () => tabId === session.focusedChatTabId },
+  );
+
+  useKeybinding(
+    "conversation.open-artifacts",
+    () => {
+      if (sess?.id) session.openArtifacts(sess.id);
+    },
+    { enabled: () => tabId === session.focusedChatTabId && !!sess?.id },
   );
 
   // The interrupt key, and Cancel on a setup card: the tab settles now, the host stops the run.

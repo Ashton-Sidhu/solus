@@ -5,19 +5,16 @@ import { forwardedReachNote } from './ssh-add'
 
 /**
  * Adding a WSL distro of a Windows host from the phone (docs/plans/windows.md
- * §13.6). The Windows host installs Solus in the distro and holds a forward to
- * it, so only that host reaches it until it is linked to the account.
+ * §5.13). The host's settings list the distros it does not reach yet; the
+ * Windows host installs Solus in the one chosen and holds a forward to it,
+ * which keeps it running. Only that host reaches it until it is linked to the
+ * account.
  */
 
 /** The narrow part of a host connection the add uses. */
 export interface WslAddConnection {
   readonly api: Pick<HostApi, 'hostsListWslDistros' | 'hostsAddWsl'>
   readonly events: SshAddConnection['events']
-}
-
-/** The distro to preselect: the one `wsl` runs by default, else the first. */
-export function defaultDistro(distros: readonly WslDistro[]): string | null {
-  return (distros.find((distro) => distro.isDefault) ?? distros[0])?.name ?? null
 }
 
 /** The note under a distro row: its WSL version, and whether `wsl` runs it by default. */

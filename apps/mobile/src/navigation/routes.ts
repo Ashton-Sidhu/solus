@@ -25,8 +25,8 @@ export type RootStackParamList = {
   AddSshHost: { viaHostId?: string; identityFile?: string } | undefined
   /** Files on the host that runs SSH, from `~/.ssh` or `path`, to choose the identity file of `AddSshHost`. */
   ChooseSshKey: { hostId: string; path?: string }
-  /** Adds a WSL distro of the Windows host `hostId` as a machine (docs/plans/windows.md §13.6). */
-  AddWslHost: { hostId: string }
+  /** Adds the WSL distro `distro` of the Windows host `hostId` as a machine, chosen in that host's settings (docs/plans/windows.md §5.13). */
+  AddWslHost: { hostId: string; distro: string }
   CloudSignIn: undefined
   CloudHosts: undefined
   Hosts: undefined
@@ -78,6 +78,8 @@ export type RootStackParamList = {
   Files: { hostId: string; projectPath: string; folderPath: string }
   /** One file; `path` is root-relative. */
   File: { hostId: string; projectPath: string; path: string }
+  /** What a session produced or linked: pull requests, works, files, images, and automations. */
+  ThreadArtifacts: { hostId: string; sessionId: string }
 }
 
 export type ScreenProps<Name extends keyof RootStackParamList> = NativeStackScreenProps<RootStackParamList, Name>

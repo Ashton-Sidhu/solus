@@ -10,6 +10,7 @@ import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDi
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from './session-pull-requests'
+import type { SessionArtifacts } from './session-artifacts'
 import type { SessionChange, SessionChanged } from './session-state'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
 import type { SessionSubagentRequest, SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
@@ -300,6 +301,10 @@ export interface SolusAPI {
   /** Watch a pull request the session links, or stop watching it. The agent
    *  wakes on news (docs/plans/pr-watch.md). Answers what starting did. */
   sessionPullRequestWatch(sessionId: string, repository: string, number: number, watching: boolean): Promise<SessionPullRequestWatchOutcome>
+  /** What a session produced or linked: its pull requests, works, files,
+   *  images, and automations, and those of the sessions it started
+   *  (docs/plans/session-artifacts.md). */
+  sessionArtifactsList(sessionId: string): Promise<SessionArtifacts>
   listRecentProjects(): Promise<RecentProject[]>
   trackRecentProject(path: string): Promise<void>
   listPlans(projectPath?: string, allProjects?: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]>

@@ -19,6 +19,7 @@ const AGENT_DISPLAY_NAMES = new Map<AgentId, string>([
   ['claude-code', 'Claude Code'],
   ['codex', 'Codex'],
   ['opencode', 'OpenCode'],
+  ['replay', 'Replay (dev)'],
 ])
 
 /**

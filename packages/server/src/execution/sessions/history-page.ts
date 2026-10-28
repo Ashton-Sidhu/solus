@@ -17,7 +17,7 @@ const cursorSchema = z.object({
 })
 
 /** Walk lineage from newest to oldest, `turnLimit` user turns at a time. A
- * provider ends its page early when the page budget runs out, and the walk
+ * provider ends its page early at a turn start once the page is full, and the walk
  * does not start an older segment once the page holds a full budget of rows or
  * bytes. Bytes are counted on the rows as returned. The page keeps the newest
  * rows, so one page holds less than two budgets.

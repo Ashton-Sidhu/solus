@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { createLogger } from '../../logger'
-import { getDatabase } from '../../db/database'
+import { afterDatabaseCommit, getDatabase } from '../../db/database'
 import type { AgentId, Work, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
 import { attributionSchema, type Attribution } from '@solus/contracts/user'
 import { documentContentHash } from '../../docs/content-hash'
@@ -14,6 +14,7 @@ import { scopeClause } from '../scope'
 import { Work as WorkEntity, validateWorkContent } from './work'
 import { workLiveBridge } from './work-live-bridge'
 import { emitWorkChanged } from './work-events'
+import { emitSessionArtifactsChanged } from '../sessions/session-artifacts'
 import { recordNewMentions } from '../activity/mentions'
 import { hostAttribution } from '../stored-attribution'
 import { hostUserKey } from '../../host/host-user'
@@ -99,7 +100,10 @@ export async function createWork(
     agentProvider,
     cwd,
   }
-  return insertNewWork(organizationId, ownerKey, id, meta, content, author)
+  const work = await insertNewWork(organizationId, ownerKey, id, meta, content, author)
+  // A work a session made is one of the session's artifacts.
+  if (sessionId) await afterDatabaseCommit(async () => emitSessionArtifactsChanged(sessionId))
+  return work
 }
 
 /** A copy is a new work: its own baseline at version 1, with the body's author kept. */

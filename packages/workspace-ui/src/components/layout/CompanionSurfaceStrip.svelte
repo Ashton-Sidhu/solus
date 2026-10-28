@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     Bot as SubagentIcon,
+    Boxes as ArtifactsIcon,
     ClipboardList as TaskIcon,
     FileDiff as DiffIcon,
     FileText as DocumentIcon,
@@ -59,6 +60,7 @@
     browser: BrowserIcon,
     devices: DevicesIcon,
     goal: GoalIcon,
+    artifacts: ArtifactsIcon,
     prReview: PullRequestIcon,
     prDiff: PullRequestIcon,
     tasks: DocumentIcon,
@@ -95,6 +97,10 @@
     router.destination.name === "chat" && !!checkoutPlace(session.sessionFor(session.activeTabId)?.run)?.path,
   );
   const canOpenFiles = $derived(!!leadingSourceId && !!session.runFor(leadingSourceId));
+  // What the leading conversation produced or linked; a draft has made nothing yet.
+  const leadingSessionId = $derived(
+    router.destination.name === "chat" ? session.sessionFor(session.activeTabId)?.id : undefined,
+  );
 
   function openChanges() {
     session.showDiff(session.activeTabId);
@@ -274,6 +280,13 @@
       <DropdownMenu.Item disabled={!canOpenFiles} onSelect={openFiles}>
         <FilesIcon size={16} strokeWidth={1.5} />
         Files
+      </DropdownMenu.Item>
+      <DropdownMenu.Item
+        disabled={!leadingSessionId}
+        onSelect={() => leadingSessionId && session.openArtifacts(leadingSessionId)}
+      >
+        <ArtifactsIcon size={16} strokeWidth={1.5} />
+        Artifacts
       </DropdownMenu.Item>
       <DropdownMenu.Item onSelect={() => session.openBrowser()}>
         <BrowserIcon size={16} strokeWidth={1.5} />

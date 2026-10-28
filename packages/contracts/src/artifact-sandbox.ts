@@ -23,9 +23,9 @@ const THEME_TOKENS = [
   ['--secondary-foreground', '--solus-text-primary'],
   ['--border', '--solus-render-border'],
   ['--input', '--solus-render-border-strong'],
-  // The render accent, not the app's: slate blue in light, terracotta in
-  // dark (workspace.css). A selected fill sits inside an accent border, so
-  // it is a tint of the same accent: a grey fill there reads as a muddy box.
+  // The render accent: terracotta in both modes (workspace.css). A selected
+  // fill sits inside an accent border, so it is a tint of the same accent: a
+  // grey fill there reads as a muddy box.
   ['--ring', '--solus-render-accent'],
   ['--primary', '--solus-render-accent'],
   ['--primary-foreground', '--solus-render-on-accent'],
@@ -132,12 +132,12 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-render-raised': 'color-mix(in oklch, var(--solus-text-primary) 5%, transparent)',
     '--solus-render-border': 'color-mix(in oklch, var(--solus-text-primary) 10%, transparent)',
     '--solus-render-border-strong': 'color-mix(in oklch, var(--solus-text-primary) 18%, transparent)',
-    '--solus-render-accent': '#5f75c1',
+    '--solus-render-accent': '#d97757',
     '--solus-render-on-accent': '#ffffff',
-    '--solus-render-accent-light': 'rgba(95, 117, 193, 0.09)',
-    '--solus-render-1': '#5f75c1',
+    '--solus-render-accent-light': 'rgba(217, 119, 87, 0.09)',
+    '--solus-render-1': '#d97757',
     '--solus-render-2': '#00908a',
-    '--solus-render-3': '#d97757',
+    '--solus-render-3': '#5f75c1',
     '--solus-render-4': '#a15e9c',
     '--solus-render-5': '#628835',
     '--solus-render-6': '#cb7f00',

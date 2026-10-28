@@ -132,7 +132,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const startedAt = Date.now()
     const request = z.object({
       sessionId: z.string().min(1),
-      provider: z.enum(['claude-code', 'codex', 'opencode']),
+      provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
       projectPath: z.string().optional(),
       turnLimit: z.number().int().min(1).max(100),
       before: z.string().max(16384).optional(),
@@ -160,7 +160,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const request = z.object({
       sessionId: z.string().min(1).max(200),
       toolId: z.string().min(1).max(512),
-      provider: z.enum(['claude-code', 'codex', 'opencode']),
+      provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
       projectPath: z.string().max(16384).optional(),
       before: z.string().max(16384).optional(),
     }).strict().parse(input)

@@ -65,20 +65,10 @@ The orchestration runtime is unchanged: `start_session`, `send_session`,
 the parent, and the cards where a person answers a child
 (`docs/session-orchestration.md`).
 
-These parts are kept for reuse, but nothing triggers them now:
-
-- The **lead contract** (`LEAD_CONTRACT`, `formatLeadContract` in
-  `task-context.ts`) and the user's lead settings: **Lead agent and model**
-  (`leadModel`), **Default worker model** (`workerModel`) and **Lead
-  instructions** (`leadInstructions`) in Settings → Tasks. No run receives the
-  contract, and no draft starts on the lead model.
-- The **lead wake rule** in `session-orchestrator.ts` and `parent-delivery.ts`:
-  a lead's reports are held until its last open message settles, and notices
-  never reach its model. `orchestrateSessions(runtime, isLead)` takes the
-  predicate; its default answers false for every session.
-
-To use them again, choose the trigger that makes a session a lead, pass it as
-`isLead`, and append `formatLeadContract` to that session's system prompt.
+The lead parts have nothing to do with tasks: a lead is a session the user
+opts in when they start it, and a lead may or may not be linked to a task. The
+opt-in, the lead contract, and the lead wake rule are in
+`docs/plans/lead-session.md`.
 
 ## Verification
 

@@ -365,6 +365,7 @@ function _materializeTabs(
         status: snapTab.pendingFork ? 'idle' : snapTab.status ?? 'idle',
         currentTurnStartedAt: snapTab.currentTurnStartedAt ?? null,
         startedAt: snapTab.startedAt ?? null,
+        lastSentAt: snapTab.lastSentAt ?? null,
         additionalDirs: [...snapTab.additionalDirs],
         run,
         // Only a composer carries these; a started session's task comes from its

@@ -494,20 +494,19 @@
      its --card is the page. Fills and lines are washes of the text colour,
      the same recipe as the app's hover wash and hairlines, so a render reads
      as part of the conversation and never as grey or sand boxes. The accent
-     is a slate blue, chosen in the palette workshop: calm next to the app's
-     terracotta chrome, so a selected tab or a button in a render does not
-     compete with it. The series is one family: the accent first, then five
+     is the brand terracotta, the same as the app's chrome. The series is one
+     family: the accent first, then five
      hues at the same OKLCH lightness and chroma (L 0.58, C 0.12). The
      --solus-art-* ramp above keeps its hue roles for the app's own charts. */
   --solus-render-raised: color-mix(in oklch, var(--solus-text-primary) 5%, transparent);
   --solus-render-border: color-mix(in oklch, var(--solus-text-primary) 10%, transparent);
   --solus-render-border-strong: color-mix(in oklch, var(--solus-text-primary) 18%, transparent);
-  --solus-render-accent: #5f75c1;
+  --solus-render-accent: #d97757;
   --solus-render-on-accent: #ffffff;
-  --solus-render-accent-light: rgba(95, 117, 193, 0.09);
-  --solus-render-1: #5f75c1; /* slate blue, the render accent */
+  --solus-render-accent-light: rgba(217, 119, 87, 0.09);
+  --solus-render-1: #d97757; /* the brand terracotta, the render accent */
   --solus-render-2: #00908a; /* teal */
-  --solus-render-3: #d97757; /* the brand terracotta: free for a series here, since the accent is slate blue */
+  --solus-render-3: #5f75c1; /* slate blue */
   --solus-render-4: #a15e9c; /* plum */
   --solus-render-5: #628835; /* moss */
   --solus-render-6: #cb7f00; /* amber: lighter and stronger than the rest, a yellow at the series lightness reads as olive */
@@ -1468,36 +1467,28 @@ input::placeholder {
  * transcript.
  *
  * Each kind carries one hue and nothing else. `--solus-token-accent` is the only
- * per-kind value; border, wash, and text are all mixed from it at fixed ratios
- * (34% / 11% / 22%, rising to 48% / 17% on hover), so no kind is heavier than
- * another and the same rule holds in both themes. Every accent sits at the same
- * OKLCH lightness (0.62) with chroma capped at the art palette's range, and each
- * hue is pulled toward its nearest art colour — dusty blue, teal, sage, plum,
- * amber — so a line of chips reads as this product's palette, not a rainbow.
- * Text and border mix against the warm neutrals, never against white or black.
- * Height comes from the line box — no fixed height, no vertical margin — so a
- * chip never makes a paragraph's leading uneven.
+ * per-kind value. Every accent sits at the same OKLCH lightness (0.62) with
+ * chroma capped at the art palette's range, and each hue is pulled toward its
+ * nearest art colour — dusty blue, teal, sage, plum, amber — so a line of
+ * chips reads as this product's palette, not a rainbow.
+ *
+ * A chip is coloured text, not a box: glyph and label in the accent's ink, no
+ * fill, no border (the inline-chip treatment from T3 Code, which the mobile
+ * Markdown already uses). A box around every reference made a sentence with
+ * three files in it read as a row of buttons. The ink mixes the accent with
+ * the primary text, so it darkens on a light theme and lightens on a dark one
+ * and stays readable on both. A clickable chip shows an underline on hover.
  *
  * A code span is a literal you would retype, not a reference, so it keeps the
- * neutral shell in §5 and takes no accent.
+ * neutral mono face in prose.css and takes no accent.
  *
  * One geometry, everywhere. The composer, the user bubble, the assistant
  * transcript, and task and pull-request prose all run at different type rungs,
- * so every metric is in `em` — text, padding, glyph, gap — and the chip follows
- * whatever text it sits in, including the text-size preference on every client.
+ * so every metric is in `em` and the chip follows whatever text it sits in.
  * No surface restates a size; a per-kind rule may set a face, never a metric.
- *
- * The label is set at 0.8571em of the prose — 12px inside the 14px assistant
- * body. A mono label at the prose's own size sets wider and taller than the
- * text around it and reads as the loudest thing in the sentence, so it steps
- * down two rungs. The sans kinds take the same rung so a line of mixed chips
- * has one height.
- *
- * Alignment: the label shares the prose baseline, and with `line-height: 1` its
- * box is centred on the cap height, so symmetric block padding centres the chip
- * on the caps. The whole box is ~1.1em of prose, inside the line's leading at
- * the composer's 1.5 and the transcript's 1.75, so a line with a chip is no
- * taller than one without.
+ * The label is set at the prose's own size and weight 500, so it reads as a
+ * word in the sentence; with no padding and `line-height: 1`, a line with a
+ * chip is no taller than one without.
  */
 .solus-token {
   --solus-token-accent: var(--foreground);
@@ -1506,26 +1497,26 @@ input::placeholder {
      inside a sentence copied as three lines (`see \n@src/foo.ts\n here`).
      Inline-block keeps the atomic shape and copies inline with the prose. */
   display: inline-block;
-  padding: 0.125em 0.375em 0.125em 0.3125em;
-  /* A real border, never a box-shadow, so it matches the code-span shell it
-     sits beside. The radius is one step tighter than that shell's
-     `--radius-md`: a reference is a shorter box than a wrapped literal, and at
-     8px it read as a pill rather than as a word in the sentence. */
-  border: 0.0625rem solid
-    color-mix(in oklab, var(--solus-token-accent) 34%, var(--solus-art-border-strong));
-  border-radius: 0.375rem;
+  padding: 0;
+  border: 0;
+  /* Only the focus ring and the editor's selection outline draw this. */
+  border-radius: 0.25em;
   margin-inline: 0;
   font-family: inherit;
-  font-size: 0.8571em;
+  font-size: 1em;
   font-weight: 500;
   line-height: 1;
   vertical-align: baseline;
   white-space: nowrap;
-  text-decoration: none;
+  text-decoration: underline 0.0625em transparent;
+  text-underline-offset: 0.2em;
   cursor: pointer;
-  color: color-mix(in oklab, var(--solus-token-accent) 22%, var(--solus-text-primary));
-  background: color-mix(in oklab, var(--solus-token-accent) 11%, transparent);
-  transition: border-color 120ms ease, background 120ms ease;
+  color: color-mix(in oklab, var(--solus-token-accent) 72%, var(--solus-text-primary));
+  background: none;
+  transition: text-decoration-color 120ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .solus-token { transition: none; }
 }
 /* A chip is a reference inside a sentence, so it has to highlight and copy with
    the prose around it. `user-select: none` lived here to make the button read
@@ -1573,22 +1564,23 @@ button.solus-token {
 }
 
 .solus-token--slash { cursor: default; }
-.solus-token:hover {
-  border-color: color-mix(in oklab, var(--solus-token-accent) 48%, var(--solus-art-border-strong));
-  background: color-mix(in oklab, var(--solus-token-accent) 17%, transparent);
+:is(a, button).solus-token:is(:hover, :focus-visible) {
+  text-decoration-color: currentColor;
+}
+.solus-token:focus-visible {
+  outline: 0.0938rem solid currentColor;
+  outline-offset: 0.0625rem;
 }
 /* The chip is no longer a flex row, so the glyph carries its own gap and sits on
    the text by optical alignment rather than `align-items: center`. */
 .solus-token__icon {
-  width: 0.75em;
-  height: 0.75em;
+  width: 0.9em;
+  height: 0.9em;
   display: inline-block;
-  /* Measured: lands the glyph's centre on the chip's optical centre without the
-     icon joining the line box the way `align-items: center` did. */
-  vertical-align: -0.04em;
+  /* Measured: centres a 0.9em glyph on the x-height of a 1em label. */
+  vertical-align: -0.12em;
   margin-right: 0.25em;
   color: currentColor;
-  opacity: 0.85;
 }
 /* Block, so the glyph does not sit on a text baseline inside its own box and
    add a descender's worth of height to the chip. */
@@ -1597,22 +1589,22 @@ button.solus-token {
   width: 100%;
   height: 100%;
 }
-/* Face is the one thing a kind may change: a file path and a slash command are
-   mono, everything else is the prose face. Metrics stay on the base rule. */
-.solus-token--mono,
-.solus-token--file {
+/* Face is the one thing a kind may change: a slash command is mono, everything
+   else is the prose face. A file name reads as a word, as it does on mobile.
+   Metrics stay on the base rule. */
+.solus-token--mono {
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
 }
 /* Per-kind hue. Hue and chroma in the comment are the art colour each one is
    anchored to; the plan's three statuses share one hue and differ by glyph. */
-.solus-token--file { --solus-token-accent: oklch(0.62 0.10 240); }       /* dusty blue */
+.solus-token--file { --solus-token-accent: oklch(0.48 0.12 270); }       /* slate blue, darker than the old artifact accent #5f75c1 */
 .solus-token--work { --solus-token-accent: oklch(0.62 0.10 185); }       /* teal */
 .solus-token--session { --solus-token-accent: oklch(0.62 0.11 262); }    /* blue → plum */
 .solus-token--pr { --solus-token-accent: oklch(0.62 0.12 285); }         /* toward plum */
 .solus-token--plan-pending,
 .solus-token--plan-accepted,
 .solus-token--plan-rejected { --solus-token-accent: oklch(0.62 0.13 302); } /* plum */
-.solus-token--slash { --solus-token-accent: oklch(0.62 0.13 335); }      /* plum, far side */
+.solus-token--slash { --solus-token-accent: var(--solus-accent); }      /* the app's terracotta: a command is something you run */
 .solus-token--task { --solus-token-accent: oklch(0.62 0.10 152); }       /* sage */
 .solus-token--automation { --solus-token-accent: oklch(0.62 0.12 68); }  /* amber */
 .solus-token--person { --solus-token-accent: var(--solus-accent); }     /* a mention reads as the accent, like a comment's */

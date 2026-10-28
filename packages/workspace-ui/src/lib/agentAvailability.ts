@@ -11,6 +11,7 @@ const FALLBACK_LABELS = {
   "claude-code": "Claude Code",
   codex: "Codex",
   opencode: "OpenCode",
+  replay: "Replay (dev)",
 } satisfies Record<AgentId, string>;
 
 export function agentLabel(

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { ColorValue } from "react-native";
 import type { AppNativeStackNavigationOptions } from "../native/StackHeader";
+import type { NativeHeaderToolbarBadge } from "../native/NativeHeaderToolbar";
 import type { AppSymbolName } from "./AppSymbol";
 
 export interface ScreenHeaderAction {
@@ -10,6 +11,8 @@ export interface ScreenHeaderAction {
   readonly disabled?: boolean;
   readonly selected?: boolean;
   readonly tintColor?: ColorValue;
+  /** iOS 26 and later draw it on the button; Android's overflow menu shows the label only. */
+  readonly badge?: NativeHeaderToolbarBadge;
 }
 
 export type ScreenHeaderMenuItem =

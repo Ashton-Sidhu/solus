@@ -6,6 +6,10 @@ import type { SessionHistoryPage, SessionHistoryPageRequest } from '@solus/contr
 export const INITIAL_HISTORY_TURNS = 10
 /** User turns each scroll back to older history reads. */
 export const OLDER_HISTORY_TURNS = 20
+/** Screens of loaded history still above the reader when the next older page
+ *  starts to load. A page then arrives before the reader reaches the top, and
+ *  their scroll does not stop there to wait for it. */
+export const HISTORY_PREFETCH_SCREENS = 3
 
 type HistoryApi = Pick<HostApi, 'loadSessionPage'>
 

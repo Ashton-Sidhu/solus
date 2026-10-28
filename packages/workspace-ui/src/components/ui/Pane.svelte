@@ -167,6 +167,9 @@
             closeLabel="Close loading files"
           />
         </div>
+      {:else if ref.name === "artifacts"}
+        <!-- A short list: its module loads faster than a skeleton would read. -->
+        <div class="h-full w-full" aria-busy="true"></div>
       {:else if ref.name === "subagent"}
         <div class="relative h-full min-h-0 w-full">
           <ConversationPaneSkeleton />

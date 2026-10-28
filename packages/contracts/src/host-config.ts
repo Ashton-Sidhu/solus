@@ -12,7 +12,7 @@
 // (plans/018). Device choices stay on the device.
 
 import { z } from 'zod'
-import { CONFIGURABLE_SOLUS_TOOL_NAMES, withoutRetiredSolusTools, type SolusToolPreferences } from './agent-tools'
+import { CONFIGURABLE_SOLUS_TOOL_NAMES, type SolusToolPreferences } from './agent-tools'
 import type { OtelSettings } from './types'
 
 export interface HostConfig {
@@ -91,7 +91,7 @@ function field<const Value, Patch>(
 }
 
 export const HOST_CONFIG_FIELDS = {
-  solusTools: field(z.record(z.string(), z.boolean()).transform(withoutRetiredSolusTools).pipe(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean())).describe('Solus agent tools on or off on this host, by tool name. A tool that is off is removed from the tool list of every agent and refused if called. A tool not named is on.'), {}),
+  solusTools: field(z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()).describe('Solus agent tools on or off on this host, by tool name. A tool that is off is removed from the tool list of every agent and refused if called. A tool not named is on.'), {}),
   continueSessionsAfterHostRestart: field(z.boolean().catch(true), true),
   reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}).describe('By project path on this host: when true, the host writes review guides before they are asked for, for open pull requests that are not drafts, when their head has not changed for a minute.'), {}),
   archivedAutomationRetentionDays: field(z.number().int().min(1).max(3650), 30),

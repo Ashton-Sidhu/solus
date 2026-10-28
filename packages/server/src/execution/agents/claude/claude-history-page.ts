@@ -1,7 +1,7 @@
 import { open } from 'node:fs/promises'
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
-import { historyPageIsFull, startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
+import { historyPageIsFull, historyPageMustCut, startsHistoryTurn, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
 import { parseJsonlLine } from './claude-session-helpers'
 
 const cursorSchema = z.object({
@@ -14,10 +14,15 @@ const cursorSchema = z.object({
 const FIRST_BLOCK_BYTES = 64 * 1024
 const MAX_BLOCK_BYTES = 2 * 1024 * 1024
 
+/** Stored bytes one page may read inside a turn. Tool output the transcript
+ *  does not return can make a line far larger than its row. */
+const TURN_READ_BYTES = 16 * 1024 * 1024
+
 /** Read backwards from a byte boundary, decoding only complete UTF-8 lines,
- * until `turnLimit` user turns are complete or the page budget runs out; then
- * the cursor is the line the page starts at. Appending live messages cannot
- * shift an older page's boundary. */
+ * until `turnLimit` user turns are complete or the page is full at a turn
+ * start; then the cursor is the line the page starts at. A turn past the hard
+ * budget, or past `TURN_READ_BYTES` read, is cut inside. Appending live
+ * messages cannot shift an older page's boundary. */
 export async function loadClaudeHistoryPage(filePath: string, turnLimit: number, before?: string): Promise<ProviderHistoryPage> {
   const file = await open(filePath, 'r')
   try {
@@ -38,6 +43,7 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
     const messages: SessionLoadMessage[] = []
     let turns = 0
     let lineBytes = 0
+    let bytes = 0
     let blockBytes = FIRST_BLOCK_BYTES
     while (position > 0) {
       const start = Math.max(0, position - blockBytes)
@@ -56,8 +62,9 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
         lineBytes += line.length
         if (!message) continue
         messages.push(message)
-        const turnsComplete = startsHistoryTurn(message) && ++turns >= turnLimit
-        if (turnsComplete || historyPageIsFull(messages.length, lineBytes)) {
+        bytes += Buffer.byteLength(JSON.stringify(message))
+        const pageEnds = startsHistoryTurn(message) && (++turns >= turnLimit || historyPageIsFull(messages.length, bytes))
+        if (pageEnds || historyPageMustCut(messages.length, bytes) || lineBytes >= TURN_READ_BYTES) {
           return {
             messages: messages.reverse(),
             before: JSON.stringify({

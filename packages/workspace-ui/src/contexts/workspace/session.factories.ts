@@ -53,6 +53,7 @@ export function makeSession(
     progress: null,
     goal: null,
     pendingGoalObjective: null,
+    isLead: false,
     statusCard: null,
     sessionChangedFiles: [],
     additionalDirs: [],

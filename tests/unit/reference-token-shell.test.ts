@@ -33,7 +33,6 @@ const TOKEN_VARIANTS = [
   "task",
   "automation",
   "file",
-  "slash",
 ] as const;
 
 function accentFor(variant: string): string | null {
@@ -59,12 +58,19 @@ describe("reference token shell", () => {
         .replace(/^oklch\(|\)$/g, "")
         .split(/\s+/)
         .map(Number);
-      expect(lightness, variant).toBe(0.62);
+      // A file is the most common chip, so its blue sits darker.
+      expect(lightness, variant).toBe(variant === "file" ? 0.48 : 0.62);
       expect(chroma, variant).toBeLessThanOrEqual(0.13);
       seen.add(accent);
     }
     // Plan statuses share a hue by design; every other kind is distinct.
     expect(seen.size).toBe(TOKEN_VARIANTS.length - 2);
+  });
+
+  test("a slash command wears the app accent", () => {
+    // WHY: a command is something you run, so it takes the app's own
+    // terracotta, and follows it between themes, rather than a palette hue.
+    expect(css).toMatch(/\n\.solus-token--slash \{[^}]*--solus-token-accent:\s*var\(--solus-accent\)/);
   });
 
   test("the base shell sets every metric in em", () => {
@@ -78,6 +84,16 @@ describe("reference token shell", () => {
     for (const property of ["width", "height", "margin-right"]) {
       expect(icon, property).toMatch(new RegExp(`\\n\\s*${property}:\\s*[\\d.]+em;`));
     }
+  });
+
+  test("a chip is accent ink, not a box", () => {
+    // WHY: a sentence that names three files read as a row of buttons when
+    // each reference had a fill and a border. The accent colours the text and
+    // the glyph only, as the mobile Markdown draws it.
+    const base = css.match(/\n\.solus-token \{([^}]*)\}/)?.[1] ?? "";
+    expect(base).toMatch(/\n\s*background:\s*none;/);
+    expect(base).toMatch(/\n\s*border:\s*0;/);
+    expect(base).toMatch(/\n\s*color:[^;]*var\(--solus-token-accent\)/);
   });
 
   test("no kind or surface restates a chip metric", () => {

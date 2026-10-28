@@ -12,7 +12,7 @@ import { indexedPlans, planAnnotations, planIndexProviders } from './schema'
 
 const planStatusSchema = z.enum(['pending', 'accepted', 'rejected'])
 const indexedPlanRowSchema = z.object({
-  provider: z.enum(['claude-code', 'codex', 'opencode']),
+  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
   session_id: z.string(),
   plan_tool_use_id: z.string(),
   project_path: z.string(),

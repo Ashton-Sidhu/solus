@@ -99,6 +99,8 @@ export const KEYBINDINGS = {
   // Not reserved: an exclusive overlay owns Escape outright.
   'pane.close':                   { combo: { code: 'Escape' },                            scope: 'global',             label: 'Close pane',               group: 'View' },
   'conversation.open-files':      { combo: { alt: true, shift: true, code: 'KeyF' }, web: { alt: true, shift: true, code: 'KeyY' }, scope: 'global', label: 'Open changed files',       group: 'Conversation' },
+  // On web ⌥⇧E switches the organization, so web takes ⌥⇧', which no scope uses.
+  'conversation.open-artifacts':  { combo: { alt: true, shift: true, code: 'KeyE' }, web: { alt: true, shift: true, code: 'Quote' }, scope: 'global', label: 'Open artifacts',           group: 'Conversation' },
   'conversation.interrupt':       { combo: { ctrl: true, code: 'KeyC' }, nonMac: { mod: true, shift: true, code: 'KeyC' }, scope: 'global',             label: 'Stop agent',               group: 'Conversation' },
 
   // ── Diff panel ─────────────────────────────────────────────────────────────

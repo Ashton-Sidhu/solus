@@ -83,21 +83,26 @@ export function buildProviderGroups(input: {
   /** The host's agents; null while it has not answered. */
   readonly agents: readonly AgentMetadata[] | null
 }): ProviderGroup[] {
-  return PROVIDERS
+  // An agent the host lists but the profile table does not know (the
+  // development replay provider) offers the models the host reports, as on desktop.
+  const hostOnly = (input.agents ?? []).filter((agent) => !PROVIDERS.some((provider) => provider.id === agent.id) && !MODEL_PROFILES[agent.id])
+  return [...PROVIDERS, ...hostOnly.map((agent) => ({ id: agent.id, label: agent.label }))]
     .filter((provider) => input.canSwitchProvider || provider.id === input.currentProvider)
     .map((provider) => {
+      const hostAgent = hostOnly.find((agent) => agent.id === provider.id)
       // Several profiles can carry `isDefault`; the agent starts on the first.
-      const { defaultModel } = providerModelsFor(provider.id)
+      const defaultModel = hostAgent?.defaultModel ?? providerModelsFor(provider.id).defaultModel
+      const models = hostAgent?.models ?? Object.entries(MODEL_PROFILES[provider.id] ?? {}).map(([id, profile]) => ({ id, label: profile.label }))
       return {
         providerKey: provider.id,
         providerLabel: provider.label,
         unavailableReason: agentUnavailableReason({ provider: provider.id, currentProvider: input.currentProvider, agents: input.agents }),
-        models: Object.entries(MODEL_PROFILES[provider.id] ?? {}).map(([model, profile]) => ({
+        models: models.map(({ id: model, label }) => ({
           key: modelOptionKey(provider.id, model),
           provider: provider.id,
           providerLabel: provider.label,
           model,
-          label: profile.label,
+          label,
           isDefault: model === defaultModel,
           isLegacy: isLegacyModel(provider.id, model) && !(provider.id === input.currentProvider && model === input.currentModel),
         })),

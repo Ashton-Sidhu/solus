@@ -59,6 +59,29 @@ Reusable selectors and interaction patterns live in `tests/e2e/helpers/*.page.ts
 
 For video, pass `{ videoDir: '.solus-local/artifacts/video' }`. Capture `const video = page.video()`, then `await context.close()` before calling `await video?.path()`; closing the context finalizes the WebM. Close the browser afterward. Only convert WebM to MP4/GIF when the artifact must be shared, using Playwright's bundled ffmpeg rather than a screen recorder. A headless page has no desktop screen to capture.
 
+## Watch a turn without paying for one
+
+Real agent turns cost money. Both build flavors offer the **Replay (dev)** provider on this server: it replays recorded turns, streamed, through the real session runtime and clients (`docs/replay-provider.md`). Use a real provider only when the change depends on its behavior, and then its cheapest model.
+
+1. In the composer, open the agent and model picker (`[data-slot="session-chip"]`).
+2. Pick the agent **Replay (dev)** and the model **Showcase** (or another scenario).
+3. Send any prompt. Each prompt plays the scenario's next turn; the first showcase turn stops at an Edit permission card, and the second asks a question.
+
+The same picker is on the web client, the desktop app run from source, and the mobile app, so the steps are the same on each. Headless, drive those steps with Playwright through `openApp`:
+
+```ts
+const { browser, page } = await openApp(`http://127.0.0.1:${port}`)
+await page.locator('[data-slot="session-chip"]').first().click()
+await page.getByText('Replay (dev)', { exact: true }).click()
+await page.getByText('Showcase', { exact: true }).click()
+await page.keyboard.press('Escape')
+await page.locator('[contenteditable="true"]').first().fill('go')
+await page.keyboard.press('Enter')
+await page.getByText('Allow Once').click() // the showcase's Edit permission
+```
+
+The selectors are a starting point; check them against the current picker with a snapshot before you rely on them. The replay keeps each session's history under `.solus-local/replay-sessions/`, so a reopened replay session shows its earlier turns.
+
 ## Logs and artifacts
 
 - Main-process NDJSON: `<worktree>/dev.log`. Query it with the `jq` recipes in `CLAUDE.md`/`AGENTS.md`.

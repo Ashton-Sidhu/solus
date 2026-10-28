@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { ArrowDown as ArrowDownIcon, ArrowUp as ArrowUpIcon, Clock as ClockIcon } from "@lucide/svelte";
+  import { ArrowUp as ArrowUpIcon, Clock as ClockIcon, Pencil as PencilIcon, X as XIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { sendRateLimitedNow } from "../../../lib/rate-limit-actions";
@@ -25,7 +25,6 @@
   let queueError = $state('');
   const sess = $derived(session.sessionFor(tabId));
   const prompts = $derived(sess?.outboundPrompts ?? []);
-  const queued = $derived(prompts.filter((prompt) => !!prompt.queueId));
   const queueSessionId = $derived(sess?.id);
   const queueServerId = $derived(runHost(sess?.run));
   $effect(() => {
@@ -82,29 +81,16 @@
     if (prompt.queueId) void change({ kind: 'remove', queueId: prompt.queueId, revision: prompt.revision ?? 0 });
   }
 
-  /** Moves a queued entry one place; `beforeQueueId: null` puts it last. */
-  function move(prompt: OutboundPrompt, by: -1 | 1) {
-    const index = queued.indexOf(prompt);
-    const before = by < 0 ? queued[index - 1] : queued[index + 2];
-    void change({ kind: 'move', queueId: prompt.queueId!, revision: prompt.revision ?? 0, beforeQueueId: before?.queueId ?? null });
-  }
-
 </script>
 
-{#snippet moveButtons(prompt: OutboundPrompt, queueIndex: number)}
-  <button type="button" disabled={queueIndex <= 0} onclick={() => move(prompt, -1)} class="flex cursor-pointer items-center text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:cursor-default disabled:opacity-40 disabled:hover:text-(--solus-text-tertiary) pointer-coarse:min-h-11" aria-label="Move queued entry up" title="Move up"><ArrowUpIcon size={13} /></button>
-  <button type="button" disabled={queueIndex === queued.length - 1} onclick={() => move(prompt, 1)} class="flex cursor-pointer items-center text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:cursor-default disabled:opacity-40 disabled:hover:text-(--solus-text-tertiary) pointer-coarse:min-h-11" aria-label="Move queued entry down" title="Move down"><ArrowDownIcon size={13} /></button>
-{/snippet}
-
 <!-- §1a — the bubbles are the queue. Each held prompt keeps its place in the
-     transcript with its ordinal, and one caption under the last one carries
+     transcript, and one caption under the last one carries
      the count, the cause, the live clock and the escape. The block owns its own
      top margin so the held prompts read as one object, not as n messages. -->
 {#if prompts.length > 0 || sess?.queueHeld}
   <div class="text-transcript-meta flex flex-col pt-[0.8125rem] pb-1.5">
-    {#each prompts as prompt, index (`outbound-${prompt.clientPromptId}`)}
+    {#each prompts as prompt (`outbound-${prompt.clientPromptId}`)}
       {@const model = queuedEntryModel(prompt)}
-      {@const queueIndex = queued.indexOf(prompt)}
       {#if editPrompt && editPrompt.queueId === prompt.queueId}
         {#key editPrompt.queueId}<QueueEntryEditor {tabId} prompt={editPrompt} onClose={() => editPrompt = null} />{/key}
       {:else if prompt.kind === 'provider_switch'}
@@ -115,7 +101,6 @@
             <span class="truncate">Switch to {model?.label ?? 'another model'}</span>
             {#if prompt.held}<span class="opacity-45">·</span><span>Held</span>{/if}
           </span>
-          {@render moveButtons(prompt, queueIndex)}
           <button type="button" onclick={() => handleRemove(prompt)} class="cursor-pointer opacity-60 transition-[color,opacity] duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none pointer-coarse:min-h-11">Remove</button>
         </div>
       {:else}
@@ -131,14 +116,16 @@
             }))}
           deliveryState={prompt.state}
           author={prompt.author}
-          ordinal={prompts.length > 1 ? index + 1 : undefined}
-          onRemove={prompt.queueId ? () => handleRemove(prompt) : undefined}
           actions={prompt.queueId ? queueActions : undefined}
         />
+        <!-- ↑ Send now | ✎ ✕ — Send now shows only when it can send. -->
         {#snippet queueActions()}
-          <button type="button" onclick={() => editPrompt = { ...prompt }} class="flex cursor-pointer items-center text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:cursor-default disabled:opacity-40 disabled:hover:text-(--solus-text-tertiary) pointer-coarse:min-h-11">Edit</button>
-          <button type="button" disabled={prompt.held || !sess || !isSteerableStatus(sess.status)} onclick={() => change({ kind: 'steer', queueId: prompt.queueId!, revision: prompt.revision ?? 0 })} class="flex cursor-pointer items-center text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none disabled:cursor-default disabled:opacity-40 disabled:hover:text-(--solus-text-tertiary) pointer-coarse:min-h-11">Steer now</button>
-          {@render moveButtons(prompt, queueIndex)}
+          {#if !prompt.held && sess && isSteerableStatus(sess.status)}
+            <button type="button" onclick={() => change({ kind: 'steer', queueId: prompt.queueId!, revision: prompt.revision ?? 0 })} class="flex cursor-pointer items-center gap-1 text-transcript-meta text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11"><ArrowUpIcon size={13} aria-hidden="true" />Send now</button>
+            <span class="h-3 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_14%,transparent)]" aria-hidden="true"></span>
+          {/if}
+          <button type="button" onclick={() => editPrompt = { ...prompt }} class="flex cursor-pointer items-center text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-primary) focus-visible:text-(--solus-text-primary) focus-visible:outline-none pointer-coarse:min-h-11" aria-label="Edit queued message" title="Edit"><PencilIcon size={13} /></button>
+          <button type="button" onclick={() => handleRemove(prompt)} class="flex cursor-pointer items-center text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--destructive) focus-visible:text-(--destructive) focus-visible:outline-none pointer-coarse:min-h-11" aria-label="Remove queued message" title="Remove"><XIcon size={13} /></button>
         {/snippet}
         {#if prompt.queueId && (model || prompt.held)}
           <!-- The model this prompt runs with, named and marked as the picker shows it. -->

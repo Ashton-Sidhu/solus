@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer, type Server, type Socket } from 'node:net'
 import { join } from 'node:path'
-import type { WslDistro, WslDistroList } from '@solus/contracts/remote-machines'
+import { WSL_TARGET_PREFIX, type WslDistro, type WslDistroList } from '@solus/contracts/remote-machines'
 import { reserveLoopbackPort, waitForHttpReady, type HelperProcess, type HelperSpawner } from '../devices/device-helpers'
 import type { DeviceCommandOptions, DeviceCommandResult, DeviceCommandRunner } from '../devices/device-process'
 import { createLogger } from '../logger'
@@ -17,16 +17,14 @@ const log = createLogger('main', 'wsl')
  * differs: `wsl.exe` instead of `ssh`.
  */
 
-/** A distro is named as a target `wsl:<distro>`, so the forwards and the provisioner keep one kind of target. */
-const TARGET_PREFIX = 'wsl:'
-
+/** A distro as a target, so the forwards and the provisioner keep one kind of target. */
 export function wslTarget(distro: string): SshTarget {
-  return { destination: `${TARGET_PREFIX}${distro}` }
+  return { destination: `${WSL_TARGET_PREFIX}${distro}` }
 }
 
 /** The distro a target names, or null for an SSH target. */
 export function wslDistroOf(target: SshTarget): string | null {
-  return target.destination.startsWith(TARGET_PREFIX) ? target.destination.slice(TARGET_PREFIX.length) : null
+  return target.destination.startsWith(WSL_TARGET_PREFIX) ? target.destination.slice(WSL_TARGET_PREFIX.length) : null
 }
 
 /** A loopback port here that reaches the server on the machine. */

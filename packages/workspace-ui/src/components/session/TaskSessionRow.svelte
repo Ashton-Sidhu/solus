@@ -16,6 +16,7 @@
   import {
     resolveSidebarRowMark,
     shouldEmphasizeTitle,
+    shouldRecedeRow,
     taskStatusFor,
   } from "./lib/task-list";
   import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
@@ -25,9 +26,8 @@
     session: SidebarSessionChild;
     /** This session is the one on screen. */
     isCurrent: boolean;
-    /** Another session row follows this one under the same row, so the spine
-     *  runs on past this row's elbow. */
-    continues: boolean;
+    /** The parent's card is raised: a hover takes a wash, not a second plate. */
+    inRaisedCard: boolean;
     /** The project of the row this session is listed under (`SidebarTask.groupKey`). */
     groupKey: string;
     projectLabel: string;
@@ -46,7 +46,7 @@
   let {
     session,
     isCurrent,
-    continues,
+    inRaisedCard,
     groupKey,
     projectLabel,
     isGuest,
@@ -65,6 +65,9 @@
   const titleIsEmphasized = $derived(
     shouldEmphasizeTitle(status, session.unread, isCurrent),
   );
+  // A started session recedes like any row you are not reading, unless it
+  // asks for you: the one on screen and one with news keep full ink.
+  const recedes = $derived(shouldRecedeRow(status, session.unread, false, isCurrent));
 
   let now = $state(Date.now());
   $effect(() => {
@@ -219,24 +222,32 @@
     />
   {:else}
     <span
-      class="min-w-0 flex-1 overflow-hidden text-workspace-chrome leading-[1.125rem] text-ellipsis whitespace-nowrap {titleIsEmphasized
+      class="min-w-0 flex-1 overflow-hidden text-workspace-chrome leading-[1.125rem] text-ellipsis whitespace-nowrap transition-[font-weight] duration-150 {titleIsEmphasized
         ? 'font-medium '
         : ''}">{session.label}</span
     >
   {/if}
 {/snippet}
 
-<!-- One step in from the title of the row above, with no plate of its own: the
-     connector carries the hierarchy, so nothing here needs a box. -->
+<!-- A session listed one step in under the session that started it. In the
+     raised card a row takes a wash, never a second plate. -->
 <TooltipUI.Root>
   <TooltipUI.Trigger>
     {#snippet child({ props: tooltipProps })}
 <div
   {...tooltipProps}
-  class="group/session relative -mx-2 flex h-9 cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-11 @max-[15rem]:gap-1.5 @max-[15rem]:pl-[2.375rem] transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)] text-foreground"
+  class="group/session relative flex h-8 cursor-pointer items-center gap-[0.5625rem] rounded-md pr-2 pl-2.5 @max-[15rem]:gap-1.5 transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {inRaisedCard ? 'hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]' : 'hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'} {recedes
+    ? 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)] hover:text-foreground'
+    : 'text-foreground'} {isCurrent
+    ? inRaisedCard
+      ? 'bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]'
+      : 'bg-card shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:bg-[color-mix(in_oklch,var(--card)_94%,white)]'
+    : ''}"
   role="treeitem"
   tabindex="-1"
   data-tab-id={session.tabId}
+  data-nested-session=""
+
   aria-selected={isCurrent}
   aria-label={session.label}
   onclick={(event) => {
@@ -261,31 +272,6 @@
     }
   }}
 >
-  <!-- The path from the row above to the session you are reading. The spine
-       drops from that row and turns into the title. The spine stops on the
-       elbow, so the two meet as a corner.
-
-       Selection is spent on the connector rather than on a plate, in the
-       accent. The row's negative margin widens its hover plate, so the
-       connector offsets by the same 0.5rem to stay under the title above.
-       Because the row keeps no wash of its own, the ordinary hover fill still
-       reads on it — which a selected plate would have swallowed. A session
-       that is not on screen draws the same path in the border ink, and a spine
-       that continues to the next session runs the full row height. The row
-       is 36px, so its title centres at 18px and the elbow sits at 17.25px. -->
-  <span
-    class="pointer-events-none absolute top-0 left-[1.125rem] w-[0.09375rem] rounded-[0.0625rem] {continues
-      ? 'h-full'
-      : 'h-[1.171875rem]'} {isCurrent ? 'bg-primary' : 'bg-border'}"
-    aria-hidden="true"
-  ></span>
-  <span
-    class="pointer-events-none absolute top-[1.078125rem] left-[1.125rem] h-[0.09375rem] w-[1.125rem] rounded-[0.0625rem] {isCurrent
-      ? 'bg-primary'
-      : 'bg-border'}"
-    aria-hidden="true"
-  ></span>
-
   <!-- A delegated session is one line: its name and its trailing slot.
        Its branch and host are in the tooltip. -->
   <span class="flex min-w-0 flex-1 items-center gap-[0.5625rem]">

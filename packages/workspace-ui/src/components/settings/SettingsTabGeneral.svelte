@@ -113,6 +113,18 @@
       keywords: ["auto", "model", "routing", "jev", "interface", "exploration", "task", "general"],
     },
     {
+      id: "lead-model",
+      keywords: ["delegate", "delegating", "lead", "session", "orchestration", "orchestrator", "workers", "agent", "model", "reasoning", "effort", "claude", "codex"],
+    },
+    {
+      id: "worker-model",
+      keywords: ["delegate", "worker", "workers", "routing", "route", "orchestration", "orchestrator", "session", "agent", "model", "reasoning", "effort", "default"],
+    },
+    {
+      id: "lead-instructions",
+      keywords: ["delegate", "delegating", "lead", "session", "orchestration", "orchestrator", "workers", "instructions", "routing", "route", "prompt", "rules"],
+    },
+    {
       id: "about",
       keywords: ["about", "version", "update", "upgrade", "release", "notes", "restart"],
     },
@@ -160,6 +172,7 @@
   import SettingsAboutSection from "./SettingsAboutSection.svelte";
   import { isModelOffered } from "./lib/text-generation-models";
   import ModelRoutingSection from "./ModelRoutingSection.svelte";
+  import LeadSessionsSection from "./LeadSessionsSection.svelte";
   import { solusToolsStore } from "./solus-tools.store.svelte";
   import type { TextGenerationModelSelection } from "@solus/contracts/types";
 
@@ -303,7 +316,6 @@
     theme.setPersonal("sidebarMotionMs", value);
   }
 
-
   function isVisible(id: string): boolean {
     if (!searchQuery) return true;
     const item = settingItems.find((s) => s.id === id);
@@ -358,6 +370,8 @@
 </SettingsSection>
 
 <ModelRoutingSection {serverId} visible={isVisible("model-routing")} />
+
+<LeadSessionsSection {isVisible} />
 
 <SettingsSection
   label="Behavior"

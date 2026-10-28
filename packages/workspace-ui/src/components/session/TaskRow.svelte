@@ -1,6 +1,6 @@
 <script lang="ts">
-  import TaskIcon from "../ui/TaskIcon.svelte";
   import {
+    Network as StartedSessionsIcon,
     ClipboardCheck as ClipboardCheckIcon,
     Undo2 as ArrowUUpLeftIcon,
     AlarmClock as AlarmIcon,
@@ -38,6 +38,7 @@
     type SidebarTask,
   } from "./lib/task-list";
   import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
+  import { visibleNestedSessions } from "./lib/session-tree";
   import UserAvatar from "../users/UserAvatar.svelte";
   import type { User } from "@solus/contracts/user";
   import { shareRoleText } from "../../contexts/workspace/shared-sessions";
@@ -57,12 +58,14 @@
     sessions: SidebarSessionChild[];
     /** A share link's guest is not told which host runs the session (host-sharing.md §10). */
     isGuest: boolean;
-    /** The sessions that the row's session delegated, listed under the row
-     *  whether or not they are on screen. */
+    /** Every session that the row's session delegated. The row lists them
+     *  under itself, or folds them away and states their count. */
     nestedSessions: SidebarSessionChild[];
-    /** Whether the row's session delegated sessions, folded or not. */
-    hasNestedSessions: boolean;
-    isNestedCollapsed: boolean;
+    /** The row sits in a project folder: one line and no project mark, because
+     *  the folder already names the project. */
+    inFolder?: boolean;
+    /** The sessions it started are unfolded under it. */
+    isNestedOpen: boolean;
     /** Fold or unfold the delegated sessions under the row. */
     onToggleNested: () => void;
     /** The tab on screen, which a session under the row marks as current. */
@@ -95,8 +98,6 @@
     onMorePr: (event: MouseEvent, choice: TaskPrChoice) => void;
     /** The way to unlink a pull request from this row, or null when it has none. */
     onUnlinkPr?: (choice: TaskPrChoice) => (() => void) | null;
-    /** Open the task a session's chip names. */
-    onOpenLinkedTask: () => void;
     onSelectSession: (session: SidebarSessionChild) => void;
     onMoreSession: (event: MouseEvent, session: SidebarSessionChild) => void;
     onCloseSession: (session: SidebarSessionChild) => void;
@@ -111,8 +112,8 @@
     sessions,
     isGuest,
     nestedSessions,
-    hasNestedSessions,
-    isNestedCollapsed,
+    inFolder = false,
+    isNestedOpen,
     onToggleNested,
     onScreenTabId,
     renamingTabId,
@@ -132,7 +133,6 @@
     onWarmPr,
     onMorePr,
     onUnlinkPr,
-    onOpenLinkedTask,
     onSelectSession,
     onMoreSession,
     onCloseSession,
@@ -148,7 +148,23 @@
   // made the column read as a wall. The slim row keeps every affordance; it
   // just stops claiming the space of live work.
   // A shared row keeps its card in every state: Shared with you has no shelf.
-  const isSlim = $derived(task.lifecycle !== "active" && !task.share);
+  const isShelved = $derived(task.lifecycle !== "active" && !task.share);
+  // A folder row is one line too: the folder above it names the project.
+  const isSlim = $derived(inFolder || isShelved);
+  const hasStartedSessions = $derived(nestedSessions.length > 0 && !isShelved);
+  // A folded row still lists the session on screen: folding must never hide
+  // the session being read.
+  const shownSessions = $derived(
+    hasStartedSessions ? visibleNestedSessions(nestedSessions, !isNestedOpen, onScreenTabId) : [],
+  );
+  // The card lifts only while one of those sessions is on screen: it shows
+  // where you are inside the session that started it.
+  const isCardRaised = $derived(
+    hasStartedSessions && nestedSessions.some((listed) => !!listed.tabId && listed.tabId === onScreenTabId),
+  );
+  const nestedToggleLabel = $derived(
+    `${isNestedOpen ? "Hide" : "Show"} ${nestedSessions.length} ${nestedSessions.length === 1 ? "session" : "sessions"} it started`,
+  );
   const reviewGuideStatus = $derived(aggregateReviewGuideStatus(sessions));
   const reviewGuideTooltipStatus = $derived(
     aggregateReviewGuideStatus(
@@ -187,9 +203,11 @@
     shouldEmphasizeTitle(task.status, task.unread, isCurrentSession),
   );
   // Ink is now the row's property, not the title's: the whole row recedes or
-  // does not, and the trailing mark keeps its own colour either way.
+  // does not, and the trailing mark keeps its own colour either way. A row
+  // whose started session is on screen recedes too: that session leads, and
+  // the raised card already says the row is on the way to it.
   const recedes = $derived(
-    shouldRecedeRow(task.status, task.unread, task.woke, onPath),
+    shouldRecedeRow(task.status, task.unread, task.woke, isCurrentSession),
   );
 
   const runningSessionCount = $derived(
@@ -226,14 +244,9 @@
     !!task.tabIds[0] && renamingTabId === task.tabIds[0],
   );
 
-  // A click on the row you are already reading has nothing to open, so it
-  // folds or unfolds the sessions it delegated, as a tree does.
+  // A click on the row opens its session, every time. Folding is the caret's
+  // job alone, so a row never does two different things under one click.
   function activate(event?: MouseEvent) {
-    const hasModifier = !!event && (event.metaKey || event.ctrlKey || event.shiftKey);
-    if (hasNestedSessions && isCurrentSession && !hasModifier) {
-      onToggleNested();
-      return;
-    }
     onSelect(event);
   }
 
@@ -441,6 +454,41 @@
   </span>
 {/snippet}
 
+<!-- A row that started sessions and has no pull request names them on a
+     chip, in the bare form the task and pull request chips take: a glyph and
+     a count, no plate. The chip opens and closes the drawer of those
+     sessions; it is in full ink while they are open and recedes while they
+     are folded. A row with a pull request spends one chip on both: the pull
+     request chip leads with the pull request and lists the sessions in its
+     menu (`PrChip`), so a title line never carries two link chips beside the
+     task chip.
+     The sessions appear and go at once: a height that animates lays out the
+     whole column every frame, on top of the conversation switch. -->
+{#snippet startedSessionsChip()}
+  {#if hasStartedSessions && !prChip}
+    <button
+      type="button"
+      class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] text-xs tabular-nums transition-[color,opacity,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-1 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring {isNestedOpen
+        ? 'text-foreground'
+        : 'text-muted-foreground'} {recedes
+        ? 'opacity-75 group-hover/row:opacity-100'
+        : ''}"
+      aria-expanded={isNestedOpen}
+      aria-label={nestedToggleLabel}
+      title={nestedToggleLabel}
+      onkeydown={(event) => event.stopPropagation()}
+      onpointerdown={(event) => event.stopPropagation()}
+      onclick={(event) => {
+        event.stopPropagation();
+        onToggleNested();
+      }}
+    >
+      <StartedSessionsIcon size={12.5} class="shrink-0" />
+      <span>{nestedSessions.length}</span>
+    </button>
+  {/if}
+{/snippet}
+
 <!-- The one thing the eye scans. The title truncates; nothing else does, and
      nothing else shares its line except the PR token that navigates away from
      it. Colour is inherited from the row, so a receding row's title recedes
@@ -455,7 +503,7 @@
     />
   {:else}
     <span
-      class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap {titleIsEmphasized
+      class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap transition-[font-weight] duration-150 {titleIsEmphasized
         ? 'font-medium'
         : ''}">{task.title}</span
     >
@@ -463,22 +511,38 @@
 {/snippet}
 
 <!--
-  Selection is carried by weight and tone alone — no plate, no rail, no colour.
-  The active task and anything asking for a person lead in full ink at a heavier
-  weight; every other row recedes as a whole to the secondary tone, still plainly
-  legible rather than faded out. The hierarchy is a difference in emphasis,
-  never a wall between "readable" and "invisible".
+  The row you are reading sits on the plate a hovered row lifts onto, so the
+  pointer and the selection say the same thing in the same way. Weight and
+  tone carry the rest: the active task and anything asking for a person lead
+  in full ink at a heavier weight; every other row recedes as a whole to the
+  secondary tone, still plainly legible rather than faded out. The hierarchy is
+  a difference in emphasis, never a wall between "readable" and "invisible".
 -->
 <!-- Pointer down only starts the open's reads early; the row inside is the
      control, and a keyboard open still starts them on its own. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="group/task" onpointerdown={(event) => { if (event.button === 0) onPressStart?.(); }}>
+<!-- While a session this row's session started is on screen, the row and its
+     sessions lift onto one card, the plate a hovered row lifts onto. The card
+     spans the row's own width, so every title keeps its column. -->
+<!-- The plate is a pseudo-element under the rows, painted once with its
+     colour and shadow, and shown by its opacity, so nothing here changes
+     size: a card that grew on arrival shoved the rows around it on every
+     click. It fades on the row's own 150ms, and the title's weight eases on
+     the same clock (the sans fonts are variable), so a selection reads as
+     one event: plate, ink, and weight arriving together. -->
+<div
+  class="group/task relative isolate -mx-2 rounded-lg px-2 before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:rounded-lg before:bg-card before:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] before:transition-opacity before:duration-150 before:content-[''] motion-reduce:before:transition-none dark:before:bg-[color-mix(in_oklch,var(--card)_94%,white)] {isCardRaised
+    ? 'before:opacity-100'
+    : 'before:opacity-0'}"
+  onpointerdown={(event) => { if (event.button === 0) onPressStart?.(); }}>
   <TooltipUI.Root disabled={isTooltipQuiet}>
     <TooltipUI.Trigger>
       {#snippet child({ props: tooltipProps })}
   <div
     {...tooltipProps}
-    class="group/row relative -mx-2 flex cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)] {bulkSelected
+    class="group/row relative -mx-2 flex cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 {inFolder ? 'pl-[2.1875rem]' : 'pl-[0.625rem]'} transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring {isCardRaised ? 'hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)]' : 'hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)]'} {isCurrentSession && !isCardRaised
+ ? 'bg-card shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:bg-[color-mix(in_oklch,var(--card)_94%,white)]'
+ : ''} {bulkSelected
  ? 'bg-[color-mix(in_oklch,var(--primary)_9%,transparent)]'
  : ''} {isSlim ? 'h-[2.25rem]' : 'h-[3.875rem]'} {recedes
  ? 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)] hover:text-foreground'
@@ -487,7 +551,7 @@
     tabindex="0"
     data-task-key={task.key}
     aria-selected={isCurrentSession}
-    aria-expanded={hasNestedSessions ? !isNestedCollapsed : undefined}
+    aria-expanded={hasStartedSessions ? isNestedOpen : undefined}
     aria-label={mark?.kind === "glyph"
       ? `${task.title} — ${attentionLabel(task.attention, task.limitResetsAt)}`
       : task.title}
@@ -523,25 +587,30 @@
            longer has room to spell. Shelved history recedes further than a live
            row does: the mark greys out at rest and comes back on hover, so the
            tail stays scannable when you are hunting through it. -->
-      <span
-        class="flex size-4 shrink-0 items-center justify-center transition-[filter,opacity] duration-150 {onPath
-          ? ''
-          : 'opacity-45 grayscale group-hover/row:opacity-100 group-hover/row:grayscale-0'}"
-        aria-hidden="true"
-      >
-        <ProjectFavicon
-          projectKey={task.groupKey}
-          class="size-4 pointer-fine:[&_.lucide-icon]:size-[82%]"
-        />
-      </span>
+      <!-- A folder row has no mark: the folder above it names the project, and
+           its title lines up under the folder's name. -->
+      {#if !inFolder}
+        <span
+          class="flex size-4 shrink-0 items-center justify-center transition-[filter,opacity] duration-150 {onPath
+            ? ''
+            : 'opacity-45 grayscale group-hover/row:opacity-100 group-hover/row:grayscale-0'}"
+          aria-hidden="true"
+        >
+          <ProjectFavicon
+            projectKey={task.groupKey}
+            class="size-4 pointer-fine:[&_.lucide-icon]:size-[82%]"
+          />
+        </span>
+      {/if}
       {@render rowTitle()}
+      {@render startedSessionsChip()}
       {#if prChip}
         <span
           class="flex shrink-0 items-center transition-opacity duration-150 {recedes
             ? 'opacity-75 group-hover/row:opacity-100'
             : ''}"
         >
-          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} onUnlink={onUnlinkPr} />
+          <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} onUnlink={onUnlinkPr} startedSessions={hasStartedSessions ? nestedSessions : []} onOpenSession={onSelectSession} />
         </span>
       {/if}
       {@render trailingSlot()}
@@ -646,39 +715,6 @@
           class="mt-2 flex h-[1.1875rem] items-center gap-[0.5625rem] @max-[15rem]:gap-1.5"
         >
           {@render rowTitle()}
-          {#if task.linkedTask}
-            <!-- The task this session is linked to. A task has no row of its
-                 own, so the session names it, and the chip opens the task's
-                 page. The chip is navigation,
-                 as the pull request token beside it is, so it takes the same
-                 bare form: glyph and label in one ink, no plate. Blue keeps it
-                 apart from every pull request state (green, plum, red). The
-                 title is what the row is for, so the chip names the task in at
-                 most 30% of the line, and not at all beside a pull request or
-                 on a narrow list: three names on one line left none readable.
-                 The tooltip still names it. -->
-            <button
-              type="button"
-              class="relative flex max-w-[30%] min-w-0 shrink cursor-pointer items-center gap-[0.21875rem] text-xs text-[color-mix(in_oklch,var(--solus-art-5)_72%,var(--foreground))] transition-[color,opacity,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-1 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring {recedes
-                ? 'opacity-75 group-hover/row:opacity-100'
-                : ''}"
-              title={`Task: ${task.linkedTask.title}`}
-              aria-label={`Open task ${task.linkedTask.title}`}
-              onkeydown={(event) => event.stopPropagation()}
-              onpointerdown={(event) => event.stopPropagation()}
-              onclick={(event) => {
-                event.stopPropagation();
-                onOpenLinkedTask();
-              }}
-            >
-              <TaskIcon size={12.5} class="shrink-0" />
-              {#if !prChip}
-                <span class="min-w-0 truncate @max-[15rem]:hidden"
-                  >{task.linkedTask.title}</span
-                >
-              {/if}
-            </button>
-          {/if}
           {#if prChip}
             <!-- It shares the title's line because it is navigation rather
                  than state. -->
@@ -687,9 +723,10 @@
                 ? 'opacity-75 group-hover/row:opacity-100'
                 : ''}"
             >
-              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} onUnlink={onUnlinkPr} />
+              <PrChip chip={prChip} choices={prChoices} onOpen={onOpenPr} onMore={onMorePr} onWarm={onWarmPr} onUnlink={onUnlinkPr} startedSessions={hasStartedSessions ? nestedSessions : []} onOpenSession={onSelectSession} />
             </span>
           {/if}
+          {@render startedSessionsChip()}
         </span>
       </span>
     {/if}
@@ -713,15 +750,23 @@
     />
   </TooltipUI.Root>
 
-  {#if nestedSessions.length > 0 && !isSlim}
-    <!-- Sessions one step in from the row they belong to: every session the
-         row's session delegated. -->
-    <div class="pt-px pb-2">
-      {#each nestedSessions as listed, index (listed.tabId ?? listed.sessionId)}
+  {#if shownSessions.length > 0}
+    <!-- Every session the row's session started, one step in under its title,
+         behind a guide that runs down from the title's first letter so the
+         sessions read as the row's own and not as its neighbours. The row's
+         title sits at 2.1875rem in a folder and 0.625rem elsewhere, less the
+         row's 0.5rem pull; the guide stands there, and a child row pads its
+         title 0.625rem past it. -->
+    <div
+      class="border-l border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] pb-1 pl-1 {inFolder
+        ? 'ml-[1.6875rem]'
+        : 'ml-[0.125rem]'}"
+    >
+      {#each shownSessions as listed (listed.tabId ?? listed.sessionId)}
         <TaskSessionRow
           session={listed}
           isCurrent={!!listed.tabId && listed.tabId === onScreenTabId}
-          continues={index < nestedSessions.length - 1}
+          inRaisedCard={isCardRaised}
           groupKey={task.groupKey}
           projectLabel={task.projectLabel}
           {isGuest}

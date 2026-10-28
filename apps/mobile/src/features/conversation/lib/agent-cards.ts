@@ -102,7 +102,7 @@ const sessionToolInput = (input: string | undefined): {
       title: read('title')?.trim() || undefined,
       message: read('message'),
       model_id: read('model_id'),
-      agent_provider: provider === 'claude-code' || provider === 'codex' || provider === 'opencode' ? provider : undefined,
+      agent_provider: provider === 'claude-code' || provider === 'codex' || provider === 'opencode' || provider === 'replay' ? provider : undefined,
     }
   } catch {
     return {}

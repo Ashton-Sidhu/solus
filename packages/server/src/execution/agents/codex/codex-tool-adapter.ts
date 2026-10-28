@@ -1,6 +1,5 @@
-import { z } from 'zod'
 import type { AgentTool, AgentToolContext, AgentToolImage, AgentToolResult } from '../tools/agent-tool'
-import { assertUniqueAgentTools, executeAgentTool, enabledAgentTools } from '../tools/agent-tool'
+import { advertisedInputSchema, assertUniqueAgentTools, executeAgentTool, enabledAgentTools } from '../tools/agent-tool'
 import type { CodexDynamicTool } from './codex-protocol'
 import type { DynamicToolCallOutputContentItem } from './generated/v2/DynamicToolCallOutputContentItem'
 
@@ -13,13 +12,8 @@ export function adaptCodexTools(tools: AgentTool[]): CodexDynamicTool[] {
   tools = enabledAgentTools(tools)
   if (tools.length === 0) return []
   const namespaceTools: CodexDynamicTool['tools'] = tools.map((agentTool) => {
-    // The input side: a field with a default may be left out. The output side
-    // marks it required, which asks the model for a value it need not send.
-    const generatedSchema = agentTool.passthroughInput
-      ? { type: 'object', additionalProperties: true }
-      : z.toJSONSchema(z.object(agentTool.inputFields), { io: 'input' })
     // SAFETY: Zod emits a JSON Schema object, which is the exact protocol value Codex accepts for a dynamic tool.
-    const inputSchema = generatedSchema as CodexDynamicTool['tools'][number]['inputSchema']
+    const inputSchema = advertisedInputSchema(agentTool) as CodexDynamicTool['tools'][number]['inputSchema']
     return { type: 'function', name: agentTool.name, description: agentTool.description, inputSchema, deferLoading: !agentTool.alwaysLoad }
   })
   return [{ type: 'namespace', name: 'solus', description: 'Solus workspace tools', tools: namespaceTools }]

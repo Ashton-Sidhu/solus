@@ -1,0 +1,6 @@
+{"kind":"scenario","label":"Codex command"}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"tool_call","toolName":"exec_command","toolId":"cmd-1","index":0,"toolInput":"pwd","isSubagent":false}}
+{"kind":"event","event":{"type":"tool_call_update","toolId":"cmd-1","content":"<workspace>\n"}}
+{"kind":"event","event":{"type":"tool_call_complete","index":0,"toolId":"cmd-1","outcome":{"status":"completed"}}}
+{"kind":"event","event":{"type":"usage","context":{"usedTokens":112,"windowTokens":200000,"inputTokens":60,"cacheReadTokens":40,"outputTokens":12},"run":{"inputTokens":100,"outputTokens":20,"cacheReadTokens":50}}}

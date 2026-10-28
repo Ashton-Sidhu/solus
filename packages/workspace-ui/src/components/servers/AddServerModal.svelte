@@ -5,6 +5,7 @@
   import { defaultDeviceLabel } from "@solus/client-core/device-label";
   import { localApi } from "@solus/client-core/local-api";
   import type { SavedServer } from "@solus/client-core/server-registry";
+  import { wslHostLabel } from "@solus/contracts/remote-machines";
   import { serversStore, type AddHostMode } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import * as Tabs from "../ui/tabs";
@@ -13,8 +14,11 @@
   import PairingBridge from "./PairingBridge.svelte";
   import AddOverSshForm from "./AddOverSshForm.svelte";
   import { addOverSshStore } from "./add-over-ssh.store.svelte";
+  import AddWslDistroForm from "./AddWslDistroForm.svelte";
+  import { addWslDistroStore } from "./add-wsl-distro.store.svelte";
   import { landInHostList } from "./lib/land-in-host-list";
   import { sshBridgePhase } from "./lib/add-over-ssh";
+  import { wslBridgePhase } from "./lib/add-wsl-distro";
   import { pairingPhase, thisDevice, type BridgeMachine } from "./lib/pairing-bridge";
   import { useHostLookup } from "./lib/host-lookup.svelte";
   import { messageFor } from "./lib/setup-rpc";
@@ -50,18 +54,24 @@
   const bridgeHost = $derived<BridgeMachine | null>(
     mode === "ssh"
       ? sshTarget ? { name: sshTarget } : null
-      : paired ? { name: paired.label, os: paired.os } : lookedUpHost,
+      : mode === "wsl"
+        ? { name: wslHostLabel(addWslDistroStore.distro), os: "linux" }
+        : paired ? { name: paired.label, os: paired.os } : lookedUpHost,
   );
   const phase = $derived(
     mode === "ssh"
       ? sshBridgePhase(addOverSshStore)
-      : pairingPhase({ targetUrl, host: lookedUpHost, isPairing: busy, isPaired: !!paired, failedUrl }),
+      : mode === "wsl"
+        ? wslBridgePhase(addWslDistroStore.phase)
+        : pairingPhase({ targetUrl, host: lookedUpHost, isPairing: busy, isPaired: !!paired, failedUrl }),
   );
+  /** The SSH form and the WSL add draw their own controls and focus them. */
+  const isMachineAdd = $derived(mode === "ssh" || mode === "wsl");
 
   // The field of the open tab takes the focus, so typing and Escape reach the
-  // dialog and not the composer behind it. The SSH form focuses its own field.
+  // dialog and not the composer behind it. The SSH and WSL forms focus their own fields.
   $effect(() => {
-    if (!serversStore.addServerOpen || mode === "ssh" || paired) return;
+    if (!serversStore.addServerOpen || isMachineAdd || paired) return;
     const field = mode === "link" ? linkInput : urlInput;
     void tick().then(() => (field ?? dialog)?.focus());
   });
@@ -130,9 +140,10 @@
     }
   }
 
-  // An SSH add in flight keeps the dialog open against a stray click; Escape and Cancel still close it.
+  // An SSH or WSL add in flight keeps the dialog open against a stray click; Escape and Cancel still close it.
   function handleBackdrop(event: MouseEvent) {
-    if (event.target === event.currentTarget && !(mode === "ssh" && addOverSshStore.phase === "running")) close();
+    const isAdding = (mode === "ssh" && addOverSshStore.phase === "running") || (mode === "wsl" && addWslDistroStore.phase === "running");
+    if (event.target === event.currentTarget && !isAdding) close();
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -164,6 +175,8 @@
           <p class="mt-0.5 text-xs text-(--solus-text-tertiary)">
             {#if mode === "ssh"}
               {addOverSshStore.sshHostName} signs in with its SSH keys and installs Solus there.
+            {:else if mode === "wsl"}
+              {addWslDistroStore.hostName} installs Solus in the distro and keeps it running.
             {:else}
               Pair this desktop with another Solus server.
             {/if}
@@ -183,7 +196,12 @@
         <PairingBridge {phase} {device} host={bridgeHost} />
       </div>
 
-      {#if paired && mode !== "ssh"}
+      {#if mode === "wsl"}
+        <!-- A distro is chosen in the nearby list, so its add has no tabs: only its progress and result. -->
+        <div class="px-4 pt-3 pb-4">
+          <AddWslDistroForm onclose={close} />
+        </div>
+      {:else if paired && !isMachineAdd}
         <div class="flex justify-end gap-2 px-4 pt-2 pb-4">
           <button bind:this={doneButton} type="button" class="rounded-lg bg-(--solus-accent) px-3 py-2  font-medium text-(--solus-text-on-accent) transition-transform active:scale-[0.96]" onclick={close}>Done</button>
         </div>

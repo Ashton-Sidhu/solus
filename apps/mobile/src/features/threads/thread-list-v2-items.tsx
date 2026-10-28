@@ -81,6 +81,7 @@ const PROVIDER_DISPLAY_NAME: Record<SolusThreadShell["record"]["provider"], stri
   "claude-code": "Claude Code",
   codex: "Codex",
   opencode: "OpenCode",
+  replay: "Replay (dev)",
 };
 
 function ThreadListV2Section(props: {

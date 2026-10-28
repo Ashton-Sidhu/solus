@@ -53,5 +53,7 @@ export function providerName(provider: string | null | undefined): string | null
   const mark = providerMark(provider)
   if (mark === 'claude') return 'Claude Code'
   if (mark === 'codex') return 'Codex'
+  // The development replay provider draws no brand mark, but it has a name.
+  if (provider === 'replay') return 'Replay (dev)'
   return null
 }

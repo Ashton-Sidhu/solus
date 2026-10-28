@@ -48,13 +48,8 @@
     content?: string;
     attachments?: Message['attachments'];
     deliveryState?: 'sent' | OutboundPromptState;
-    /** Position in the queue, printed beside the bubble. Only set when more than
-     *  one prompt is held — a lone bubble has no order to state. */
-    ordinal?: number;
     /** Rewrite a held prompt in place, keeping its slot in the queue. */
     onEditSubmit?: (text: string) => void;
-    /** Drop a held prompt. The queue's only per-message escape. */
-    onRemove?: () => void;
     /** More controls for a held prompt, drawn in the same hover row as Remove. */
     actions?: Snippet;
     skipMotion?: boolean;
@@ -65,7 +60,7 @@
      *  its author on the message itself. */
     author?: User;
   }
-  let { message, content, attachments, deliveryState = 'sent', ordinal, onEditSubmit, onRemove, actions, skipMotion = false, tabId, author }: Props = $props();
+  let { message, content, attachments, deliveryState = 'sent', onEditSubmit, actions, skipMotion = false, tabId, author }: Props = $props();
 
   // A transcript read as a cloud record (the console) has no workspace: its
   // attachments stay on the runner, and the routes below have nowhere to open.
@@ -79,7 +74,7 @@
   // background command's or a pull request watch's wake is a host notice row
   // (`HostNoticeRow`), never a bubble.
   const isHostSent = $derived(message?.via === "automation");
-  const hasControls = $derived(isPending && (!!onEditSubmit || !!onRemove || !!actions));
+  const hasControls = $derived(isPending && (!!onEditSubmit || !!actions));
   const canCollapse = $derived(!isPending && shouldCollapseUserMessage(text));
   // The wait is only worth stating on the bubble that actually served it.
   const waitedLabel = $derived(
@@ -368,7 +363,7 @@
         aria-label={hasControls ? "Queued prompt" : undefined}
         tabindex={hasControls ? 0 : undefined}
         class="group/bubble relative max-w-[41.25rem] overflow-hidden outline-none {isEditing ? 'w-full' : ''} {hasControls
- ? actions ? 'min-w-[15rem]' : 'min-w-[8.5rem]'
+ ? actions ? 'min-w-[10rem]' : 'min-w-[8.5rem]'
  : 'min-w-0'} {isPending
  ? 'queued-bubble rounded-[0.875rem] py-2 pr-3.5 pl-3'
  : isHostSent
@@ -378,12 +373,6 @@
         {#if !isHostSent}
           <!-- Another person's prompt carries their name, held or sent; the reader's own do not. -->
           <TurnAuthorLabel author={author ?? message?.author} serverId={imageServerId} />
-        {/if}
-        {#if ordinal !== undefined && !isEditing}
-          <!-- The place in the queue, inside the bubble, beside the words. -->
-          <span class="float-left mr-2.5 pt-0.5 text-transcript-meta tabular-nums text-(--muted-foreground)">
-            {ordinal}
-          </span>
         {/if}
         {#if isHostSent}
           <!-- Required origin label: the only thing separating an agent-sent
@@ -477,7 +466,7 @@
                as its words, and grows into the controls on hover or focus. The
                0fr→1fr row is what makes that a movement rather than a jump, so
                the prompts below it slide instead of snapping. The bubble's
-               min-width stops "Edit … Remove" clipping under a short prompt. -->
+               min-width stops the controls clipping under a short prompt. -->
           <div
             class="grid grid-rows-[0fr] transition-[grid-template-rows] duration-150 ease-out group-hover/bubble:grid-rows-[1fr] group-focus-within/bubble:grid-rows-[1fr] pointer-coarse:grid-rows-[1fr]"
           >
@@ -495,16 +484,6 @@
                   </button>
                 {/if}
                 {@render actions?.()}
-                <span class="flex-1"></span>
-                {#if onRemove}
-                  <button
-                    type="button"
-                    onclick={onRemove}
-                    class="cursor-pointer text-transcript-meta text-(--solus-text-tertiary) opacity-60 transition-[color,opacity] duration-100 hover:text-(--destructive) hover:opacity-100 focus-visible:text-(--destructive) focus-visible:opacity-100 focus-visible:outline-none"
-                  >
-                    Remove
-                  </button>
-                {/if}
               </div>
             </div>
           </div>
@@ -566,7 +545,7 @@
 
 <style>
   /* Typed but held: a 3.5% fill under a hairline ring, a step quieter than a
-     sent prompt's text, with its place in the queue as a mono ordinal. */
+     sent prompt's text. */
   .queued-bubble {
     background: color-mix(in oklch, var(--foreground) 3.5%, transparent);
     box-shadow: inset 0 0 0 0.03125rem

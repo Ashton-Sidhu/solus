@@ -97,7 +97,7 @@ const CUSTOM_REFERENCE_RE =
 // Claude Code CLI uses — so the token does not end at the first space.
 const FILE_REFERENCE_RE = /(^|\s)@(?:"([^"\n]+)"|([^\s"]\S*))/g;
 const SLASH_REFERENCE_RE = /(^|\s)(\/[a-zA-Z-]+(?::[a-zA-Z-]+)*)/g;
-const AGENT_IDS = new Set<AgentId>(["claude-code", "codex", "opencode"]);
+const AGENT_IDS = new Set<AgentId>(["claude-code", "codex", "opencode", "replay"]);
 
 function isPlanStatus(value: string): value is PlanReference["status"] {
   return value === "pending" || value === "accepted" || value === "rejected";
@@ -108,7 +108,7 @@ export function isWorkType(value: string): value is WorkReference["type"] {
 }
 
 export function isAgentId(value: string): value is AgentId {
-  return value === "claude-code" || value === "codex" || value === "opencode";
+  return value === "claude-code" || value === "codex" || value === "opencode" || value === "replay";
 }
 
 function basename(path: string): string {

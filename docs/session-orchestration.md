@@ -133,16 +133,17 @@ subagents use their provider's own result delivery.
 ## The lead session
 
 A **lead** is a parent that coordinates workers and keeps its own thread small.
-No session is a lead now: tasks no longer have a lead role
-(`docs/plans/task-conversation.md`). The parts below are kept for reuse, and
-nothing triggers them.
+A lead does not come from a task: the person chooses it in the composer before
+the first message (`docs/plans/lead-session.md`). The parts below apply to
+every lead.
 
-The **lead contract** (`formatLeadContract`) says: coordinate, do not
-implement beyond very small edits, start workers with the full brief and
-`report` on, answer from reports and `read_task_sessions` rather than by reading
-transcripts or source, keep replies short, write durable summaries into the
-task, and call `read_task_sessions` first when the user writes, but not after
-reports. The user's lead settings in Settings → Tasks follow it.
+The **lead contract** (`formatLeadContract` in
+`data/sessions/lead-contract.ts`) says: coordinate, do not implement beyond
+very small edits, start workers with the full brief and `report` on, with
+`task='none'` unless the lead is linked to a task, answer from reports and
+`read_session` rather than by reading transcripts or source, keep replies
+short, and write durable summaries into a work or the linked task. The user's
+lead settings in Settings → General follow it.
 
 A lead is woken as rarely as possible, because each wake reads its whole thread
 again. Its reports are held until the last message it waits on settles, and
@@ -248,7 +249,9 @@ Both are deprecated and stay for one release. A queued switch applies in queue
 order, and a prompt queued after it takes its provider. The current turn keeps
 its provider and model options.
 
-Desktop, web, and mobile expose Edit, Remove, Up, Down, Steer now, and Resume.
+Desktop, web, and mobile expose Send now, Edit, Remove, and Resume. Send now
+shows only when the running turn can take a steer. The clients do not reorder
+the queue; the host `move` mutation stays for agents and older clients.
 Edits have a separate draft, so the main composer's text and files stay intact.
 Save checks the entry revision. If another client changed or started the entry,
 the host refuses the edit and the draft remains available.

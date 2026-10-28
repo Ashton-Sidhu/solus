@@ -213,6 +213,8 @@ Do not run the full Playwright suite, start a dev server, or perform browser/com
 
 Backend behavior changes should ship with focused tests. Prefer deterministic event, receipt, and lifecycle assertions over sleeps or polling. A test that passes only because of an arbitrary timeout is unreliable.
 
+Real agent turns cost money. To watch a turn render, use the Replay (dev) provider (model `showcase`); use a real provider only when the change depends on its behavior, then its cheapest model. See `docs/replay-provider.md`.
+
 ## Dev logs
 
 The running dev server writes two files at the repo root. Read them instead of starting a dev server of your own.

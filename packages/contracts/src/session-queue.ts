@@ -10,7 +10,7 @@ export interface QueueAttachment extends Pick<Attachment, 'id' | 'type' | 'name'
 
 export interface QueueEntryDetails {
   kind?: 'prompt' | 'provider_switch'
-  provider?: 'claude-code' | 'codex' | 'opencode'
+  provider?: 'claude-code' | 'codex' | 'opencode' | 'replay'
   modelConfig?: ModelConfig
   revision?: number
   held?: boolean

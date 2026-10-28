@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { z } from 'zod'
 import { createJevAgentTool } from '../../packages/server/src/typesafe/jev-tool'
 import { createTypeSafe, TypeSafeKeyMissingError } from '../../packages/server/src/typesafe/index'
-import { executeAgentTool, type AgentToolContext } from '../../packages/server/src/execution/agents/tools/agent-tool'
+import { advertisedInputSchema, executeAgentTool, type AgentToolContext } from '../../packages/server/src/execution/agents/tools/agent-tool'
 import { adaptCodexTools, CodexToolDispatcher } from '../../packages/server/src/execution/agents/codex/codex-tool-adapter'
 import { adaptClaudeTools } from '../../packages/server/src/execution/agents/claude/claude-tool-adapter'
 import { solusAgentToolName } from '../../packages/contracts/src/agent-tools'
@@ -38,7 +37,7 @@ describe('ask_jev', () => {
     const tool = createJevAgentTool()
     const codex = adaptCodexTools([tool])[0]!.tools[0]!
     expect(codex.name).toBe('ask_jev')
-    expect(JSON.stringify(codex.inputSchema)).toBe(JSON.stringify(z.toJSONSchema(z.object(tool.inputFields), { io: 'input' })))
+    expect(codex.inputSchema).toEqual(advertisedInputSchema(tool))
     const claude = adaptClaudeTools([tool], { ...context, provider: 'claude-code' }, 'plan')
     expect(claude.allowedTools).toEqual(['mcp__solus__ask_jev'])
     expect(tool.alwaysLoad).toBe(true)

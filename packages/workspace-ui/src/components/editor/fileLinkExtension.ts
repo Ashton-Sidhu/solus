@@ -13,7 +13,7 @@ export function fileLinkDecorations(doc: ProseMirrorNode): DecorationSet {
     if (!node.isText) return;
     const link = node.marks.find((mark) => mark.type.name === "link");
     if (link && parseFileHref(link.attrs.href) !== null) {
-      decorations.push(Decoration.inline(pos, pos + node.nodeSize, { class: tokenClassName("file", true) }));
+      decorations.push(Decoration.inline(pos, pos + node.nodeSize, { class: tokenClassName("file") }));
     }
   });
   return DecorationSet.create(doc, decorations);

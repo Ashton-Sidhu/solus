@@ -15,7 +15,7 @@ import { workRevisions, works } from './schema'
  * here is exported past the works domain.
  */
 
-const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode'])
+const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 export const workTypeSchema = z.enum(['doc', 'slides', 'diagram', 'artifact'])
 const workExtraSchema = z.object({
   sessionIds: z.array(z.string()).optional(),

@@ -1,18 +1,20 @@
 import { afterEach, expect, test } from 'bun:test'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { HISTORY_PAGE_BYTES, HISTORY_PAGE_ROWS, type SessionLoadMessage } from '@solus/contracts/session-history'
+import { HISTORY_PAGE_BYTES, HISTORY_PAGE_ROWS, historyPageMustCut, type SessionLoadMessage } from '@solus/contracts/session-history'
 import { loadClaudeHistoryPage } from '@solus/server/execution/agents/claude/claude-history-page'
 import { loadHistoryPage, type HistorySegment } from '@solus/server/execution/sessions/history-page'
 import { parseJsonlLine } from '@solus/server/execution/agents/claude/claude-session-helpers'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
 import { TranscriptModel } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
 
-// WHY: a page counted only in user turns loads one long agent turn whole. A
-// turn of thousands of tool calls then freezes the client when the session
-// opens. Every page stops at a row and a byte budget, and the older pages
-// give back the rest of the turn, row for row.
+// WHY: a page cut inside a turn changes that turn on the client when the older
+// page arrives: the row the reader is on is replaced and the view jumps. So a
+// full page ends only at a turn start, and a long turn arrives whole. One agent
+// turn of thousands of tool calls would still freeze a client that loads it
+// whole, so a turn past the hard budget is cut inside, and the older pages give
+// back the rest of it, row for row.
 
 const directories: string[] = []
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }) })
@@ -25,15 +27,15 @@ const call = (id: string, clock: number) =>
 const result = (id: string, output: string, clock: number) =>
   JSON.stringify({ type: 'user', timestamp: at(clock), message: { content: [{ type: 'tool_result', tool_use_id: id, content: output }] } }) + '\n'
 
-/** An earlier short turn, then one turn of 900 rows: 450 calls and their results. */
-async function longTurnSession(output: string): Promise<string> {
+/** An earlier short turn, then one turn of `steps` calls and their results. */
+async function longTurnSession(output: string, steps = 450): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'solus-history-cap-'))
   directories.push(directory)
   const file = join(directory, 'session.jsonl')
   let clock = 0
   let body = prompt('earlier', ++clock) + JSON.stringify({ type: 'assistant', timestamp: at(++clock), message: { content: [{ type: 'text', text: 'done' }] } }) + '\n'
   body += prompt('long turn', ++clock)
-  for (let step = 0; step < 450; step++) body += call(`tool-${step}`, ++clock) + result(`tool-${step}`, output, ++clock)
+  for (let step = 0; step < steps; step++) body += call(`tool-${step}`, ++clock) + result(`tool-${step}`, output, ++clock)
   await writeFile(file, body)
   return file
 }
@@ -49,24 +51,51 @@ async function allPages(file: string) {
   return pages
 }
 
-test('a turn longer than the row budget opens at its newest rows, and older pages give back the rest exactly', async () => {
+const returnedBytes = (messages: SessionLoadMessage[]) =>
+  messages.reduce((sum, message) => sum + Buffer.byteLength(JSON.stringify(message)), 0)
+
+test('a turn longer than the page budget arrives whole, from its prompt', async () => {
   const file = await longTurnSession('ok')
   const pages = await allPages(file)
-  expect(pages[0].messages).toHaveLength(HISTORY_PAGE_ROWS)
+  expect(pages[0].messages.length).toBeGreaterThan(HISTORY_PAGE_ROWS)
+  expect(pages[0].messages[0]).toMatchObject({ role: 'user', content: 'long turn' })
+  expect(pages.flatMap((page) => page.messages.slice().reverse()).reverse()).toEqual(await everyRow(file))
+})
+
+test('a turn past the hard row budget opens at its newest rows, and older pages give back the rest exactly', async () => {
+  const file = await longTurnSession('ok', 1100)
+  const pages = await allPages(file)
+  expect(historyPageMustCut(pages[0].messages.length, 0)).toBe(true)
   expect(pages[0].messages[0].role).not.toBe('user')
   expect(pages.flatMap((page) => page.messages.slice().reverse()).reverse()).toEqual(await everyRow(file))
 })
 
-test('a turn larger than the byte budget opens within it, and older pages give back the rest exactly', async () => {
-  const output = 'x'.repeat(8 * 1024)
+test('a turn past the hard byte budget opens within it, and older pages give back the rest exactly', async () => {
+  const output = 'x'.repeat(16 * 1024)
   const file = await longTurnSession(output)
   const pages = await allPages(file)
   const first = pages[0]
-  expect(first.messages.length).toBeLessThan(HISTORY_PAGE_ROWS)
-  // The page read starts at its cursor: the bytes after it are what it read.
-  const { offset } = JSON.parse(first.before!) as { offset: number }
-  expect((await stat(file)).size - offset).toBeLessThanOrEqual(HISTORY_PAGE_BYTES + result('tool-449', output, 0).length)
+  expect(first.messages[0].role).not.toBe('user')
+  expect(historyPageMustCut(first.messages.length, 0)).toBe(false)
+  // The cut comes at the first row past the hard budget, counted on the rows returned.
+  const oneRow = returnedBytes(first.messages.slice(-1))
+  expect(returnedBytes(first.messages)).toBeLessThanOrEqual(4 * HISTORY_PAGE_BYTES + oneRow)
   expect(pages.flatMap((page) => page.messages.slice().reverse()).reverse()).toEqual(await everyRow(file))
+})
+
+test('stored bytes the transcript does not return do not end a page inside a turn', async () => {
+  // A tool result's stored line can be far larger than its row. Counting the
+  // stored bytes ended this session's pages after a few dozen rows, always
+  // inside a turn.
+  const file = await longTurnSession('ok')
+  const padded = (await readFile(file, 'utf8')).split('\n').map((line) => {
+    if (!line) return line
+    const row = JSON.parse(line)
+    return JSON.stringify({ ...row, toolUseResult: { stdout: 'x'.repeat(4 * 1024) } })
+  }).join('\n')
+  await writeFile(file, padded)
+  const pages = await allPages(file)
+  expect(pages[0].messages[0]).toMatchObject({ role: 'user', content: 'long turn' })
 })
 
 test('mobile keeps a result whose call is on an older page, and settles the call when that page arrives', () => {

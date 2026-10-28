@@ -19,6 +19,7 @@ const AGENT_PROVIDERS = new Set<string>([
   "claude-code",
   "codex",
   "opencode",
+  "replay",
 ]);
 
 function isAgentId(value: string): value is AgentId {

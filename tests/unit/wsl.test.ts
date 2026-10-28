@@ -114,22 +114,25 @@ describe('adding a distro', () => {
     const registered = new Map<string, Handler>()
     const added: Array<{ label: string; target: unknown }> = []
     const provisioned: unknown[] = []
+    const progress: unknown[] = []
     const deps = {
       provisioner: {},
       wslProvisioner: {
-        add: async (request: { target: unknown }) => {
+        add: async (request: { target: unknown }, onProgress: (step: string, message: string, percent?: number) => void) => {
           provisioned.push(request.target)
+          onProgress('install', 'Installing Solus on Ubuntu (WSL)')
+          onProgress('install', 'Installing Solus on Ubuntu (WSL)', 40)
           return { status: 'ready', host: { target: request.target, os: 'linux', label: 'DESKTOP-PC', installationId: 'inst-wsl', remotePort: 3000, startedBySolus: true, session: { sessionToken: 'tok', identityKey: 'key' } } }
         },
       },
       listWslDistros: async () => listed,
       forwardedHosts: { add: async (host: { label: string; target: unknown }) => { added.push(host); return { installationId: 'inst-wsl', label: host.label } } },
       ssh: {},
-      broadcast: () => {},
+      broadcast: (_topic: string, event: unknown) => progress.push(event),
     }
     // SAFETY: the fake server keeps each handler; the deps carry what these two handlers call.
     registerRemoteMachinesHandlers({ register: (method: string, handler: Handler) => registered.set(method, handler) } as never, deps as never)
-    return { add: registered.get('hostsAddWsl')!, added, provisioned }
+    return { add: registered.get('hostsAddWsl')!, added, provisioned, progress }
   }
 
   test('installs into the distro, then forwards to it under the distro name', async () => {
@@ -139,6 +142,13 @@ describe('adding a distro', () => {
     expect(provisioned).toEqual([wslTarget('Ubuntu')])
     expect(added[0]).toMatchObject({ label: 'Ubuntu (WSL)', target: wslTarget('Ubuntu') })
     expect(result).toMatchObject({ status: 'forwarded', sessionToken: 'tok' })
+  })
+
+  test('reports how far the install is, as an add over SSH does', async () => {
+    // WHY: the setup card draws the install's percentage; without it a WSL install looks stuck.
+    const { add, progress } = await handlers({ status: 'ready', distros: [{ name: 'Ubuntu', isDefault: true, isRunning: true, version: 2 }] })
+    await add([{ distro: 'Ubuntu', requestId: 'r1' }], { deviceId: 'dev-1' })
+    expect(progress).toContainEqual({ requestId: 'r1', step: 'install', message: 'Installing Solus on Ubuntu (WSL)', percent: 40 })
   })
 
   test('refuses a distro WSL does not list, and says why WSL cannot add one', async () => {

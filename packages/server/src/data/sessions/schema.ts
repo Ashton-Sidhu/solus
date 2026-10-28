@@ -164,6 +164,19 @@ export const sessionViews = defineTable('session_views', {
   indexes: [{ name: 'session_views_by_person', columns: ['person_key', 'session_id'] }],
 })
 
+/**
+ * The sessions a person started as leads (docs/plans/lead-session.md): a lead
+ * coordinates workers and does not implement. The choice is made before the
+ * first message and never undone, so a row is only ever added. The runner
+ * reads it on every run to append the lead contract, and the orchestrator
+ * reads it to hold the lead's reports until its last open message settles.
+ */
+export const sessionLeads = defineTable('session_leads', {
+  session_id: text({ primaryKey: true }),
+  created_at: bigint({ notNull: true }),
+  organization_id: text({ notNull: true, default: 'local' }),
+})
+
 /** Host-owned references. Works keep their existing session membership; PRs keep their lifecycle rows. */
 export const sessionLinks = defineTable('session_links', {
   session_id: text({ notNull: true }),
@@ -175,4 +188,4 @@ export const sessionLinks = defineTable('session_links', {
   organization_id: text({ notNull: true, default: 'local' }),
 }, { primaryKey: ['session_id', 'link_id'] })
 
-export const SESSION_TABLES = [sessionLinks, sessionRecords, sessionAdmissions, sessionPullRequests, sessionPullRequestWatches, sessionStates, sessionViews]
+export const SESSION_TABLES = [sessionLeads, sessionLinks, sessionRecords, sessionAdmissions, sessionPullRequests, sessionPullRequestWatches, sessionStates, sessionViews]

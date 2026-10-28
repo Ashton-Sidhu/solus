@@ -181,6 +181,7 @@ export const RPC_INVOKE_METHODS = [
   'setSessionTitle',
   'setSessionBranch',
   'sessionPullRequestWatch',
+  'sessionArtifactsList',
   'listRecentProjects',
   'trackRecentProject',
   'listPlans',

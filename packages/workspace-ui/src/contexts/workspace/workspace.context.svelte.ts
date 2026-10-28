@@ -113,7 +113,7 @@ export interface PersistedSessionDrafts {
 }
 
 function configuredAgent(value: string): AgentId {
-  if (value === 'codex' || value === 'opencode') return value
+  if (value === 'codex' || value === 'opencode' || value === 'replay') return value
   return 'claude-code'
 }
 
@@ -1120,6 +1120,7 @@ export class WorkspaceContext implements SurfaceContext {
       task: spec.task,
       boundWorkId: spec.boundWorkId,
       prReview: spec.prReview ?? null,
+      isLead: spec.isLead ?? false,
       // The draft's prompt becomes the session's, same object: what the composer
       // is about to clear is what the send just read.
       prompt: spec.prompt,
@@ -2220,6 +2221,15 @@ export class WorkspaceContext implements SurfaceContext {
       name: 'subagent',
       params: { sessionId, messageId, serverId: runHost(this.sessions.byId[sessionId]?.run) },
     })
+  }
+
+  /** Open what a session produced or linked: beside its conversation, or as
+   *  the destination ("in main pane"). */
+  openArtifacts(sessionId: string, target: OpenTarget = 'companion'): void {
+    this.router.navigate(
+      { name: 'artifacts', params: { sessionId, serverId: this.serverIdForSession(sessionId) } },
+      { target },
+    )
   }
 
   // ─── Reviews ───

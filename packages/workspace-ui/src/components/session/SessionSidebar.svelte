@@ -8,7 +8,6 @@
   import {
     LibraryBig as BooksIcon,
     Clock as ClockIcon,
-    ChevronRight as CaretRightIcon,
     Pin as PushPinIcon,
     RefreshCw as ArrowsClockwiseIcon,
     ChartBar as ChartBarIcon,
@@ -38,12 +37,13 @@
     SIDEBAR_MIN_WIDTH,
   } from "../layout/lib/workspace-body";
   import * as Sidebar from "../ui/sidebar";
-  import TaskListSkeleton from "./TaskListSkeleton.svelte";
   import SessionContextMenu from "./SessionContextMenu.svelte";
   import PrContextMenu from "./PrContextMenu.svelte";
   import TaskActionBar from "./TaskActionBar.svelte";
   import TaskRow from "./TaskRow.svelte";
-  import DraftRow from "./DraftRow.svelte";
+  import SessionStatusView from "./SessionStatusView.svelte";
+  import SessionProjectView from "./SessionProjectView.svelte";
+  import type { SidebarListShared } from "./SidebarList.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
   import SidebarAccountFooter from "./SidebarAccountFooter.svelte";
   import SnoozeTaskMenu from "./SnoozeTaskMenu.svelte";
@@ -67,13 +67,7 @@
     type TaskPrChoice,
     type SidebarTask,
   } from "./lib/task-list";
-  import { treeKeyIntent } from "./lib/task-tree-keys";
-  import { sidebarListMotion } from "./lib/sidebar-list-motion.svelte";
-  import {
-    buildSidebarListItems,
-    sidebarListOrderKey,
-    type SidebarSection,
-  } from "./lib/sidebar-list-items";
+  import type { SidebarListInput, SidebarSection } from "./lib/sidebar-list-items";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import * as Popover from "../ui/popover";
@@ -212,24 +206,32 @@
   const isCompletedShelfExpanded = $derived(
     completedShelfOpen || (isSearching && searchedCompletedTasks.length > 0),
   );
-  /** Drafts, the sessions, the Working section, and both shelves as one list,
-   *  so every change between them animates as a change of order
-   *  (docs/plans/sidebar-motion.md). */
-  const listItems = $derived(
-    buildSidebarListItems({
-      drafts: sidebarStore.draftRows,
-      sessions: searchedSessionRows,
-      shared: searchedSharedRows,
-      working: searchedWorkingRows,
-      snoozed: searchedSnoozedTasks,
-      completed: searchedCompletedTasks,
-      isSharedOpen: sharedSectionOpen || isSearching,
-      isWorkingOpen: workingSectionOpen || isSearching,
-      isSnoozedOpen: snoozedShelfOpen,
-      isCompletedOpen: isCompletedShelfExpanded,
-      shelfRevealTaskId: sidebarStore.shelfRevealTaskId,
-    }),
-  );
+  /** What both views list. Each view reads only the rows it draws, and only
+   *  the view on screen is mounted (docs/plans/sidebar-project-view.md). */
+  const listInput: SidebarListInput = $derived({
+    drafts: sidebarStore.draftRows,
+    sessions: searchedSessionRows,
+    shared: searchedSharedRows,
+    working: searchedWorkingRows,
+    snoozed: searchedSnoozedTasks,
+    completed: searchedCompletedTasks,
+    isSharedOpen: sharedSectionOpen || isSearching,
+    isWorkingOpen: workingSectionOpen || isSearching,
+    isSnoozedOpen: snoozedShelfOpen,
+    isCompletedOpen: isCompletedShelfExpanded,
+    shelfRevealTaskId: sidebarStore.shelfRevealTaskId,
+  });
+  const listShared: SidebarListShared = $derived({
+    scrollEl,
+    motionMs: theme.sidebarMotionMs,
+    isLoading: !session.tasksStore.loaded,
+    taskRow,
+    onOpenDraft: openDraft,
+    onDiscardDraft: discardDraft,
+    onToggleSection: toggleSection,
+    onCloseRow: closeRowByKey,
+    onNestedOpenChange: setNestedOpenByKey,
+  });
   const selectedTaskIds = new SvelteSet<string>();
   let selectionAnchorId = $state<string | null>(null);
   $effect(() => {
@@ -313,12 +315,6 @@
 
   function newSession() {
     session.drafts.openSessionDraft({ freshTask: true, via: "click" });
-  }
-
-  /** The task a session's chip names, beside the session where the shell has
-   *  a companion pane. The session stays on screen. */
-  function openLinkedTask(taskId: string) {
-    session.goToTask(taskId, "click");
   }
 
   function openTaskPr(choice: TaskPrChoice, tab?: PrReviewTab): void {
@@ -464,6 +460,9 @@
     selectedTaskIds.clear();
     selectionAnchorId = null;
     activateTask(task, event);
+    // A click on the row opens the drawer of sessions it started, even one
+    // the person folded while reading it.
+    sidebarStore.setNestedOpen(task, true);
   }
 
   function selectedTasks(): SidebarTask[] {
@@ -637,58 +636,18 @@
     requestInputFocus();
   }
 
-  /** The list drives itself off the DOM rather than a mirrored index: the rows
-   *  it can move between are exactly the ones currently rendered, so a
-   *  collapsed section or a filtered project needs no bookkeeping here. */
-  function handleTreeKeydown(event: KeyboardEvent) {
-    if (event.metaKey || event.ctrlKey || event.altKey || !scrollEl) return;
+  /** ⌫ on a row is the row's X: it never stops the run. It archives the
+   *  session; a session listed under a row only closes its tab. */
+  /** → and ← on a row that started sessions unfold and fold them. */
+  function setNestedOpenByKey(taskKey: string, isOpen: boolean) {
+    const task = openRows.find((item) => item.key === taskKey);
+    if (task) sidebarStore.setNestedOpen(task, isOpen);
+  }
 
-    const rows = [
-      ...scrollEl.querySelectorAll<HTMLElement>('[role="treeitem"]'),
-    ];
-    const focused =
-      event.target instanceof Element
-        ? event.target.closest<HTMLElement>('[role="treeitem"]')
-        : null;
-    const index = focused ? rows.indexOf(focused) : -1;
-    if (index < 0) return;
-
-    const taskKey = focused!.dataset.taskKey;
-    // A session listed under a row has no key of its own; its parent is the
-    // nearest row above it.
-    const parentIndex =
-      taskKey === undefined
-        ? rows.findLastIndex(
-            (row, at) => at < index && row.dataset.taskKey !== undefined,
-          )
-        : -1;
-
-    const intent = treeKeyIntent(
-      event.key,
-      { index, parentIndex: parentIndex < 0 ? null : parentIndex },
-      rows.length,
-    );
-    if (!intent) return;
-    event.preventDefault();
-
-    const task = taskKey
-      ? openRows.find((item) => item.key === taskKey)
-      : undefined;
-
-    switch (intent.kind) {
-      case "focus":
-        rows[intent.index]?.focus();
-        break;
-      case "enterPane":
-        requestInputFocus();
-        break;
-      case "close":
-        // Keyboard dismissal is the row's X: it never stops the run. It
-        // archives the session.
-        if (task) removeTask(task);
-        else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
-        break;
-    }
+  function closeRowByKey(target: { taskKey?: string; tabId?: string }) {
+    const task = target.taskKey ? openRows.find((item) => item.key === target.taskKey) : undefined;
+    if (task) removeTask(task);
+    else if (target.tabId) closeSession(target.tabId);
   }
 
   /** Right-click and ⋯ open the identical menu. */
@@ -708,6 +667,54 @@
 
   function closeSessionContextMenu() {
     sessionContextMenu = null;
+  }
+
+  // The menu actions below close over plain values. A menu runs its action
+  // after closeSessionContextMenu, when the template's `{@const}` values would
+  // read a null menu and throw.
+
+  /** The row actions of an open tab's menu. */
+  function tabRowActions(menuTabId: string | null, menuPoint: TaskSnoozeAnchor) {
+    const sessionRow = menuTabId ? sidebarStore.taskForTab(menuTabId) : null;
+    return {
+      onStop:
+        menuTabId && sidebarStore.childForTab(menuTabId).attention === "running"
+          ? () => session.controls.interruptTabSession(menuTabId)
+          : undefined,
+      done: sessionRow?.status === "done",
+      onToggleDone: sessionRow ? () => void completeTask(sessionRow) : undefined,
+      onSnooze:
+        sessionRow && sessionRow.lifecycle !== "snoozed" && sidebarStore.canShelve(sessionRow)
+          ? () => openSnooze({ rowKey: sessionRow.key, title: sessionRow.title }, menuPoint)
+          : undefined,
+      onArchive:
+        sessionRow && sidebarStore.canArchive(sessionRow)
+          ? () => removeTask(sessionRow)
+          : undefined,
+    };
+  }
+
+  function listedRowActions(row: SidebarTask) {
+    return { onArchive: sidebarStore.canArchive(row) ? () => removeTask(row) : undefined };
+  }
+
+  function regeneratePinnedTitle(pin: PinnedSession) {
+    return () => sidebarStore.regeneratePinnedSessionTitle(pin);
+  }
+
+  function openPinnedInSplit(pin: PinnedSession) {
+    return () => void openPinnedSessionInSplit(pin);
+  }
+
+  function openPrChoice(choice: TaskPrChoice) {
+    return () => openTaskPr(choice);
+  }
+
+  function openPrChoiceOnWeb(choice: TaskPrChoice) {
+    return () => {
+      const url = choice.url ?? choice.pullRequest?.url;
+      if (url) void localApi.openExternal(url);
+    };
   }
 
   function openRowContextMenu(
@@ -757,7 +764,7 @@
   }
 </script>
 
-{#snippet taskRow(task: SidebarTask)}
+{#snippet taskRow(task: SidebarTask, inFolder: boolean)}
   {@const prChoices = sidebarStore.prChoicesFor(task)}
   <TaskRow
     {task}
@@ -769,8 +776,8 @@
     sessions={sidebarStore.sessionsFor(task)}
     {isGuest}
     nestedSessions={sidebarStore.nestedSessionsFor(task)}
-    hasNestedSessions={sidebarStore.hasNestedSessions(task)}
-    isNestedCollapsed={sidebarStore.isNestedCollapsed(task)}
+    {inFolder}
+    isNestedOpen={sidebarStore.isNestedOpen(task)}
     onToggleNested={() => sidebarStore.toggleNestedSessions(task)}
     onScreenTabId={session.onScreenTabId}
     {renamingTabId}
@@ -798,8 +805,6 @@
         x: event.clientX,
         y: event.clientY,
       })}
-    onOpenLinkedTask={() =>
-      task.linkedTask && openLinkedTask(task.linkedTask.taskId)}
     onSelectSession={selectSession}
     onMoreSession={openChildContextMenu}
     onCloseSession={removeChild}
@@ -1104,133 +1109,16 @@
     class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pt-2 pb-3.5 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
     style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
   >
-    <!-- One list: drafts lead, then the sessions, and the Working, Snoozed
-         and Completed sections with their headers as entries. A row that changes section,
-         and a draft that arrives or leaves, then animate as a change of order
-         (docs/plans/sidebar-motion.md, step 3). Drafts carry a pencil mark and
-         a divider below them rather than a heading; a prompt on its way to
-         becoming a session is not one yet. -->
-    <div
-      role="tree"
-      tabindex="-1"
-      aria-label="Sessions"
-      onkeydown={handleTreeKeydown}
-    >
-      <div
-        class="relative flex flex-col gap-[0.1875rem]"
-        {@attach sidebarListMotion(
-          () => sidebarListOrderKey(listItems),
-          () => theme.sidebarMotionMs,
-          () => scrollEl,
-        )}
-      >
-        {#each listItems as item, index (item.key)}
-          {#if item.kind === "draft"}
-            <div>
-              <DraftRow
-                row={item.draft}
-                onSelect={() => openDraft(item.draft)}
-                onDiscard={() => discardDraft(item.draft)}
-              />
-            </div>
-          {:else if item.kind === "drafts-divider"}
-            <div
-              class="my-[0.3125rem] h-px bg-sidebar-border/50"
-              aria-hidden="true"
-            ></div>
-          {:else if item.kind === "header" && item.section === "snoozed"}
-            <!-- The extra space sets the shelves apart from the cards above.
-                 Below a closed header there are no cards, so it takes the same
-                 gap as one header below another. -->
-            <div
-              class={listItems[index - 1]?.kind === "header" ? "mt-2" : "mt-3"}
-            >
-              <button
-                type="button"
-                class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-chrome-shelf font-normal text-(--solus-status-unread) transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-[color-mix(in_oklch,var(--solus-status-unread)_78%,var(--foreground))]"
-                aria-expanded={item.isOpen}
-                onclick={() => toggleSection(item.section)}
-              >
-                Snoozed
-                <span
-                  class="h-px min-w-4 flex-1 bg-sidebar-border/50"
-                  aria-hidden="true"
-                ></span>
-                <span class="tabular-nums opacity-60">{item.count}</span>
-                <span class="flex size-4 shrink-0 items-center justify-center">
-                  <CaretRightIcon
-                    size={14}
-                    class="transition-transform duration-150 {item.isOpen
-                      ? 'rotate-90'
-                      : ''}"
-                  />
-                </span>
-              </button>
-            </div>
-          {:else if item.kind === "header"}
-            <!-- Working holds the rows whose agent is busy without you; it and
-                 Completed take the same header. A section that opens the list
-                 needs no space above it. -->
-            <div
-              class="mt-2 first:mt-0 {item.section === 'completed' ||
-              (item.section === 'working' && !item.isOpen)
-                ? ''
-                : 'mb-1'}"
-            >
-              <button
-                type="button"
-                class="-mx-2 flex h-7 w-[calc(100%+1rem)] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] text-chrome-shelf font-normal text-muted-foreground transition-[color,background] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] hover:text-foreground"
-                aria-expanded={item.isOpen}
-                onclick={() => toggleSection(item.section)}
-              >
-                {item.section === "shared"
-                  ? "Shared with you"
-                  : item.section === "working"
-                    ? "Working"
-                    : "Completed"}
-                <span
-                  class="h-px min-w-4 flex-1 bg-sidebar-border/50"
-                  aria-hidden="true"
-                ></span>
-                <span class="tabular-nums opacity-60">{item.count}</span>
-                <span class="flex size-4 shrink-0 items-center justify-center">
-                  <CaretRightIcon
-                    size={14}
-                    class="transition-transform duration-150 {item.isOpen
-                      ? 'rotate-90'
-                      : ''}"
-                  />
-                </span>
-              </button>
-            </div>
-          {:else}
-            <!-- `content-visibility: auto` contains each row, so a change in
-                 one row never lays out the whole window, and rows below the
-                 fold skip style and layout. The intrinsic size matches the
-                 row, so a row does not shift the list when it paints. The row
-                 reaches past this box (`-mx-2`, hover shadow, focus ring); the
-                 padding and the clip margin keep that inside paint
-                 containment. -->
-            <div
-              class="-mx-2 px-2 [content-visibility:auto] [overflow-clip-margin:0.5rem] {item.section ===
-                'sessions' ||
-              item.section === 'shared' ||
-              item.section === 'working'
-                ? '[contain-intrinsic-size:auto_62px]'
-                : '[contain-intrinsic-size:auto_36px]'} {item.section ===
-              'completed'
-                ? 'opacity-80'
-                : ''}"
-            >
-              {@render taskRow(item.task)}
-            </div>
-          {/if}
-        {/each}
-      </div>
-      {#if !session.tasksStore.loaded}
-        <TaskListSkeleton />
-      {/if}
-    </div>
+    <!-- One list, in the view the person chose: by status (drafts, the
+         sessions, Shared with you, Working, and the shelves) or by project
+         (a folder per project above the same shelves). Only that view is
+         mounted, so only its grouping runs (docs/plans/sidebar-project-view.md,
+         docs/plans/sidebar-motion.md). -->
+    {#if theme.sidebarView === "project"}
+      <SessionProjectView input={listInput} list={listShared} {isSearching} {onSessionSelect} />
+    {:else}
+      <SessionStatusView input={listInput} list={listShared} />
+    {/if}
   </div>
 
   <!-- Separate the task list from the footer. -->
@@ -1359,39 +1247,13 @@
 {#if sessionContextMenu}
   {#if sessionContextMenu.kind === "tab"}
     {@const menuTabId = sessionContextMenu.tabId}
-    {@const menuPoint = { x: sessionContextMenu.x, y: sessionContextMenu.y }}
-    {@const sessionRow = menuTabId ? sidebarStore.taskForTab(menuTabId) : null}
     <SessionContextMenu
       x={sessionContextMenu.x}
       y={sessionContextMenu.y}
       tabId={menuTabId}
       showSplit
       onStartRename={startRename}
-      rowActions={{
-        onStop:
-          menuTabId &&
-          sidebarStore.childForTab(menuTabId).attention === "running"
-            ? () => session.controls.interruptTabSession(menuTabId)
-            : undefined,
-        done: sessionRow?.status === "done",
-        onToggleDone: sessionRow
-          ? () => void completeTask(sessionRow)
-          : undefined,
-        onSnooze:
-          sessionRow &&
-          sessionRow.lifecycle !== "snoozed" &&
-          sidebarStore.canShelve(sessionRow)
-            ? () =>
-                openSnooze(
-                  { rowKey: sessionRow.key, title: sessionRow.title },
-                  menuPoint,
-                )
-            : undefined,
-        onArchive:
-          sessionRow && sidebarStore.canArchive(sessionRow)
-            ? () => removeTask(sessionRow)
-            : undefined,
-      }}
+      rowActions={tabRowActions(menuTabId, { x: sessionContextMenu.x, y: sessionContextMenu.y })}
       onCloseTab={closeSession}
       closeTabLabel="Close Tab"
       closeTabIsDestructive={false}
@@ -1404,11 +1266,7 @@
       y={sessionContextMenu.y}
       sessionId={listedRow.sessionId}
       serverId={listedRow.serverId}
-      rowActions={{
-        onArchive: sidebarStore.canArchive(listedRow)
-          ? () => removeTask(listedRow)
-          : undefined,
-      }}
+      rowActions={listedRowActions(listedRow)}
       onClose={closeSessionContextMenu}
     />
   {:else if sessionContextMenu.kind === "pull-request"}
@@ -1417,11 +1275,8 @@
       x={prMenu.x}
       y={prMenu.y}
       choice={prMenu.choice}
-      onOpen={() => openTaskPr(prMenu.choice)}
-      onOpenWeb={() => {
-        const url = prMenu.choice.url ?? prMenu.choice.pullRequest?.url;
-        if (url) void localApi.openExternal(url);
-      }}
+      onOpen={openPrChoice(prMenu.choice)}
+      onOpenWeb={openPrChoiceOnWeb(prMenu.choice)}
       onUnlink={unlinkRowPr(prMenu.row, prMenu.choice) ?? undefined}
       onClose={closeSessionContextMenu}
     />
@@ -1434,8 +1289,8 @@
       sessionId={pin.sessionId}
       serverId={pin.serverId ?? null}
       showSplit
-      onRegenerateTitle={() => sidebarStore.regeneratePinnedSessionTitle(pin)}
-      onOpenInSplit={() => void openPinnedSessionInSplit(pin)}
+      onRegenerateTitle={regeneratePinnedTitle(pin)}
+      onOpenInSplit={openPinnedInSplit(pin)}
       onClose={closeSessionContextMenu}
     />
   {/if}

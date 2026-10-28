@@ -377,6 +377,8 @@ export const RESOURCE_ACTION_OF_METHOD = {
   // Sessions — editing the record
   setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit',
   sessionPullRequestWatch: 'edit',
+  // What a session produced is read with the session.
+  sessionArtifactsList: 'read',
   setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
   pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
   // Works — reading

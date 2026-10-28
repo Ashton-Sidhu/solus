@@ -29,8 +29,11 @@ export async function classifyModelPrompt(prompt: string, signal: AbortSignal): 
 
 export async function installedRoutingProviders(metadata: AgentMetadata[]): Promise<AgentMetadata[]> {
   const path = await warmCliPath()
-  return metadata.filter(agent => ROUTING_PROVIDERS.some(provider => provider === agent.id)
-    && agent.available !== false && !!findOnPath(AGENT_BIN[agent.id], path))
+  return metadata.filter(agent => {
+    const bin = AGENT_BIN[agent.id]
+    return ROUTING_PROVIDERS.some(provider => provider === agent.id)
+      && agent.available !== false && !!bin && !!findOnPath(bin, path)
+  })
 }
 
 export function selectModelRoute(category: RoutingCategory, config: ModelRouting, agents: AgentMetadata[]): ModelRoute {

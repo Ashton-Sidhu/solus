@@ -72,7 +72,7 @@ export type Activity = {
   turnId?: string
 } & ActivityKind
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
+const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 
 const taskEventKindSchema = z.enum([
   'created', 'status_changed', 'priority_changed', 'assignee_changed',

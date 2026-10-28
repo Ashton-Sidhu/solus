@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from './helpers/bun-sqlite'
 import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
-import { HISTORY_PAGE_ROWS } from '@solus/contracts/session-history'
+import { historyPageMustCut } from '@solus/contracts/session-history'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
@@ -144,14 +144,22 @@ describe('cloud history reads', () => {
     expect(older.before).toBeNull()
   })
 
-  test('a turn longer than the row budget pages inside the turn, and the pages give back every row', async () => {
-    // WHY: a page counted only in user turns loads one long agent turn whole
-    // and can freeze the client when the session opens.
-    const items = Array.from({ length: 902 }, (_, position) => row(100 + position, 'long', position, `r${position}`, position === 0 || position === 2 ? 'user' : 'assistant'))
+  test('a full page ends at a turn start, and only a turn past the hard budget pages inside itself', async () => {
+    // WHY: a page cut inside a turn changes that turn on the client when the
+    // older page arrives, and the reader's view jumps. One agent turn of
+    // thousands of rows would still freeze the client, so only that is cut.
+    const roles = (length: number, users: number[]) => Array.from({ length }, (_, position) => users.includes(position) ? 'user' : 'assistant')
+    const whole = roles(1202, [0, 601]).map((role, position) => row(100 + position, 'whole', position, `w${position}`, role))
+    await deliver(runner(), { hostId: 'runner-1', items: whole })
+    const newest = await reads.readTranscriptPage('org1', 'whole', 10)
+    expect(newest.messages[0]).toMatchObject({ role: 'user', content: 'w601' })
+    expect(newest.messages).toHaveLength(601)
+
+    const items = roles(2402, [0, 2]).map((role, position) => row(2000 + position, 'long', position, `r${position}`, role))
     await deliver(runner(), { hostId: 'runner-1', items })
     const pages = [await reads.readTranscriptPage('org1', 'long', 10)]
     while (pages.at(-1)!.before) pages.push(await reads.readTranscriptPage('org1', 'long', 20, pages.at(-1)!.before!))
-    expect(pages[0].messages).toHaveLength(HISTORY_PAGE_ROWS)
+    expect(historyPageMustCut(pages[0].messages.length, 0)).toBe(true)
     expect(pages[0].messages[0].role).toBe('assistant')
     expect(pages.reverse().flatMap((page) => page.messages.map((entry) => entry.content))).toEqual(items.map((_, position) => `r${position}`))
   })

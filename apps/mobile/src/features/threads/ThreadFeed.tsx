@@ -2,6 +2,7 @@
 import * as Haptics from "expo-haptics";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import type { LegendListRef } from "@legendapp/list/react-native";
+import { HISTORY_PREFETCH_SCREENS } from "@solus/client-core/session-history-page";
 import {
   memo,
   useCallback,
@@ -906,6 +907,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             // Chat-style bottom alignment: a short thread rests just above the composer.
             alignItemsAtEnd
             initialScrollAtEnd
+            // Older history loads while the reader is still a few screens from
+            // the top, so a page arrives before they reach it.
+            onStartReached={props.historyControls?.hasMoreHistory ? props.historyControls.onLoadEarlier : undefined}
+            onStartReachedThreshold={HISTORY_PREFETCH_SCREENS}
             onScroll={handleScroll}
             onScrollBeginDrag={handleScrollBeginDrag}
             onScrollEndDrag={handleScrollEndDrag}

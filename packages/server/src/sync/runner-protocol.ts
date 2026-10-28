@@ -28,7 +28,7 @@ const seqSchema = z.number().int().positive()
 /** The facts of one session record, as a `session` item carries them. */
 export const sessionRecordUpsertWireSchema: z.ZodType<SessionRecordUpsert> = z.object({
   sessionId: z.string().min(1),
-  provider: z.enum(['claude-code', 'codex', 'opencode']),
+  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
   projectPath: z.string(),
   lastActivityAt: z.number(),
   projectRemote: z.string().nullable().optional(),

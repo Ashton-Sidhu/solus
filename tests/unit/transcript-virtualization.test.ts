@@ -174,6 +174,22 @@ test('mounted transcript stays bounded, retains disclosure, and anchors prepend 
     for (const observer of observers) observer.deliver();
     flushSync(); await tick(); flushSync();
     assert.equal(scroll.scrollTop, readingTop + 100, 'the anchor holds again once the scroll settles');
+    // Long turns are far taller than the estimate. Scrolling up into rows
+    // never mounted replaces each estimate with a real height above the
+    // reader; left alone mid-scroll, that slid the view up by screens.
+    for (let index = 4900; index < 4990; index++) heights.set('turn-' + index, 1000);
+    let mountedTall = false;
+    for (let step = 0; step < 60; step++) {
+      const inView = rows().find(row => row.getBoundingClientRect().bottom > 0);
+      const inViewTop = inView.getBoundingClientRect().top;
+      scroll.dispatchEvent(new Event('wheel'));
+      await move(scroll.scrollTop - 200);
+      mountedTall ||= rows().some(row => heights.get(row.dataset.transcriptTurnId) === 1000);
+      if (inView.isConnected) assert.equal(inView.getBoundingClientRect().top, inViewTop + 200,
+        'rows measured for the first time above the reader do not move the view, even mid-scroll');
+    }
+    assert.ok(mountedTall, 'the scroll mounts rows never measured');
+    now += 200;
     await virtualizer.reveal('turn-9999'); flushSync();
     assert.ok(rows().some(row => row.dataset.transcriptTurnId === 'turn-9999'));
     assert.ok(rows().length < 12);

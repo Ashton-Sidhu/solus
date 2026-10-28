@@ -14,7 +14,7 @@ const workCreatePayloadSchema = z.object({
   title: z.string(),
   docType: z.enum(['doc', 'slides', 'diagram', 'artifact']),
   content: z.string(),
-  agentProvider: z.enum(['claude-code', 'codex', 'opencode']).optional(),
+  agentProvider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional(),
   originSessionId: z.string().optional(),
   cwd: z.string().optional(),
   linkToSessionTask: z.boolean().optional(),

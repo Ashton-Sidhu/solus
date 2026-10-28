@@ -1,6 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentTool, AgentToolContext, AgentToolResult } from '../tools/agent-tool'
-import { assertUniqueAgentTools, executeAgentTool, enabledAgentTools } from '../tools/agent-tool'
+import { advertisedInputSchema, assertUniqueAgentTools, executeAgentTool, enabledAgentTools } from '../tools/agent-tool'
 import { z } from 'zod'
 import type { PermissionMode } from '@solus/contracts/types'
 
@@ -73,13 +73,16 @@ export function adaptClaudeTools(
             })
         return claudeToolResponse(result)
       }
-      if (!agentTool.passthroughInput) {
-        return tool(agentTool.name, agentTool.description, callerFields(agentTool.inputFields), handler, agentTool.alwaysLoad ? { alwaysLoad: true } : undefined)
-      }
-      // A passthrough tool takes any object. The SDK strips the keys a field map
-      // does not name but runs a Zod object as it is, so a loose one keeps them.
-      const definition = tool(agentTool.name, agentTool.description, {}, handler)
-      definition.inputSchema = z.looseObject({})
+      // The SDK checks a call against this schema and lists its JSON for the
+      // model. A passthrough tool takes any object: the SDK strips the keys a
+      // field map does not name but runs a Zod object as it is, so a loose one
+      // keeps them. The model reads the compact schema; the check stays full.
+      const callSchema = agentTool.passthroughInput ? z.looseObject({}) : z.object(callerFields(agentTool.inputFields))
+      // The SDK's zod writes `$schema` first and then this schema's own keys,
+      // so an undefined `$schema` keeps it out of the JSON the model reads.
+      callSchema._zod.toJSONSchema = () => ({ ...advertisedInputSchema(agentTool), $schema: undefined })
+      const definition = tool(agentTool.name, agentTool.description, {}, handler, agentTool.alwaysLoad ? { alwaysLoad: true } : undefined)
+      definition.inputSchema = callSchema
       return definition
     }),
   })

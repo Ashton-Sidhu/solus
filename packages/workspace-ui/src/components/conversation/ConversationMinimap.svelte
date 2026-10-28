@@ -181,7 +181,7 @@
 {#if visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <nav
-    class="msg-nav right-4"
+    class="msg-nav left-4"
     class:expanded={hovered}
     aria-label="Jump to message"
     onmouseenter={() => (hovered = true)}
@@ -197,8 +197,8 @@
         aria-current={i === activeIndex ? "true" : undefined}
         onclick={() => goTo(it.id)}
       >
-        <span class="msg-nav-label">{it.preview}</span>
         <span class="msg-nav-dash" aria-hidden="true"></span>
+        <span class="msg-nav-label">{it.preview}</span>
       </button>
     {/each}
   </nav>
@@ -215,8 +215,10 @@
     z-index: 20;
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
-    gap: 5px;
+    align-items: flex-start;
+    /* Rows touch: the space between ticks is each row's own padding, so every
+       pixel of the rail picks a message and none falls between two rows. */
+    gap: 0;
     max-height: 72%;
     padding: 6px;
     border-radius: 14px;
@@ -244,9 +246,9 @@
   .msg-nav-row {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: flex-start;
     width: 100%;
-    padding: 0;
+    padding: 3px 0;
     border: 0;
     border-radius: 9px;
     background: transparent;
@@ -258,7 +260,7 @@
   }
 
   /* Collapsed: the label contributes zero box (no width AND no height) so the
-     ticks stack on the gap value alone instead of on the label's line-height. */
+     ticks stack on the row padding alone instead of on the label's line-height. */
   .msg-nav-label {
     max-width: 0;
     max-height: 0;
@@ -284,7 +286,7 @@
      is longer, fully opaque and accent-inked. Hidden once the rail expands. */
   .msg-nav-dash {
     display: block;
-    width: 13px;
+    width: 11px;
     height: 2px;
     flex-shrink: 0;
     border-radius: 2px;
@@ -300,7 +302,7 @@
     color: var(--solus-text-primary);
   }
   .msg-nav-row.active .msg-nav-dash {
-    width: 19px;
+    width: 16px;
     height: 2.5px;
     opacity: 1;
     background: var(--solus-accent);

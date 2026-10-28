@@ -10,6 +10,7 @@ import type { ScreenHeaderAction, ScreenHeaderMenu } from "../../components/Scre
 import type { RootStackParamList } from "../../navigation/routes";
 import { AppText as Text } from "../../components/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
 
 // Bar geometry the title view must clear: the Back button on the left, the
 // action group on the right, and the bar's margins.
@@ -22,8 +23,9 @@ const HEADER_ACTION_WIDTH = 53;
  * start with no history gets a way to the thread list instead), and the
  * header actions that have Solus counterparts — the project's files, the
  * host's pull requests (only when the session has a linked pull request), your
- * notifications, a new thread in the same project, and the environment menu
- * (the desktop Environment card's Browser, Builds, and Artifacts row). T3's terminal,
+ * notifications, what the session produced or linked, a new thread in the
+ * same project, and the environment menu (the desktop Environment card's
+ * Browser, Builds, and Artifacts row). T3's terminal,
  * git, and merge-back controls have no Solus equivalent on the phone.
  */
 export function useThreadHeaderOptions(props: {
@@ -39,11 +41,18 @@ export function useThreadHeaderOptions(props: {
   readonly faviconRoot: string | null;
   /** Whether a pull request is linked to the session; without one the pull requests action is hidden. */
   readonly hasLinkedPullRequests: boolean;
+  readonly sessionId: string;
+  /** How many artifacts the session has, null until read, and whether one arrived since Artifacts was last open. */
+  readonly artifacts: { readonly count: number | null; readonly unread: boolean };
   /** The environment menu: Browser, Builds, or Artifacts for this session. */
   readonly environmentMenu: ScreenHeaderMenu;
 }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { hostId, projectPath, hasLinkedPullRequests } = props;
+  const { hostId, projectPath, hasLinkedPullRequests, sessionId } = props;
+  const { count: artifactCount, unread: artifactsUnread } = props.artifacts;
+  const theme = useUniwindTheme();
+  const unreadColor = theme["--color-primary"];
+  const readColor = theme["--color-foreground-muted"];
   const actions = useMemo<ReadonlyArray<ScreenHeaderAction>>(() => {
     const items: ScreenHeaderAction[] = [];
     if (projectPath) {
@@ -66,6 +75,15 @@ export function useThreadHeaderOptions(props: {
       icon: "bell.badge",
       onPress: () => navigation.navigate("Notifications"),
     });
+    // Android lists this action in its overflow menu by its label, so the label carries the count and the mark.
+    items.push({
+      accessibilityLabel: `Artifacts${artifactCount ? ` (${artifactCount})` : ""}${artifactsUnread ? ", new" : ""}`,
+      icon: "square.3.layers.3d",
+      badge: artifactCount
+        ? { value: String(artifactCount), backgroundColor: artifactsUnread ? unreadColor : readColor }
+        : undefined,
+      onPress: () => navigation.navigate("ThreadArtifacts", { hostId, sessionId }),
+    });
     // A chat has no project to keep, so its new thread starts at the project choice.
     items.push({
       accessibilityLabel: "New session",
@@ -73,7 +91,7 @@ export function useThreadHeaderOptions(props: {
       onPress: () => navigation.navigate("NewTask", projectPath ? { hostId, projectPath } : { hostId }),
     });
     return items;
-  }, [hasLinkedPullRequests, hostId, navigation, projectPath]);
+  }, [artifactCount, artifactsUnread, hasLinkedPullRequests, hostId, navigation, projectPath, readColor, sessionId, unreadColor]);
 
   // Deep links and cold starts land with Thread as the only route, where the
   // native back button does not render; Home is the way out.

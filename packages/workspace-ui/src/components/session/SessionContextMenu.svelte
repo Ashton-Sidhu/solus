@@ -309,6 +309,8 @@
       </ContextMenu.Item>
       <ContextMenu.Separator />
     {/if}
+    <!-- Each item reads its action before onClose: closing clears the parent's
+         menu state, and rowActions is a getter over it. -->
     <!-- Stopping a run and ticking a task off are the two things the sidebar's
          rows used to spend a button on each. They live here now: one is
          destructive, the other is the user's own verdict, and neither is worth
@@ -316,8 +318,9 @@
     {#if canDrive && rowActions?.onStop}
       <ContextMenu.Item
         onSelect={() => {
+          const action = rowActions?.onStop;
           onClose();
-          rowActions?.onStop?.();
+          action?.();
         }}
       >
         <StopCircleIcon />
@@ -327,8 +330,9 @@
     {#if canDrive && rowActions?.onToggleDone}
       <ContextMenu.Item
         onSelect={() => {
+          const action = rowActions?.onToggleDone;
           onClose();
-          rowActions?.onToggleDone?.();
+          action?.();
         }}
       >
         <CheckIcon />
@@ -344,8 +348,9 @@
     {#if canDrive && rowActions?.onSnooze}
       <ContextMenu.Item
         onSelect={() => {
+          const action = rowActions?.onSnooze;
           onClose();
-          rowActions?.onSnooze?.();
+          action?.();
         }}
       >
         <MoonIcon />
@@ -357,8 +362,9 @@
     {#if rowActions?.onArchive}
       <ContextMenu.Item
         onSelect={() => {
+          const action = rowActions?.onArchive;
           onClose();
-          rowActions?.onArchive?.();
+          action?.();
         }}
       >
         <ArchiveIcon />
@@ -368,8 +374,9 @@
     {#if rowActions?.onUnarchive}
       <ContextMenu.Item
         onSelect={() => {
+          const action = rowActions?.onUnarchive;
           onClose();
-          rowActions?.onUnarchive?.();
+          action?.();
         }}
       >
         <ArchiveRestoreIcon />

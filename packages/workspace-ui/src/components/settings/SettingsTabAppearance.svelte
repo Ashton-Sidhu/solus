@@ -30,6 +30,10 @@
       keywords: ["conversation", "chat", "transcript", "width", "column", "wide", "narrow", "full", "layout"],
     },
     {
+      id: "sidebar-view",
+      keywords: ["sidebar", "view", "group", "project", "projects", "folder", "status", "working", "sessions"],
+    },
+    {
       id: "reply-opacity",
       keywords: ["reply", "assistant", "message", "text", "opacity", "contrast", "fade", "transcript"],
     },
@@ -119,7 +123,7 @@
     IS_MAC_OS,
   } from "../../contexts/app/settings-display";
   import { getSettingsContext } from "../../contexts";
-  import { MIN_ASSISTANT_TEXT_OPACITY, type ConversationWidth } from "@solus/contracts/settings";
+  import { MIN_ASSISTANT_TEXT_OPACITY, type ConversationWidth, type SidebarView } from "@solus/contracts/settings";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
@@ -147,6 +151,11 @@
   // Presets only; the picker adds every installed family behind them.
   const appFontPresets = APP_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
   const codeFontPresets = APP_CODE_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
+  const sidebarViews: ReadonlyArray<{ value: SidebarView; label: string }> = [
+    { value: "status", label: "By status" },
+    { value: "project", label: "By project" },
+  ];
+
   const conversationWidths: ReadonlyArray<{ value: ConversationWidth; label: string }> = [
     { value: "narrow", label: "Narrow" },
     { value: "comfortable", label: "Comfortable" },
@@ -204,7 +213,7 @@
   />
 </SettingsSection>
 
-<SettingsSection label="Layout" visible={isVisible("conversation-width")}>
+<SettingsSection label="Layout" visible={["conversation-width", "sidebar-view"].some(isVisible)}>
   <SettingsRow
     label="Conversation width"
     description="How wide messages run in the conversation pane. Narrow panes always fill their width."
@@ -216,6 +225,21 @@
         value={theme.conversationWidth}
         onSelect={(value) => theme.setPersonal("conversationWidth", value)}
         ariaLabel="Conversation width"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Sidebar view"
+    description="Group sessions by status, or in one folder per project."
+    visible={isVisible("sidebar-view")}
+  >
+    {#snippet control()}
+      <SettingsSelect
+        options={sidebarViews}
+        value={theme.sidebarView}
+        onSelect={(value) => theme.setPersonal("sidebarView", value)}
+        ariaLabel="Sidebar view"
       />
     {/snippet}
   </SettingsRow>

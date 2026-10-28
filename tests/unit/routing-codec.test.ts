@@ -40,6 +40,7 @@ const SAMPLES: RouteRef[] = [
   { name: 'automation', params: { automationId: null } },
   { name: 'automation', params: { automationId: null, serverId: 'remote-host' } },
   { name: 'goal', params: { sessionId: 'sess_abc' } },
+  { name: 'artifacts', params: { sessionId: 'sess_abc', serverId: 'h1' } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'map' } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'guide' } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'guide', scope: { kind: 'session' } } },

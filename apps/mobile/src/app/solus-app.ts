@@ -97,7 +97,7 @@ const lastRouteSchema = z.object({
   projectPath: z.string(),
   record: z.object({
     sessionId: z.string().min(1),
-    provider: z.enum(['claude-code', 'codex', 'opencode']),
+    provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
     projectPath: z.string(),
     cwd: z.string().nullable(),
     model: z.string().nullable(),

@@ -3,6 +3,7 @@ import { isSolusToolEnabled } from '@solus/contracts/agent-tools'
 import { getHostConfig } from '../../../host/settings'
 import type { AgentId, NormalizedEvent } from '@solus/contracts/types'
 import { downscalePng } from './bounded-png'
+import { compactToolSchema } from './compact-tool-schema'
 
 export interface AgentToolResult {
   ok: boolean
@@ -94,6 +95,17 @@ export async function executeAgentTool<Input>(
     return { ok: false, text: `Invalid arguments for ${agentTool.name}: ${z.prettifyError(parsed.error)}` }
   }
   return agentTool.execute(parsed.data, context)
+}
+
+/**
+ * The input schema both provider adapters show the model, compact to save
+ * context on every turn. `executeAgentTool` still parses a call against the
+ * full fields. The input side: a field with a default may be left out.
+ */
+export function advertisedInputSchema(agentTool: AgentTool): z.core.JSONSchema.JSONSchema {
+  // A passthrough tool names no fields, so this is how the model learns it may send any key.
+  if (agentTool.passthroughInput) return { type: 'object', additionalProperties: true }
+  return compactToolSchema(agentTool.inputFields)
 }
 
 /** Apply host choices when a provider builds its tool catalog. Execution rechecks them. */

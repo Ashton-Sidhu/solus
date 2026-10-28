@@ -49,8 +49,8 @@ const MESSAGES_REBUILD_KEY = 'session-messages-rebuild'
  *  no join. A session keeps its first 2^20 messages in the index. */
 export const SESSION_ROW_SPAN = 2 ** 20
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
-const storedProviderSchema = z.enum(['claude', 'claude-code', 'codex', 'opencode'])
+const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
+const storedProviderSchema = z.enum(['claude', 'claude-code', 'codex', 'opencode', 'replay'])
 const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
 export const sessionRowSchema = z.object({
   session_id: z.string(),

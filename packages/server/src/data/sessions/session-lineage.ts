@@ -18,7 +18,7 @@ interface SessionLineageMemberRow {
 const sessionLineageMemberRowSchema = z.object({
   session_id: z.string(),
   position: z.number(),
-  provider: z.enum(['claude-code', 'codex', 'opencode']),
+  provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']),
   provider_session_id: z.string().nullable(),
   cwd: z.string(),
   started_at: z.number(),

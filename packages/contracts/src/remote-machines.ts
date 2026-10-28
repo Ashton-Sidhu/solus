@@ -97,6 +97,14 @@ export interface WslDistro {
   version: 1 | 2
 }
 
+/** A distro is named as the target `wsl:<distro>`, so its forward is listed like an SSH one, by `sshTarget`. */
+export const WSL_TARGET_PREFIX = 'wsl:'
+
+/** The name a distro's host takes: a distro reports the computer's name, so the distro names it. */
+export function wslHostLabel(distro: string): string {
+  return `${distro} (WSL)`
+}
+
 /** The distros a Windows host can add, or why it can add none. */
 export type WslDistroList =
   | { status: 'ready'; distros: WslDistro[] }

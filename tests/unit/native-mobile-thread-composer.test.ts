@@ -114,6 +114,15 @@ describe('native thread settings sheet', () => {
     expect(buildProviderGroups({ currentProvider: 'codex', currentModel: null, canSwitchProvider: false, agents: null }).map((group) => group.providerKey)).toEqual(['codex'])
   })
 
+  test('a host agent with no published profiles (the dev replay provider) offers the models the host lists', () => {
+    const replay = { id: 'replay' as const, label: 'Replay (dev)', models: [{ id: 'showcase', label: 'Showcase' }, { id: 'subagent', label: 'Background sub-agent' }], defaultModel: 'showcase', available: true }
+    const groups = buildProviderGroups({ currentProvider: 'claude-code', currentModel: null, canSwitchProvider: true, agents: [replay] })
+    const group = groups.find((candidate) => candidate.providerKey === 'replay')
+    expect(group?.providerLabel).toBe('Replay (dev)')
+    expect(group?.unavailableReason).toBeNull()
+    expect(group?.models.map((model) => [model.model, model.label, model.isDefault])).toEqual([['showcase', 'Showcase', true], ['subagent', 'Background sub-agent', false]])
+  })
+
   test('the session\'s own legacy model is not hidden behind the legacy filter', () => {
     const [claude] = buildProviderGroups({ currentProvider: 'claude-code', currentModel: 'claude-opus-4-6', canSwitchProvider: false, agents: null })
     expect(claude?.models.find((model) => model.model === 'claude-opus-4-6')?.isLegacy).toBe(false)

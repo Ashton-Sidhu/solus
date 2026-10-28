@@ -55,6 +55,7 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
           : restoredSession?.status ?? 'idle',
         currentTurnStartedAt: restoredSession?.currentTurnStartedAt ?? null,
         startedAt: restoredSession ? knownStartedAt(restoredSession) : null,
+        lastSentAt: restoredSession?.lastSentAt ?? null,
       }
     })
 }

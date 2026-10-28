@@ -8,6 +8,7 @@ import { Work } from '../works/work'
 import { linkWorkToSessionTasks } from '../works/work-tasks'
 import { getSessionRecord, organizationOfSession } from './session-records'
 import { sessionLinks } from './schema'
+import { emitSessionArtifactsChanged } from './session-artifacts'
 
 type ItemTarget = SessionLinkInput['target']
 
@@ -34,11 +35,12 @@ export async function linkSessionItem(sessionId: string, raw: SessionLinkInput, 
   const session = await getSessionRecord(organizationId, sessionId)
   if (session?.runnerHostId && target.hostId !== session.runnerHostId) throw new Error('The target must belong to the session’s execution host.')
   if (target.kind === 'file' && !isAbsolute(target.path) && !win32.isAbsolute(target.path)) throw new Error('A file reference needs an absolute host path.')
-  await getDatabase().run(sql`
+  const inserted = await getDatabase().run(sql`
     INSERT INTO ${sessionLinks}(session_id, link_id, target, title, created_by, linked_at, organization_id)
     VALUES (${sessionId}, ${linkIdOf(target)}, ${JSON.stringify(target)}, ${input.title ?? (target.kind === 'file' ? win32.basename(target.path) : target.targetId)}, ${JSON.stringify(actor)}, ${Date.now()}, ${organizationId})
     ON CONFLICT(session_id, link_id) DO NOTHING
   `)
+  if (inserted.changes > 0) await emitSessionArtifactsChanged(sessionId)
 }
 
 /** The reverse of `linkSessionItem`. A link that is not there changes nothing. */
@@ -49,5 +51,6 @@ export async function unlinkSessionItem(sessionId: string, raw: ItemTarget): Pro
     await (await Work.find(await organizationOfSession(sessionId), target.targetId))?.unlinkSession(sessionId)
     return
   }
-  await getDatabase().run(sql`DELETE FROM ${sessionLinks} WHERE session_id = ${sessionId} AND link_id = ${linkIdOf(target)}`)
+  const removed = await getDatabase().run(sql`DELETE FROM ${sessionLinks} WHERE session_id = ${sessionId} AND link_id = ${linkIdOf(target)}`)
+  if (removed.changes > 0) await emitSessionArtifactsChanged(sessionId)
 }

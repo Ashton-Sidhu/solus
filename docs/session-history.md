@@ -14,14 +14,23 @@ existing saved client state.
 
 `loadSessionPage` returns the newest `turnLimit` user turns before a cursor and an
 opaque cursor for the next older page. A conversation opens with 10 turns; each
-scroll back reads 20 more. The page size is counted in turns, not rows, so a quiet
+scroll back reads 20 more. The next page starts to load while three screens of
+loaded history are still above the reader (`HISTORY_PREFETCH_SCREENS`), so it
+arrives before they reach the top: desktop and web check the scroll position,
+and mobile uses the list's `onStartReached`. Desktop and web read the next page
+at once when a short page leaves the reader still that close to the top. The page size is counted in turns, not rows, so a quiet
 session opens with less data and a busy one with more: in the benchmark, 30
-messages for two steps a turn and 410 for forty. A page also stops at 500 rows or
-1 MiB of stored rows (`HISTORY_PAGE_ROWS`, `HISTORY_PAGE_BYTES`), so ordinary
-turns stay whole, but one very long agent turn cannot load whole and freeze the
-client. Such a turn opens at its newest rows, and older pages bring its earlier
-rows. A tool result or a child agent's row can then arrive one page before its
-call: desktop, web, and mobile keep it until the older page brings the call.
+messages for two steps a turn and 410 for forty. A page always starts at a user
+turn. Once it holds 500 rows or 1 MiB (`HISTORY_PAGE_ROWS`, `HISTORY_PAGE_BYTES`,
+counted on the rows as returned), it ends at the next turn start, so a turn
+arrives whole. A page cut inside a turn changed that turn on the client when the
+older page arrived: the row the reader was on was replaced, and the view jumped.
+Only a turn past four budgets (`historyPageMustCut`: 2000 rows or 4 MiB), or a
+Claude turn whose stored lines pass 16 MiB, is cut inside, so one very long
+agent turn cannot load whole and freeze the client. Such a turn opens at its
+newest rows, and older pages bring its earlier rows. A tool result or a child
+agent's row can then arrive one page before its call: desktop, web, and mobile
+keep it until the older page brings the call.
 Claude cursors use file byte boundaries and a boundary fingerprint; cloud
 (API-mode) cursors use row positions. Codex cursors use turn ids; a Codex page
 cut inside a turn also names the item page and the items already given, and it

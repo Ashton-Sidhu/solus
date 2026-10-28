@@ -1,5 +1,6 @@
 import { deviceCommands } from "@solus/workspace-ui/components/devices/lib/device-entry";
 import { settingsOwnerCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
+import { sidebarViewCommand } from "@solus/workspace-ui/components/session/lib/sidebar-view-command";
 import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
 import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
@@ -40,6 +41,7 @@ import { browserRecordingCommands, focusLeadingComposer } from "@solus/workspace
 import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
 import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
 import { saveFileAsWorkCommands } from "@solus/workspace-ui/components/files/lib/save-file-as-work";
+import { artifactsPaletteCommands } from "@solus/workspace-ui/components/session/artifacts/lib/artifacts-commands";
 import {
   activeSessionShareTarget,
   projectsStore,
@@ -340,7 +342,7 @@ export function createDesktopPalette(
       run: () => serversStore.openAddServer(),
     },
     addOverSshPaletteCommand(),
-    ...addWslDistroPaletteCommands(),
+    ...addWslDistroPaletteCommands(() => session.showSettings("api-access", "palette")),
     {
       id: "find-hosts",
       label: "Find hosts nearby",
@@ -529,7 +531,9 @@ export function createDesktopPalette(
     // Start or stop recording the page the browser pane shows.
     commands.push(...browserRecordingCommands(() => focusLeadingComposer(session.router)));
     commands.push(...deviceCommands(session));
+    commands.push(...artifactsPaletteCommands(session));
     commands.push(...settingsOwnerCommands(session));
+    commands.push(sidebarViewCommand(settings));
 
     commands.push({
       id: "open-plan",

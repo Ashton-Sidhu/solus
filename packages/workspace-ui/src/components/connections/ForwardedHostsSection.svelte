@@ -9,7 +9,8 @@
   import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { addOverSshStore } from "../servers/add-over-ssh.store.svelte";
-  import { addWslDistroStore, isWindowsHost } from "../servers/add-wsl-distro.store.svelte";
+  import { isWindowsHost } from "../servers/add-wsl-distro.store.svelte";
+  import WslDistroRows from "../servers/WslDistroRows.svelte";
   import { forwardedReachNote, forwardedRowStatus } from "../servers/lib/add-over-ssh";
   import { forwardedHostsStore as store } from "./forwarded-hosts.store.svelte";
 
@@ -52,17 +53,6 @@
         <PlusIcon size={13} />
         Add machine over SSH
       </Button>
-      {#if holderRunsWindows}
-        <Button
-          variant="ghost"
-          size="sm"
-          class="-my-1 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
-          onclick={() => void addWslDistroStore.open(serverId)}
-        >
-          <PlusIcon size={13} />
-          Add WSL distro
-        </Button>
-      {/if}
     {/snippet}
 
     {#if forwarded.length === 0}
@@ -141,6 +131,11 @@
           {/if}
         </div>
       {/each}
+    {/if}
+
+    {#if holderRunsWindows}
+      <!-- The host's own page says why it offers no distro: no WSL, no distro, or WSL did not answer. -->
+      <WslDistroRows hostId={serverId} reportsUnavailable />
     {/if}
   </SettingsSection>
 {/if}

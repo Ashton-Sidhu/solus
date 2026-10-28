@@ -1,5 +1,6 @@
 import type { DraftRow } from './draft-list'
 import type { SidebarTask } from './task-list'
+import type { SidebarFolder } from './sidebar-project-folders'
 
 /** Where a row sits in the one list. */
 export type SidebarSection = 'sessions' | 'shared' | 'working' | 'snoozed' | 'completed'
@@ -11,15 +12,19 @@ export type SidebarSection = 'sessions' | 'shared' | 'working' | 'snoozed' | 'co
  * draft that arrives or leaves, animate like any other change of order.
  */
 export type SidebarListItem =
-  | { kind: 'draft'; key: string; draft: DraftRow }
+  /** `folderKey` names the project folder a draft sits in, in the project view. */
+  | { kind: 'draft'; key: string; draft: DraftRow; folderKey?: string }
   | { kind: 'drafts-divider'; key: string }
   | { kind: 'header'; key: string; section: SidebarSection; count: number; isOpen: boolean }
-  | { kind: 'task'; key: string; section: SidebarSection; task: SidebarTask }
+  /** A project folder's header, in the project view only. */
+  | { kind: 'folder'; key: string; folder: SidebarFolder }
+  /** `folderKey` names the project folder a row sits in, in the project view. */
+  | { kind: 'task'; key: string; section: SidebarSection; task: SidebarTask; folderKey?: string }
 
 export interface SidebarListInput {
   drafts: readonly DraftRow[]
   /** Open sessions that are not working. Every row stands for one session; a
-   *  session linked to a task names it on a chip. */
+   *  session linked to a task names it in its tooltip. */
   sessions: readonly SidebarTask[]
   /** Other people's sessions in the reader's list (docs/plans/shared-with-you.md). */
   shared: readonly SidebarTask[]
@@ -43,14 +48,14 @@ export interface SidebarListInput {
  * shape, which the list cross-fades, while a row that keeps its shape — a slim
  * row moving between the two shelves — keeps its element and slides.
  */
-function taskItem(task: SidebarTask, section: SidebarSection): SidebarListItem {
+export function taskItem(task: SidebarTask, section: SidebarSection): Extract<SidebarListItem, { kind: 'task' }> {
   // A working row keeps the card it had, so a row that starts or finishes a
   // turn slides between sections rather than changing shape.
   const variant = section === 'sessions' || section === 'shared' || section === 'working' ? 'card' : 'slim'
   return { kind: 'task', key: `${task.id}:${variant}`, section, task }
 }
 
-function section(
+export function sectionItems(
   name: SidebarSection,
   tasks: readonly SidebarTask[],
   isOpen: boolean,
@@ -64,22 +69,26 @@ function section(
   ]
 }
 
+export function draftItem(draft: DraftRow): Extract<SidebarListItem, { kind: 'draft' }> {
+  return { kind: 'draft', key: `draft:${draft.draftId}`, draft }
+}
+
+/** Drafts lead the status view, with a divider below them when there are any. */
+export function draftItems(drafts: readonly DraftRow[]): SidebarListItem[] {
+  if (drafts.length === 0) return []
+  return [...drafts.map(draftItem), { kind: 'drafts-divider', key: 'drafts-divider' }]
+}
+
 export function buildSidebarListItems(input: SidebarListInput): SidebarListItem[] {
-  const drafts: SidebarListItem[] = input.drafts.map((draft) => ({
-    kind: 'draft',
-    key: `draft:${draft.draftId}`,
-    draft,
-  }))
   return [
-    ...drafts,
-    ...(drafts.length > 0 ? [{ kind: 'drafts-divider', key: 'drafts-divider' } as const] : []),
+    ...draftItems(input.drafts),
     // Sessions are the body of the list: a header would only divide them from
     // nothing, so they stand bare and cannot collapse.
     ...input.sessions.map((task) => taskItem(task, 'sessions')),
-    ...section('shared', input.shared, input.isSharedOpen, input.shelfRevealTaskId),
-    ...section('working', input.working, input.isWorkingOpen, input.shelfRevealTaskId),
-    ...section('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealTaskId),
-    ...section('completed', input.completed, input.isCompletedOpen, input.shelfRevealTaskId),
+    ...sectionItems('shared', input.shared, input.isSharedOpen, input.shelfRevealTaskId),
+    ...sectionItems('working', input.working, input.isWorkingOpen, input.shelfRevealTaskId),
+    ...sectionItems('snoozed', input.snoozed, input.isSnoozedOpen, input.shelfRevealTaskId),
+    ...sectionItems('completed', input.completed, input.isCompletedOpen, input.shelfRevealTaskId),
   ]
 }
 

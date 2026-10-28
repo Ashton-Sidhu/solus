@@ -588,7 +588,7 @@ export class ConversationController {
    * (plans/021), so a pick back undoes nothing and a parked rate-limited
    * prompt and its card stay.
    */
-  pickProvider(provider: 'claude-code' | 'codex'): void {
+  pickProvider(provider: Exclude<AgentId, 'opencode'>): void {
     if (provider === this.run.provider) return
     this.run.provider = provider
     Object.assign(this.run, newSessionModel(provider, this.defaultsWithoutAuto(provider)))
@@ -877,7 +877,7 @@ export class ConversationController {
           imageAttachments: record.payload?.imageAttachments,
           imageAttachmentRefs: record.payload?.imageAttachmentRefs,
           queueAttachments: record.payload?.queueAttachments,
-          queueAttachmentContext: record.payload?.queueAttachmentContext,
+          queueAttachmentContext: record.payload?.queueAttachmentContext, isLead: this.run.lead && !this.started ? true : undefined,
         })
         this.started = true
         // The first prompt starts the thread on the provider it carried.

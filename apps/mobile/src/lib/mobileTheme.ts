@@ -374,6 +374,18 @@ export function createMobileThemeVariables(
     "--color-adaptive-sky-600-400": mixColors(c.blue, c.text, 0.58),
     "--color-adaptive-violet-600-400": c.purple,
     "--color-adaptive-rose-600-400": c.red,
+    // A session card's chips, one tint per type as desktop draws them
+    // (ArtifactChip.svelte): a 14% fill, and the hue 72% over the text.
+    "--color-artifact-written": mixColors(c.teal, c.text, 0.72),
+    "--color-artifact-written-fill": withAlpha(c.teal, 0.14),
+    "--color-artifact-drawn": mixColors(c.purple, c.text, 0.72),
+    "--color-artifact-drawn-fill": withAlpha(c.purple, 0.14),
+    "--color-artifact-file": mixColors(c.blue, c.text, 0.72),
+    "--color-artifact-file-fill": withAlpha(c.blue, 0.14),
+    "--color-artifact-image": mixColors(c.rose, c.text, 0.72),
+    "--color-artifact-image-fill": withAlpha(c.rose, 0.14),
+    "--color-artifact-automation": mixColors(c.accent, c.text, 0.72),
+    "--color-artifact-automation-fill": withAlpha(c.accent, 0.14),
   };
 }
 

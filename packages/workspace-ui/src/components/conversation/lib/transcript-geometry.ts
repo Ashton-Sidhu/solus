@@ -6,18 +6,26 @@ export class TranscriptGeometry {
   keys: string[] = []
   offsets: number[] = [0]
   private heights = new Map<string, number>()
+  /** Rows measured at least once, including any whose height equals the estimate. */
+  private measured = new Set<string>()
   private indices = new Map<string, number>()
 
   setKeys(keys: string[]): void {
     this.keys = keys
     this.indices = new Map(keys.map((key, index) => [key, index]))
     for (const key of this.heights.keys()) if (!this.indices.has(key)) this.heights.delete(key)
+    for (const key of this.measured) if (!this.indices.has(key)) this.measured.delete(key)
     this.rebuild()
   }
 
+  isMeasured(key: string): boolean {
+    return this.measured.has(key)
+  }
+
   measure(key: string, height: number): boolean {
-    if (!this.indices.has(key) || !Number.isFinite(height) || height <= 0
-      || Math.abs((this.heights.get(key) ?? 240) - height) < 0.5) return false
+    if (!this.indices.has(key) || !Number.isFinite(height) || height <= 0) return false
+    this.measured.add(key)
+    if (Math.abs((this.heights.get(key) ?? 240) - height) < 0.5) return false
     this.heights.set(key, height)
     return true
   }

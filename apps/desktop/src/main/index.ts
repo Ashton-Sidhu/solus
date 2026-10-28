@@ -23,6 +23,7 @@ import { registerBrowserHeadlessHost } from './browser/headless-window'
 import { registerBrowserRecordingEncoderHost } from './browser/recording-encoder-window'
 import { registerBrowserWebviewHost } from './browser/webview-driver'
 import { forwardGuestShortcuts, preserveApplicationReloadShortcut } from './browser/guest-shortcuts'
+import { guardBrowserPartition } from './browser/guard-browser-partition'
 import type { GuestShortcut } from '@solus/contracts/host-api'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from '@solus/server/admission/auth'
 import { closeDb } from '@solus/server/db'
@@ -401,7 +402,8 @@ function createMainWindow(): BrowserWindow {
   // A browser guest is untrusted page content: it renders whatever the dev
   // server serves. Strip any preload or Node access the tag asked for, whatever
   // the renderer wrote on the element.
-  mainContents.on('will-attach-webview', (_event, webPreferences) => {
+  mainContents.on('will-attach-webview', (_event, webPreferences, params) => {
+    guardBrowserPartition(params.partition)
     delete webPreferences.preload
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true

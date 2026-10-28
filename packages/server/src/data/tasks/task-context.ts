@@ -1,47 +1,10 @@
 import { clip } from '@solus/contracts/session-exchange'
 import type { TaskEpic, TaskLink } from '@solus/contracts/task-types'
 import type { AgentTaskLifecyclePolicy } from '@solus/contracts/types'
-import type { PersonalSettings } from '@solus/contracts/settings'
 
 /** Characters of the epic's description read_task returns. The epic is
  *  context for this task, not the work itself; the agent can open the url. */
 const EPIC_BODY_LIMIT = 2000
-
-/**
- * The rules of an orchestrator session: it coordinates workers and keeps its
- * own thread small, so a cache miss on a long thread does not spend the user's
- * limits. No run receives it now; tasks no longer have a lead session, and the
- * contract waits for a new trigger (docs/plans/task-conversation.md).
- */
-const LEAD_CONTRACT = [
-  'Lead contract:',
-  '- You are the lead session of this task. You coordinate; you do not implement beyond very small edits.',
-  '- Start workers with start_session (task=\'attempt\', this task\'s id), one worktree each (worktree_base_branch), with the full brief in the prompt. A worker does not see this conversation.',
-  '- Keep report on and do not poll. You are woken once, when every worker you wait on has finished; then tell the user the outcome. The user answers workers\' questions and permissions on their cards.',
-  '- Answer the user from reports, read_task_sessions and linked items. Do not read transcripts or source files to answer; ask a worker instead.',
-  '- Send a follow-up to a worker with report off unless you need its answer. Do not relay findings between workers; put shared findings in a task comment.',
-  '- Keep this thread small: short reads, short replies. Say what happened, what was produced with its link, and what is open.',
-  '- Write durable summaries into the task body or a task comment, not only into this conversation.',
-  '- When the user writes to you, call read_task_sessions first. After session reports, do not: they already say what each worker did.',
-]
-
-/** The user's lead settings (Settings → Tasks). They extend the lead
- *  contract; they never replace it. */
-export type LeadSettings = Pick<PersonalSettings, 'leadInstructions' | 'workerModel'>
-
-/** The lead contract, then the user's lead settings. A worker model is a
- *  default only: the user's instructions can route work elsewhere. */
-export function formatLeadContract(lead: LeadSettings): string {
-  const lines = [...LEAD_CONTRACT]
-  if (lead.workerModel) {
-    const { provider, model, reasoningEffort } = lead.workerModel
-    const reasoning = reasoningEffort ? ` and reasoning_effort '${reasoningEffort}'` : ''
-    lines.push(`- When the user's instructions name no agent and model for a worker, start it with agent_provider '${provider}', model_id '${model}'${reasoning}.`)
-  }
-  const instructions = lead.leadInstructions.trim()
-  if (instructions) lines.push('', 'User lead instructions:', instructions)
-  return lines.join('\n')
-}
 
 /** Render the task packet appended to the system prompt of every run on a
  *  task-backed session. It names the task and the rules the agent works under,
@@ -49,7 +12,8 @@ export function formatLeadContract(lead: LeadSettings): string {
  *  and links come from read_task, once, into the transcript. A packet that
  *  changed on every status move or comment would re-send the whole cached
  *  prompt. The title is absent when the task cannot be read; the id still
- *  names it. */
+ *  names it. It carries no lead contract: the lead contract is session-owned
+ *  (data/sessions/lead-contract.ts) and does not come from a task. */
 export function formatTaskContext(
   task: { id: string; title?: string },
   lifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate',

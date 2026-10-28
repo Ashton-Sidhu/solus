@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import type { NativeMarkdownTextStyle } from "../native/SelectableMarkdownText";
 import { resolveNativeMarkdownTypography } from "./appearancePreferences";
+import { themeAccentWithContrast } from "./mobileTheme";
 import { useUniwindTheme } from "./useUniwindTheme";
 
 /** T3's DM Sans faces (`src/lib/useFontFamily.ts`), bundled through `expo-font` in app.json.
@@ -13,6 +14,9 @@ const MARKDOWN_FONTS = {
   medium: "DMSans-Medium",
   bold: "DMSans-Bold",
 } as const;
+
+/** The file chip's slate blue, the desktop's `oklch(0.48 0.12 270)` (workspace.css). */
+const FILE_CHIP_ACCENT = "#4458a1";
 
 /** `user` is text in the person's message bubble; `assistant` is everything else. */
 export type MarkdownTone = "assistant" | "user";
@@ -67,7 +71,8 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
       // The table header fill (`--solus-surface-primary`): a 5% wash of ink
       // in light, 7% of white in dark.
       tableHeaderBackgroundColor: theme["--color-subtle-strong"],
-      fileTextColor: theme["--color-md-code-text"],
+      // Lifted on a dark canvas until it reads at 4.5:1.
+      fileTextColor: themeAccentWithContrast(FILE_CHIP_ACCENT, [theme["--color-thread-canvas"]]),
       quoteMarkerColor: theme["--color-md-blockquote-border"],
       dividerColor: theme["--color-md-hr"],
     };

@@ -41,6 +41,12 @@ type NativeStackOptionsWithToolbar = NativeStackNavigationOptions & {
   unstable_headerToolbarItems?: () => NativeStackHeaderItem[];
 };
 
+/** The text of a toolbar button's badge and its fill. */
+export interface NativeHeaderToolbarBadge {
+  readonly value: string;
+  readonly backgroundColor?: ColorValue;
+}
+
 /** A toolbar icon: an SF Symbol name, or a template image for a glyph SF Symbols lacks. */
 export type NativeHeaderToolbarIcon = string | { readonly type: "image"; readonly source: ImageSourcePropType };
 
@@ -128,6 +134,8 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
 
   const typeName = elementTypeName(child);
   if (typeName === "NativeHeaderToolbarButton") {
+    // SAFETY: this element is a NativeHeaderToolbarButton, whose props type names `badge`.
+    const badge = child.props.badge as NativeHeaderToolbarBadge | undefined;
     return {
       type: "button",
       label: typeof child.props.label === "string" ? child.props.label : "",
@@ -135,6 +143,9 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
         typeof child.props.accessibilityLabel === "string"
           ? child.props.accessibilityLabel
           : undefined,
+      badge: badge
+        ? { value: badge.value, style: badge.backgroundColor ? { backgroundColor: badge.backgroundColor } : undefined }
+        : undefined,
       disabled: Boolean(child.props.disabled),
       icon: iconFromProp(child.props.icon),
       onPress:
@@ -245,6 +256,8 @@ function NativeHeaderToolbarRoot(props: {
 
 function NativeHeaderToolbarButton(_props: {
   readonly accessibilityLabel?: string;
+  /** A badge on the button: iOS 26 and later. */
+  readonly badge?: NativeHeaderToolbarBadge;
   readonly disabled?: boolean;
   readonly icon?: NativeHeaderToolbarIcon;
   readonly label?: string;

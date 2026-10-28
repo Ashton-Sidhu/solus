@@ -36,7 +36,7 @@ const MAX_RUNS_PER_AUTOMATION = 50
 const MAX_RUN_OUTPUT_CHARS = 20_000
 const RUNNABLE_AGENT_PROVIDERS = new Set<AgentId>(['claude-code', 'codex'])
 
-const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode'])
+const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
 const runStatusSchema = z.enum(['running', 'succeeded', 'failed', 'cancelled'])
 const automationTriggerSchema = z.discriminatedUnion('type', [

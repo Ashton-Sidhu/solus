@@ -2,17 +2,14 @@
   import { untrack } from "svelte";
   import { localApi } from "@solus/client-core/local-api";
   import {
-    RefreshCw as ArrowsClockwiseIcon,
     ArrowDownToLine as GitPullIcon,
     ChevronRight as CaretRightIcon,
     Check as CheckIcon,
     LoaderCircle as CircleNotchIcon,
     CloudUpload as CloudArrowUpIcon,
-    Glasses as EyeglassesIcon,
     GitCommitHorizontal as GitCommitIcon,
     GitPullRequest as GitPullRequestIcon,
     Link as LinkIcon,
-    Map as MapIcon,
     FileDiff as FileDiffIcon,
     Search as MagnifyingGlassIcon,
     Send as PaperPlaneTiltIcon,
@@ -24,14 +21,12 @@
     getSessionEnvironmentStore,
     getWorkspaceContext,
     getPullRequestsContext,
-    getSettingsContext,
     getAgentContext,
     hosts,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
     branchGuideIdentity,
@@ -80,7 +75,6 @@
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
   const pullRequests = getPullRequestsContext();
-  const settings = getSettingsContext();
   const agentContext = getAgentContext();
   const prApi = $derived(session.apiFor(sourceId));
   const prServerId = $derived(serverConnections.serverIdForApi(prApi));
@@ -243,94 +237,56 @@
         },
         caretAction: { ariaLabel: "More commit actions", menu: "commit" },
       });
-    defs.push(
-      {
-        key: "changes",
-        label: "Changes",
-        icon: FileDiffIcon,
-        diffStat: branchChanges,
-        badge: branchChanges?.fileCount
-          ? `${branchChanges.fileCount} file${branchChanges.fileCount === 1 ? "" : "s"}`
-          : undefined,
-        phase: "idle",
-        tooltip: !branchChanges
-          ? undefined
-          : branchChanges.fileCount === 0
-            ? "No changes"
-            : status && status.branch !== status.targetBranch
-              ? `Changes since this branch left ${status.targetBranch}`
-              : "Uncommitted changes",
-        disabled: !canGit,
-        run: () => openReviewView("diff"),
-      },
-      // An open PR is reported by the row that already stands for it: the
-      // branch's PR becomes the label, its number the trailing metric, the
-      // glyph takes the colour of its checks, and the click opens it. Pushing
-      // its updates is the commit row's job. A branch behind its upstream
-      // syncs from here first: the commit row may have nothing to show.
-      activePr && prPhase === "idle" && primaryAction.kind !== "sync"
-        ? {
-            key: "pull-requests",
-            label: activePr.title,
-            icon: GitPullRequestIcon,
-            badge: activePrBadge,
-            iconTone: activePrTone,
-            phase: prPhase,
-            tooltip: prChecks
-              ? `${prChecks.label} — ${prChecks.tooltip}`
-              : undefined,
-            run: () => openPr(activePr),
-            caretAction: {
-              ariaLabel: "More pull request actions",
-              menu: "pull-requests",
-            },
-          }
-        : {
-            key: "pull-requests",
-            label:
-              isPullRequestActionRunning && actions.activeLabel
-                ? actions.activeLabel
-                : primaryAction.kind === "sync" && actions.syncing
-                  ? "Syncing…"
-                  : primaryAction.label,
-            icon: primaryAction.kind === "sync" ? GitPullIcon : GitPullRequestIcon,
-            phase:
-              primaryAction.kind === "sync" && actions.syncing
-                ? "loading"
-                : prPhase,
-            disabled:
-              primaryAction.kind === "disabled" ||
-              actions.running ||
-              (primaryAction.kind === "sync" && (!canGit || actions.syncing)),
-            tooltip:
-              primaryAction.kind === "disabled"
-                ? primaryAction.reason
-                : undefined,
-            run: runPrimaryAction,
-            caretAction: {
-              ariaLabel: "More pull request actions",
-              menu: "pull-requests",
-            },
-          },
-      {
-        key: "review",
-        label: reviewing
-          ? reviewKey
-            ? "Regenerating review guide…"
-            : "Generating review guide…"
-          : "Review changes",
-        icon: EyeglassesIcon,
-        phase: reviewing ? "loading" : reviewKey ? "success" : "idle",
-        disabled: !canGit,
-        run: () => {
-          void handleReview();
-        },
+    defs.push({
+      key: "changes",
+      label: "Changes",
+      icon: FileDiffIcon,
+      diffStat: branchChanges,
+      badge: branchChanges?.fileCount
+        ? `${branchChanges.fileCount} file${branchChanges.fileCount === 1 ? "" : "s"}`
+        : undefined,
+      phase: "idle",
+      tooltip: !branchChanges
+        ? undefined
+        : branchChanges.fileCount === 0
+          ? "No changes"
+          : status && status.branch !== status.targetBranch
+            ? `Changes since this branch left ${status.targetBranch}`
+            : "Uncommitted changes",
+      disabled: !canGit,
+      run: () => openReviewView("diff"),
+    });
+    // An open PR is reported by the pull request section below the rows, so
+    // the row shows only while there is a pull request to create, a remote to
+    // publish, or an upstream to sync, or while its own action reports.
+    if (!(activePr && prPhase === "idle" && primaryAction.kind !== "sync"))
+      defs.push({
+        key: "pull-requests",
+        label:
+          isPullRequestActionRunning && actions.activeLabel
+            ? actions.activeLabel
+            : primaryAction.kind === "sync" && actions.syncing
+              ? "Syncing…"
+              : primaryAction.label,
+        icon: primaryAction.kind === "sync" ? GitPullIcon : GitPullRequestIcon,
+        phase:
+          primaryAction.kind === "sync" && actions.syncing
+            ? "loading"
+            : prPhase,
+        disabled:
+          primaryAction.kind === "disabled" ||
+          actions.running ||
+          (primaryAction.kind === "sync" && (!canGit || actions.syncing)),
+        tooltip:
+          primaryAction.kind === "disabled"
+            ? primaryAction.reason
+            : undefined,
+        run: runPrimaryAction,
         caretAction: {
-          ariaLabel: "Review options",
-          menu: "review",
+          ariaLabel: "More pull request actions",
+          menu: "pull-requests",
         },
-      },
-    );
+      });
     // Discard arms in place: the row itself becomes the confirmation, so the
     // irreversible action still needs a second, deliberate click, and the caret
     // beside it is the way back out.
@@ -382,7 +338,7 @@
   });
 
   // A row's menu is anchored to that row, like the branch picker.
-  type MenuKey = "commit" | "pull-requests" | "review";
+  type MenuKey = "commit" | "pull-requests";
   let rowMenuOpen = $state(false);
   let openMenuKey = $state<MenuKey | null>(null);
   let openRowEl = $state<HTMLElement | null>(null);
@@ -441,13 +397,6 @@
     const pr = pullRequests.projects.at(prServerId, prProjectScope)?.prForCheckout(prUrl);
     return pr?.state === "open" ? pr : null;
   });
-  const activePrBadge = $derived(
-    activePr
-      ? activePr.draft
-        ? `Draft · #${activePr.number}`
-        : `#${activePr.number}`
-      : undefined,
-  );
 
   // --- The session's pull requests -----------------------------------------
   // The card lists every open pull request the session links, the branch's own
@@ -504,21 +453,6 @@
       pullRequests.checks.loadFailedFor(prServerId, ctx),
     );
   }
-  const prChecks = $derived(activePr ? checksFor(activePr) : null);
-  // Draft PRs stay untinted: nothing is being asserted about a PR that isn't
-  // asking to land yet. `none`/`unavailable` are likewise not a verdict.
-  function checksTone(pr: PullRequest): ActionRowItem["iconTone"] {
-    const checks = checksFor(pr);
-    if (!checks || pr.draft) return undefined;
-    return checks.state === "failing"
-      ? "danger"
-      : checks.state === "pending"
-        ? "running"
-        : checks.state === "passing"
-          ? "success"
-          : undefined;
-  }
-  const activePrTone = $derived(activePr ? checksTone(activePr) : undefined);
   // One row per other linked pull request, read the way the list and the
   // review pane read one: the lifecycle as the glyph's shape (open, draft),
   // mergeability as its tone (red cannot merge, green can, purple merged),
@@ -700,20 +634,12 @@
     );
   }
 
-  // Review companion: run the producer (review the diff
-  // → structured guide) for the current branch, then wait for
-  // an explicit second click before opening the companion in the main pane.
+  // Review guide status for this branch, kept to report a failed run.
   // Read only: `trackBranchReviewGuides` probes the host once for every shown
   // source; this section declares its source and reads the answer.
   const reviewIdentity = $derived(branchGuideIdentity(env));
   const reviewStatus = $derived(
     reviewGuideStore.statusFor(session.serverIdFor(sourceId), reviewIdentity),
-  );
-  const reviewing = $derived(
-    reviewStatus?.status === "queued" || reviewStatus?.status === "generating",
-  );
-  const reviewKey = $derived(
-    reviewStatus?.status === "ready" ? reviewStatus.key : null,
   );
   let lastReviewFailureAt = 0;
 
@@ -735,54 +661,9 @@
     );
   });
 
-  // The diff is the default reading surface. Once a guide exists, the same
-  // primary action resumes that guide instead of making the user find it.
-  function handleReview() {
-    if (reviewKey) session.openReviewGuide({ kind: "branch" }, sourceId);
-    else session.enterReview("branch", sourceId, "diff");
-    requestInputFocus();
-  }
-
   function openReviewView(view: "map" | "diff") {
     closeRowMenu();
     session.enterReview("branch", sourceId, view);
-  }
-
-  async function generateReport() {
-    if (reviewing) return;
-    const identity = reviewIdentity;
-    if (!identity) return;
-    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
-    toasts.info("Started generating the review guide");
-    try {
-      await reviewGuideStore.generate(
-        session.apiFor(sourceId),
-        session.serverIdFor(sourceId),
-        ctx,
-        identity,
-        { ...resolveReviewAgent(settings), scope: "branch" },
-      );
-    } catch (error) {
-      toasts.error("Couldn't generate the review guide", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      requestInputFocus();
-    }
-  }
-
-  function regenerateReport() {
-    void generateReport();
-  }
-
-  function cancelReview() {
-    if (!reviewing) return;
-    void reviewGuideStore.cancel(
-      session.apiFor(sourceId),
-      session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
-      "branch",
-    );
-    requestInputFocus();
   }
 
   async function resolveWithAgent() {
@@ -1040,30 +921,6 @@
             }),
           );
         },
-      })}
-    {:else if openMenuKey === "review"}
-      {@render menuItem("Open map", {
-        icon: MapIcon,
-        onclick: () => openReviewView("map"),
-      })}
-      {@render menuItem(
-        reviewing
-          ? "Cancel guide generation"
-          : reviewKey
-            ? "Regenerate guide"
-            : "Generate review guide",
-        {
-          icon: reviewing ? XIcon : ArrowsClockwiseIcon,
-          onclick: () => {
-            closeRowMenu();
-            if (reviewing) cancelReview();
-            else regenerateReport();
-          },
-        },
-      )}
-      {@render menuItem("Open diff", {
-        icon: FileDiffIcon,
-        onclick: () => openReviewView("diff"),
       })}
     {/if}
   </DropdownMenu.Content>

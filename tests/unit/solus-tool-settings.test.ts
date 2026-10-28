@@ -47,6 +47,7 @@ describe('Solus tool settings', () => {
     const second = mergeHostConfig(first, hostConfigPatchSchema.parse({ solusTools: { ask_jev: false } }))
     expect(second.solusTools).toEqual({ read_work: false, ask_jev: false })
     expect(hostConfigPatchSchema.safeParse({ solusTools: { typo: false } }).success).toBe(false)
+    expect(hostConfigPatchSchema.safeParse({ solusTools: { wait_for_session: false } }).success).toBe(false)
   })
   test('both providers hide disabled tools and restore enabled tools', () => {
     expect(codex.adaptCodexTools([tool])).toHaveLength(1)

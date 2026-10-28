@@ -203,7 +203,7 @@
 {:else if fileRef || fileChip}
   <button
     type="button"
-    class={tokenClassName("file", true)}
+    class={tokenClassName("file")}
     title={fileRef ? fileLinkTooltip(fileRef.path, fileRef.line, fileLinkWorkingDirectory) : title ?? href}
     onclick={handleClick}
   ><span class="solus-token__icon">

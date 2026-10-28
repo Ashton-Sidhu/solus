@@ -150,6 +150,7 @@ export const RESOURCE_LOCATORS = {
   ensureBackgroundSessionTitle: sessionIdAt(0),
   setSessionBranch: sessionIdAt(0),
   sessionPullRequestWatch: sessionIdAt(0),
+  sessionArtifactsList: sessionIdAt(0),
   setThreadGoal: sessionFieldAt(0, 'threadId'),
   clearThreadGoal: sessionIdAt(0),
   savePlanAnnotations: sessionFieldAt(0, 'sessionId'),

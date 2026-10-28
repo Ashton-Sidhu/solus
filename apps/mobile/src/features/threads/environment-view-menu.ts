@@ -1,16 +1,11 @@
 import {
   ENVIRONMENT_VIEWS,
   ENVIRONMENT_VIEW_LABELS,
-  delegatedSessionIds,
   environmentViewFor,
-  sessionArtifacts,
   type EnvironmentView,
   type EnvironmentViewFacts,
 } from '@solus/client-core/environment-view'
-import type { HostApi } from '@solus/client-core/host-api'
-import type { WorkListingMeta } from '@solus/contracts/types'
 import type { ScreenHeaderMenu } from '../../components/ScreenHeader.types'
-import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 /**
  * The thread header's environment menu: the phone's form of the desktop
@@ -19,47 +14,6 @@ import type { TranscriptItem } from '../conversation/lib/transcript-model'
  */
 
 const VIEW_ICON = { browser: 'globe', builds: 'hammer', artifacts: 'sparkles' } as const satisfies { readonly [view in EnvironmentView]: string }
-
-/** The session's artifacts as the loaded transcript shows them. */
-export interface TranscriptArtifacts {
-  /** The newest artifact row, which the menu opens. */
-  latestId: string | null
-  /** One per work: revisions of a work count once. */
-  count: number
-}
-
-export function transcriptArtifacts(order: readonly string[], item: (id: string) => TranscriptItem | undefined): TranscriptArtifacts {
-  const works = new Set<string>()
-  let count = 0
-  let latestId: string | null = null
-  for (const id of order) {
-    const row = item(id)
-    if (row?.kind !== 'artifact') continue
-    latestId = id
-    // Revisions of one work are one artifact; a render without a work is its own.
-    if (!row.workId) count += 1
-    else if (!works.has(row.workId)) {
-      works.add(row.workId)
-      count += 1
-    }
-  }
-  return { latestId, count }
-}
-
-/**
- * The artifact works of the sessions below this one in its delegation tree,
- * the last changed first. Their reports show them in this conversation (or in
- * a delegate's), but this transcript has no artifact row for them. The host
- * lists only what the reader may see.
- */
-export async function delegatedArtifacts(api: Pick<HostApi, 'sessionRecordList' | 'listWorks'>, sessionId: string): Promise<WorkListingMeta[]> {
-  const delegated = await delegatedSessionIds(sessionId, (parentSessionId) =>
-    api.sessionRecordList({ parentSessionId }).then((answer) => answer.records.map((record) => record.sessionId)))
-  if (delegated.size === 0) return []
-  // The session's own artifacts come from its transcript.
-  const linkedHere = (work: WorkListingMeta) => work.sessionId === sessionId || !!work.sessionIds?.includes(sessionId)
-  return sessionArtifacts(await api.listWorks(), sessionId, delegated).filter((work) => !linkedHere(work))
-}
 
 /** Window-only choices, keyed by host and session, as on desktop. */
 const choices = new Map<string, EnvironmentView>()

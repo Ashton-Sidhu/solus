@@ -23,15 +23,19 @@ import { z } from 'zod'
 
 // ─── Agent ID (needed by ModelProfile below) ───
 
-export type AgentId = 'claude-code' | 'codex' | 'opencode'
+/** `replay` is the development-only provider that replays recorded turns (docs/replay-provider.md). */
+export type AgentId = 'claude-code' | 'codex' | 'opencode' | 'replay'
 
 export type AgentTaskLifecyclePolicy = 'none' | 'moderate' | 'autonomous'
 
-export const AGENT_BIN = {
+/** The binary each provider runs. `replay` runs in the server process and has none. */
+export type AgentBinaries = { readonly [agent in AgentId]?: string }
+
+export const AGENT_BIN: AgentBinaries = {
   'claude-code': 'claude',
   'codex': 'codex',
   'opencode': 'opencode',
-} satisfies Record<AgentId, string>
+}
 
 /**
  * The port a Solus server listens on unless it is told otherwise. Shared with
@@ -502,6 +506,8 @@ export const modelProfilesSchema = z.object({
   'claude-code': providerModelProfilesSchema.optional(),
   codex: providerModelProfilesSchema.optional(),
   opencode: providerModelProfilesSchema.optional(),
+  /** Never published: the replay backend lists its scenarios as its models. */
+  replay: providerModelProfilesSchema.optional(),
 })
 
 export type ModelProfiles = z.infer<typeof modelProfilesSchema>
@@ -993,6 +999,9 @@ export interface SessionSpec {
   /** PR context carried by a composer opened from a pull request. Optional so
    *  drafts saved before this field existed still restore normally. */
   prReview?: PrReviewContext | null
+  /** The person chose that the session leads: it coordinates workers and does
+   *  not implement (docs/plans/lead-session.md). Sent with the first prompt. */
+  isLead?: boolean
 }
 
 /** UI-only state. One per open tab in the renderer. */
@@ -1082,6 +1091,10 @@ export interface Session {
    *  so without this its sidebar row would have no start time until opened
    *  and would move when it was. */
   startedAt?: number | null
+  /** Renderer-local: when the person last sent a prompt from a composer here,
+   *  kept across a reload. Agent, automation, and wake prompts do not set it.
+   *  The sidebar's project view orders each folder by it. */
+  lastSentAt?: number | null
   isStreamingText: boolean
   isReconnecting: boolean
   permissionQueue: PermissionRequest[]
@@ -1123,6 +1136,10 @@ export interface Session {
   /** A fresh tab has no provider thread id yet. `/goal <objective>` stores the
    *  objective here until the first prompt initializes the thread. */
   pendingGoalObjective?: string | null
+  /** The person chose, before the first message, that this session leads:
+   *  it coordinates workers and does not implement. Sent with the first
+   *  prompt; fixed once the session has started. */
+  isLead?: boolean
   /** Live inline progress card for the current multi-step action (worktree
    *  setup, etc.). Live-only — not persisted to the transcript. */
   statusCard: StatusCardState | null
@@ -2091,6 +2108,10 @@ export interface PromptOptions {
   /** Goal objective attached to a fresh session dispatch. Main persists it as
    *  soon as the provider issues the session id, before a fast turn can finish. */
   goalObjective?: string
+  /** The first prompt of a lead session (docs/plans/lead-session.md). The
+   *  host marks the session as a lead and appends the lead contract to every
+   *  run of it. Ignored on a session that has already started. */
+  isLead?: boolean
   systemPrompt?: string
   maxTurns?: number
   maxBudgetUsd?: number

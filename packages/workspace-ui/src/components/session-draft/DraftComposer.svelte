@@ -152,6 +152,7 @@
         {spacious}
         showDestination={false}
         {isPrimary}
+        {draft}
         run={draft.run}
         onRun={(next) => draft.applyRun(next)}
         selection={modelSelection}

@@ -25,6 +25,7 @@
   import { ROUTES, surfaceKey } from "../../contexts/workspace/routing/route-registry";
   import { CompanionPanes } from "./lib/companion-panes.svelte";
   import CompanionSurfaceStrip from "./CompanionSurfaceStrip.svelte";
+  import { useArtifactsAutoOpen } from "../session/artifacts/lib/artifacts-auto-open.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     closeTargetPaneId,
@@ -80,6 +81,7 @@
   const settings = getSettingsContext();
   const environmentStore = getSessionEnvironmentStore();
   const router = session.router;
+  useArtifactsAutoOpen(session);
   const companions = new CompanionPanes(
     () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
   );

@@ -165,6 +165,8 @@ async function resolveAgentBinary(agentId: AgentId): Promise<string | null> {
 }
 
 export async function enrichAgentMetadata(metadata: AgentMetadata): Promise<AgentMetadata> {
+  // A backend that runs in the server process (replay) has no binary to find.
+  if (!AGENT_BIN[metadata.id]) return metadata
   const binaryPath = await resolveAgentBinary(metadata.id)
   return {
     ...metadata,
@@ -464,9 +466,14 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   // sent work to — the card that shows a child's question answers it for the
   // child. Access to the conversation itself is checked by the access policy.
   server.register('respondPermission', async (args, handlerCtx) => {
-    const [ctx, askingSessionId, questionId, optionId, updatedPlan, feedback] = args
+    const [ctx, askingSessionId, questionId, optionId, sentPlan, sentFeedback] = args
+    // JSON has no `undefined`: an argument a client leaves out arrives as null
+    // over the WebSocket and the desktop envelope. Null means "none" here.
+    const updatedPlan = sentPlan ?? undefined
+    const feedbackInput = permissionFeedbackSchema.safeParse(sentFeedback ?? undefined)
+    if (!feedbackInput.success) throw new Error('Feedback must be text')
+    const feedback = feedbackInput.data
     log.info('rpc_respond_permission', { sessionId: ctx.session.sessionId, askingSessionId, questionId, optionId, hasUpdatedPlan: !!updatedPlan, hasFeedback: feedback !== undefined })
-    if (!permissionFeedbackSchema.safeParse(feedback).success) throw new Error('Feedback must be text')
     if (!deps.orchestrator.mayAnswer(ctx.session.sessionId, askingSessionId)) return false
     if (!await mayAnswer(askingSessionId, handlerCtx.principal)) return false
     // A caller may not answer: false. The host does not hold the request now: a typed refusal.

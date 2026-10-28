@@ -336,7 +336,7 @@ const sessionToolInputSchema = z.object({
   model_id: z.string().optional(),
   reasoning_effort: z.string().optional(),
   cwd: z.string().optional(),
-  agent_provider: z.enum(['claude-code', 'codex', 'opencode']).optional().catch(undefined),
+  agent_provider: z.enum(['claude-code', 'codex', 'opencode', 'replay']).optional().catch(undefined),
   delivery: z.enum(['queue', 'steer']).optional().catch(undefined),
 })
 

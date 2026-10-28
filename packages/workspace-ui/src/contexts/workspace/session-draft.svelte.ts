@@ -35,6 +35,8 @@ export class SessionDraft {
   task = $state<TaskTarget>({ kind: 'none' })
   boundWorkId = $state<string | null>(null)
   prReview = $state<PrReviewContext | null>(null)
+  /** Chosen before the first message; the session it starts carries it. */
+  isLead = $state(false)
   readonly #onMove: (draft: SessionDraft) => void
 
   /**
@@ -81,6 +83,7 @@ export class SessionDraft {
       task: this.task,
       boundWorkId: this.boundWorkId,
       prReview: this.prReview,
+      isLead: this.isLead,
     }
   }
 

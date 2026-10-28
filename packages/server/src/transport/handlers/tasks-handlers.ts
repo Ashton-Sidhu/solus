@@ -15,6 +15,8 @@ import { attachLinkedContent } from '../../data/tasks/linked-content'
 import { attachArtifactToTask } from '../../data/tasks/task-artifacts'
 import { prepareSessionTask, taskIdsForSessions, taskSessions, tasksForSession } from '../../data/tasks/task-sessions'
 import { stopPullRequestWatch } from '../../data/sessions/pull-request-watches'
+import { readSessionArtifacts } from '../../data/sessions/session-artifacts'
+import { organizationOfSession } from '../../data/sessions/session-records'
 import { startSessionPullRequestWatch } from '../../prs/start-pull-request-watch'
 import { markTaskRead, recordTaskActivity } from '../../data/tasks/task-lifecycle'
 import { readTaskSnoozes, snoozeTaskFor } from '../../data/tasks/task-snoozes'
@@ -275,6 +277,14 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
       return 'stopped'
     }
     return startSessionPullRequestWatch(sessionId, repository, number)
+  })
+
+  // What a session produced or linked (docs/plans/session-artifacts.md). The
+  // access policy admits the reader to the session; the list is read in the
+  // session's own organization, where its links and works are.
+  server.register('sessionArtifactsList', async (args) => {
+    const [sessionId] = args
+    return readSessionArtifacts(await organizationOfSession(sessionId), sessionId)
   })
 
   server.register('tasksLink', async (args, ctx) => {

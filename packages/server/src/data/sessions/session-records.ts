@@ -32,7 +32,7 @@ import { stateFromColumns, viewFromColumns } from './session-state-columns'
  * write names one organization.
  */
 
-const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode'])
+const agentIdSchema = z.enum(['claude-code', 'codex', 'opencode', 'replay'])
 const statusSchema = z.enum(['idle', 'running', 'interrupted'])
 const publicationSchema = z.enum(['local', 'published'])
 const reasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])

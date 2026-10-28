@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    AppWindow as ArtifactIcon,
+    Boxes as ArtifactIcon,
     Check as CheckIcon,
     ChevronRight as CaretRightIcon,
     Folder as FolderIcon,
@@ -40,11 +40,10 @@
     ENVIRONMENT_VIEWS,
     ENVIRONMENT_VIEW_LABELS,
     environmentViewFor,
-    sessionArtifacts,
     type EnvironmentView,
   } from "@solus/client-core/environment-view";
   import { environmentViewChoices } from "./lib/environment-view";
-  import { artifactOwners, delegatedSessions } from "./lib/delegated-sessions.store.svelte";
+  import { sessionArtifactsStore } from "../../contexts/sessions/session-artifacts.store.svelte";
 
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
@@ -109,28 +108,25 @@
     if (active && showsDevices && !devicesStore.state(detailServerId) && !devicesStore.unavailable.get(detailServerId)) void devicesStore.load(detailServerId);
   });
 
-  // The view row: the browser, the builds, or this session's artifacts,
-  // including those of the sessions it sent work to. The works list is read
-  // once per window; new artifacts arrive as events.
-  const delegated = $derived(sessionId ? delegatedSessions.delegatedBy(detailServerId, sessionId) : undefined);
-  const artifacts = $derived(sessionArtifacts(session.worksStore.visibleWorks, sessionId, delegated));
+  // The view row: the browser, the builds, or this session's Artifacts
+  // surface, which also lists what its delegation tree made. The list is read
+  // once; changes arrive as events.
+  const artifactCount = $derived(sessionArtifactsStore.countFor(sessionId));
   $effect(() => {
-    if (active && sessionId) session.worksStore.ensureListed();
-  });
-  $effect(() => {
-    if (active && sessionId) delegatedSessions.ensureRead(detailServerId, sessionId, artifactOwners(session.worksStore.visibleWorks));
+    if (active && sessionId) sessionArtifactsStore.ensure(detailServerId, sessionId);
   });
   // A draft has no session yet; its choice is kept under the draft.
   const choiceKey = $derived(sessionId ?? sourceId);
   const viewFacts = $derived({
     chosen: environmentViewChoices.chosenFor(detailServerId, choiceKey),
     sessionShowsDevice,
-    artifactCount: artifacts.length,
-    // A draft has no session, so it has no artifacts to wait for.
-    artifactsKnown: !sessionId || (session.worksStore.listAnswered && !!delegated),
+    artifactCount,
+    // A draft has no session, so it has no artifacts to wait for. A failed
+    // read counts as answered; the Artifacts surface shows the failure.
+    artifactsKnown: !sessionId || sessionArtifactsStore.isLoaded(sessionId) || sessionArtifactsStore.hasFailed(sessionId),
   });
-  // Null until the works list and the delegated sessions answer: the row
-  // waits rather than naming Browser and then changing to Artifacts.
+  // Null until the session's artifacts answer: the row waits rather than
+  // naming Browser and then changing to Artifacts.
   const view = $derived(environmentViewFor(viewFacts));
   /** A guest opens no browser or device on the host, as the rows before this one. */
   const mayUseHost = $derived(me?.may("host.use") ?? true);
@@ -141,9 +137,8 @@
   function openView(target: EnvironmentView) {
     if (target === "browser") session.openBrowser();
     else if (target === "builds") openRunApp(session, detailServerId, sessionId);
-    // The session's last changed artifact, or the works gallery when it has none.
-    else if (artifacts[0]) session.openWork(artifacts[0].id);
-    else session.openFolio();
+    // A draft has no session, so it has no Artifacts surface yet.
+    else if (sessionId) session.openArtifacts(sessionId);
     requestInputFocus();
   }
 
@@ -246,10 +241,9 @@
           key: "view",
           label: view ? ENVIRONMENT_VIEW_LABELS[view] : "Checking session…",
           icon: VIEW_ICON[view ?? "browser"],
-          badge: view === "artifacts" && artifacts.length > 1 ? String(artifacts.length) : undefined,
+          badge: view === "artifacts" && artifactCount > 1 ? String(artifactCount) : undefined,
           phase: view ? "idle" : "loading",
           disabled: !view || !mayUseHost,
-          tooltip: view === "artifacts" ? artifacts[0]?.title || undefined : undefined,
         }}
         onActivate={() => {
           if (view) openView(view);
@@ -299,8 +293,8 @@
         <DropdownMenu.Item aria-checked={option === view} role="menuitemradio" onSelect={() => chooseView(option)}>
           <OptionIcon />
           <span class="min-w-0 flex-1 truncate">{ENVIRONMENT_VIEW_LABELS[option]}</span>
-          {#if option === "artifacts" && artifacts.length > 1}
-            <DropdownMenu.Shortcut class="tabular-nums">{artifacts.length}</DropdownMenu.Shortcut>
+          {#if option === "artifacts" && artifactCount > 1}
+            <DropdownMenu.Shortcut class="tabular-nums">{artifactCount}</DropdownMenu.Shortcut>
           {:else if option === view}
             <CheckIcon class="size-4 shrink-0" />
           {/if}

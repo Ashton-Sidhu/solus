@@ -259,7 +259,7 @@ describe('working in a checkout on a managed host', () => {
   })
 
   test('a lead starts on the lead model with that model\'s own defaults', () => {
-    // WHY: Settings → Tasks names the agent and model a task lead runs on. The
+    // WHY: Settings → General names the agent and model a lead session runs on. The
     // provider must move with the model, and the outgoing model's tuning must
     // not run the new one.
     const lead = runOnModel(run('codex', 'gpt-5.6-sol'), { provider: 'claude-code', model: 'claude-opus-5' })

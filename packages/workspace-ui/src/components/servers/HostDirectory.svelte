@@ -6,7 +6,6 @@
     ChevronRight as CaretRightIcon,
     HardDrive as DesktopTowerIcon,
     Plus as PlusIcon,
-    SquareTerminal as TerminalIcon,
     Wifi as WifiHighIcon,
   } from "@lucide/svelte";
   import {
@@ -22,8 +21,9 @@
   import { hostReadinessSummary } from "./lib/host-onboarding";
   import { hostSetupStore } from "./host-setup.store.svelte";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
-  import { addWslDistroStore } from "./add-wsl-distro.store.svelte";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
+  import WslDistroRows from "./WslDistroRows.svelte";
+  import { addWslDistroStore } from "./add-wsl-distro.store.svelte";
 
   // The registry can point at a host that is no longer saved, so trust the
   // resolved active server rather than the stored id.
@@ -32,6 +32,12 @@
     void serversStore.refreshDirectory();
     void hostSetupStore.probeUnprobedOnline(serversStore.executionServers);
   });
+
+  // A WSL distro of this client's Windows host is nearby too: that host can add it.
+  const wslHostId = $derived(addWslDistroStore.defaultWindowsHostId);
+  const hasNearby = $derived(
+    serversStore.nearbyHosts.length > 0 || (!!wslHostId && addWslDistroStore.addableDistros(wslHostId).length > 0),
+  );
 
   /** Where the host answers, without the scheme: the address is what tells hosts apart. */
   function hostAddress(url: string | undefined): string {
@@ -62,17 +68,6 @@
       <PlusIcon size={13} weight="bold" />
       Add host
     </Button>
-    {#if addWslDistroStore.windowsHostId}
-      <Button
-        variant="ghost"
-        size="sm"
-        class="-my-1 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
-        onclick={() => void addWslDistroStore.open()}
-      >
-        <TerminalIcon size={13} />
-        Add WSL distro
-      </Button>
-    {/if}
   {/snippet}
 
   {#if serversStore.servers.length === 0}
@@ -159,12 +154,16 @@
     </div>
   {/each}
 
+  {#if wslHostId}
+    <WslDistroRows hostId={wslHostId} />
+  {/if}
+
   <!-- Always present, whether or not anything was found: discovery failing
        silently is the same picture as a network with no hosts on it, and this
        is the only place that says which one the user is looking at. -->
   <div class="px-4 py-3">
     <p class="text-pretty text-[0.875em] leading-5 text-(--solus-text-tertiary)">
-      {#if serversStore.nearbyHosts.length === 0}
+      {#if !hasNearby}
         No nearby hosts found.
       {/if}
       A host must have <em class="font-medium not-italic text-(--solus-text-secondary)"

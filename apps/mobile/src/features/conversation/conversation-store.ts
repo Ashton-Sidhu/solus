@@ -39,6 +39,8 @@ export interface ConversationMeta {
   uploading: number
   /** The picked provider differs from the thread's: the next prompt hands off (plans/021). */
   handoffPending: boolean
+  /** The new session is a lead (`ConversationRun.lead`). */
+  lead: boolean
   /** What the next prompt runs with. */
   run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode }
   /** What the next prompt may choose: Auto before the host starts the
@@ -148,6 +150,7 @@ export class ConversationStore {
       attachments: this.controller.attachments,
       uploading: this.controller.uploading,
       handoffPending: isHandoffPending(this.controller.threadProvider, this.controller.run.provider),
+      lead: this.controller.run.lead === true,
       run: {
         provider: this.controller.run.provider,
         model: this.controller.run.preferredModel,

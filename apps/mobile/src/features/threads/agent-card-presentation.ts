@@ -47,7 +47,7 @@ export interface AgentRowPresentation {
 
 const DETAIL_LIMIT = 280
 
-const PROVIDER_NAMES: { readonly [provider in AgentId]?: string } = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode' }
+const PROVIDER_NAMES: { readonly [provider in AgentId]?: string } = { 'claude-code': 'Claude', codex: 'Codex', opencode: 'OpenCode', replay: 'Replay (dev)' }
 
 const EXCHANGE_LABEL: { readonly [status in AgentExchangeStatus]: string } = {
   dispatched: 'Starting',

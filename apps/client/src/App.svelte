@@ -4,7 +4,6 @@
   import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
   import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
   import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
-  import { addWslDistroStore } from "@solus/workspace-ui/components/servers/add-wsl-distro.store.svelte";
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
   import BackgroundSessionAnnouncer from "@solus/workspace-ui/components/notifications/BackgroundSessionAnnouncer.svelte";
@@ -42,6 +41,7 @@
   import { deviceCommands, revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
   import { revealBrowserSurface } from "@solus/workspace-ui/components/browser/lib/surface-reveal";
   import { settingsOwnerCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
+  import { sidebarViewCommand } from "@solus/workspace-ui/components/session/lib/sidebar-view-command";
   import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
   import {
     browserRecordingCommands,
@@ -78,6 +78,7 @@
   import { openChatDraft } from "@solus/workspace-ui/contexts/workspace/new-chat";
   import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
   import { saveFileAsWorkCommands } from "@solus/workspace-ui/components/files/lib/save-file-as-work";
+  import { artifactsPaletteCommands } from "@solus/workspace-ui/components/session/artifacts/lib/artifacts-commands";
   import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
   import { createProjectPicker } from "@solus/workspace-ui/components/servers/project-picker.svelte";
@@ -560,7 +561,7 @@
     },
     ...updateAllPaletteCommands(),
     addOverSshPaletteCommand(),
-    ...addWslDistroPaletteCommands(),
+    ...addWslDistroPaletteCommands(() => session.showSettings("api-access", "palette")),
     {
       id: "open-project",
       label: "Open project…",
@@ -648,7 +649,9 @@
     },
     ...browserRecordingCommands(() => focusLeadingComposer(session.router)),
     ...deviceCommands(session),
+    ...artifactsPaletteCommands(session),
     ...settingsOwnerCommands(session),
+    sidebarViewCommand(settings),
     {
       id: "settings",
       label: "Settings",
@@ -798,18 +801,6 @@
 >
   {#snippet children(AddServerModal)}
     <AddServerModal />
-  {/snippet}
-</LazyDialog>
-
-<LazyDialog
-  open={addWslDistroStore.isOpen}
-  load={() => import("@solus/workspace-ui/components/servers/AddWslDistroDialog.svelte")}
-  title="Add a WSL distro"
-  class="w-[28rem]"
-  onclose={() => addWslDistroStore.close()}
->
-  {#snippet children(AddWslDistroDialog)}
-    <AddWslDistroDialog />
   {/snippet}
 </LazyDialog>
 

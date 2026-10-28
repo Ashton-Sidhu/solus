@@ -25,6 +25,8 @@ export interface ConversationRun {
   title: string | null
   /** The organization this device works in; the host assigns an unassigned session to it once. */
   organizationId: string | null
+  /** The new session is a lead (`LeadSessionChoice`); only the prompt that starts it says so. */
+  lead?: boolean
 }
 
 /** The person's settings a new run starts from (plans/018: personal, not the host's). */

@@ -12,7 +12,8 @@
     projectsStore,
   } from "../../contexts";
   import { projectFaviconResolver } from "../../lib/project-favicon";
-  import { isAbsoluteHostPath } from "@solus/contracts/host-path";
+  import { hostPathBaseName, isAbsoluteHostPath } from "@solus/contracts/host-path";
+  import { projectBadgeColors, projectInitials } from "@solus/contracts/project-badge";
 
   let {
     projectKey,
@@ -36,6 +37,12 @@
   const projectRoot = $derived(checkout?.projectRoot ?? "");
   const hasRoot = $derived(isAbsoluteHostPath(projectRoot));
   const requestKey = $derived(`${resolvedServerId}\0${projectRoot}`);
+  // A project with no favicon wears its initials on its own colour, so
+  // projects tell apart at a glance in every place that shows one.
+  const projectName = $derived(hasRoot ? hostPathBaseName(projectRoot) : "");
+  const initials = $derived(projectInitials(projectName));
+  const badgeLight = $derived(projectBadgeColors(projectName, "light"));
+  const badgeDark = $derived(projectBadgeColors(projectName, "dark"));
   let source = $state<{
     key: string;
     status: "pending" | "ready";
@@ -79,7 +86,18 @@
     <ChatIcon size="100%" class="text-(--solus-text-tertiary)" />
   {:else}
     {#if !hasRoot || (source.key === requestKey && source.status === "ready" && !source.url)}
-      <FolderIcon size="100%" class="text-(--solus-text-tertiary)" />
+      {#if initials}
+        <span
+          class="flex size-full items-center justify-center rounded-[22%] bg-(--badge-light-bg) text-(--badge-light-fg) [container-type:size] dark:bg-(--badge-dark-bg) dark:text-(--badge-dark-fg)"
+          style="--badge-light-bg:{badgeLight.background};--badge-light-fg:{badgeLight.foreground};--badge-dark-bg:{badgeDark.background};--badge-dark-fg:{badgeDark.foreground}"
+          aria-hidden="true"
+        >
+          <!-- Sized against the badge, so one badge reads at 13px and at 16px. -->
+          <span class="text-[length:48cqh] leading-none font-semibold tracking-tight">{initials}</span>
+        </span>
+      {:else}
+        <FolderIcon size="100%" class="text-(--solus-text-tertiary)" />
+      {/if}
     {:else if source.key === requestKey && source.url}
       <img
         src={source.url}

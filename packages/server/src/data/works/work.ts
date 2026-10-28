@@ -13,11 +13,12 @@ import type { WorkExternalLink } from '@solus/contracts/docs'
 import type { Attribution } from '@solus/contracts/user'
 import { workPreview } from '@solus/contracts/work-preview'
 import { parseDiagram } from '@solus/contracts/diagram-types'
-import { getDatabase, type Db } from '../../db/database'
+import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
 import { documentContentHash } from '../../docs/content-hash'
 import { type RecordScope } from '../../admission/principal'
 import { workAnnotations, workRevisions, works } from './schema'
 import { emitWorkChanged } from './work-events'
+import { emitSessionArtifactsChanged } from '../sessions/session-artifacts'
 import { workLiveBridge } from './work-live-bridge'
 import { recordNewMentions } from '../activity/mentions'
 import { removeNotificationsFor } from '../notifications/store'
@@ -480,8 +481,9 @@ export class Work implements WorkRecord {
     })
   }
 
+  /** A session's artifacts list its works, so each membership change is the session's too. */
   async linkSession(sessionId: string): Promise<this> {
-    return this.mutate(async (db, row) => {
+    await this.mutate(async (db, row) => {
       const meta = metaFromRow(row)
       const sessionIds = meta.sessionIds ?? (meta.sessionId ? [meta.sessionId] : [])
       if (!sessionIds.includes(sessionId)) sessionIds.push(sessionId)
@@ -489,15 +491,19 @@ export class Work implements WorkRecord {
       if (!meta.sessionId) meta.sessionId = sessionId
       await writeMeta(db, row.id, meta)
     })
+    await afterDatabaseCommit(async () => emitSessionArtifactsChanged(sessionId))
+    return this
   }
 
   /** The reverse of `linkSession`. The session that made the work stays its origin. */
   async unlinkSession(sessionId: string): Promise<this> {
-    return this.mutate(async (db, row) => {
+    await this.mutate(async (db, row) => {
       const meta = metaFromRow(row)
       meta.sessionIds = (meta.sessionIds ?? (meta.sessionId ? [meta.sessionId] : [])).filter(id => id !== sessionId)
       await writeMeta(db, row.id, meta)
     })
+    await afterDatabaseCommit(async () => emitSessionArtifactsChanged(sessionId))
+    return this
   }
 
   /**

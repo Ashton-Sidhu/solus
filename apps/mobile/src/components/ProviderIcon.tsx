@@ -128,6 +128,15 @@ export function ProviderIcon(rawProps: ProviderIconProps) {
     );
   }
 
+  // The development replay provider has no brand to draw: a plain play mark.
+  if (props.provider === "replay") {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path fill={isDarkMode ? "#F5F5F5" : "#0F0F0F"} d="M7 4.5v15l12-7.5z" />
+      </Svg>
+    );
+  }
+
   if (props.provider === "opencode") {
     return (
       <Svg width={size} height={size} viewBox="0 0 32 40" fill="none">

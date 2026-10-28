@@ -494,10 +494,23 @@ meant moving each of them.
 A WSL distro is instead **a machine you add**, through the path that already
 adds a machine over SSH (docs/plans/host-routes.md D6, D7):
 
-- **Choice.** Add a WSL distro, in the Run on menu (desktop and web) and in a
-  Windows host's settings (mobile), lists the distros of the Windows host
-  (`hostsListWslDistros`: `wsl.exe --list --verbose`, 8 s bound). A failure
-  says why: no WSL, no distro, or WSL did not answer.
+- **Choice.** A distro is a host the Windows host finds by itself, like a
+  host on the local network, so it is offered where those are: each distro
+  the Windows host does not reach yet is a row with Add in the Nearby list
+  (desktop and web) and in the Windows host's "Machines over SSH or WSL"
+  (all clients). The list is `hostsListWslDistros` (`wsl.exe --list
+  --verbose`, 8 s bound), less the distros the host forwards to already
+  (`unaddedDistros`, by the `wsl:<distro>` target). The Windows host's own
+  page says why it offers none: no WSL, no distro, or WSL did not answer;
+  the Nearby list stays quiet, because a Windows host without WSL is usual.
+  The palette's "Add a WSL distro" opens the host list.
+- **Add.** Add has no form. The Add host dialog (desktop and web) or a screen
+  (mobile) shows the setup card of the add and its result.
+- **Link.** Once the distro is added, a person who is signed in can link it
+  to the account (`hostsLinkForwarded`), so every device reaches it through
+  the account's tunnel. The forward stays as a route (D9), because it is
+  also what keeps the distro running. A distro is never linked at add time:
+  a host linked then gets no forward, and its distro would stop.
 - **Install.** The host runs the provisioner's steps in the distro through
   `wsl.exe -d <distro> --exec sh -c`, with each script on stdin, as it does
   over SSH. The published installer puts the Linux release of the host's own
@@ -1094,6 +1107,11 @@ Found and fixed on the way:
   now also beside "Add machine over SSH" in the host directory and in a
   Windows host's forwarded machines, and in the palette, each shown only for
   a Windows host.
+- The add then had its own dialog, with a choice of distro as its only
+  field. The distros are now rows in the Nearby list and in the Windows
+  host's forwarded machines, each with Add, and the add draws the same
+  bridge and setup card as any host add (§5.13). WSL progress now carries
+  the install's percentage, as SSH progress does.
 
 The Linux server release serves no web client, so the distro is driven from
 the Windows host's client, as a saved host. Still to run: a Claude Code

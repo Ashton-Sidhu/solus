@@ -125,6 +125,7 @@ const AGENT_LABELS = new Map([
   ['claude-code', 'Claude Code'],
   ['codex', 'Codex'],
   ['opencode', 'OpenCode'],
+  ['replay', 'Replay (dev)'],
 ])
 
 const DAY = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })

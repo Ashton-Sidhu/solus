@@ -3,12 +3,14 @@ import type { SessionReport } from './session-exchange'
 import type { Activity } from './activity'
 
 /** Opaque host cursor. A page is the `turnLimit` newest user turns before the
- * cursor, but never more than `HISTORY_PAGE_ROWS` rows or `HISTORY_PAGE_BYTES`
- * bytes. Ordinary turns arrive whole. A turn longer than the budget is cut at
- * a row boundary: its page starts inside the turn, and the next older page
- * holds its earlier rows. A tool result or a child agent's row can then arrive
- * one page before the call that owns it, so a client keeps such rows until an
- * older page brings the call. */
+ * cursor, and it starts at a user turn. Once it holds `HISTORY_PAGE_ROWS` rows
+ * or `HISTORY_PAGE_BYTES` bytes it ends at the next turn start, so a turn
+ * arrives whole and the rows a client already shows never change their turn.
+ * Only a turn past `historyPageMustCut` is cut at a row boundary: its page
+ * starts inside the turn, and the next older page holds its earlier rows. A
+ * tool result or a child agent's row can then arrive one page before the call
+ * that owns it, so a client keeps such rows until an older page brings the
+ * call. */
 export interface SessionHistoryPageRequest {
   sessionId: string
   projectPath?: string
@@ -21,14 +23,26 @@ export interface SessionHistoryPageRequest {
   deferArtifactHtml?: boolean
 }
 
-/** The most rows one history page holds. Enough that ordinary turns stay whole. */
+/** The rows after which a history page ends at its next turn start. */
 export const HISTORY_PAGE_ROWS = 500
-/** The most stored bytes one history page reads, counted on the rows as read. */
+/** The bytes after which a history page ends at its next turn start, counted
+ *  on the rows as returned. */
 export const HISTORY_PAGE_BYTES = 1024 * 1024
+/** How many budgets one turn may fill before its page is cut inside it. */
+const HISTORY_TURN_CUT_BUDGETS = 4
 
-/** Whether a page that holds `rows` rows read from `bytes` stored bytes is full. */
+/** Whether a page that holds `rows` rows of `bytes` bytes is full: it ends at
+ *  the next turn start. */
 export function historyPageIsFull(rows: number, bytes: number): boolean {
   return rows >= HISTORY_PAGE_ROWS || bytes >= HISTORY_PAGE_BYTES
+}
+
+/** Whether a page is so far past its budget that it is cut inside a turn. One
+ *  agent turn of thousands of tool calls would freeze a client that loads it
+ *  whole when the session opens. */
+export function historyPageMustCut(rows: number, bytes: number): boolean {
+  return rows >= HISTORY_PAGE_ROWS * HISTORY_TURN_CUT_BUDGETS
+    || bytes >= HISTORY_PAGE_BYTES * HISTORY_TURN_CUT_BUDGETS
 }
 
 /** The row a user turn starts at: a prompt from the user, not a tool result

@@ -1,4 +1,4 @@
-import type { Session, SessionTitleChangedEvent } from '@solus/contracts/types'
+import type { SessionTitleChangedEvent } from '@solus/contracts/types'
 import { SvelteSet } from 'svelte/reactivity'
 import { sessionTitleRegenerationInput } from './session-title-regeneration'
 import { applySessionTitleChange } from './session-title-change'

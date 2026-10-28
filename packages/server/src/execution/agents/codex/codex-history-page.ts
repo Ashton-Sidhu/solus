@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { historyPageIsFull, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
+import { historyPageIsFull, historyPageMustCut, type ProviderHistoryPage, type SessionLoadMessage } from '@solus/contracts/session-history'
 import { CODEX_ITEM_PAGE, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { codexItemToMessage, completeCodexTurnMessages, toEpochMs, type CodexTurnHistory } from './codex-utils'
 
@@ -16,7 +16,8 @@ const cursorSchema = z.object({
 })
 type Cursor = z.infer<typeof cursorSchema>
 
-/** What the page holds so far, counted against `historyPageIsFull`. */
+/** What the page holds so far, counted against `historyPageIsFull` between
+ *  turns and `historyPageMustCut` inside one. */
 interface PageBudget { rows: number; bytes: number }
 
 const historyChanged = () => new Error('Session history changed. Reopen the session to load earlier messages.')
@@ -40,7 +41,7 @@ async function readItemPage(threadId: string, turn: CodexTurnHistory, readItems:
 }
 
 /** A turn's items from its end, or from `resume`, back to its first item or
- * until the page budget is full. `cut` is the cursor of the items left. */
+ * until the page is past its hard budget. `cut` is the cursor of the items left. */
 async function readTurn(
   threadId: string, turn: CodexTurnHistory, readItems: ReadItems, budget: PageBudget, resume: Cursor | undefined,
 ): Promise<{ messages: SessionLoadMessage[]; cut?: string }> {
@@ -63,7 +64,7 @@ async function readTurn(
         budget.rows++
       }
       const hasOlder = entry + 1 < page.data.length || Boolean(page.nextCursor)
-      if (turn.id && hasOlder && historyPageIsFull(budget.rows, budget.bytes)) {
+      if (turn.id && hasOlder && historyPageMustCut(budget.rows, budget.bytes)) {
         return { messages: newest.reverse(), cut: JSON.stringify({ turn: turn.id, items, skip: entry + 1, last: item.id }) }
       }
     }
@@ -76,9 +77,9 @@ async function readTurn(
   }
 }
 
-/** The `turnLimit` turns before the cursor, newest first, within the page's
- * row and byte budget (`historyPageIsFull`). Ordinary turns arrive whole. A
- * turn longer than the budget is cut between items: the page starts inside the
+/** The `turnLimit` turns before the cursor, newest first. A full page
+ * (`historyPageIsFull`) ends between turns, so turns arrive whole. Only a turn
+ * past `historyPageMustCut` is cut between items: the page starts inside the
  * turn, and the next older page gives back its earlier items. A turn id is
  * stable while new turns append. */
 export async function loadCodexHistoryPage(

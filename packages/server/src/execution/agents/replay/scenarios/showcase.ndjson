@@ -1,0 +1,25 @@
+{"kind":"scenario","label":"Showcase"}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"thinking","state":"start"}}
+{"kind":"event","event":{"type":"thinking","state":"stop","text":"The user wants a short tour. I will read the manifest, add a small clamp helper, run its tests, and then sum up with some markdown."},"afterMs":900}
+{"kind":"event","event":{"type":"text_chunk","text":"I'll take a quick tour: read the manifest, add a small helper, run the tests, and then sum up.\n\n"}}
+{"kind":"event","event":{"type":"progress","todos":[{"content":"Read the package manifest","status":"in_progress"},{"content":"Add a clamp helper","status":"pending"},{"content":"Run the tests","status":"pending"}]}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Read","toolId":"read-manifest","index":0}}
+{"kind":"event","event":{"type":"tool_call_complete","index":0,"toolId":"read-manifest","toolInput":"{\"file_path\": \"<workspace>/package.json\"}"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"read-manifest","content":"{\n  \"name\": \"example\",\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test\": \"bun test\"\n  }\n}\n"},"afterMs":400}
+{"kind":"event","event":{"type":"progress","todos":[{"content":"Read the package manifest","status":"completed"},{"content":"Add a clamp helper","status":"in_progress"},{"content":"Run the tests","status":"pending"}]}}
+{"kind":"event","event":{"type":"text_chunk","text":"The project tests with `bun test`. Now the helper.\n\n"}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Edit","toolId":"edit-clamp","index":1}}
+{"kind":"event","event":{"type":"tool_call_complete","index":1,"toolId":"edit-clamp","toolInput":"{\"file_path\": \"<workspace>/src/clamp.ts\", \"old_string\": \"export function clamp(value: number) {\\n  return value\\n}\\n\", \"new_string\": \"export function clamp(value: number, min: number, max: number): number {\\n  return Math.min(Math.max(value, min), max)\\n}\\n\"}"}}
+{"kind":"event","event":{"type":"permission_request","questionId":"edit-clamp-permission","toolName":"Edit","toolUseId":"edit-clamp","toolDescription":"Edit src/clamp.ts","toolInput":{"old_string":"export function clamp(value: number) {\n  return value\n}\n","new_string":"export function clamp(value: number, min: number, max: number): number {\n  return Math.min(Math.max(value, min), max)\n}\n"},"options":[{"id":"allow","label":"Allow Once","kind":"allow"},{"id":"allow-session","label":"Allow for Session","kind":"allow"},{"id":"deny","label":"Deny","kind":"deny"}]}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"edit-clamp","content":"The file <workspace>/src/clamp.ts has been updated."}}
+{"kind":"event","event":{"type":"progress","todos":[{"content":"Read the package manifest","status":"completed"},{"content":"Add a clamp helper","status":"completed"},{"content":"Run the tests","status":"in_progress"}]}}
+{"kind":"event","event":{"type":"tool_call","toolName":"Bash","toolId":"run-tests","index":2}}
+{"kind":"event","event":{"type":"tool_call_complete","index":2,"toolId":"run-tests","toolInput":"{\"command\": \"bun test src/clamp.test.ts\", \"description\": \"Run the clamp tests\"}"}}
+{"kind":"event","event":{"type":"tool_result","toolUseId":"run-tests","content":"bun test v1.3.14\n\nsrc/clamp.test.ts:\n✓ clamp > keeps a value inside the range [0.08ms]\n✓ clamp > raises a value below min [0.02ms]\n✓ clamp > lowers a value above max [0.01ms]\n\n 3 pass\n 0 fail\n 3 expect() calls\nRan 3 tests across 1 file. [12.00ms]"},"afterMs":1500}
+{"kind":"event","event":{"type":"progress","todos":[{"content":"Read the package manifest","status":"completed"},{"content":"Add a clamp helper","status":"completed"},{"content":"Run the tests","status":"completed"}]}}
+{"kind":"event","event":{"type":"text_chunk","text":"## Done\n\n`clamp` now takes a range and keeps a value inside it:\n\n```ts\nexport function clamp(value: number, min: number, max: number): number {\n  return Math.min(Math.max(value, min), max)\n}\n```\n\n| Input | Range | Result |\n| --- | --- | --- |\n| `5` | 0 to 10 | `5` |\n| `-3` | 0 to 10 | `0` |\n| `42` | 0 to 10 | `10` |\n\nAll **3 tests** pass. Send another prompt to see a question card."}}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"text_chunk","text":"One choice before I go on.\n\n"}}
+{"kind":"event","event":{"type":"question_request","questionId":"rounding-question","questions":[{"question":"How should clamp treat a range where min is greater than max?","header":"Range","multiSelect":false,"options":[{"label":"Swap them","description":"Treat the range as max to min."},{"label":"Throw","description":"Reject the range with a RangeError."},{"label":"Return min","description":"Keep the current behavior."}]}]}}
+{"kind":"event","event":{"type":"text_chunk","text":"Thanks. I'll keep that in mind for the next change. This replay has no more turns: the next prompt starts the tour again."}}

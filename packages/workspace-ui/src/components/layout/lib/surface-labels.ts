@@ -33,6 +33,7 @@ const KIND_LABELS = {
   browser: 'Browser',
   devices: 'Devices',
   goal: 'Goal',
+  artifacts: 'Artifacts',
   prReview: 'Pull request',
   prDiff: 'Pull request diff',
   tasks: 'Tasks',

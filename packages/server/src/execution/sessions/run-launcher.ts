@@ -18,6 +18,8 @@ import { buildSystemPrompt } from '../agents/system-hint'
 import { tasksForSession } from '../../data/tasks/task-sessions'
 import { SessionShelf } from '../../data/sessions/session-states'
 import { sessionIsOrganizationWork } from '../../data/sessions/session-records'
+import { isLeadSession, markSessionLead } from '../../data/sessions/lead-sessions'
+import { formatLeadContract } from '../../data/sessions/lead-contract'
 import { workspaceToolContext } from '../../data/workspace/tool-context'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
@@ -1036,6 +1038,21 @@ export class RunLauncher {
       options.systemPrompt = [options.systemPrompt, context].filter(Boolean).join('\n\n')
     } else {
       setForeignTaskSnapshot(sessionId, null)
+    }
+    // A lead is chosen before the first message and fixed from then on
+    // (docs/plans/lead-session.md): the first prompt of a new provider
+    // conversation marks the session, and every run of a lead carries the lead
+    // contract in its system prompt, after the task packet when there is one.
+    if (options.isLead && !dispatchAgentSessionId) {
+      await markSessionLead(sessionId, (await this.rt.turnOrganization(sessionId)) ?? undefined)
+    }
+    if (await isLeadSession(sessionId)) {
+      const preferences = effectiveInput.executionPreferences
+      const contract = formatLeadContract({
+        leadInstructions: preferences?.leadInstructions ?? DEFAULT_EXECUTION_PREFERENCES.leadInstructions,
+        workerModel: preferences?.workerModel ?? DEFAULT_EXECUTION_PREFERENCES.workerModel,
+      })
+      options.systemPrompt = [options.systemPrompt, contract].filter(Boolean).join('\n\n')
     }
     // A turn that answers another session's message ends with what that session
     // needs to act on, since its last message is what comes back.

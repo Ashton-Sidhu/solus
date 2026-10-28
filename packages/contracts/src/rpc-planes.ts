@@ -125,6 +125,8 @@ export const RPC_PLANES = {
   setSessionBranch: 'collaboration',
   // A watch wakes the agent, so the host that runs the session holds it.
   sessionPullRequestWatch: 'execution',
+  // The links join the host's own session, work, and pull request tables.
+  sessionArtifactsList: 'execution',
   listRecentProjects: 'execution',
   trackRecentProject: 'execution',
   listPlans: 'collaboration',

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { stripInjectedContext } from '@solus/server/execution/agents/utils'
 import { stripAttachedFileLines } from '@solus/contracts/injected-context'
-import { formatLeadContract, formatTaskContext } from '@solus/server/data/tasks/task-context'
+import { formatTaskContext } from '@solus/server/data/tasks/task-context'
+import { formatLeadContract } from '@solus/server/data/sessions/lead-contract'
 
 const task = { id: '01KZ4TSYMQRX31D1DK5AAEW5TR', title: 'Task System Testing' }
 
@@ -113,8 +114,8 @@ describe('task lifecycle work contracts', () => {
 
 describe('the lead contract', () => {
   test('a task packet carries no lead contract', () => {
-    // WHY: tasks have no lead session. A session linked to a task works on
-    // it; it does not coordinate workers for it.
+    // WHY: a lead is a session-owned opt-in, not a role of a task. A session
+    // linked to a task works on it; it does not coordinate workers for it.
     expect(formatTaskContext(task)).not.toContain('Lead contract:')
   })
 
@@ -125,17 +126,27 @@ describe('the lead contract', () => {
     const contract = formatLeadContract({ leadInstructions: '', workerModel: null })
     expect(contract.split('\n')[0]).toBe('Lead contract:')
     expect(contract).toContain('you do not implement beyond very small edits')
-    expect(contract).toContain("start_session (task='attempt'")
+    expect(contract).toContain('Start workers with start_session, one worktree each')
     expect(contract).toContain('Keep this thread small')
-    expect(contract).toContain('call read_task_sessions first')
-    // Reports reach the lead together, when its workers are done; re-reading
-    // the task after them only grows the thread.
+    // Reports reach the lead together, when its workers are done.
     expect(contract).toContain('You are woken once, when every worker you wait on has finished')
-    expect(contract).toContain('After session reports, do not')
+    expect(contract).toContain('Answer the user from reports and read_session.')
+  })
+
+  test('does not depend on a task', () => {
+    // WHY: a lead is a session the user opts in, not a role of a task. A lead
+    // with no task must not be told to read task sessions or to start workers
+    // on a task; a task joins only when the lead itself is linked to one.
+    const contract = formatLeadContract({ leadInstructions: '', workerModel: null })
+    expect(contract).not.toContain('read_task_sessions')
+    expect(contract).not.toContain('this task')
+    expect(contract).toContain("Start workers with task='none'.")
+    expect(contract).toContain("Only when you are linked to a task, start them with task='attempt'")
+    expect(contract.match(/task='attempt'/g)).toHaveLength(1)
   })
 
   test("the user's lead settings follow the lead contract and do not replace it", () => {
-    // WHY: Settings → Tasks lets a user route workers and add rules to the
+    // WHY: the lead settings let a user route workers and add rules to the
     // lead. The built-in contract keeps the lead's thread small, so the user's
     // text extends it rather than taking its place.
     const lead = {

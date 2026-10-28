@@ -1,0 +1,5 @@
+{"kind":"scenario","label":"Codex plan mode"}
+{"kind":"turn"}
+{"kind":"event","event":{"type":"plan","planContent":"# Plan\n\n- [x] Inspect files\n- (In progress) Patch normalizer","planFilePath":"","questionId":"codex-plan-turn-plan-1","options":[],"planToolUseId":"codex-plan-turn-plan-1"}}
+{"kind":"event","event":{"type":"text_chunk","text":"Streamed plan text"}}
+{"kind":"event","event":{"type":"plan","planContent":"# Final Plan\n\nCompleted plan wins.","planFilePath":"","questionId":"codex-plan-turn-plan-1","options":[],"planToolUseId":"codex-plan-plan-item-1"}}

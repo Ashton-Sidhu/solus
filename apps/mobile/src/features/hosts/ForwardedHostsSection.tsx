@@ -6,8 +6,11 @@ import { SettingsNote } from "../settings/components/SettingsNote";
 import { SettingsRow } from "../settings/components/SettingsRow";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { SettingsValueRow } from "../settings/components/SettingsValueRow";
+import { wslHostLabel } from "@solus/contracts/remote-machines";
 import { forwardedHostRow } from "./forwarded-hosts";
+import { distroNote } from "./lib/wsl-add";
 import { useForwardedHosts } from "./use-forwarded-hosts";
+import { useWslDistros } from "./use-wsl-distros";
 
 /**
  * The machines this host reaches through SSH forwards it holds
@@ -18,8 +21,8 @@ export function ForwardedHostsSection(props: {
   readonly hostId: string;
   readonly hostLabel: string;
   readonly onAdd: () => void;
-  /** Adds one of the host's WSL distros; offered on a Windows host only. */
-  readonly onAddWsl: () => void;
+  /** Adds one of the host's WSL distros that it does not reach yet; offered on a Windows host only. */
+  readonly onAddWsl: (distro: string) => void;
   readonly onSignIn: () => void;
 }) {
   const app = useApp();
@@ -27,11 +30,12 @@ export function ForwardedHostsSection(props: {
   const signedIn = useListened(app.account.changes, () => app.account.isSignedIn);
   const mayReach = useListened(app.connections.changes, () => app.connections.may(props.hostId, "host.local.reach"));
   const isWindows = useListened(app.registry.changes, () => app.registry.host(props.hostId)?.os === "windows");
+  const distros = useWslDistros(props.hostId, isWindows, state.kind === "loaded" ? state.hosts : null);
   if (!mayReach) return null;
 
   return (
     <View className="gap-3">
-      <SettingsSection title="Machines over SSH">
+      <SettingsSection title={isWindows ? "Machines over SSH or WSL" : "Machines over SSH"}>
         {state.kind === "loading" ? (
           <View className="items-center p-4">
             <ActivityIndicator accessibilityLabel="Reading machines over SSH" colorClassName="accent-icon-muted" />
@@ -43,15 +47,23 @@ export function ForwardedHostsSection(props: {
           accessibilityHint={`${props.hostLabel} runs SSH for this phone`}
           onPress={props.onAdd}
         />
-        {isWindows ? (
-          <SettingsRow
-            icon="plus"
-            label="Add a WSL distro"
-            accessibilityHint={`${props.hostLabel} installs Solus in one of its WSL distros`}
-            onPress={props.onAddWsl}
-          />
-        ) : null}
+        {isWindows && "status" in distros && distros.status === "ready"
+          ? distros.distros.map((distro) => (
+              <SettingsRow
+                key={distro.name}
+                icon="plus"
+                label={`Add ${wslHostLabel(distro.name)}`}
+                value={distroNote(distro)}
+                valuePosition="below"
+                accessibilityHint={`${props.hostLabel} installs Solus in the distro and keeps it running`}
+                onPress={() => props.onAddWsl(distro.name)}
+              />
+            ))
+          : null}
       </SettingsSection>
+      {isWindows && "status" in distros && distros.status === "unavailable" ? (
+        <SettingsNote>{distros.message}</SettingsNote>
+      ) : null}
       {state.kind === "error" ? (
         <>
           <SettingsNote tone="danger">{state.message}</SettingsNote>

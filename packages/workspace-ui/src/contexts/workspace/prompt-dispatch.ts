@@ -98,6 +98,7 @@ export class PromptDispatch {
     session.status = 'running'
     session.currentActivity = 'Preparing review...'
     session.currentTurnStartedAt = sentAt
+    session.lastSentAt = sentAt
     if (session.messages.length === 2 && !session.titleCustom) {
       session.title = prompt.length > 80 ? prompt.substring(0, 80) : prompt
     }
@@ -151,7 +152,7 @@ export class PromptDispatch {
     requestConversationScrollToBottom(tabId)
   }
 
-  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; queueAttachments?: QueueAttachment[]; queueAttachmentContext?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; goalObjective?: string }): void {
+  promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; queueAttachments?: QueueAttachment[]; queueAttachmentContext?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; goalObjective?: string; isLead?: boolean }): void {
     const api = this.workspace.apiFor(tabId)
     const promptSession = this.workspace.sessionFor(tabId)
     const watchedSessionId = promptSession?.id
@@ -507,6 +508,8 @@ export class PromptDispatch {
     const isFirstMessage = session.messages.length === 0 || (session.forked && !session.forkedFromSessionId)
     const agent = session.run.provider ?? this.workspace.settings.activeAgent
     if (isFirstMessage) track('conversation_started', { agent })
+    // The person sent this, so the project view moves the session to the top of its folder.
+    session.lastSentAt = Date.now()
     track('message_sent', { agent, is_first_message: isFirstMessage, permission_mode: session.run.permissionMode, attachment_count: input.attachments.length, image_count: imageAttachments.length, plan_ref_count: planRefs?.length ?? 0, work_ref_count: workRefs?.length ?? 0, session_ref_count: sessionRefs?.length ?? 0, has_slash_command: prompt.startsWith('/'), delivery: isBusy ? (isSteerableStatus(session.status) && delivery === 'steer' ? 'steer' : 'queue') : 'immediate', is_remote_host: runHost(session.run) !== LOCAL_SERVER_ID })
 
     if (isBusy) {
@@ -576,6 +579,8 @@ export class PromptDispatch {
       imageAttachmentRefs: imagePayload.refs,
       taskId: promptTaskId,
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
+      // A lead is chosen before the first message and fixed from then on.
+      isLead: isFirstMessage && session.isLead ? true : undefined,
     })
     requestConversationScrollToBottom(targetTabId)
     return true

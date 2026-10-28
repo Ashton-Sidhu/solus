@@ -213,3 +213,46 @@ describe('the project of a dispatched session', () => {
     expect(runGroupKey(local, '/home/me/notes')).toBe('dispatch-box:/home/me/notes')
   })
 })
+
+describe('the drawer of sessions a row started', () => {
+  type FoldHarness = Pick<SessionSidebarStore, 'isNestedOpen' | 'setNestedOpen' | 'toggleNestedSessions'> & {
+    onScreenRowId: string | null
+  }
+  function foldStore(onScreenRowId: string | null): FoldHarness {
+    const store = Object.create(SessionSidebarStore.prototype) as FoldHarness
+    store.onScreenRowId = onScreenRowId
+    return store
+  }
+  // SAFETY: the fold reads only a row's id.
+  const lead = { id: 'lead' } as SidebarTask
+  const other = { id: 'other' } as SidebarTask
+
+  test('opens under the row on the path to the conversation on screen, and under no other', () => {
+    // WHY: the sessions a row started matter while the person is in that
+    // work. Clicking into another session closes the drawer, so the column
+    // does not keep every tree open at once.
+    const store = foldStore('lead')
+    expect(store.isNestedOpen(lead)).toBe(true)
+    expect(store.isNestedOpen(other)).toBe(false)
+  })
+
+  test('a fold by hand holds while the person reads, and ends when they click away', () => {
+    const store = foldStore('lead')
+    store.toggleNestedSessions(lead)
+    expect(store.isNestedOpen(lead)).toBe(false)
+    store.onScreenRowId = 'other'
+    expect(store.isNestedOpen(lead)).toBe(false)
+    // A click on the row opens its session and its drawer, whatever was folded.
+    store.onScreenRowId = 'lead'
+    store.setNestedOpen(lead, true)
+    expect(store.isNestedOpen(lead)).toBe(true)
+  })
+
+  test('a row off the path can be opened by hand, until the conversation changes', () => {
+    const store = foldStore('lead')
+    store.setNestedOpen(other, true)
+    expect(store.isNestedOpen(other)).toBe(true)
+    store.onScreenRowId = 'third'
+    expect(store.isNestedOpen(other)).toBe(false)
+  })
+})

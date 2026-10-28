@@ -242,7 +242,7 @@ function parseOutput(line: string): SessionOutput | null {
 
 // ─── Shared head fields ───
 
-const AGENT_IDS: readonly AgentId[] = ['claude-code', 'codex', 'opencode']
+const AGENT_IDS: readonly AgentId[] = ['claude-code', 'codex', 'opencode', 'replay']
 const OUTCOMES: readonly ExchangeOutcome[] = ['completed', 'failed', 'interrupted']
 
 /** A head's `key=value` pairs. Values are percent-encoded, so one may hold a space. */

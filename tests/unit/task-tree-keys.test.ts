@@ -12,10 +12,11 @@ describe('treeKeyIntent', () => {
     expect(treeKeyIntent('ArrowUp', { ...row, index: 0 }, 3)).toEqual({ kind: 'focus', index: 0 })
   })
 
-  it('sends → into the pane from every row', () => {
-    // WHY: no row opens by key. A row lists a session under itself only while
-    // that session is on screen, so → has one meaning: leave the column for
-    // the conversation.
+  it('sends → into the pane from a row with nothing folded under it', () => {
+    // WHY: a row that started no sessions, and a session listed under a row,
+    // have nothing to open, so → has one meaning: leave the column for the
+    // conversation. A row with folded sessions unfolds them first
+    // (sidebar-project-view.test.ts).
     expect(treeKeyIntent('ArrowRight', row, 3)).toEqual({ kind: 'enterPane' })
     expect(treeKeyIntent('ArrowRight', listedSession, 3)).toEqual({ kind: 'enterPane' })
   })

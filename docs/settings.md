@@ -12,7 +12,7 @@ Each setting has one owner, and each owner has its own schema: `PersonalSettings
 
 | Owner | What it holds | Where it is stored |
 | --- | --- | --- |
-| Personal | The person's choices: theme, models, review, instructions, writing, task lead, conversation width, and transcript and font presets | A local profile on each client. Signed in, the same profile is also stored in the account. |
+| Personal | The person's choices: theme, models, review, instructions, writing, delegating sessions (in Settings → General), conversation width, and transcript and font presets | A local profile on each client. Signed in, the same profile is also stored in the account. |
 | Device | This client only: voice, editor and terminal, font smoothing, installed-font overrides, client analytics consent, zoom, panes, keybindings | The client's local storage. It is never synced. |
 | Host | The machine: Solus tool availability, telemetry export, restart recovery, review warming by path, archived automation retention, host analytics consent | `server-settings.json` on the host |
 | Organization | Settings that the owners of an organization decide for all its work. Today this is only Sync all Insights. | The control plane, in the organization's host policy. A host reads it in its standing. |

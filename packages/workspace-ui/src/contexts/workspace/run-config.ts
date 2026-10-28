@@ -110,7 +110,7 @@ export function alignRunProvider(
 
 function knownProviderForModel(modelId: string | null): AgentId | null {
   if (!modelId) return null
-  const providers: AgentId[] = ['claude-code', 'codex', 'opencode']
+  const providers: AgentId[] = ['claude-code', 'codex', 'opencode', 'replay']
   const matches = providers.filter((provider) => MODEL_PROFILES[provider]?.[modelId])
   return matches.length === 1 ? matches[0] : null
 }
@@ -161,8 +161,8 @@ export function modelConfigForModel(run: RunConfig, modelId: string): ModelConfi
 }
 
 /** The run on another agent and model, with that model's own defaults and the
- *  reasoning level the selection names. A task lead starts on the lead model
- *  the user set (Settings → Tasks). */
+ *  reasoning level the selection names. A lead session starts on the lead
+ *  model from Settings → General. */
 export function runOnModel(
   run: RunConfig,
   selection: { provider: AgentId; model: string; reasoningEffort?: ReasoningEffort },

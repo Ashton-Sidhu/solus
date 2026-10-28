@@ -63,6 +63,12 @@ export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
 export const CONVERSATION_WIDTHS = ['narrow', 'comfortable', 'full'] as const
 export type ConversationWidth = (typeof CONVERSATION_WIDTHS)[number]
 
+/** How the session sidebar groups its rows (docs/plans/sidebar-project-view.md).
+ *  status: by what each session needs (the Working section, the shelves).
+ *  project: one folder per project. */
+export const SIDEBAR_VIEWS = ['status', 'project'] as const
+export type SidebarView = (typeof SIDEBAR_VIEWS)[number]
+
 /** Days a done task stays on the sidebar's Completed shelf. Display only: it deletes nothing. */
 export const DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS = 2
 /** How long a sidebar row takes to arrive, leave, or move, in milliseconds.
@@ -110,7 +116,7 @@ export function isFontPreset(key: FontPreferenceKey, value: string): boolean {
   return (FONT_PRESETS[key] as readonly string[]).includes(value)
 }
 
-const AGENT_IDS = ['claude-code', 'codex', 'opencode'] as const satisfies readonly AgentId[]
+const AGENT_IDS = ['claude-code', 'codex', 'opencode', 'replay'] as const satisfies readonly AgentId[]
 const REASONING_EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'] as const satisfies readonly ReasoningEffort[]
 const MAX_INSTRUCTIONS = 20_000
 const MAX_MODEL_ID = 200
@@ -183,13 +189,14 @@ export const PERSONAL_SETTING_SCHEMAS = {
   tabGroupMode: z.enum(TAB_GROUP_MODES).describe('The order that the next-tab and previous-tab keys follow. flat: tab order. status: grouped by waiting, rate-limited, running, completed, error, idle. unread: unread tabs first.'),
   sidebarCompletedRetentionDays: z.number().int().min(1).max(365),
   sidebarMotionMs: z.number().int().min(0).max(MAX_SIDEBAR_MOTION_MS),
+  sidebarView: z.enum(SIDEBAR_VIEWS).describe('How the session sidebar on desktop and web groups sessions. status: by status, with a Working section. project: one folder per project.'),
   /** The agent and model a lead starts on. Null means the default for new sessions. No session is a lead now (docs/plans/task-conversation.md). */
-  leadModel: leadModelSelectionSchema.nullable().describe('The agent, model, and reasoning level that a new task lead session starts on. Null uses the default for new sessions.'),
+  leadModel: leadModelSelectionSchema.nullable().describe('The agent, model, and reasoning level that a new lead session starts on. Null uses the default for new sessions.'),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).describe('What agents can do to the status of a task. none: no status changes. moderate: any status except done. autonomous: any status, done included.'),
   /** Rules added after the built-in lead contract (docs/plans/task-conversation.md, Orchestrator). */
-  leadInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Rules from the person that are added after the built-in contract of a task lead.'),
+  leadInstructions: z.string().max(MAX_INSTRUCTIONS).describe('Rules from the person that are added after the built-in contract of a lead session.'),
   /** The model a lead names for a worker when its instructions name none. Null leaves it to the lead. */
-  workerModel: leadModelSelectionSchema.nullable().describe('The agent and model that a task lead starts workers on when its instructions name none. Null lets the lead choose.'),
+  workerModel: leadModelSelectionSchema.nullable().describe('The agent and model that a lead session starts workers on when its instructions name none. Null lets the lead choose.'),
   textGenerationModel: modelSelectionSchema.describe('The model that writes session titles and worktree names, and commit and pull request text when sourceControlWriterModel is null.'),
   /** Null falls back to `textGenerationModel`. */
   sourceControlWriterModel: modelSelectionSchema.nullable().describe('The model that writes commit messages and pull request text. Null uses textGenerationModel.'),
@@ -269,6 +276,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   tabGroupMode: 'flat',
   sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
   sidebarMotionMs: DEFAULT_SIDEBAR_MOTION_MS,
+  sidebarView: 'status',
   leadModel: null,
   agentTaskLifecyclePolicy: 'moderate',
   leadInstructions: defaultLeadInstructions(DEFAULT_MODEL_ROUTING),

@@ -3133,7 +3133,8 @@
                                   "enum": [
                                     "claude-code",
                                     "codex",
-                                    "opencode"
+                                    "opencode",
+                                    "replay"
                                   ]
                                 },
                                 "title": {
@@ -3778,7 +3779,8 @@
                             "enum": [
                               "claude-code",
                               "codex",
-                              "opencode"
+                              "opencode",
+                              "replay"
                             ]
                           },
                           "mirroredDoc": {
@@ -3898,6 +3900,57 @@
                               "url",
                               "scope",
                               "syncState"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "share": {
+                            "type": "object",
+                            "properties": {
+                              "named": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "organization": {
+                                "type": "boolean"
+                              },
+                              "link": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "role": {
+                                        "type": "string",
+                                        "enum": [
+                                          "viewer",
+                                          "commenter",
+                                          "editor",
+                                          "custom"
+                                        ]
+                                      },
+                                      "expiresAt": {
+                                        "type": [
+                                          "number",
+                                          "null"
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "role",
+                                      "expiresAt"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "named",
+                              "organization",
+                              "link"
                             ],
                             "additionalProperties": false
                           }
@@ -4260,7 +4313,8 @@
                       "enum": [
                         "claude-code",
                         "codex",
-                        "opencode"
+                        "opencode",
+                        "replay"
                       ]
                     },
                     "mirroredDoc": {
@@ -4380,6 +4434,57 @@
                         "url",
                         "scope",
                         "syncState"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "share": {
+                      "type": "object",
+                      "properties": {
+                        "named": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "organization": {
+                          "type": "boolean"
+                        },
+                        "link": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "viewer",
+                                    "commenter",
+                                    "editor",
+                                    "custom"
+                                  ]
+                                },
+                                "expiresAt": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "role",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "named",
+                        "organization",
+                        "link"
                       ],
                       "additionalProperties": false
                     },
@@ -4512,7 +4617,8 @@
                                   "enum": [
                                     "claude-code",
                                     "codex",
-                                    "opencode"
+                                    "opencode",
+                                    "replay"
                                   ]
                                 },
                                 "title": {
@@ -4949,7 +5055,8 @@
                     "enum": [
                       "claude-code",
                       "codex",
-                      "opencode"
+                      "opencode",
+                      "replay"
                     ]
                   },
                   "projectKey": {
@@ -5862,7 +5969,8 @@
                       "enum": [
                         "claude-code",
                         "codex",
-                        "opencode"
+                        "opencode",
+                        "replay"
                       ]
                     },
                     "mirroredDoc": {
@@ -5982,6 +6090,57 @@
                         "url",
                         "scope",
                         "syncState"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "share": {
+                      "type": "object",
+                      "properties": {
+                        "named": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "organization": {
+                          "type": "boolean"
+                        },
+                        "link": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "viewer",
+                                    "commenter",
+                                    "editor",
+                                    "custom"
+                                  ]
+                                },
+                                "expiresAt": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "role",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "named",
+                        "organization",
+                        "link"
                       ],
                       "additionalProperties": false
                     },
@@ -6114,7 +6273,8 @@
                                   "enum": [
                                     "claude-code",
                                     "codex",
-                                    "opencode"
+                                    "opencode",
+                                    "replay"
                                   ]
                                 },
                                 "title": {
@@ -6990,7 +7150,8 @@
                       "enum": [
                         "claude-code",
                         "codex",
-                        "opencode"
+                        "opencode",
+                        "replay"
                       ]
                     },
                     "mirroredDoc": {
@@ -7110,6 +7271,57 @@
                         "url",
                         "scope",
                         "syncState"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "share": {
+                      "type": "object",
+                      "properties": {
+                        "named": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "organization": {
+                          "type": "boolean"
+                        },
+                        "link": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "viewer",
+                                    "commenter",
+                                    "editor",
+                                    "custom"
+                                  ]
+                                },
+                                "expiresAt": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "role",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "named",
+                        "organization",
+                        "link"
                       ],
                       "additionalProperties": false
                     },
@@ -7242,7 +7454,8 @@
                                   "enum": [
                                     "claude-code",
                                     "codex",
-                                    "opencode"
+                                    "opencode",
+                                    "replay"
                                   ]
                                 },
                                 "title": {
@@ -7844,7 +8057,8 @@
                       "enum": [
                         "claude-code",
                         "codex",
-                        "opencode"
+                        "opencode",
+                        "replay"
                       ]
                     },
                     "mirroredDoc": {
@@ -7964,6 +8178,57 @@
                         "url",
                         "scope",
                         "syncState"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "share": {
+                      "type": "object",
+                      "properties": {
+                        "named": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "organization": {
+                          "type": "boolean"
+                        },
+                        "link": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "viewer",
+                                    "commenter",
+                                    "editor",
+                                    "custom"
+                                  ]
+                                },
+                                "expiresAt": {
+                                  "type": [
+                                    "number",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "role",
+                                "expiresAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "named",
+                        "organization",
+                        "link"
                       ],
                       "additionalProperties": false
                     },
@@ -8096,7 +8361,8 @@
                                   "enum": [
                                     "claude-code",
                                     "codex",
-                                    "opencode"
+                                    "opencode",
+                                    "replay"
                                   ]
                                 },
                                 "title": {
@@ -8924,7 +9190,8 @@
               "enum": [
                 "claude-code",
                 "codex",
-                "opencode"
+                "opencode",
+                "replay"
               ]
             }
           },
@@ -9069,7 +9336,8 @@
                             "enum": [
                               "claude-code",
                               "codex",
-                              "opencode"
+                              "opencode",
+                              "replay"
                             ]
                           },
                           "title": {
@@ -9402,6 +9670,17 @@
                           "listed": {
                             "type": "boolean"
                           },
+                          "sharedBy": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "grantedAt": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
                           "pullRequests": {
                             "maxItems": 500,
                             "type": "array",
@@ -9554,7 +9833,8 @@
                                           "enum": [
                                             "claude-code",
                                             "codex",
-                                            "opencode"
+                                            "opencode",
+                                            "replay"
                                           ]
                                         },
                                         "title": {
@@ -10142,7 +10422,8 @@
               "enum": [
                 "claude-code",
                 "codex",
-                "opencode"
+                "opencode",
+                "replay"
               ]
             }
           },
@@ -10394,7 +10675,8 @@
                                 "enum": [
                                   "claude-code",
                                   "codex",
-                                  "opencode"
+                                  "opencode",
+                                  "replay"
                                 ]
                               },
                               "title": {
@@ -10727,6 +11009,17 @@
                               "listed": {
                                 "type": "boolean"
                               },
+                              "sharedBy": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                              },
+                              "grantedAt": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
                               "pullRequests": {
                                 "maxItems": 500,
                                 "type": "array",
@@ -10879,7 +11172,8 @@
                                               "enum": [
                                                 "claude-code",
                                                 "codex",
-                                                "opencode"
+                                                "opencode",
+                                                "replay"
                                               ]
                                             },
                                             "title": {
@@ -11655,7 +11949,8 @@
                       "enum": [
                         "claude-code",
                         "codex",
-                        "opencode"
+                        "opencode",
+                        "replay"
                       ]
                     },
                     "title": {
@@ -11988,6 +12283,17 @@
                     "listed": {
                       "type": "boolean"
                     },
+                    "sharedBy": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "grantedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "pullRequests": {
                       "maxItems": 500,
                       "type": "array",
@@ -12140,7 +12446,8 @@
                                     "enum": [
                                       "claude-code",
                                       "codex",
-                                      "opencode"
+                                      "opencode",
+                                      "replay"
                                     ]
                                   },
                                   "title": {
@@ -13116,7 +13423,8 @@
                         "enum": [
                           "claude-code",
                           "codex",
-                          "opencode"
+                          "opencode",
+                          "replay"
                         ]
                       },
                       "projectPath": {
@@ -13485,7 +13793,8 @@
                                     "enum": [
                                       "claude-code",
                                       "codex",
-                                      "opencode"
+                                      "opencode",
+                                      "replay"
                                     ]
                                   },
                                   "title": {
@@ -15161,7 +15470,9 @@
                 "pr.review_requested",
                 "automation.finished",
                 "review_job.finished",
-                "mention"
+                "mention",
+                "session.shared",
+                "session.unshared"
               ]
             }
           },
@@ -15360,6 +15671,45 @@
                                   "kind"
                                 ],
                                 "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "session.shared"
+                                  },
+                                  "role": {
+                                    "type": "string",
+                                    "enum": [
+                                      "viewer",
+                                      "commenter",
+                                      "editor",
+                                      "custom"
+                                    ]
+                                  },
+                                  "teamId": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "role"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "session.unshared"
+                                  }
+                                },
+                                "required": [
+                                  "kind"
+                                ],
+                                "additionalProperties": false
                               }
                             ]
                           },
@@ -15403,6 +15753,24 @@
                                 "required": [
                                   "kind",
                                   "taskId"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "session"
+                                  },
+                                  "sessionId": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "sessionId"
                                 ],
                                 "additionalProperties": false
                               },
@@ -15646,7 +16014,8 @@
                                     "enum": [
                                       "claude-code",
                                       "codex",
-                                      "opencode"
+                                      "opencode",
+                                      "replay"
                                     ]
                                   },
                                   "title": {
@@ -16580,7 +16949,8 @@
               "enum": [
                 "claude-code",
                 "codex",
-                "opencode"
+                "opencode",
+                "replay"
               ]
             }
           }
@@ -18004,7 +18374,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -18419,7 +18790,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -18799,7 +19171,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -19189,7 +19562,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -19576,7 +19950,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -19963,7 +20338,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -20395,7 +20771,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -20632,7 +21009,8 @@
                       "enum": [
                         "claude-code",
                         "codex",
-                        "opencode"
+                        "opencode",
+                        "replay"
                       ]
                     },
                     "model": {
@@ -20643,7 +21021,8 @@
                       "enum": [
                         "claude-code",
                         "codex",
-                        "opencode"
+                        "opencode",
+                        "replay"
                       ]
                     },
                     "fromModel": {
@@ -20798,7 +21177,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -21193,7 +21573,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -21590,7 +21971,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -21974,7 +22356,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -22363,7 +22746,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -22832,7 +23216,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -23069,7 +23454,8 @@
                       "enum": [
                         "claude-code",
                         "codex",
-                        "opencode"
+                        "opencode",
+                        "replay"
                       ]
                     }
                   },
@@ -23221,7 +23607,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -23605,7 +23992,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -24051,7 +24439,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -24493,7 +24882,8 @@
                               "enum": [
                                 "claude-code",
                                 "codex",
-                                "opencode"
+                                "opencode",
+                                "replay"
                               ]
                             },
                             "title": {
@@ -24987,6 +25377,45 @@
                   "kind"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "session.shared"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "viewer",
+                      "commenter",
+                      "editor",
+                      "custom"
+                    ]
+                  },
+                  "teamId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "role"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "session.unshared"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
               }
             ]
           },
@@ -25030,6 +25459,24 @@
                 "required": [
                   "kind",
                   "taskId"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "session"
+                  },
+                  "sessionId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "kind",
+                  "sessionId"
                 ],
                 "additionalProperties": false
               },
@@ -25273,7 +25720,8 @@
                     "enum": [
                       "claude-code",
                       "codex",
-                      "opencode"
+                      "opencode",
+                      "replay"
                     ]
                   },
                   "title": {

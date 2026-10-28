@@ -4,10 +4,13 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
   import { hoverIntent } from "../../lib/hover-intent";
+  import { attentionLabel } from "../../lib/sessionUtils";
   import { prStatusBadge, REQUIRED_CHECKS_FAILING_BADGE } from "../prs/lib/pr-utils";
   import TaskPrMenuLabel from "./TaskPrMenuLabel.svelte";
+  import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
   import { taskPrMenuTitle } from "./lib/task-pr-menu";
-  import type { PrChip, TaskPrChoice } from "./lib/task-list";
+  import { taskStatusFor, type PrChip, type TaskPrChoice } from "./lib/task-list";
+  import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
 
   interface Props {
     chip: PrChip;
@@ -22,9 +25,18 @@
     /** Removes a link from the row. Absent for a pull request the row only
      *  reads from its checkout, which has no link to remove. */
     onUnlink?: (choice: TaskPrChoice) => (() => void) | null;
+    /** The sessions the row's session started. The chip lists them under its
+     *  pull requests, so a row spends one chip on everything it links to. */
+    startedSessions?: SidebarSessionChild[];
+    onOpenSession?: (session: SidebarSessionChild) => void;
   }
-  let { chip, choices, onOpen, onMore, onWarm, onUnlink }: Props = $props();
+  let { chip, choices, onOpen, onMore, onWarm, onUnlink, startedSessions = [], onOpenSession }: Props = $props();
   let menuOpen = $state(false);
+
+  // The chip shows the pull request that leads, and a menu when there is
+  // more behind it: another pull request or a started session.
+  const hasMenu = $derived(chip.count > 1 || startedSessions.length > 0);
+  const moreCount = $derived(chip.count - 1 + startedSessions.length);
 
   // The menu's rows and the PR surfaces draw each state with these badges, so
   // the chip takes its tone and icon from them too. Review requests use a
@@ -53,8 +65,8 @@
           : `Pull request #${chip.number} — ${chip.state}`,
   );
   const actionLabel = $derived(
-    chip.count > 1
-      ? `${chip.count} linked pull requests. Choose a pull request.`
+    hasMenu
+      ? `${label}, and ${moreCount} more linked ${moreCount === 1 ? "item" : "items"}. Choose one.`
       : `${label}. View pull request.`,
   );
 
@@ -73,7 +85,7 @@
      and stays tight vertically: the sidebar stacks the chip directly under the
      task's hover actions, and a target that reached up into them turned a click
      on close or complete into a trip to the pull request. -->
-{#if chip.count > 1}
+{#if hasMenu}
   <DropdownMenu.Root bind:open={menuOpen}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
@@ -103,7 +115,8 @@
           }}
         >
           <StateIcon size={12.5} class="shrink-0" />
-          <span class="tabular-nums">{chip.count} PRs</span>
+          <span class="tabular-nums">#{chip.number}</span>
+          <span class="tabular-nums text-muted-foreground">+{moreCount}</span>
           <ChevronDownIcon size={11} aria-hidden="true" />
         </button>
       {/snippet}
@@ -155,6 +168,26 @@
           {/if}
         </DropdownMenu.Item>
       {/each}
+      {#if startedSessions.length > 0}
+        <DropdownMenu.Separator />
+        <DropdownMenu.Label class="text-workspace-chrome">Sessions it started</DropdownMenu.Label>
+        {#each startedSessions as session (session.tabId ?? session.sessionId)}
+          <DropdownMenu.Item
+            class="text-workspace-chrome"
+            textValue={session.label}
+            title={`Open ${session.label}`}
+            onclick={(event) => event.stopPropagation()}
+            onSelect={() => onOpenSession?.(session)}
+          >
+            <TaskStatusGlyph
+              status={taskStatusFor(session.attention)}
+              size={13}
+              label={attentionLabel(session.attention, session.limitResetsAt)}
+            />
+            <span class="min-w-0 flex-1 truncate">{session.label}</span>
+          </DropdownMenu.Item>
+        {/each}
+      {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 {:else}
