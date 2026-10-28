@@ -1,19 +1,22 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { WorkMeta } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { delegatedSessionIds } from '@solus/client-core/environment-view'
 
-/** The ids of the sessions one session sent work to, or null when the host did not answer. */
-type ListDelegated = (serverId: string, parentSessionId: string) => Promise<readonly string[] | null>
+/** The ids of the sessions below one session in its delegation tree. Rejects when the host did not answer. */
+type ListDelegated = (serverId: string, sessionId: string) => Promise<ReadonlySet<string>>
 
-const listOnHost: ListDelegated = (serverId, parentSessionId) =>
-  serverConnections.apiFor(serverId).sessionRecordList({ parentSessionId })
-    .then((answer) => answer.records.map((record) => record.sessionId))
+const listOnHost: ListDelegated = (serverId, sessionId) => {
+  const api = serverConnections.apiFor(serverId)
+  return delegatedSessionIds(sessionId, (parentSessionId) =>
+    api.sessionRecordList({ parentSessionId }).then((answer) => answer.records.map((record) => record.sessionId)))
+}
 
 /**
- * The sessions each session sent work to, as its host lists them. The
- * Environment card counts their artifacts as the session's
- * (docs/plans/environment-view.md). The host decides which of them the reader
- * may list.
+ * The sessions below each session in its delegation tree, as its host lists
+ * them: the ones it started, and theirs. The Environment card counts their
+ * artifacts as the session's (docs/plans/environment-view.md). The host
+ * decides which of them the reader may list.
  */
 export class DelegatedSessionsStore {
   private readonly delegated = new SvelteMap<string, ReadonlySet<string>>()
@@ -23,8 +26,9 @@ export class DelegatedSessionsStore {
 
   constructor(private readonly listDelegated: ListDelegated = listOnHost) {}
 
-  /** The sessions this session sent work to; undefined until its host answered
-   *  once. A host that failed counts as answered, with the sessions read before. */
+  /** The sessions below this one in its delegation tree; undefined until its
+   *  host answered once. A host that failed counts as answered, with the
+   *  sessions read before. */
   delegatedBy(serverId: string, sessionId: string): ReadonlySet<string> | undefined {
     return this.delegated.get(keyOf(serverId, sessionId))
   }
@@ -42,7 +46,7 @@ export class DelegatedSessionsStore {
     void this.listDelegated(serverId, sessionId).catch(() => null).then((ids) => {
       this.reads.delete(key)
       this.answeredOwners.set(key, new Set([...(answered ?? []), ...artifactOwners]))
-      this.delegated.set(key, ids ? new Set(ids) : this.delegated.get(key) ?? new Set())
+      this.delegated.set(key, ids ?? this.delegated.get(key) ?? new Set())
     })
   }
 }

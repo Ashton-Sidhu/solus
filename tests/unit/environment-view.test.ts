@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  delegatedSessionIds,
   environmentViewFor,
   sessionArtifacts,
   type EnvironmentViewFacts,
@@ -81,15 +82,48 @@ describe('session artifacts', () => {
   })
 })
 
+describe('delegation tree', () => {
+  // lead → w1 → g1 → gg1, lead → w2. `other` started `x`; it is not in lead's tree.
+  const tree: { [parent: string]: string[] } = { lead: ['w1', 'w2'], w1: ['g1'], g1: ['gg1'], other: ['x'] }
+  const childrenOf = async (parentSessionId: string) => tree[parentSessionId] ?? []
+
+  test('a lead reaches every nested delegate, and nothing else', async () => {
+    // WHY: the sidebar nests a chain of delegations under its top session, so
+    // a grandchild's artifact is the lead's work too.
+    expect([...await delegatedSessionIds('lead', childrenOf)].sort()).toEqual(['g1', 'gg1', 'w1', 'w2'])
+  })
+
+  test('a delegate reaches its own delegates only: never its parent or siblings', async () => {
+    expect([...await delegatedSessionIds('w1', childrenOf)].sort()).toEqual(['g1', 'gg1'])
+    expect(await delegatedSessionIds('w2', childrenOf)).toEqual(new Set())
+  })
+
+  test('a cycle ends, and a failed read rejects instead of answering part of the tree', async () => {
+    const looped: { [parent: string]: string[] } = { a: ['b'], b: ['a', 'c'] }
+    expect([...await delegatedSessionIds('a', async (id) => looped[id] ?? [])].sort()).toEqual(['b', 'c'])
+    await expect(delegatedSessionIds('lead', async (id) => {
+      if (id === 'w1') throw new Error('offline')
+      return tree[id] ?? []
+    })).rejects.toThrow('offline')
+  })
+
+  test('a grandchild artifact counts for the lead and for its own parent', async () => {
+    const works = [work('nested', 'artifact', ['gg1'], '2026-01-01T00:00:00Z'), work('stranger', 'artifact', ['x'], '2026-01-01T00:00:00Z')]
+    expect(sessionArtifacts(works, 'lead', await delegatedSessionIds('lead', childrenOf)).map((w) => w.id)).toEqual(['nested'])
+    expect(sessionArtifacts(works, 'g1', await delegatedSessionIds('g1', childrenOf)).map((w) => w.id)).toEqual(['nested'])
+    expect(sessionArtifacts(works, 'w2', await delegatedSessionIds('w2', childrenOf))).toEqual([])
+  })
+})
+
 describe('delegated sessions on desktop and web', () => {
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
   test('the host is read once, and again only when an artifact names a new owner', async () => {
     const reads: string[] = []
     let answer: string[] = ['w1']
-    const store = new DelegatedSessionsStore(async (serverId, parentSessionId) => {
-      reads.push(`${serverId}/${parentSessionId}`)
-      return answer
+    const store = new DelegatedSessionsStore(async (serverId, sessionId) => {
+      reads.push(`${serverId}/${sessionId}`)
+      return new Set(answer)
     })
     expect(store.delegatedBy('h', 'lead')).toBeUndefined()
     store.ensureRead('h', 'lead', new Set(['w1']))
@@ -113,7 +147,7 @@ describe('delegated sessions on desktop and web', () => {
     let fail = false
     const store = new DelegatedSessionsStore(async () => {
       if (fail) throw new Error('offline')
-      return ['w1']
+      return new Set(['w1'])
     })
     store.ensureRead('h', 'lead', new Set())
     await settle()
@@ -171,22 +205,24 @@ describe('phone environment menu', () => {
     expect(chosen).toEqual(['browser', 'builds', 'artifacts'])
   })
 
-  test('the phone reads the artifacts of the sessions it sent work to, not its own again', async () => {
+  test('the phone reads the artifacts of its whole delegation tree, not its own again', async () => {
     const works = [
       work('own', 'artifact', ['lead'], '2026-03-01T00:00:00Z'),
       work('worker', 'artifact', ['w1'], '2026-02-01T00:00:00Z'),
       work('stranger', 'artifact', ['other'], '2026-03-01T00:00:00Z'),
     ]
+    works.push(work('nested', 'artifact', ['g1'], '2026-01-01T00:00:00Z'))
+    const tree: { [parent: string]: string[] } = { lead: ['w1'], w1: ['g1'] }
     const asked: (string | undefined)[] = []
     const api = {
       sessionRecordList: async (filter?: { parentSessionId?: string }) => {
         asked.push(filter?.parentSessionId)
-        return { records: [{ sessionId: 'w1' } as SessionRecord] }
+        return { records: (tree[filter?.parentSessionId ?? ''] ?? []).map((sessionId) => ({ sessionId }) as SessionRecord) }
       },
       listWorks: async () => works,
     }
-    expect((await delegatedArtifacts(api, 'lead')).map((w) => w.id)).toEqual(['worker'])
-    expect(asked).toEqual(['lead'])
+    expect((await delegatedArtifacts(api, 'lead')).map((w) => w.id)).toEqual(['worker', 'nested'])
+    expect(asked).toEqual(['lead', 'w1', 'g1'])
     const noWorkers = { ...api, sessionRecordList: async () => ({ records: [] }), listWorks: async () => { throw new Error('not read') } }
     expect(await delegatedArtifacts(noWorkers, 'lead')).toEqual([])
   })

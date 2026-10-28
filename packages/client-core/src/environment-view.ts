@@ -17,7 +17,7 @@ export interface EnvironmentViewFacts {
   chosen?: EnvironmentView
   /** The session shows a simulator or phone now. */
   sessionShowsDevice: boolean
-  /** The number of artifacts this session, or a session it sent work to, made or worked on. */
+  /** The number of artifacts this session, or a session below it in its delegation tree, made or worked on. */
   artifactCount: number
   /** False until the client has read the session's artifacts once. */
   artifactsKnown: boolean
@@ -40,8 +40,31 @@ export function environmentViewFor(facts: EnvironmentViewFacts): EnvironmentView
 }
 
 /**
+ * Every session below this one in its delegation tree: the sessions it
+ * started, the ones they started, and so on. A chain of delegations belongs to
+ * its top session, as the sidebar nests it (`nestedRowParents`). Each level is
+ * read with `childrenOf` (the host's `sessionRecordList({ parentSessionId })`),
+ * so the host decides what the reader may list. A failed read rejects.
+ */
+export async function delegatedSessionIds(
+  sessionId: string,
+  childrenOf: (parentSessionId: string) => Promise<readonly string[]>,
+): Promise<Set<string>> {
+  const found = new Set<string>()
+  let level = [sessionId]
+  while (level.length > 0) {
+    const children = (await Promise.all(level.map(childrenOf))).flat()
+    // A cycle, or the session itself, is never read twice.
+    level = children.filter((id) => id !== sessionId && !found.has(id))
+    for (const id of level) found.add(id)
+  }
+  return found
+}
+
+/**
  * The artifact works of a session, the last changed first: the ones linked to
- * the session, and the ones linked to a session it sent work to. A worker's
+ * the session, and the ones linked to a session below it in its delegation
+ * tree (`delegatedSessionIds`). A worker's
  * artifact belongs to the worker, but its report shows it in the sender's
  * conversation, so the sender's view counts it too. Only works the reader can
  * list count: `works` is the reader's own list.
