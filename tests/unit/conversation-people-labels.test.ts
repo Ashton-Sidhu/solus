@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { isMac } from '@solus/workspace-ui/lib/keybindings/match'
 import type { Session } from '@solus/contracts/types'
 import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 import type { SessionActiveTurn } from '@solus/contracts/presence'
@@ -55,9 +56,10 @@ describe('whose turn, for the reader', () => {
   test('the composer names a teammate\'s turn it would steer, and the keys only where there are keys', () => {
     // The room's active turn carries its author as a `User` (plans/012 §1).
     const turn: SessionActiveTurn = { author: ALICE, provider: 'codex' }
-    expect(steerPlaceholder(otherPerson(turn.author, READER), true)).toBe('Enter to steer Alice\'s turn · ⌥Enter to queue next')
+    const queueKey = isMac ? '⌥Enter' : 'Alt+Enter'
+    expect(steerPlaceholder(otherPerson(turn.author, READER), true)).toBe(`Enter to steer Alice's turn · ${queueKey} to queue next`)
     expect(steerPlaceholder(otherPerson(turn.author, READER), false)).toBe('Send to steer Alice\'s turn...')
-    expect(steerPlaceholder(otherPerson(turn.author, SELF_ALICE), true)).toBe('Enter to steer now · ⌥Enter to queue next')
+    expect(steerPlaceholder(otherPerson(turn.author, SELF_ALICE), true)).toBe(`Enter to steer now · ${queueKey} to queue next`)
   })
 
   test('a decision reads as what was chosen, and a plan card states only its state', () => {

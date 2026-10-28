@@ -3,6 +3,7 @@
     Check as CheckIcon,
     HardDrive as DesktopTowerIcon,
     Plus as PlusIcon,
+    SquareTerminal as TerminalIcon,
     FileKey as CopiedFilesIcon,
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
@@ -39,6 +40,7 @@
   } from "./lib/managed-host";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
   import CopiedFilesDialog from "./CopiedFilesDialog.svelte";
+  import { addWslDistroStore } from "./add-wsl-distro.store.svelte";
   import { checkoutGit, checkoutPlace, dispatchTo, openFolder, pendingClone, projectHome, projectRoot, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
@@ -268,6 +270,13 @@
     open = false;
     serversStore.pairForRunOn(requesterId);
     serversStore.openAddServer();
+  }
+
+  function addWslDistro() {
+    open = false;
+    // A distro this computer forwards to is saved as paired, and comes back to this picker.
+    serversStore.pairForRunOn(requesterId);
+    void addWslDistroStore.open();
   }
 
   function handleOpenChange(next: boolean) {
@@ -514,6 +523,12 @@
             <PlusIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
             <span class="min-w-0 flex-1 truncate">Add a host…</span>
           </DropdownMenu.Item>
+          {#if addWslDistroStore.windowsHostId}
+            <DropdownMenu.Item onSelect={addWslDistro}>
+              <TerminalIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
+              <span class="min-w-0 flex-1 truncate">Add a WSL distro…</span>
+            </DropdownMenu.Item>
+          {/if}
         </div>
       </DropdownMenu.Content>
     </DropdownMenu.Root>

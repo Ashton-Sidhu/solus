@@ -14,6 +14,7 @@
   import { dictation } from "../../../lib/dictation.svelte";
   import { useKeybinding } from "../../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../../lib/keybindings/manifest";
+  import { formatComboText } from "../../../lib/keybindings/match";
   import WaveformVisualizer from "../../input/WaveformVisualizer.svelte";
   import RecordingControls from "../../input/RecordingControls.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -342,7 +343,7 @@
         </button>
             {/snippet}
           </TooltipUI.Trigger>
-          <TooltipUI.Content value={canSend ? "Send · ⌘↵" : null} />
+          <TooltipUI.Content value={canSend ? `Send · ${formatComboText({ mod: true, code: "Enter" })}` : null} />
         </TooltipUI.Root>
       {/if}
     </div>

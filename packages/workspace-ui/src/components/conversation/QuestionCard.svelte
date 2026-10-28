@@ -30,6 +30,10 @@
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { callTitle } from "../presence/lib/actor-name";
   import { runHost } from "../../contexts/workspace/run-location";
+  import { formatComboText } from "../../lib/keybindings/match";
+
+  const deferKey = formatComboText({ alt: true, code: "Enter" });
+  const submitKey = formatComboText({ mod: true, code: "Enter" });
 
   interface Props {
     tabId: string;
@@ -500,7 +504,7 @@
     {:else}
       <button type="button" class="tx-card-action is-ghost" disabled={closed} onclick={handleDefer}>
         {request.responseMode === "message" ? "Dismiss" : "Let the agent decide"}
-        <span class="interrupt-key">⌥⏎</span>
+        <span class="interrupt-key">{deferKey}</span>
       </button>
     {/if}
     <div class="flex-1"></div>
@@ -515,7 +519,7 @@
         Answered
       {:else}
         {primaryLabel}
-        <span class="interrupt-key">{isLast ? "⌘⏎" : "→"}</span>
+        <span class="interrupt-key">{isLast ? submitKey : "→"}</span>
       {/if}
     </button>
     {/if}

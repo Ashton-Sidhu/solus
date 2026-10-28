@@ -15,6 +15,7 @@ const guardedRoot = 'packages/server/src/'
 const ambientEnvFiles = new Map([
   ['packages/server/src/cli-env.ts', 'defines the host environment'],
   ['packages/server/src/platform/ssh.ts', 'reaches another machine with the host’s own SSH'],
+  ['packages/server/src/remote-machines/wsl.ts', 'reaches the host’s own WSL distros, as ssh.ts reaches a machine'],
   ['packages/server/src/transport/uplink/connector.ts', 'runs the host’s tunnel'],
   ['packages/server/src/platform/trash.ts', 'moves the host’s files to its trash'],
   ['packages/server/src/browser/browser-runtime.ts', 'installs the host’s browser'],

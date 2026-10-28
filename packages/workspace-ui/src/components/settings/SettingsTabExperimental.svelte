@@ -10,6 +10,7 @@
   import { Switch } from "../ui/switch";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsSection from "./SettingsSection.svelte";
+  import { comboHint } from "../../lib/keybindings/manifest";
 
   interface Props {
     searchQuery?: string;
@@ -34,7 +35,7 @@
 >
   <SettingsRow
     label="Auto voice mode"
-    description="Always listen and queue voice messages (⌥⇧V)."
+    description={`Always listen and queue voice messages (${comboHint("voice.toggle-mode")}).`}
     visible={isVisible("auto-voice")}
   >
     {#snippet control()}

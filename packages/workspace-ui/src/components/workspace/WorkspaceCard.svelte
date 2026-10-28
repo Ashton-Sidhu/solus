@@ -33,6 +33,8 @@
   import { highlightRuns } from "../../lib/searchHighlight";
   import PresenceStack from "../presence/PresenceStack.svelte";
   import type { PresencePerson } from "../presence/lib/presence-people";
+  import { comboHint } from "../../lib/keybindings/manifest";
+  import { formatComboText } from "../../lib/keybindings/match";
 
   /**
    * One work as a card: its kind, its title, the session it came from, and at
@@ -168,7 +170,7 @@
           onTogglePin();
         }}
         aria-label={item.pinned ? "Unpin" : "Pin"}
-        title={item.pinned ? "Unpin (⌥P)" : "Pin (⌥P)"}
+        title={`${item.pinned ? "Unpin" : "Pin"} (${comboHint("workspace.toggle-pin")})`}
       >
         <PushPinIcon size={14} />
       </button>
@@ -182,7 +184,7 @@
           onDelete();
         }}
         aria-label="Delete document"
-        title="Delete (⌥⌫)"
+        title={`Delete (${formatComboText({ alt: true, code: "Backspace" })})`}
       >
         <TrashIcon size={14} />
       </button>

@@ -17,6 +17,7 @@
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { uuid } from "@solus/contracts/uuid";
   import type { CommentPin } from "@solus/contracts/types";
+  import { comboHint } from "../../lib/keybindings/manifest";
 
   /**
    * The pane surface for an `artifact` work: the works header the document
@@ -225,7 +226,7 @@
         type="button"
         class="artifact-tool"
         class:is-active={pinArmed}
-        title="Comment on the render (⌥C)"
+        title={`Comment on the render (${comboHint("artifact.comment")})`}
         aria-label="Comment on the render"
         aria-pressed={pinArmed}
         data-testid="artifact-shell-pin-comment"

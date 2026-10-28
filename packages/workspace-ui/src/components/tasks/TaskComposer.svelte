@@ -32,6 +32,16 @@
     labelSuggestions,
   } from "./lib/task-composer";
   import type { TaskPriority, TaskStatus } from "@solus/contracts/task-types";
+  import { formatComboText } from "../../lib/keybindings/match";
+
+  const keys = {
+    expand: formatComboText({ alt: true, code: "KeyF" }),
+    status: formatComboText({ alt: true, code: "KeyS" }),
+    priority: formatComboText({ alt: true, code: "KeyP" }),
+    due: formatComboText({ alt: true, code: "KeyD" }),
+    labels: formatComboText({ alt: true, code: "KeyL" }),
+    create: formatComboText({ mod: true, code: "Enter" }),
+  };
 
   interface Props {
     /** Whether the provider takes a status on create (local only). New GitHub
@@ -337,7 +347,7 @@
         class="ml-auto inline-flex size-7 flex-shrink-0 cursor-pointer items-center justify-center rounded-md border-none bg-transparent text-(--solus-text-tertiary) transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50"
         onclick={() => (expanded = !expanded)}
         aria-pressed={expanded}
-        title={expanded ? "Collapse (⌥F)" : "Expand (⌥F)"}
+        title={`${expanded ? "Collapse" : "Expand"} (${keys.expand})`}
         aria-label={expanded ? "Collapse" : "Expand"}
       >
         <!-- Both icons stay mounted and cross-fade (opacity/scale/blur) instead
@@ -415,7 +425,7 @@
                 type="button"
                 class={PROPERTY_TRIGGER}
                 aria-label="Status"
-                title="Status (⌥S)"
+                title={`Status (${keys.status})`}
               >
                 <svg
                   width="12"
@@ -476,7 +486,7 @@
                 type="button"
                 class={PROPERTY_TRIGGER}
                 aria-label="Priority"
-                title="Priority (⌥P)"
+                title={`Priority (${keys.priority})`}
               >
                 {@render priorityGlyph(priority || undefined)}
                 <span class={priority ? PRIORITY_META[priority].flagClass : ""}
@@ -519,7 +529,7 @@
                 type="button"
                 class={PROPERTY_TRIGGER}
                 aria-label="Target date"
-                title="Target date (⌥D)"
+                title={`Target date (${keys.due})`}
               >
                 <CalendarBlankIcon size={13} class="shrink-0 text-rose-600 [.dark_&]:text-rose-400" />
                 {dueLabel ?? "Target"}
@@ -598,7 +608,7 @@
               type="button"
               class="max-w-[14rem] {PROPERTY_TRIGGER}"
               aria-label="Labels"
-              title="Labels (⌥L)"
+              title={`Labels (${keys.labels})`}
             >
               <TagIcon size={13} class="shrink-0 text-emerald-600 [.dark_&]:text-emerald-400" />
               <span class="truncate">{labels.join(", ") || "Labels"}</span>
@@ -737,7 +747,7 @@
             Creating…
           {:else}
             Create task
-            <span class="opacity-55 tabular-nums">⌘↵</span>
+            <span class="opacity-55 tabular-nums">{keys.create}</span>
           {/if}
         </button>
       </div>

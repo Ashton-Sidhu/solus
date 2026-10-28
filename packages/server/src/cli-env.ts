@@ -118,7 +118,9 @@ export async function computeCliPathAsync(commands: readonly string[] = PATH_PRO
 const ENV_START = '__SOLUS_LOGIN_ENV_START__'
 const ENV_END = '__SOLUS_LOGIN_ENV_END__'
 const ENV_PROBE_SCRIPT = `printf "\\0${ENV_START}\\0"; env -0; printf "${ENV_END}\\0"`
-const ENV_PROBE_COMMANDS = [
+// A Windows app started from the Start menu or the taskbar already has the
+// user's environment from the registry; there is no login shell to ask.
+const ENV_PROBE_COMMANDS = isWindows ? [] : [
   `/bin/zsh -ilc '${ENV_PROBE_SCRIPT}'`,
   `/bin/zsh -lc '${ENV_PROBE_SCRIPT}'`,
   `/bin/bash -ilc '${ENV_PROBE_SCRIPT}'`,

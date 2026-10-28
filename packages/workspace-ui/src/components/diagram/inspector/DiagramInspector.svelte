@@ -6,6 +6,7 @@
   import type { DiagramNode } from '@solus/contracts/diagram-types'
   import { resolveIcon } from '../diagram-icons'
   import { INSPECTOR_TABS, type InspectorTab } from '../lib/inspector-model'
+  import { comboHint } from '../../../lib/keybindings/manifest'
 
   // Svelte transitions don't consult prefers-reduced-motion on their own —
   // zero the durations so reduced-motion users get an instant swap.
@@ -123,7 +124,7 @@
           type="button"
           class="diagram-inspector__icon-btn"
           onclick={onCollapse}
-          title="Collapse to rail (⌘\)"
+          title={`Collapse to rail (${comboHint('diagram.toggle-inspector')})`}
           aria-label="Collapse inspector"
         >
           <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true">

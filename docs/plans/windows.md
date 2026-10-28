@@ -1,6 +1,6 @@
 # Windows: parity with T3 Code, the server first, then the desktop app
 
-Status: draft, 2026-10-23. Decisions in §10 wait for the maintainers.
+Status: steps 1 and 2 done; step 3 in progress (§13), 2026-10-26. Decisions in §10 wait for the maintainers.
 
 Reference: T3 Code (`pingdotgg/t3code`) runs natively on Windows and can also
 run its server inside a WSL distro from the desktop app. This plan reaches the
@@ -28,9 +28,10 @@ Each step is usable on its own.
 - **Windows host**: a Solus server that runs on Windows. It is a `self-hosted`
   host when it is the standalone server, and a `personal` host when the desktop
   app runs it.
-- **WSL backend**: the desktop app's server when it runs inside a WSL distro.
-  The renderer, tray, and shortcuts stay on Windows. The server, its data
-  folder, the repositories, and the provider CLIs are in the distro.
+- **WSL distro (as a machine)**: a distro of a Windows host, added as a
+  machine that host forwards to (§5.13). The desktop app and its own server
+  stay on Windows; the distro runs its own Solus server, with its data folder,
+  repositories, and provider CLIs.
 - **shim**: the `.cmd` file that npm, bun, Volta, or scoop puts on PATH in
   place of a program. `codex.cmd` and `npm.cmd` are shims. Node refuses to
   spawn a shim without a shell (CVE-2024-27980), and a `cmd.exe` line breaks on
@@ -110,7 +111,7 @@ is nothing to bring to Windows.
 | Open in terminal: PowerShell or Windows Terminal | `tmux`, `open`, `osascript`, `x-terminal-emulator` | 7.3 |
 | Screenshots | `/usr/sbin/screencapture` | 7.3 (`desktopCapturer`) |
 
-### 3.4 WSL backend
+### 3.4 WSL (Solus adds a distro as a machine; see §5.13)
 
 | T3 Code on Windows | Solus today | Step |
 | --- | --- | --- |
@@ -440,7 +441,7 @@ protects more than `0o600` does on POSIX.
 
 ### 5.12 Desktop app
 
-- electron-builder `win` target: `nsis`, `x64` only, `resources/icon.ico` made by `generate-app-icons.ts`,
+- electron-builder `win` target: `nsis`, `x64` only, `resources/icon.png` (electron-builder makes the `.ico`),
   `publish` unchanged so `latest.yml` lands beside `latest-mac.yml`.
   `afterPack.js` branches on `context.electronPlatformName`: the fuse flip
   targets `Solus.exe`, and the size check reads `appOutDir`.
@@ -454,12 +455,10 @@ protects more than `0o600` does on POSIX.
 - The in-process server gets its PATH from `importLoginShellEnv()`, which on
   win32 runs the §5.2 probe once and writes `process.env`. The server does
   not probe again.
-- The `solus` command from Settings → General → About → Install: writes
-  `solus.cmd` into the command folder, pointing at the app's `Solus.exe` with
-  `ELECTRON_RUN_AS_NODE=1` and the CLI entry; refuses to overwrite a file
-  without the Solus marker; adds the folder to the user PATH; Remove undoes
-  it. macOS gets the same with a shell script, so the capability is one
-  feature on both.
+- The `solus` command on Windows: as VS Code ships `code`, a launcher in the
+  app's `bin` folder that the installer puts on the user PATH; as built, see
+  §13.5. It does not use the command folder, which the standalone install
+  owns. macOS keeps the `RunAsNode` fuse off and does not offer it.
 - The default summon shortcut is `Alt+Shift+Space` on Windows and Linux.
   `Alt+Space` stays on macOS.
 - Keybindings: `conversation.interrupt` is `Ctrl+Shift+C` off macOS;
@@ -469,10 +468,10 @@ protects more than `0o600` does on POSIX.
   `comboToAccelerator` emits `Super` for `meta` off macOS.
 - Badge: `setOverlayIcon` on Windows with a rendered count; cleared when a
   window has focus.
-- Shell integration: a Windows branch in `terminal-apps.ts` for Windows
+- Shell integration: `platform/win32-terminal.ts` for Windows
   Terminal (`wt.exe -d <cwd>`) and PowerShell, with no `tmux`; editors found
   on PATH first, then under `%LOCALAPPDATA%\Programs` and the Program Files
-  roots (VS Code and Cursor `bin\*.cmd`, Zed `.exe`, JetBrains
+  roots (VS Code `Code.exe` and Cursor `Cursor.exe`, not their `bin\*.cmd`; Zed `.exe`, JetBrains
   `bin\<ide>64.exe`); screenshots use `desktopCapturer`.
 - `build.files` keeps the `win32` `onnxruntime-node` binaries in a Windows
   build.
@@ -482,49 +481,41 @@ protects more than `0o600` does on POSIX.
   its NSIS installers on Linux and runs only native checks on Windows
   runners; Solus can start on `windows-latest` and move later.
 
-### 5.13 WSL backend
+### 5.13 WSL distros
 
-The desktop app on Windows can run its server inside a WSL distro. The model
-follows T3 Code's and reuses Solus's own pieces:
+Decided 2026-10-27, replacing the first design, in which the desktop app ran
+its own server inside a distro instead of on Windows ("one at a time"). That
+design had two faults. The Windows app carries only Windows native modules,
+so its server tree cannot load in Linux. And the desktop-only features
+(screenshots, Open in editor and terminal, voice, the browser pane) are
+handlers of the app's own Windows server, so moving the server would have
+meant moving each of them.
 
-- **Choice.** Settings → Connections → "Run the server in" lists `Windows`
-  and each distro from `wsl.exe --list --verbose` (8 s bound; a failure is
-  "could not list", not "none"). `null` means the user's default distro. The
-  choice is a desktop setting; changing it restarts the server.
-- **Runtime in the distro.** The desktop ships the headless `libexec/server`
-  tree (it already exists for the server package) outside the asar under
-  `userData\wsl-server-tree\<version>`, with a marker file and a sweep of old
-  versions. The distro reads it through `/mnt/c`. Node comes from the distro's
-  login shell; when `node` is missing the setup page says so and offers the
-  Linux server package install (`install.sh`), which brings its own Node.
-- **Launch.** `wsl.exe -d <distro> -- bash -lc '<node> <standalone.js>
-  --data-dir ~/.solus'` as a child with an IPC-free stdio pipe. The login
-  shell's PATH is read first (`bash -l -s` with a probe script, as T3 Code
-  does) and forwarded so `codex` and `claude` resolve by name. The data folder
-  is the Linux home, never `/mnt/c`. A whitelist of env vars crosses through
-  `WSLENV`. The local session token is handed over on stdin.
-- **Reach.** The server binds `0.0.0.0` inside the distro. The renderer's
-  local target is `http://<distro-ip>:<port>` from `hostname -I`, or
-  `127.0.0.1` when that address is also one of Windows' own (mirrored
-  networking). Localhost forwarding is not used, because `wslhost` can take
-  30 s to start it.
-- **Lifetime.** A stopped distro is pre-warmed (30 s). The server child is
-  stopped with `solus:stop` over its stdin, then `wsl.exe --terminate` is
-  never called; the distro keeps running for the user's other shells.
-- **Paths.** `wslpath -u` after normalizing backslashes, cached user home per
-  distro. Reveal and open use `explorer.exe` with `\\wsl.localhost\<distro>`
-  paths, which `file-manager.ts` already knows.
-- **Not in the WSL backend.** The browser pane's native webview stays on
-  Windows; the server's browser verbs go through the desktop's own Chromium
-  as they do today. The transcription worker stays on Windows.
+A WSL distro is instead **a machine you add**, through the path that already
+adds a machine over SSH (docs/plans/host-routes.md D6, D7):
 
-The in-process server stays the default. The WSL backend is the second local
-target, and the desktop app runs one of them at a time. This is the only
-either/or. A standalone server inside a distro, or a second one on Windows,
-is its own host with its own data folder, port, and pair code; the user adds
-it in Add server and picks it in Run on, as with any machine. Two servers on
-one machine with mirrored networking share the Windows address, so the second
-one walks up to the next free port and prints that in its pair link.
+- **Choice.** Add a WSL distro, in the Run on menu (desktop and web) and in a
+  Windows host's settings (mobile), lists the distros of the Windows host
+  (`hostsListWslDistros`: `wsl.exe --list --verbose`, 8 s bound). A failure
+  says why: no WSL, no distro, or WSL did not answer.
+- **Install.** The host runs the provisioner's steps in the distro through
+  `wsl.exe -d <distro> --exec sh -c`, with each script on stdin, as it does
+  over SSH. The published installer puts the Linux release of the host's own
+  version there (`SOLUS_VERSION`), with its own Node and Linux native
+  modules, so the distro needs nothing installed. `solus setup` starts it,
+  and `solus auth session create` gives the host its session.
+- **Reach.** `hostsAddWsl` saves the distro as a forwarded host, labelled
+  `<distro> (WSL)` because a distro takes the computer's name. The forward
+  is a loopback port on Windows; each connection is bridged into the distro
+  by one `wsl.exe` process running the release's Node, which connects to the
+  server's loopback port there. This works under NAT and mirrored networking
+  alike, and no Windows port is shared with the distro's.
+- **Lifetime.** WSL stops a distro when no process from Windows runs in it, so
+  the forward holds one (`sleep infinity`) while it is open. The forward
+  reconnects with backoff and opens again at boot, like an SSH forward.
+- **Paths and files.** The repositories live in the distro's own file system;
+  a session there works in Linux paths. Nothing is read through `/mnt/c`.
+- **Not in a distro.** The desktop features stay on the Windows server.
 
 ### 5.14 Performance on Windows
 
@@ -655,23 +646,19 @@ secrets, no uplink, no Tailscale detection.
 9. Run the Windows desktop app against its own server, then pair it with the
    Mac host as a second host.
 
-### 7.4 Step 4: the WSL backend
+### 7.4 Step 4: WSL distros
 
-1. `apps/desktop/src/main/wsl/wsl-environment.ts`: availability
-   (`%windir%\System32\wsl.exe` exists), `listDistros` and `probeDistros`,
-   `preWarm`, `windowsToWslPath`, `userHome`, `distroIp`, `loginShellPath`,
-   each with its bound (§5.13).
-2. `wsl-server-tree.ts`: ship the headless tree beside the asar and keep it
-   per version.
-3. `wsl-backend.ts`: build the launch (`wsl.exe -d … -- bash -lc`), the env
-   whitelist and `WSLENV`, the token on stdin, `solus:stop`, and the renderer
-   target URL.
-4. Settings → Connections → "Run the server in", with the restart, the Node
-   check, and the install hint. Desktop only; web and mobile show the host
-   as a Linux host like any other.
-5. `renderer/main.ts` registers the WSL target as the local one when chosen.
-6. Run it: pick a distro, start a Claude Code session in `~/code/<repo>`
-   inside the distro, open the diff, reveal a file in Explorer.
+1. `packages/server/src/remote-machines/wsl.ts`: the distro list, the
+   `wsl:<distro>` target, `WslClient` (`run` and `forward`), and the router
+   that sends a `wsl:` target to WSL and every other target to SSH.
+2. The provisioner and the forwards take that router; the WSL provisioner
+   installs the host's own version.
+3. `hostsListWslDistros` and `hostsAddWsl`, on every client: the Run on menu
+   and a dialog on desktop and web, and a screen from a Windows host's
+   settings on mobile.
+4. Run it: install a distro, add it, start a Claude Code session in
+   `~/code/<repo>` there, open the diff, and restart the app to see the
+   forward open again.
 
 ### 7.5 Step 5: distribution
 
@@ -739,10 +726,11 @@ Windows file system says so and skips elsewhere.
   the user to run `git config --global core.longpaths true` on Windows.
 - The browser pane on a standalone Windows server needs Playwright's Chromium;
   the installer prints the command as it does on Linux.
-- The WSL backend needs Node 24 in the distro or the Linux server package.
-  The first start after an update is slower because the tree is copied.
+- A WSL distro needs network access to download the Linux release the first
+  time it is added, and systemd for `solus setup` (on by default in current
+  Ubuntu WSL images).
 - Member seats (Linux user switching) stay unsupported on Windows and in the
-  WSL backend.
+  WSL distros.
 
 ## 10. Decisions for the maintainers
 
@@ -756,7 +744,7 @@ Windows file system says so and skips elsewhere.
    plan assumes the task.
 4. **Remote-only desktop.** T3 Code can turn off the local server. Solus
    always boots one. Add the switch in step 3, or leave it. The plan leaves
-   it; the WSL backend covers the common reason for it.
+   it; adding a WSL distro as a machine covers the common reason for it.
 5. **Code signing for the desktop app.** An unsigned NSIS installer shows the
    SmartScreen warning. The plan ships unsigned in step 3 and signs in step 5.
 6. **Summon shortcut.** `Alt+Shift+Space` on Windows, or another.
@@ -900,3 +888,213 @@ mock; its `close()` releases the file.
 - **`cloud-build-boundaries.test.ts`** took more than 30 s in a full Windows run
   under load; alone it passes in 2 s.
 
+
+## 13. Step 3 results (2026-10-26)
+
+Run on the same Windows 11 x64 machine (build 26200) from source. The desktop
+app ran with its own data folder, port, and Electron `userData` under
+`.solus-local/`; the standalone server's `~/.solus` was not touched.
+
+### 13.1 What works on the Windows machine
+
+- `bun install` (330 s, 1,759 packages) and `electron-vite build`.
+- The desktop app starts, boots its in-process server, and shows the
+  workspace: sidebar, composer, Run on, model picker.
+- `electron-builder --win --x64` builds `release\Solus-0.37.0-x64.exe`
+  (151 MB), its blockmap, and `latest.yml`. The afterPack probe passes inside
+  the package: fff loads `fff_c.dll` from `app.asar.unpacked`, ONNX runs on
+  the CPU, and the Claude SDK loads. The fuses are flipped on `Solus.exe`.
+- The package has 104 files (target: under 2,000). It is 618 MB unpacked;
+  `Solus.exe` (Electron) is 225 MB and ONNX is 64 MB. Only the `win32\x64`
+  ONNX binaries ship.
+
+### 13.2 What the machine showed that the tests did not
+
+- **Antivirus holds new copies open.** The packaged plugin sync copies
+  `resources/plugins` to `plugins.incoming` and renames it; the rename failed
+  with `EPERM`, so agents ran without the bundled plugins. The server now has
+  `platform/rename-retry.ts` (the CLI's rule, §5.5), and the plugin sync uses it.
+  electron-builder's own rename of a freshly extracted Electron fails the same
+  way on this machine; a local build passes
+  `-c.electronDist=node_modules/electron/dist`, which copies instead.
+- **Electron cannot decode an SVG native image.** A data-URL SVG gives an
+  empty image, so the taskbar count is drawn as pixels (`platform/win32-badge.ts`).
+- **The desktop server binds `0.0.0.0`.** The first start shows the Windows
+  Firewall prompt for Electron (§9). A dev run shows it for `electron.exe`; an
+  installed app shows it once for `Solus.exe`.
+- **Two servers ran on one data folder.** The installed desktop app started
+  while the standalone server held `~/.solus`. Both default to that folder.
+  The lock was taken only after the database was open, and a lock held by a
+  live server only logged `lock_acquisition_failed`, so the app served a
+  second server on port 3001 against the same database. This was not
+  Windows-specific. `bootCore` now refuses first (`host/server-lock.ts`): a
+  lock whose process is alive and whose port answers names the other server,
+  and boot stops with a message that says to stop it or set `SOLUS_DATA_DIR`.
+  The port check is there because Windows reuses process ids. The packaged
+  app was checked against a copy of the live lock: it refused before creating
+  a database.
+- **An interactive run on a machine in use is disruptive.** The window takes
+  the foreground when it is ready and the Firewall prompt appears over other
+  apps. Run the manual pass when the machine is free.
+
+### 13.3 Changes in this step
+
+- **Platform adapters.** The desktop main process no longer reads
+  `process.platform`. `apps/desktop/src/main/platform/desktop-platform.ts`
+  declares `DesktopPlatform`: setup before and after ready, single instance,
+  window options, focus, hide, tray icon, badge, Open in terminal, Open in
+  editor, and screen capture. `darwin.ts`, `linux.ts`, and `win32.ts` implement
+  it, and `desktopPlatformFor(platform)` picks one. Windows-only code sits
+  beside its adapter (`win32-terminal.ts`, `win32-editors.ts`,
+  `win32-badge.ts`). macOS and Linux share the tmux launcher
+  (`terminal-launcher.ts`), which still separates the two inside it.
+  The key facts are a second adapter in the shared UI,
+  `packages/workspace-ui/src/lib/keybindings/key-platform.ts`: `MAC_KEYS`,
+  `WINDOWS_KEYS`, and `LINUX_KEYS` hold the primary modifier, labels,
+  separator, meta accelerator, and summon default. The renderer picks one from
+  `navigator.platform`; the main process takes `DesktopPlatform.keys`. Each
+  function in `match.ts` takes the keys as its last argument, so the tests run
+  all three platforms on any machine.
+- Electron: `setAppUserModelId('com.solus.app')`, the single-instance lock on
+  every platform but macOS, no application menu on Windows, `app.focus()` and
+  `moveTop()` before focus, a tray icon drawn at 16 px per display scale and
+  opened by a left click, and the count as an overlay icon.
+- Build: the `win` NSIS target (x64, one-click, per user, differential
+  updates) with `resources/icon.png` (electron-builder makes the `.ico`), the
+  Windows file filters, the win32 package layout for afterPack, `dist:win`,
+  and the `build-windows` and `publish-windows` release jobs. The updater is
+  automatic on Windows; `latest.yml` lands beside `latest-mac.yml`.
+- `importLoginShellEnv()` does nothing on Windows: a Start-menu launch already
+  has the user's environment.
+- Shortcuts: `nonMac` defaults in the manifest for `conversation.interrupt`
+  (`Ctrl+Shift+C`), `pr-review.copy-link` (`Ctrl+Shift+C`), and
+  `global.focus-sidebar-task-search` (`Ctrl+Shift+/`). The summon default is
+  `Alt+Shift+Space` off macOS. `formatCombo` prints key names and
+  `formatComboText` joins them with `+`; `comboToAccelerator` emits `Super`.
+  Components that printed `⌘` read the formatter.
+- Open in terminal: `platform/win32-terminal.ts` opens a Windows Terminal tab
+  (`wt.exe -d <cwd> powershell -NoExit -Command <command>`, with `;` escaped)
+  or a PowerShell console. Windows has no tmux, so each request is its own
+  window, and the one terminal choice is named for what it opens.
+- Open in editor: GUI editors start their program from the install roots
+  (`%LOCALAPPDATA%\Programs`, Program Files): `Code.exe`, `Cursor.exe`,
+  `Zed.exe`, `subl.exe`, and the newest `JetBrains\<IDE> <version>\bin\<ide>64.exe`.
+  The PATH `code.cmd` is not used, because Node cannot start a `.cmd`.
+- Screenshots: `desktopCapturer` takes the display under the pointer. Windows
+  gives an app no region picker to wait on.
+- "This computer" in the Open project dialog and the cloud sign-in row.
+- Port scanning (§5.14): `browser/target-scanner.ts` reads `netstat -ano` for
+  `tcp` and `tcpv6` at the same time. A listener is the row whose foreign
+  address is `0.0.0.0:0` or `[::]:0`, because the state column is translated.
+  No `tasklist` call: the scanner never used the process name. A Windows offer
+  has no project, because Windows gives no cheap read of another process's
+  working directory. A scan on the machine found six HTML ports. The scanner
+  answers when the pane asks, through a 4 s cache, so there is no idle poll to
+  keep quiet.
+
+### 13.4 Not proven on Windows
+
+- The manual pass in §7.3 item 9: a Claude and a Codex session from the
+  Windows desktop app, the summon shortcut over another app, the tray, the
+  overlay count, Open in terminal and editor, a screenshot, a second launch,
+  and pairing the Mac host. It waits for a time when the machine is free.
+- `quitAndInstall` from a real update feed: it needs a published newer
+  `latest.yml`. The installer itself was run (13.5).
+- `actor-name.ts` and the label changes were checked by tests, not on screen.
+  The `AutomationsPage` "New automation" hint now reads its binding.
+- The `solus` command on macOS and Linux (see 13.5).
+- Windows code signing (§10 decision 5).
+
+### 13.5 The `solus` command
+
+Shipped as VS Code ships `code` on Windows. An earlier version wrote a
+launcher at runtime and had Install and Remove in Settings, after T3 Code; it
+was replaced because the installer can do the same with no code in the app.
+
+- **Launcher.** `packaging/windows/bin/solus.cmd` is a fixed file. The
+  installer puts it in `<install>in` (`build.win.extraFiles`). It runs
+  `"%~dp0..Solus.exe" "%~dp0..esourcesapp.asardistmaincli.js" %*` with
+  `ELECTRON_RUN_AS_NODE=1` and `SOLUS_DESKTOP_CLI=1`, so it moves and updates
+  with the app. The CLI is bundled as `dist/main/cli.js`
+  (`electron.vite.config.ts`). Its data folder is the CLI's default,
+  `~.solus`, the same as the app's, or `SOLUS_DATA_DIR` when the terminal
+  sets one.
+- **PATH.** `packaging/windows/installer.nsh` (`build.nsis.include`) runs
+  `resourcespath-entry.ps1`: install adds `<install>in` to the user PATH,
+  and uninstall removes it, except during an update, which uninstalls the old
+  version first. The script reads the value as written, changes only that
+  entry, writes it back with the same kind, and tells Explorer. It is not
+  done in NSIS, because NSIS string functions cut a long PATH at 1024
+  characters, and `[Environment]::SetEnvironmentVariable` rewrites the PATH
+  as a plain string, so `%VAR%` entries stop expanding. `install.ps1` had
+  that bug, and now follows the same rule.
+- **Commands.** The desktop's `solus` runs `pair` and `connect`
+  (`apps/cli/src/lib/desktop-commands.ts`). `setup`, `start`, `service`,
+  `update`, `status`, and `logs` manage a standalone server, so they explain
+  that and point to the install script.
+- **Order on the PATH.** A standalone install's `~.localinsolus.cmd`
+  comes first, because the installer appends its folder. A terminal then runs
+  the standalone `solus`; the app's is still reachable by its full path.
+- **The fuse.** `RunAsNode` is on in the Windows build only. On macOS any
+  script could then borrow the Microphone, Screen Recording, and keychain
+  grants given to Solus, so the fuse stays off there. Linux waits for the
+  AppImage case: the image must mount itself before its CLI can run. Measured
+  start of the paths on the Windows machine: Node 74 ms,
+  `ELECTRON_RUN_AS_NODE` 78 ms, an Electron app that exits at once 93 ms, and
+  one that waits for `ready` 122 ms.
+- **Proof on the machine.** With the user PATH backed up:
+  - A silent install (`/S`) added `%LOCALAPPDATA%Programssolusin` once,
+    at the end, and kept the value's kind (`REG_SZ` there) and the other four
+    entries. The app did not start.
+  - From a PATH read from the registry, as a new terminal has it, `where solus`
+    found the standalone launcher first and the app's second. The app's
+    `solus --version` printed the version, `solus setup` was refused with
+    exit 1, and `solus pair` read the data folder it was given.
+  - A silent uninstall removed the app folder and left the PATH identical to
+    the backup.
+  - An install and then a second run with `--updated`, as the updater does,
+    left the entry on the PATH once.
+
+### 13.6 WSL distros (step 4)
+
+Built as §5.13 describes, and checked without WSL so far:
+
+- The distro list reads the default, the state, and the version by position,
+  so a translated header, a translated state of several words ("Wird
+  ausgeführt"), and UTF-16 output all parse.
+- The forward was run with its real bridge script against a local server, in
+  place of a distro: an HTTP request through the loopback port reached the
+  server, and closing the forward stopped the process that holds the distro.
+- `hostsAddWsl` refuses a distro that WSL does not list, installs with the
+  host's own version, and saves the host as `<distro> (WSL)`.
+- The clients preselect the default distro; the desktop saves the forwarded
+  host, and another client is told only the Windows host reaches it.
+
+Then on a real Ubuntu 26.04 distro (WSL 2, systemd on by default), from an
+isolated test server on the Windows host:
+
+- The add took about ten seconds: the check found no Solus, `install.sh`
+  installed 0.37.0 (the host's own version, not the latest), `solus setup`
+  started the user service with linger on, and the session and the forward
+  followed. `/health` through the loopback port answered with the distro's
+  installation.
+- One `wsl.exe -d Ubuntu --exec sleep infinity` holds the distro while the
+  forward is open, and it ends with the server.
+- After a server restart the forward reopened on the same loopback port.
+- Solus's own onboarding installed Claude Code in the distro
+  (`setupInstallAgentCli`), as on any Linux host.
+
+Found and fixed on the way:
+
+- A distro reports the computer's name, so the progress read "Installing Solus
+  on sidhu". The add now passes `<distro> (WSL)` as the machine's label, and
+  every step names it.
+- "Add a WSL distro" lived only in the Run-on picker, which shows only once a
+  remote is connected: a Windows user with one host could not reach it. It is
+  now also beside "Add machine over SSH" in the host directory and in a
+  Windows host's forwarded machines, and in the palette, each shown only for
+  a Windows host.
+
+The Linux server release serves no web client, so the distro is driven from
+the Windows host's client, as a saved host. Still to run: a Claude Code
+session in a repository in the distro, and its diff.

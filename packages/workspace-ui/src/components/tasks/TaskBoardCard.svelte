@@ -4,6 +4,9 @@
   import { avatarTint, chipSkin } from "../ui/list-page/list-page";
   import type { BoardCardSpec } from "./lib/tasks-list-view";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
+  import { isMac } from "../../lib/keybindings/match";
+
+  const moveKey = isMac ? "⌥" : "Alt+";
 
   /** One card on the kanban board ("Tasks page" spec, board layout).
    *
@@ -88,7 +91,7 @@
  ? ''
  : 'shadow-[0_0_0_.5px_var(--hairline-strong),0_1px_2px_-1px_rgba(24,20,16,.10),0_6px_14px_-10px_rgba(24,20,16,.20)]'}"
   title={canReorder
-    ? "Open task · drag to reorder · ⌥↑↓ ⌥←→ move · 1/2/3 set status"
+    ? `Open task · drag to reorder · ${moveKey}↑↓ ${moveKey}←→ move · 1/2/3 set status`
     : "Open task · drag to change column · clear the search to reorder"}
   onclick={onSelect}
   onkeydown={(event) => {

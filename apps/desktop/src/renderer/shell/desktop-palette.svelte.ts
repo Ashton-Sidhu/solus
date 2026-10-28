@@ -4,6 +4,7 @@ import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
 import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
 import { addOverSshPaletteCommand } from "@solus/workspace-ui/components/servers/lib/add-over-ssh-commands";
+import { addWslDistroPaletteCommands } from "@solus/workspace-ui/components/servers/lib/add-wsl-distro-commands";
 import { untrack } from "svelte";
 import {
   Plus as PlusIcon,
@@ -339,6 +340,7 @@ export function createDesktopPalette(
       run: () => serversStore.openAddServer(),
     },
     addOverSshPaletteCommand(),
+    ...addWslDistroPaletteCommands(),
     {
       id: "find-hosts",
       label: "Find hosts nearby",

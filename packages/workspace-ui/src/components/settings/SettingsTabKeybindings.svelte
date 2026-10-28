@@ -4,7 +4,8 @@
   import { Button } from "../ui/button";
   import { SearchField } from "../ui/search-field";
   import { KEYBINDINGS, bindingsForScope, type BindingId } from "../../lib/keybindings/manifest";
-  import { comboToAccelerator, defaultCombo, formatCombo } from "../../lib/keybindings/match";
+  import { comboToAccelerator, defaultCombo, formatCombo, isMac } from "../../lib/keybindings/match";
+  import { CURRENT_KEYS } from "../../lib/keybindings/key-platform";
   import {
     ALL_LISTED_SCOPES,
     KEYBINDING_CATEGORIES,
@@ -78,7 +79,7 @@
   // once the RPC resolves. Without the seed a slow/failed fetch would hide the
   // whole section and the summon shortcut would look uneditable.
   const DEFAULT_APP_SHORTCUTS: AppGlobalShortcuts = {
-    toggle: { alt: true, code: "Space" },
+    toggle: CURRENT_KEYS.summonCombo,
   };
 
   let appShortcuts = $state<AppGlobalShortcuts>(DEFAULT_APP_SHORTCUTS);
@@ -351,7 +352,7 @@
 
   {#if !shell.supportsNativeSettings}
     <p class="flex flex-wrap items-center gap-1.5 pb-3 text-(--solus-text-tertiary)">
-      Some <Kbd variant="keycap">⌘</Kbd> combinations are reserved by your browser and can't be rebound to those keys.
+      Some <Kbd variant="keycap">{isMac ? "⌘" : "Ctrl"}</Kbd> combinations are reserved by your browser and can't be rebound to those keys.
     </p>
   {/if}
 

@@ -74,6 +74,9 @@ export default defineConfig(({ mode }) => {
           boot: resolve(__dirname, 'apps/desktop/src/main/boot.ts'),
           index: resolve(__dirname, 'apps/desktop/src/main/index.ts'),
           standalone: resolve(__dirname, 'apps/standalone-server/src/index.ts'),
+          // The `solus` command that comes with the app runs this through
+          // ELECTRON_RUN_AS_NODE (docs/plans/windows.md §5.12).
+          cli: resolve(__dirname, 'apps/cli/src/index.ts'),
           'transcription-worker': resolve(__dirname, 'packages/server/src/transcription/worker.ts')
         },
         external: [

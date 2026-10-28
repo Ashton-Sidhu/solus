@@ -6,6 +6,9 @@
   import { sectionNumbers, type PlanHeading } from "./headings";
   import { OUTLINE_DWELL_MS, outlineTickRanges, afterDwell, holdsWithoutDwell, isOutlineVisible, type OutlineReason } from "./lib/outline";
   import { OUTLINE_LONG_MIN, outlineRows } from "./lib/outline-filter";
+  import { formatComboText } from "../../lib/keybindings/match";
+
+  const sectionKey = formatComboText({ alt: true, code: "Digit1" });
 
   interface Props {
     headings: PlanHeading[]
@@ -292,7 +295,7 @@
           <span class="doc-outline__foot-key">↵</span>
           <span>jump to first match</span>
         {:else}
-          <span class="doc-outline__foot-key">⌥1</span>
+          <span class="doc-outline__foot-key">{sectionKey}</span>
           <span>jump to section</span>
         {/if}
       </div>

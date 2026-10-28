@@ -9,6 +9,7 @@
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
   import { linkDestinationLabel } from "./lib/link-preview";
+  import { isMac } from "../../lib/keybindings/match";
 
   interface Props {
     anchorCoords: { left: number; top: number; bottom: number };
@@ -106,7 +107,7 @@
         </button>
       </div>
       <p class="px-2.5 pt-1 pb-0.5 text-[0.625rem] text-(--solus-text-tertiary)">
-        ⌘/Ctrl-click opens the link directly
+        {isMac ? "⌘" : "Ctrl"}-click opens the link directly
       </p>
     </div>
   </div>

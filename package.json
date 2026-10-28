@@ -50,7 +50,8 @@
     "generate:codex-types": "codex app-server generate-ts --out packages/server/src/execution/agents/codex/generated",
     "generate:icon": "bun scripts/generate-icon.ts",
     "generate:app-icons": "bun scripts/generate-app-icons.ts",
-    "dist:linux": "bun run build:desktop && bun run build:client && electron-builder --linux --x64"
+    "dist:linux": "bun run build:desktop && bun run build:client && electron-builder --linux --x64",
+    "dist:win": "bun run build:desktop && bun run build:client && electron-builder --win --x64"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.263",
@@ -163,6 +164,48 @@
       "url": "https://releases.solus.sh"
     },
     "afterPack": "./scripts/afterPack.js",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.png",
+      "extraFiles": [
+        {
+          "from": "packaging/windows/bin",
+          "to": "bin"
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "packaging/windows/path-entry.ps1",
+          "to": "path-entry.ps1"
+        }
+      ],
+      "files": [
+        "dist/main/**/*",
+        "dist/preload/**/*",
+        "dist/renderer/**/*",
+        "dist/client/**/*",
+        "resources/**/*",
+        "package.json",
+        "!**/*.map",
+        "!node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v6/!(win32)/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v6/win32/!(${arch})/**/*",
+        "!node_modules/@yuuang/ffi-rs-win32-ia32-msvc/**/*"
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "differentialPackage": true,
+      "include": "packaging/windows/installer.nsh"
+    },
     "linux": {
       "target": [
         {

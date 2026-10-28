@@ -5,6 +5,7 @@
   import { CommentEditor } from "../comment-editor";
   import { Button } from "../button";
   import EditorVoiceControl from "../../input/EditorVoiceControl.svelte";
+  import { formatComboText } from "../../../lib/keybindings/match";
 
   type CommentComposerSurface = "floating" | "embedded" | "compact";
 
@@ -82,7 +83,7 @@
   });
 
   const canSave = $derived(hasContent && !uploadingImage && !disabled);
-  const hint = $derived(submitOn === "enter" ? "↵ to save" : "⌘↵ to save");
+  const hint = $derived(submitOn === "enter" ? "↵ to save" : `${formatComboText({ mod: true, code: "Enter" })} to save`);
   const resolvedSurface = $derived(surface ?? (framed === false ? "embedded" : "floating"));
 
   function handleSave() {

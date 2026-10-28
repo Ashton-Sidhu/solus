@@ -140,7 +140,11 @@ module.exports = async function afterPack(context) {
   probePackagedRuntime(context)
   await flipFuses(fusePath, {
     version: FuseVersion.V1,
-    [FuseV1Options.RunAsNode]: false,
+    // The Windows app's `solus` command runs its CLI through ELECTRON_RUN_AS_NODE
+    // (docs/plans/windows.md §5.12). macOS keeps it off: there any script could
+    // borrow the Microphone, Screen Recording, and keychain grants given to Solus.
+    // Linux has no `solus` command from the app yet, so it stays off there too.
+    [FuseV1Options.RunAsNode]: context.electronPlatformName === 'win32',
     [FuseV1Options.EnableCookieEncryption]: true,
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
     [FuseV1Options.EnableNodeCliInspectArguments]: false,

@@ -12,7 +12,7 @@ export interface TooltipDisplay {
 }
 
 const SHORTCUT_TOKEN =
-  /(?:⌘|⌥|⇧|⌃|↵|⏎|←|→|\bEnter\b|\bEscape\b|\bEsc\b|\bOpt\b|\bShift\b|\bCtrl\b)/i;
+  /(?:⌘|⌥|⇧|⌃|↵|⏎|←|→|\bEnter\b|\bEscape\b|\bEsc\b|\bOpt\b|\bShift\b|\bCtrl\b|\bAlt\b|\bWin\b|\bSuper\b)/i;
 
 export function tooltipDisplay(value: TooltipValue): TooltipDisplay | null {
   if (!value) return null;

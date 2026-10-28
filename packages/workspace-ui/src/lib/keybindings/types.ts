@@ -58,6 +58,12 @@ export type BindingDef = {
    * combo (⌘T/⌘W/⌘N/…) the page can't preventDefault. Falls back to `combo`.
    */
   web?: KeyCombo
+  /**
+   * Default on Windows and Linux, when `combo` is a system or editing key there
+   * (Ctrl+C is copy) or collides with another binding once `mod` is Ctrl. Falls
+   * back to `combo`. The web variant wins on web.
+   */
+  nonMac?: KeyCombo
   /** Extra combos that trigger the same action (not shown in the shortcuts help). */
   aliases?: KeyCombo[]
   /**

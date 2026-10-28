@@ -8,6 +8,7 @@
   import { SubPageCrumbLine, SUB_PAGE_CRUMB_BTN } from "../ui/list-page";
   import { statusDotColor } from "./lib/pr-status";
   import { reviewLensStore } from "../review/review-lens.store.svelte";
+  import { comboHint } from "../../lib/keybindings/manifest";
 
   /**
    * The pull request's head: the sub page band every record shares, whose leaf
@@ -191,8 +192,8 @@
   {actions}
   {onToggleMaximize}
   {maximized}
-  maximizeLabel="Maximize (⌥M)"
-  restoreLabel="Restore panel (⌥M)"
+  maximizeLabel={`Maximize (${comboHint("pane.maximize")})`}
+  restoreLabel={`Restore panel (${comboHint("pane.maximize")})`}
   onClose={onExit}
   closeLabel="Back to list (Esc)"
 />

@@ -29,6 +29,7 @@ import { HostsScreen } from '../features/hosts/HostsScreen'
 import { PairHostScreen } from '../features/hosts/PairHostScreen'
 import { AddSshHostScreen } from '../features/hosts/AddSshHostScreen'
 import { ChooseSshKeyScreen } from '../features/hosts/ChooseSshKeyScreen'
+import { AddWslHostScreen } from '../features/hosts/AddWslHostScreen'
 import { AdaptiveWorkspaceLayout, type WorkspaceLocation } from '../features/layout/AdaptiveWorkspaceLayout'
 import { createWorkspaceStackNavigator } from '../features/layout/createWorkspaceStackNavigator'
 import { WorkspaceTabsProvider } from '../features/workspace/WorkspaceTabsContext'
@@ -141,6 +142,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'PairHost',
   'AddSshHost',
   'ChooseSshKey',
+  'AddWslHost',
   'CloudSignIn',
   'CloudHosts',
   'NewTaskEnvironment',
@@ -313,6 +315,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen name="PairHost" component={PairHostScreen} options={{ title: 'Connect to a host' }} />
           <Stack.Screen name="AddSshHost" component={AddSshHostScreen} options={{ title: 'Add over SSH' }} />
           <Stack.Screen name="ChooseSshKey" component={ChooseSshKeyScreen} options={{ title: 'Identity file' }} />
+          <Stack.Screen name="AddWslHost" component={AddWslHostScreen} options={{ title: 'Add a WSL distro' }} />
           <Stack.Screen name="CloudSignIn" component={CloudSignInScreen} options={{ title: 'Solus Cloud' }} />
           <Stack.Screen name="CloudHosts" component={CloudHostsScreen} options={{ title: 'Your hosts' }} />
           <Stack.Screen name="Hosts" component={HostsScreen} options={{ title: 'Hosts', headerLargeTitle: true }} />

@@ -772,6 +772,12 @@
       ],
       "skipped": []
     },
+    "apps/mobile/src/features/hosts/AddWslHostScreen.tsx": {
+      "compiled": [
+        "AddWslHostScreen"
+      ],
+      "skipped": []
+    },
     "apps/mobile/src/features/hosts/HostAsleepVeil.tsx": {
       "compiled": [
         "CopyHostDetailsButton",
@@ -828,6 +834,12 @@
     "apps/mobile/src/features/hosts/use-nearby-hosts.ts": {
       "compiled": [
         "useNearbyHosts"
+      ],
+      "skipped": []
+    },
+    "apps/mobile/src/features/hosts/use-wsl-add.ts": {
+      "compiled": [
+        "useWslAdd"
       ],
       "skipped": []
     },

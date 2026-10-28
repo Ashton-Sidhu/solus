@@ -14,6 +14,7 @@
   import { portal } from "../portal";
   import { runtime } from "../../contexts";
   import { selectionRect, clampedCentre } from "./lib/selection-bubble";
+  import { formatComboText } from "../../lib/keybindings/match";
 
   interface Props {
     editor: Editor | null;
@@ -185,7 +186,7 @@
       data-on={isActive("bold") ? "" : undefined}
       onmousedown={keepSelection}
       onclick={() => run((c) => c.toggleBold())}
-      title="Bold (⌘B)"
+      title={`Bold (${formatComboText({ mod: true, code: "KeyB" })})`}
       aria-label="Bold"
     >
       <TextBIcon size={13} weight="bold" />
@@ -198,7 +199,7 @@
       data-on={isActive("italic") ? "" : undefined}
       onmousedown={keepSelection}
       onclick={() => run((c) => c.toggleItalic())}
-      title="Italic (⌘I)"
+      title={`Italic (${formatComboText({ mod: true, code: "KeyI" })})`}
       aria-label="Italic"
     >
       <TextItalicIcon size={13} />
@@ -224,7 +225,7 @@
       data-on={isActive("link") ? "" : undefined}
       onmousedown={keepSelection}
       onclick={onLink}
-      title="Link (⌥⇧K)"
+      title={`Link (${formatComboText({ alt: true, shift: true, code: "KeyK" })})`}
       aria-label="Link"
     >
       <LinkSimpleIcon size={13} />

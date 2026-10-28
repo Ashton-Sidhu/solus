@@ -7,6 +7,10 @@ mock.module('electron', () => ({
   dialog: {},
   shell: {},
   utilityProcess: { fork: () => ({ on() {}, postMessage() {}, kill() {} }) },
+  Menu: {},
+  desktopCapturer: {},
+  nativeImage: {},
+  screen: {},
 }))
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 

@@ -20,6 +20,8 @@
   import SqlEditor from "./SqlEditor.svelte";
   import TimeRangePicker from "./TimeRangePicker.svelte";
   import { Input } from "../ui/input";
+  import { comboHint } from "../../lib/keybindings/manifest";
+  import { formatComboText } from "../../lib/keybindings/match";
 
   /**
    * The one place a question is asked, in either language: English, which an
@@ -115,8 +117,8 @@
   // Two words, not two banners: the language is a property of the question, so
   // it sits inside the field rather than on a band of its own.
   const TABS: { id: QueryForm; label: string; title: string }[] = [
-    { id: "nl", label: "Ask", title: "Natural language — ⌥1" },
-    { id: "sql", label: "SQL", title: "SQL — ⌥2" },
+    { id: "nl", label: "Ask", title: `Natural language — ${comboHint("insights.natural-language")}` },
+    { id: "sql", label: "SQL", title: `SQL — ${comboHint("insights.sql")}` },
   ];
 
   // History ages count in minutes, so the panel ticks rather than freezing at
@@ -210,7 +212,7 @@
       class="flex size-7.5 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-(--primary) text-(--primary-foreground) transition-[scale,opacity] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
       disabled={!canRun(activeForm)}
       onclick={() => onRun(activeForm)}
-      title="Run — ⌘↵"
+      title={`Run — ${formatComboText({ mod: true, code: "Enter" })}`}
       aria-label="Run the query"
     >
       {#if running}
@@ -387,7 +389,7 @@
       style="color:{schemaOpen ? 'var(--foreground)' : 'var(--muted-foreground)'}"
       aria-expanded={schemaOpen}
       aria-haspopup="dialog"
-      title="What you can query — ⌥S"
+      title={`What you can query — ${comboHint("insights.schema")}`}
       aria-label="Schema"
       onclick={onOpenSchema}><TableIcon size={12} /></button
     >

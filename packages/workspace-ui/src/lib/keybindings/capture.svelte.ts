@@ -1,16 +1,19 @@
-import { comboFromEvent, isMac } from './match'
+import { comboFromEvent, formatCombo, isMac } from './match'
 import type { KeyCombo } from './types'
 
-/** Modifiers currently held, in the canonical ⌘ ⌃ ⌥ ⇧ order, so a capture chip
- *  can echo them while the user is still reaching for the key. */
+/** Modifiers currently held, in `formatCombo`'s order and labels, so a capture
+ *  chip can echo them while the user is still reaching for the key. */
 function heldModifiers(e: KeyboardEvent): string[] {
-  const keys: string[] = []
-  // Mirrors `formatCombo`: the platform's primary modifier always reads ⌘.
-  if (isMac ? e.metaKey : e.ctrlKey) keys.push('⌘')
-  if (isMac ? e.ctrlKey : e.metaKey) keys.push(isMac ? '⌃' : '⌘')
-  if (e.altKey) keys.push('⌥')
-  if (e.shiftKey) keys.push('⇧')
-  return keys
+  const combo: KeyCombo = {
+    mod: isMac ? e.metaKey : e.ctrlKey,
+    ctrl: isMac && e.ctrlKey,
+    meta: !isMac && e.metaKey,
+    alt: e.altKey,
+    shift: e.shiftKey,
+    code: '',
+  }
+  // Drop the trailing key label: no key is pressed yet.
+  return formatCombo(combo).slice(0, -1)
 }
 
 /**

@@ -1,13 +1,15 @@
 <script lang="ts">
-  /** The machines this host reaches through an SSH forward it holds
-   *  (docs/plans/host-routes.md D7, D9): the state of each forward, and Remove
-   *  and Link with account. State lives in `forwardedHostsStore`. */
+  /** The machines this host reaches through a forward it holds, over SSH or
+   *  into one of its WSL distros (docs/plans/host-routes.md D7, D9;
+   *  docs/plans/windows.md §13.6): the state of each forward, and Remove and
+   *  Link with account. State lives in `forwardedHostsStore`. */
   import { Plus as PlusIcon } from "@lucide/svelte";
   import { hosts, serversStore, uplinkStore } from "../../contexts";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { addOverSshStore } from "../servers/add-over-ssh.store.svelte";
+  import { addWslDistroStore, isWindowsHost } from "../servers/add-wsl-distro.store.svelte";
   import { forwardedReachNote, forwardedRowStatus } from "../servers/lib/add-over-ssh";
   import { forwardedHostsStore as store } from "./forwarded-hosts.store.svelte";
 
@@ -22,6 +24,7 @@
   const forwarded = $derived(store.hostsFor(serverId));
   const holderName = $derived(serversStore.hostFor(serverId)?.label ?? "this host");
   const viewerHoldsForward = $derived(serverId === hosts.device?.id);
+  const holderRunsWindows = $derived(isWindowsHost(serverId));
 
   /** The row whose Remove waits on a confirm, and whether it also stops Solus there. Ephemeral. */
   let confirmingRemoveId = $state<string | null>(null);
@@ -38,7 +41,7 @@
 </script>
 
 {#if forwarded}
-  <SettingsSection label="Machines reached over SSH">
+  <SettingsSection label={holderRunsWindows ? "Machines reached over SSH or WSL" : "Machines reached over SSH"}>
     {#snippet action()}
       <Button
         variant="ghost"
@@ -49,11 +52,22 @@
         <PlusIcon size={13} />
         Add machine over SSH
       </Button>
+      {#if holderRunsWindows}
+        <Button
+          variant="ghost"
+          size="sm"
+          class="-my-1 text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+          onclick={() => void addWslDistroStore.open(serverId)}
+        >
+          <PlusIcon size={13} />
+          Add WSL distro
+        </Button>
+      {/if}
     {/snippet}
 
     {#if forwarded.length === 0}
       <p class="px-4 py-6 text-center text-chrome-dense text-(--solus-text-tertiary)">
-        {holderName} holds no SSH forwards.
+        {holderName} holds no forwards.
       </p>
     {:else}
       {#each forwarded as host (host.installationId)}

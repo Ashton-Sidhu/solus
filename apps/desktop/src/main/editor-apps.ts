@@ -17,18 +17,23 @@ export interface EditorApp {
   args?: string[]
   /** Application bundle, used to detect and to open when `bin` is absent. */
   macAppBundle?: string
+  /** The program under a Windows install root (`%LOCALAPPDATA%\Programs`, Program Files). */
+  windowsProgram?: string
+  /** A JetBrains IDE: Windows installs it in a folder per edition and version
+   *  (`IntelliJ IDEA 2025.2`), so it is found by listing. */
+  isJetBrains?: boolean
 }
 
 /** One JetBrains IDE. They differ only in name, command, and bundle. */
 function jetbrains(id: EditorId, name: string, bin: string): EditorApp {
-  return { id, name, bin, isTerminal: false, macAppBundle: `${name}.app` }
+  return { id, name, bin, isTerminal: false, macAppBundle: `${name}.app`, isJetBrains: true }
 }
 
 export const EDITOR_APPS: EditorApp[] = [
-  { id: 'vscode', name: 'VS Code', bin: 'code', isTerminal: false, macAppBundle: 'Visual Studio Code.app' },
-  { id: 'cursor', name: 'Cursor', bin: 'cursor', isTerminal: false, macAppBundle: 'Cursor.app' },
-  { id: 'zed', name: 'Zed', bin: 'zed', isTerminal: false, macAppBundle: 'Zed.app' },
-  { id: 'sublime', name: 'Sublime Text', bin: 'subl', isTerminal: false, macAppBundle: 'Sublime Text.app' },
+  { id: 'vscode', name: 'VS Code', bin: 'code', isTerminal: false, macAppBundle: 'Visual Studio Code.app', windowsProgram: 'Microsoft VS Code\\Code.exe' },
+  { id: 'cursor', name: 'Cursor', bin: 'cursor', isTerminal: false, macAppBundle: 'Cursor.app', windowsProgram: 'cursor\\Cursor.exe' },
+  { id: 'zed', name: 'Zed', bin: 'zed', isTerminal: false, macAppBundle: 'Zed.app', windowsProgram: 'Zed\\Zed.exe' },
+  { id: 'sublime', name: 'Sublime Text', bin: 'subl', isTerminal: false, macAppBundle: 'Sublime Text.app', windowsProgram: 'Sublime Text\\subl.exe' },
 
   jetbrains('intellij', 'IntelliJ IDEA', 'idea'),
   jetbrains('pycharm', 'PyCharm', 'pycharm'),

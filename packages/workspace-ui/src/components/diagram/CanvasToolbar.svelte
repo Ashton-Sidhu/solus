@@ -7,6 +7,7 @@
   import DiagramLayoutMenu from './DiagramLayoutMenu.svelte'
   import type { DiagramDoc } from '@solus/contracts/diagram-types'
   import type { LayoutDirection } from '@solus/contracts/diagram-layout'
+  import { comboHint } from '../../lib/keybindings/manifest'
 
   interface Props {
     /** A reader's bar: zoom, search and the minimap; nothing that edits. */
@@ -85,7 +86,7 @@
           type="button"
           class="canvas-toolbar__btn canvas-toolbar__add"
           onclick={onAddNode}
-          title="Add node (⌥N)"
+          title={`Add node (${comboHint('diagram.add-node')})`}
           aria-label="Add node"
         >
           <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
@@ -97,7 +98,7 @@
           type="button"
           class="canvas-toolbar__btn"
           onclick={() => onAddGroup()}
-          title="Add group (⌥G)"
+          title={`Add group (${comboHint('diagram.add-group')})`}
           aria-label="Add group"
         >
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">

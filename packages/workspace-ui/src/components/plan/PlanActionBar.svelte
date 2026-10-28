@@ -18,6 +18,15 @@
   import Kbd from '../ui/Kbd.svelte'
   import type { PlanApprovalMode } from '../../contexts/workspace/session-plan-operations'
   import { checkoutGit, checkoutPlace } from '../../contexts/workspace/run-location'
+  import { comboHint } from '../../lib/keybindings/manifest'
+
+  const keys = {
+    note: comboHint('plan-review.focus-comment'),
+    yes: comboHint('plan-review.approve-ask'),
+    reject: comboHint('plan-review.reject'),
+    revise: comboHint('plan-review.reject-revise'),
+    worktree: comboHint('plan-review.toggle-worktree'),
+  }
 
   interface Props {
     planId: string
@@ -125,7 +134,7 @@
     tabId={session.activeTabId}
     workingDirectory={checkoutPlace(sess?.run)?.path}
     menuPlacement="up"
-    placeholder={hasKeyboard ? "Add a note… (⌥L)" : "Add a note…"}
+    placeholder={hasKeyboard ? `Add a note… (${keys.note})` : "Add a note…"}
   >
     {#snippet afterPicker()}
       {#if !compact}
@@ -214,13 +223,13 @@
         <Button data-testid="plan-action-revise" variant="outline" size="sm" class="hover:text-(--solus-error) max-md:h-9" onclick={handleRevise}>
           <ArrowCounterClockwiseIcon size={13} />
           Revise
-          {#if hasKeyboard}<Kbd variant="inline" class="ml-1">⌥V</Kbd>{/if}
+          {#if hasKeyboard}<Kbd variant="inline" class="ml-1">{keys.revise}</Kbd>{/if}
         </Button>
       {:else}
         <Button data-testid="plan-action-reject" variant="outline" size="sm" class="hover:text-(--solus-error) max-md:h-9" onclick={handleReject}>
           <XIcon size={13} />
           Reject
-          {#if hasKeyboard}<Kbd variant="inline" class="ml-1">⌥R</Kbd>{/if}
+          {#if hasKeyboard}<Kbd variant="inline" class="ml-1">{keys.reject}</Kbd>{/if}
         </Button>
       {/if}
 
@@ -241,18 +250,18 @@
       <DropdownMenu.Item data-testid="plan-action-yes" onSelect={() => handleApprove('supervised')}>
         <RobotIcon size={14} />
         <span class="flex-1 text-left">Yes</span>
-        {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">⌥Y</Kbd></span>{/if}
+        {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">{keys.yes}</Kbd></span>{/if}
       </DropdownMenu.Item>
       <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
       <DropdownMenu.Item data-testid="plan-action-reject" variant="destructive" onSelect={handleReject}>
         <XIcon size={14} />
         <span class="flex-1 text-left">Reject</span>
-        {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">⌥R</Kbd></span>{/if}
+        {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">{keys.reject}</Kbd></span>{/if}
       </DropdownMenu.Item>
       <DropdownMenu.Item data-testid="plan-action-revise" variant="destructive" onSelect={handleRevise}>
         <ArrowCounterClockwiseIcon size={14} />
         <span class="flex-1 text-left">Revise</span>
-        {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">⌥V</Kbd></span>{/if}
+        {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">{keys.revise}</Kbd></span>{/if}
       </DropdownMenu.Item>
       {#if showWorktreeToggle}
         <div class="h-px bg-(--solus-popover-border) mx-2 my-0.5"></div>
@@ -260,7 +269,7 @@
           <GitForkIcon size={14} class={useWorktree ? 'text-(--solus-accent)' : ''} />
           <span class="flex-1 text-left">Worktree</span>
           {#if useWorktree}<CheckIcon size={12} class="text-(--solus-accent)" />{/if}
-          {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">⌥W</Kbd></span>{/if}
+          {#if hasKeyboard}<span class="ml-auto"><Kbd variant="inline">{keys.worktree}</Kbd></span>{/if}
         </DropdownMenu.Item>
       {/if}
     </DropdownMenu.Content>

@@ -244,3 +244,67 @@ jobs:
           files: |
             release/*.AppImage
             release/*.deb
+
+  # docs/plans/windows.md §5.12. Unsigned until code signing lands (§10 decision 5).
+  # electron-builder writes latest.yml beside latest-mac.yml on the same feed.
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    environment: CD
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Windows desktop unit checks
+        run: bun scripts/test-unit.ts desktop-package windows-desktop desktop-capture desktop-update-mode terminal-launcher cli-env keybindings
+      - name: Build desktop and web in sequence
+        env:
+          NODE_OPTIONS: --max-old-space-size=3072
+          SOLUS_GOOGLE_CLIENT_ID: ${{ secrets.SOLUS_GOOGLE_CLIENT_ID }}
+          SOLUS_GOOGLE_CLIENT_SECRET: ${{ secrets.SOLUS_GOOGLE_CLIENT_SECRET }}
+          SOLUS_GITHUB_CLIENT_ID: ${{ secrets.SOLUS_GITHUB_CLIENT_ID }}
+          SOLUS_ATLASSIAN_CLIENT_ID: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_ID }}
+          SOLUS_ATLASSIAN_CLIENT_SECRET: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_SECRET }}
+        run: |
+          bun run build:desktop --mode production
+          bun run build:client
+          bun run electron-builder --win --x64 --publish never
+      - name: Save Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            release/*.exe
+            release/latest.yml
+            release/*.exe.blockmap
+      - name: Upload Windows feed and installer
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          for f in release/*.exe release/latest.yml release/*.exe.blockmap; do
+            [ -f "$f" ] || continue
+            aws s3 cp "$f" "s3://solus-releases/$(basename "$f")" --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          done
+          for f in release/Solus-*-x64.exe; do
+            [ -f "$f" ] || continue
+            aws s3 cp "$f" "s3://solus-releases/Solus-latest-x64.exe" --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          done
+
+  publish-windows:
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe

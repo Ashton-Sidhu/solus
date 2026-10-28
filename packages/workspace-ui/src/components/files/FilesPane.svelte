@@ -78,6 +78,9 @@
     percentToPixels,
     pixelsToPercent,
   } from "../../lib/resizablePane";
+  import { comboHint } from "../../lib/keybindings/manifest";
+
+  const treeHint = comboHint("files-pane.toggle-tree");
 
   interface Props {
     /** The host the files are on, which signs the URLs media loads from. */
@@ -731,7 +734,7 @@
             </button>
           {/snippet}
         </TooltipUI.Trigger>
-        <TooltipUI.Content value={treeCollapsed ? "Show file tree (⌥T)" : "Hide file tree (⌥T)"} />
+        <TooltipUI.Content value={treeCollapsed ? `Show file tree (${treeHint})` : `Hide file tree (${treeHint})`} />
       </TooltipUI.Root>
       {#if canWriteFiles}
         {@render chromeAction("New file", () => void startCreate(newEntryDirectory, "file"), newFileIcon)}
@@ -915,7 +918,7 @@
         </button>
             {/snippet}
           </TooltipUI.Trigger>
-          <TooltipUI.Content value={"Hide file tree (⌥T)"} />
+          <TooltipUI.Content value={`Hide file tree (${treeHint})`} />
         </TooltipUI.Root>
         <div class="min-h-0 flex-1 overflow-hidden">
           {#if loading && treePaths.length === 0}

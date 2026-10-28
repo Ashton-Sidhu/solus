@@ -3,6 +3,7 @@
   import { cn } from "@solus/workspace-ui/lib/utils.js";
   import { Button } from "../button";
   import { CommentEditor } from "../comment-editor";
+  import { formatComboText } from "../../../lib/keybindings/match";
 
   interface Props {
     value: string;
@@ -96,7 +97,7 @@
         submitContent ? "w-7.5 justify-center px-0" : "px-3",
       )}
       aria-label={submitAriaLabel}
-      title={`${submitLabel} · ⌘↵`}
+      title={`${submitLabel} · ${formatComboText({ mod: true, code: "Enter" })}`}
       onclick={submit}
     >
       {#if submitContent}{@render submitContent()}{:else}{submitLabel}{/if}

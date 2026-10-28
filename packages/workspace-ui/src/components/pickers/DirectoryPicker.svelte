@@ -29,7 +29,7 @@
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
-  import { eventMatches } from "../../lib/keybindings/match";
+  import { eventMatches, formatComboText } from "../../lib/keybindings/match";
   import { copyText, toasts } from "../../lib/toasts";
   import { abbreviateHome } from "../../lib/paths";
   import { fileManagerNameFor } from "../../lib/file-manager";
@@ -762,7 +762,7 @@
           disabled={loading || !resolvedDirectory}
           onmousedown={(e) => e.preventDefault()}
           onclick={startNewFolder}
-          title="New folder (⌥N)"
+          title={`New folder (${formatComboText({ alt: true, code: "KeyN" })})`}
         >
           <FolderPlusIcon size={14} />
           New folder

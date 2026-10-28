@@ -10,6 +10,7 @@ import { followFile, readLastLines } from './lib/logs'
 import { setUpProvider } from './lib/provider-login'
 import { isInteractive, terminalPrompter } from './lib/prompts'
 import { renderQrAscii } from './lib/qr'
+import { DESKTOP_USAGE, desktopRefusal, isDesktopCli } from './lib/desktop-commands'
 import { defaultDataDir, defaultRuntimeDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type RuntimePaths, type ServerLock } from './lib/runtime'
 import { runUpdate } from './lib/remote-update-client'
 import { runSetup, serviceEnvFor } from './lib/setup'
@@ -75,6 +76,8 @@ async function main(argv: string[]): Promise<void> {
     console.log(packageJson.version)
     return
   }
+  const refusal = isDesktopCli() ? desktopRefusal(command) : null
+  if (refusal) throw new Error(refusal)
 
   switch (command) {
     case 'start':
@@ -113,6 +116,12 @@ async function main(argv: string[]): Promise<void> {
 }
 
 function printHelp(): void {
+  if (isDesktopCli()) {
+    console.log(`solus ${packageJson.version}
+
+${DESKTOP_USAGE}`)
+    return
+  }
   console.log(`solus ${packageJson.version}
 
 Usage:

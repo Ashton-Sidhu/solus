@@ -2,13 +2,9 @@ import { DesktopActivityBadges } from './activity-badges'
 import { attachContextMenu } from './context-menu'
 import { initialWindowBounds } from './window-platform'
 import { secureStorage } from './secure-storage'
-// Electron's bundled Node.js doesn't use the macOS system keychain for TLS.
-// Point it at the macOS root CA bundle so the Anthropic SDK can verify certs.
-if (process.platform === 'darwin' && !process.env.NODE_EXTRA_CA_CERTS) {
-  process.env.NODE_EXTRA_CA_CERTS = '/etc/ssl/cert.pem'
-}
+import { desktopPlatform } from './platform/desktop-platform'
 
-import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol } from 'electron'
 import { join } from 'path'
 import { readFileSync, statSync, writeFileSync } from 'fs'
 import { importLoginShellEnv, warmCliPath } from '@solus/server/cli-env'
@@ -57,17 +53,15 @@ const skipOnboarding = process.argv.includes('--skip-onboarding') || process.env
 const isPairUrl = process.argv.includes('pair-url')
 const isDevMode = Boolean(process.env.ELECTRON_RENDERER_URL)
 
-if (process.platform === 'linux') {
-  app.setDesktopName('com.solus.app.desktop')
-  app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
-  if (!isHeadless && !isPairUrl && process.env.SOLUS_TEST_MODE !== '1') {
-    if (!app.requestSingleInstanceLock()) app.exit(0)
-    app.on('second-instance', () => {
-      hiddenUntilTrayShow = false
-      if (app.isReady()) showMainWindow()
-      else app.once('ready', () => showMainWindow())
-    })
-  }
+desktopPlatform.prepare(app)
+// A second launch would boot a second server against the same data folder.
+if (desktopPlatform.singleInstance && !isHeadless && !isPairUrl && process.env.SOLUS_TEST_MODE !== '1') {
+  if (!app.requestSingleInstanceLock()) app.exit(0)
+  app.on('second-instance', () => {
+    hiddenUntilTrayShow = false
+    if (app.isReady()) showMainWindow()
+    else app.once('ready', () => showMainWindow())
+  })
 }
 
 const log = createLogger('main', 'index.ts')
@@ -188,14 +182,14 @@ if (isDevMode) {
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 
-// ─── OS summon shortcuts (Alt+Space / ⌘⇧K by default) ───
+// ─── OS summon shortcut (Alt+Space on macOS, Alt+Shift+Space elsewhere) ───
 //
 // Editable per-device. Main is the single source of truth (kept out of the
 // renderer's settings.keybindings) so they apply before the renderer loads and
 // can be re-registered live. Persisted as plain JSON in userData.
 
 const DEFAULT_APP_SHORTCUTS: AppGlobalShortcuts = {
-  toggle: { alt: true, code: 'Space' },
+  toggle: desktopPlatform.keys.summonCombo,
 }
 
 let currentAppShortcuts: AppGlobalShortcuts = DEFAULT_APP_SHORTCUTS
@@ -244,7 +238,7 @@ interface AppliedAppGlobalShortcuts {
 }
 
 function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): AppliedAppGlobalShortcuts {
-  const prevAccels = [comboToAccelerator(currentAppShortcuts.toggle)]
+  const prevAccels = [comboToAccelerator(currentAppShortcuts.toggle, desktopPlatform.keys)]
   for (const accel of prevAccels) {
     if (accel && globalShortcut.isRegistered(accel)) globalShortcut.unregister(accel)
   }
@@ -254,7 +248,7 @@ function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): AppliedAppGloba
     [shortcuts.toggle, () => toggleMainWindow()],
   ]
   for (const [combo, handler] of bindings) {
-    const accel = comboToAccelerator(combo)
+    const accel = comboToAccelerator(combo, desktopPlatform.keys)
     if (!accel) { failed.push(combo.code); continue }
     try {
       const ok = globalShortcut.register(accel, () => handler(accel))
@@ -300,6 +294,19 @@ function buildTrayMenu(restartToUpdate: () => void): Menu {
   return Menu.buildFromTemplate(template)
 }
 
+/** The tray icon, kept for the app's lifetime. */
+function createTray(menu: Menu): Tray {
+  const created = new Tray(desktopPlatform.trayIcon(app.getAppPath()))
+  if (desktopPlatform.trayShowsOnClick) created.on('click', () => showMainWindow({ fromTrayShow: true }))
+  created.setToolTip('Solus')
+  created.setContextMenu(menu)
+  return created
+}
+
+function setActivityBadge(count: number): void {
+  desktopPlatform.setActivityBadge(app, workspaceWindow(), count)
+}
+
 /** The live workspace window, when the desktop client has one. */
 function workspaceWindow(): BrowserWindow | null {
   return isLive(mainWindow) ? mainWindow : null
@@ -311,7 +318,7 @@ function isAppVisible(): boolean {
 
 function focusMainWindow(): void {
   if (!isLive(mainWindow)) return
-  if (process.platform === 'darwin') app.focus({ steal: true })
+  desktopPlatform.bringToFront(app, mainWindow)
   mainWindow.focus()
   mainWindow.webContents.focus()
   sendNativeEvent('solus:window-shown')
@@ -359,12 +366,7 @@ function createMainWindow(): BrowserWindow {
       // this, Electron also puts the whole Solus window into OS fullscreen.
       disableHtmlFullscreenWindowResize: true,
     },
-  }
-  // Edge-to-edge content with native traffic lights on macOS.
-  if (process.platform === 'darwin') {
-    windowOptions.titleBarStyle = 'hiddenInset'
-    // Centred on the 40px titlebar row (`--solus-titlebar-height`).
-    windowOptions.trafficLightPosition = { x: 16, y: 13 }
+    ...desktopPlatform.windowOptions,
   }
   mainWindow = new BrowserWindow(windowOptions)
   const mainContents = mainWindow.webContents
@@ -492,7 +494,7 @@ function showMainWindow(options: { fromTrayShow?: boolean } = {}): void {
 function hideMainWindow(): void {
   if (!isLive(mainWindow)) return
   mainWindow.hide()
-  if (process.platform === 'darwin') app.hide()
+  desktopPlatform.hideApp(app)
 }
 
 /** Show, focus, or hide the desktop workspace. */
@@ -510,11 +512,11 @@ function toggleMainWindow(): void {
 
 function hideAppWindow(): void {
   mainWindow?.hide()
-  if (process.platform === 'darwin') app.hide()
+  desktopPlatform.hideApp(app)
 }
 
 function hideUntilTrayShow(): void {
-  hiddenUntilTrayShow = process.platform === 'darwin'
+  hiddenUntilTrayShow = desktopPlatform.holdsHiddenUntilTrayShow
   hideMainWindow()
 }
 
@@ -598,10 +600,10 @@ ipcMain.handle('solus:set-activity-badge', (event, input) => {
     activityBadgeSenders.add(senderId)
     event.sender.once('destroyed', () => {
       activityBadgeSenders.delete(senderId)
-      app.setBadgeCount(activityBadges.remove(senderId))
+      setActivityBadge(activityBadges.remove(senderId))
     })
   }
-  app.setBadgeCount(activityBadges.update(event.sender.id, parsed.data))
+  setActivityBadge(activityBadges.update(event.sender.id, parsed.data))
 })
 
 ipcMain.handle('solus:show-notification', (_event, request) => {
@@ -756,9 +758,7 @@ if (isPairUrl) {
         .then((names) => { if (names.length > 0) log.info('login_shell_env_imported', { names }) })
         .catch((err) => log.warn('login_shell_env_import_failed', { error: err instanceof Error ? err.message : String(err) }))
 
-    if (process.platform === 'darwin' && app.dock) {
-      app.dock.setIcon(join(__dirname, '../../resources/icon.png'))
-    }
+    desktopPlatform.ready(app)
 
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
       isAppVisible,
@@ -854,7 +854,7 @@ if (isPairUrl) {
       app.on('browser-window-focus', (_e, win) => {
         if (!isLive(mainWindow) || win !== mainWindow) return
         activityBadges.acknowledge()
-        app.setBadgeCount(0)
+        setActivityBadge(0)
         sendNativeEvent('solus:activity-acknowledged')
       })
 
@@ -878,13 +878,7 @@ if (isPairUrl) {
         currentAppShortcuts = loadAppShortcuts()
         applyAppGlobalShortcuts(currentAppShortcuts)
 
-        const trayIconPath = join(app.getAppPath(), process.platform === 'darwin' ? 'resources/trayTemplate.png' : 'resources/icon.png')
-        const trayIcon = nativeImage.createFromPath(trayIconPath)
-        if (process.platform === 'darwin') trayIcon.setTemplateImage(true)
-        tray = new Tray(trayIcon)
-        tray.setToolTip('Solus')
-        tray.setContextMenu(buildTrayMenu(updates.restartToUpdate))
-        void tray // keep alive for lifetime of the app
+        tray = createTray(buildTrayMenu(updates.restartToUpdate))
 
         app.on('activate', () => {
           showMainWindow()
@@ -921,7 +915,5 @@ app.on('will-quit', () => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  if (desktopPlatform.quitsWhenWindowsClose) app.quit()
 })

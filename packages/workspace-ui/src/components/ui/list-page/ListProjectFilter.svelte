@@ -13,6 +13,9 @@
   import { abbreviateHome } from "../../../lib/paths";
   import { openAddProjectPicker } from "./add-project";
   import type { ListProjectOption } from "./list-page";
+  import { formatComboText } from "../../../lib/keybindings/match";
+
+  const currentKey = formatComboText({ alt: true, code: "KeyC" });
 
   /**
    * The project scope, as one group of a list page's Filters menu. Tasks, Pull
@@ -114,7 +117,7 @@
       {#if onSelectCurrent && !query.trim()}
         <DropdownMenu.Item onSelect={onSelectCurrent}>
           <span class="min-w-0 flex-1 truncate">Current project</span>
-          <kbd class="mr-1 shrink-0 font-sans text-muted-foreground opacity-70">⌥C</kbd>
+          <kbd class="mr-1 shrink-0 font-sans text-muted-foreground opacity-70">{currentKey}</kbd>
         </DropdownMenu.Item>
       {/if}
       {#each matches as project (project.key)}

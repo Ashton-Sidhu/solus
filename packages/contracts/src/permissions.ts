@@ -54,6 +54,8 @@ const PERMISSION_OF_METHOD = {
   connectionsGeneratePairToken: 'host.local.reach',
   hostsAddOverSsh: 'host.local.reach',
   hostsListForwarded: 'host.local.reach',
+  hostsListWslDistros: 'host.local.reach',
+  hostsAddWsl: 'host.local.reach',
   hostsRemoveForwarded: 'host.local.reach',
   hostsLinkForwarded: 'host.local.reach',
   uplinkRegister: 'host.local.reach',

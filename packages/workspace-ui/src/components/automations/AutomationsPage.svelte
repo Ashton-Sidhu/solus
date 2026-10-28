@@ -46,6 +46,7 @@
   } from "./lib/automation-projects";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import type { InlinePageProps } from "../ui/lib/pane-surface";
+  import { comboHint } from "../../lib/keybindings/manifest";
 
   let { paneId }: InlinePageProps = $props();
 
@@ -559,7 +560,7 @@
         syncedAt={synced.at}
         primaryAction={showEmpty
           ? undefined
-          : { label: "New automation", shortcut: "⌘N", run: startCreate }}
+          : { label: "New automation", shortcut: comboHint("automations.new"), run: startCreate }}
         onClose={close}
         toolbarFilters
         filters={showEmpty && projectOptions.length === 0 ? undefined : filterBar}

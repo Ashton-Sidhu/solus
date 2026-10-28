@@ -36,6 +36,9 @@
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import { worktreeDisplayName } from "../../lib/git-context";
   import type { ViewedFilesStatus } from "./lib/viewed-toggle";
+  import { comboHint } from "../../lib/keybindings/manifest";
+
+  const treeHint = comboHint("diff-panel.toggle-tree");
 
   interface Props {
     isWorktree: boolean;
@@ -250,7 +253,7 @@
           </button>
               {/snippet}
             </TooltipUI.Trigger>
-            <TooltipUI.Content value={"Previous turn (⌥←)"} />
+            <TooltipUI.Content value={`Previous turn (${comboHint("diff-panel.prev-turn")})`} />
           </TooltipUI.Root>
           <button
             type="button"
@@ -277,7 +280,7 @@
           </button>
               {/snippet}
             </TooltipUI.Trigger>
-            <TooltipUI.Content value={"Next turn (⌥→)"} />
+            <TooltipUI.Content value={`Next turn (${comboHint("diff-panel.next-turn")})`} />
           </TooltipUI.Root>
 
           <DropdownMenu.Root bind:open={turnMenuOpen}>
@@ -432,7 +435,7 @@
     </span>
         {/snippet}
       </TooltipUI.Trigger>
-      <TooltipUI.Content value={"Refresh diff (⌥R)"} />
+      <TooltipUI.Content value={`Refresh diff (${comboHint("diff-panel.refresh")})`} />
     </TooltipUI.Root>
 
     {#if filesCount > 0 && view === "diff"}
@@ -481,13 +484,13 @@
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content value={treeCollapsed
-          ? "Show file tree (⌥T)"
-          : "Hide file tree (⌥T)"} />
+          ? `Show file tree (${treeHint})`
+          : `Hide file tree (${treeHint})`} />
       </TooltipUI.Root>
     {/if}
 
     <span class="desktop-only">
-      <DiffTokenToggle {tokenHighlight} onToggle={onToggleTokenHighlight} shortcutHint="⌥H" />
+      <DiffTokenToggle {tokenHighlight} onToggle={onToggleTokenHighlight} shortcutHint={comboHint("diff-panel.toggle-token-hl")} />
     </span>
 
     {#if commentsCount > 0}

@@ -114,13 +114,25 @@ function Write-Launcher([string]$BinDir, [string]$RuntimeDir, [bool]$IsDefaultRu
 
 # Add the command folder to the user PATH, which needs no administrator
 # rights. A new terminal reads it; this one gets it now for -Setup.
+# [Environment]::SetEnvironmentVariable would rewrite the PATH as a plain string,
+# and every %VAR% entry in it would stop expanding. The registry keeps the
+# value's kind, as the desktop app's Install does (apps/cli/src/lib/windows-launcher.ts).
 function Add-UserPath([string]$BinDir) {
-  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+  $userPath = [string]$key.GetValue('Path', '', 'DoNotExpandEnvironmentNames')
   $entries = @()
   if ($userPath) { $entries = $userPath -split ';' | Where-Object { $_ } }
   $present = $entries | Where-Object { $_.TrimEnd('\') -eq $BinDir.TrimEnd('\') }
   if (-not $present) {
-    [Environment]::SetEnvironmentVariable('Path', (@($entries) + $BinDir) -join ';', 'User')
+    $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+    if ($key.GetValueNames() -contains 'Path' -and $key.GetValueKind('Path') -eq 'String') {
+      $kind = [Microsoft.Win32.RegistryValueKind]::String
+    }
+    $key.SetValue('Path', ((@($entries) + $BinDir) -join ';'), $kind)
+    # Tell Explorer, so a terminal opened from it sees the new PATH.
+    Add-Type -Namespace SolusInstall -Name Env -MemberDefinition '[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint Msg, System.UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out System.UIntPtr lpdwResult);'
+    $result = [System.UIntPtr]::Zero
+    [void][SolusInstall.Env]::SendMessageTimeout([System.IntPtr]0xffff, 0x1A, [System.UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$result)
     Write-Host ''
     Write-Host "Added $BinDir to your user PATH. Open a new terminal to use solus."
   }

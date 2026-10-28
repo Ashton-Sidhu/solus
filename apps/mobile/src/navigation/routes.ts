@@ -25,6 +25,8 @@ export type RootStackParamList = {
   AddSshHost: { viaHostId?: string; identityFile?: string } | undefined
   /** Files on the host that runs SSH, from `~/.ssh` or `path`, to choose the identity file of `AddSshHost`. */
   ChooseSshKey: { hostId: string; path?: string }
+  /** Adds a WSL distro of the Windows host `hostId` as a machine (docs/plans/windows.md §13.6). */
+  AddWslHost: { hostId: string }
   CloudSignIn: undefined
   CloudHosts: undefined
   Hosts: undefined

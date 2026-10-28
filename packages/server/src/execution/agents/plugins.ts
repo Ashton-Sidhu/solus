@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
-import { copyFile, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises'
+import { renameRetrying } from '../../platform/rename-retry'
 import { dirname, join } from 'node:path'
 import { createLogger } from '../../logger'
 import { appVersion, bundledResourcesDir, isPackagedRuntime, solusDir } from '../../platform/paths'
@@ -122,7 +123,8 @@ export async function syncBundledPlugins(): Promise<void> {
       // Readable by members where the plugins are shared with them; it holds no secret.
       await writeFile(join(staging, STAMP_NAME), appVersion(), { mode: 0o644 })
       await rm(destination, { recursive: true, force: true })
-      await rename(staging, destination)
+      // Windows antivirus holds the new copy open for a moment after it is written.
+      await renameRetrying(staging, destination)
       return
     }
     await rm(destination, { recursive: true, force: true })

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { comboHint } from "../../lib/keybindings/manifest";
 
   interface Props {
     mountFileTree: (node: HTMLDivElement) => { destroy: () => void };
@@ -30,7 +31,7 @@
   </button>
       {/snippet}
     </TooltipUI.Trigger>
-    <TooltipUI.Content value={"Hide file tree (⌥T)"} />
+    <TooltipUI.Content value={`Hide file tree (${comboHint("diff-panel.toggle-tree")})`} />
   </TooltipUI.Root>
   <div
     use:mountFileTree
