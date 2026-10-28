@@ -148,7 +148,8 @@ export function ComposerActionButton(props: {
         className={cn(
           "items-center justify-center rounded-full",
           props.variant === "stop"
-            ? "bg-subtle-strong"
+            ? // As on desktop: a light red, the lightest that keeps 3:1 with white.
+              "bg-danger-foreground/85"
             : props.disabled
               ? // Neutral, like desktop: a faded accent reads as a broken colour.
                 "bg-subtle-strong"
@@ -161,7 +162,7 @@ export function ComposerActionButton(props: {
           weight="semibold"
           tintColorClassName={
             props.variant === "stop"
-              ? "accent-danger-foreground"
+              ? "accent-white"
               : props.disabled
                 ? "accent-foreground-tertiary"
                 : "accent-primary-foreground"
