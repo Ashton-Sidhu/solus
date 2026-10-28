@@ -297,6 +297,8 @@
   /* Buttons */
   --solus-stop-bg: #ef4444;
   --solus-stop-hover: #dc2626;
+  /* The square on the neutral Stop button: 3:1 on its fill and its hover. */
+  --solus-stop-icon: #dc2626;
   --solus-send-bg: #d97757;
   --solus-send-hover: #c96442;
   --solus-send-disabled: rgba(217, 119, 87, 0.3);
@@ -625,6 +627,7 @@
   /* Buttons */
   --solus-stop-bg: #ef4444;
   --solus-stop-hover: #dc2626;
+  --solus-stop-icon: #f87171;
   --solus-send-bg: #e68e6b;
   --solus-send-hover: #d87f5c;
   --solus-send-disabled: rgba(230, 142, 107, 0.3);

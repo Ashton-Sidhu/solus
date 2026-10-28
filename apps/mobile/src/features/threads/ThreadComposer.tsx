@@ -733,7 +733,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   <ComposerActionButton
                     accessibilityLabel="Stop agent"
                     icon="stop.fill"
-                    variant="neutral"
+                    variant="stop"
                     onPress={props.onStopThread}
                   />
                 ) : (
@@ -798,7 +798,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         <ComposerActionButton
                           accessibilityLabel="Stop agent"
                           icon="stop.fill"
-                          variant="neutral"
+                          variant="stop"
                           onPress={props.onStopThread}
                         />
                       ) : (

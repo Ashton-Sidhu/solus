@@ -866,8 +866,8 @@
 {#snippet sendButton()}
   <!-- The bottom-right corner is always the next thing you can do, so the
        button stays put and goes neutral rather than disappearing: fill is spent
-       on send, and only once there is something to send. Stop is neutral too,
-       but at full text contrast: the square says what it does. A click on a folded
+       on send, and only once there is something to send. Stop keeps the neutral
+       fill and puts the red on its square alone. A click on a folded
        bar sends without taking the keyboard, so the bar stays folded. -->
   {#if !showWaveform}
     <TooltipUI.Root>
@@ -887,7 +887,7 @@
             class="pointer-coarse:tap-area flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isTouch
               ? 'size-9'
               : 'size-[1.875rem]'} {stopsRun
-              ? 'bg-(--solus-surface-active) text-(--solus-text-primary) hover:bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]'
+              ? 'bg-(--solus-surface-active) text-(--solus-stop-icon) hover:bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]'
               : canSend
                 ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
                 : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
