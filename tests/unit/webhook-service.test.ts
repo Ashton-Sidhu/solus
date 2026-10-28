@@ -17,6 +17,7 @@ let dataDir: string
 let serviceModule: typeof import('@solus/server/execution/webhooks/webhook-service')
 let secrets: typeof import('@solus/server/data/webhooks/webhook-secrets')
 let actorModule: typeof import('@solus/server/admission/actor')
+let turnOrganization: typeof import('@solus/server/execution/sessions/turn-organization')
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
@@ -25,6 +26,7 @@ beforeAll(async () => {
   serviceModule = await import('@solus/server/execution/webhooks/webhook-service')
   secrets = await import('@solus/server/data/webhooks/webhook-secrets')
   actorModule = await import('@solus/server/admission/actor')
+  turnOrganization = await import('@solus/server/execution/sessions/turn-organization')
 })
 
 afterEach(async () => {
@@ -47,11 +49,16 @@ const github: WebhookCreateInput = {
   actions: [{ id: 'a1', type: 'send_to_session', sessionId: 's1', enabled: true, filters: [], template: 'Hi {{body.x}}' }],
 }
 
-function service(state: { cloud: boolean; publicUrl: string | null }, overrides: Partial<import('@solus/server/execution/webhooks/webhook-service').WebhookServiceDeps> = {}) {
+type Policy = import('@solus/contracts/uplink').OrganizationPolicy
+const OPEN: Policy = { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false }
+
+/** A service whose save check is the real one of `turn-organization.ts`, over these policies and host category. */
+function service(state: { cloud: boolean; publicUrl: string | null }, overrides: Partial<import('@solus/server/execution/webhooks/webhook-service').WebhookServiceDeps> = {}, policies: { [organizationId: string]: Policy } = {}, category: 'personal' | 'self-hosted' | 'managed' = 'personal') {
+  const organizations = { policyFor: (id: string) => id === 'local' ? null : policies[id] ?? OPEN }
   return serviceModule.createWebhookService({
     urls: { hostId: () => 'host-1', cloudReady: () => state.cloud, publicUrl: () => state.publicUrl },
     isPausedByAdmin: () => false,
-    allowsUnverifiedWebhooks: () => false,
+    organizationRefusal: (organizationId, work) => turnOrganization.unattendedOrganizationRefusal(organizationId, organizations, work, category)?.message ?? null,
     ...overrides,
   })
 }
@@ -109,8 +116,30 @@ describe('webhook service', () => {
     const none = { ...github, verification: { scheme: 'none' as const, reason: 'The sender accepts only a URL, no header.' } }
     await expect(webhooks.create(none, creator(), 'org-1')).rejects.toThrow('does not allow unverified webhooks')
     expect((await webhooks.create(none, creator(), 'local')).verification).toEqual(none.verification)
-    const allowed = service({ cloud: false, publicUrl: null }, { allowsUnverifiedWebhooks: (id) => id === 'org-1' })
+    const allowed = service({ cloud: false, publicUrl: null }, {}, { 'org-1': { ...OPEN, allowsUnverifiedWebhooks: true } })
     expect((await allowed.create(none, creator(), 'org-1')).organizationId).toBe('org-1')
+  })
+
+  test('a save is refused when the organization does not let its work start on a personal computer (plan §2.7)', async () => {
+    const closed = { 'org-1': { ...OPEN, allowsPersonalHosts: false } }
+    const laptop = service({ cloud: false, publicUrl: null }, {}, closed, 'personal')
+    await expect(laptop.create(github, creator(), 'org-1')).rejects.toThrow('does not allow its work to start on a personal computer')
+    // Local work and the organization's own machines are not affected.
+    expect((await laptop.create(github, creator(), 'local')).organizationId).toBe('local')
+    expect((await service({ cloud: false, publicUrl: null }, {}, closed, 'self-hosted').create(github, creator(), 'org-1')).organizationId).toBe('org-1')
+  })
+
+  test('an update that would start refused work is refused before anything is written; a paused webhook may be saved', async () => {
+    const policies: { [organizationId: string]: Policy } = { 'org-1': { ...OPEN, allowsUnverifiedWebhooks: true } }
+    const webhooks = service({ cloud: false, publicUrl: null }, {}, policies)
+    const none = { scheme: 'none' as const, reason: 'The sender accepts only a URL, no header.' }
+    const created = await webhooks.create({ ...github, verification: none }, creator(), 'org-1')
+    policies['org-1'] = { ...OPEN, allowsUnverifiedWebhooks: false }
+    await expect(webhooks.update(created.id, { name: 'Renamed' })).rejects.toThrow('does not allow unverified webhooks')
+    expect((await webhooks.read(created.id))?.name).toBe('GitHub')
+    // The owner can still pause it, and fix it with a scheme.
+    expect((await webhooks.update(created.id, { enabled: false }))?.enabled).toBe(false)
+    expect((await webhooks.update(created.id, { enabled: true, verification: github.verification }))?.verification.scheme).toBe('hmac')
   })
 
   test('an update without a secret keeps it for the same scheme, and a secretRef works once for its session', async () => {

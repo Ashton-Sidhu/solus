@@ -17,6 +17,8 @@ let dataDir: string
 let tools: typeof import('@solus/server/execution/agents/tools/webhook-tools')
 let secretRequests: typeof import('@solus/server/execution/sessions/secret-requests')
 let secrets: typeof import('@solus/server/data/webhooks/webhook-secrets')
+/** The host's answer to "may this webhook start organization work here?"; a test sets a refusal. */
+let refusal: string | null = null
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
@@ -32,7 +34,7 @@ beforeAll(async () => {
     webhooks: createWebhookService({
       urls: { hostId: () => 'host-1', cloudReady: () => false, publicUrl: () => null },
       isPausedByAdmin: () => false,
-      allowsUnverifiedWebhooks: () => false,
+      organizationRefusal: (organizationId, work) => refusal ?? (organizationId !== 'local' && work.unverified ? 'This organization does not allow unverified webhooks. Choose a verification scheme.' : null),
       takeSecretRef: secretRequests.takeSecretRef,
     }),
     actions: createWebhookActionRunner({
@@ -43,6 +45,7 @@ beforeAll(async () => {
 })
 
 afterEach(async () => {
+  refusal = null
   await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
@@ -131,5 +134,13 @@ describe('webhook agent tools', () => {
     expect(listed.text).toContain(id)
     expect(listed.text).toContain('UNVERIFIED')
     expect(listed.text).not.toContain(secrets.readWebhookSecrets(id)!.token)
+  })
+
+  test('a save the organization policy refuses is a clear tool error, and nothing is created', async () => {
+    refusal = 'This organization does not allow its work to start on a personal computer. Set up the webhook on a cloud or self-hosted machine of the organization.'
+    const answer = await tools.createWebhookAgentTool.execute({ name: 'Open', verification: { scheme: 'none', reason: 'This sender accepts only a URL, no headers.' }, actions }, context('session-a', []))
+    expect(answer).toEqual({ ok: false, text: `create_webhook: ${refusal}` })
+    refusal = null
+    expect((await tools.listWebhooksAgentTool.execute({}, context('session-a', []))).text).toBe('No webhooks exist on this host yet.')
   })
 })

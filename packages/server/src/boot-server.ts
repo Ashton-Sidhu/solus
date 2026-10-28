@@ -38,7 +38,7 @@ import { takeSecretRef } from './execution/sessions/secret-requests'
 import { readDelivery, sweepSeenKeys } from './data/webhooks/webhook-store'
 import { mirrorWebhook, mirrorWebhookDelivery } from './sync/mirror/webhook-mirror'
 import { RunnerDelivery } from './sync/runner-delivery'
-import type { TurnOrganizationDeps } from './execution/sessions/turn-organization'
+import { unattendedOrganizationRefusal, type TurnOrganizationDeps } from './execution/sessions/turn-organization'
 import { Delegations, type DelegationScope } from './sync/delegations'
 import { remoteWorkspaceOperations } from './sync/remote-operations'
 import { useOrganizationAttachment } from './host/organization-attachment'
@@ -1389,6 +1389,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       publicUrl: () => getServerSettings().webhookPublicUrl ?? null,
     },
     takeSecretRef: (secretRef, sessionId) => takeSecretRef(secretRef, sessionId),
+    organizationRefusal: (organizationId, work) => unattendedOrganizationRefusal(organizationId, hostOrganizations, work)?.message ?? null,
     onDeleted: (webhook) => mirrorWebhook(webhook, { deleted: true, registered: registrar.current() !== null }),
   })
   // Organization webhooks and their delivery summaries go to the organization's Solus API for its admins (plan §2.7).

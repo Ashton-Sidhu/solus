@@ -35,7 +35,6 @@ import {
   type WebhookSecrets,
 } from '../../data/webhooks/webhook-secrets'
 import { hostUserKey } from '../../host/host-user'
-import { refusedAsUnverified } from './receiver'
 import { decodeStandardWebhooksSecret, publicKeyOf } from './verification'
 import { emitWebhookChanged } from './webhook-events'
 
@@ -60,7 +59,11 @@ export interface WebhookUrlFacts {
 export interface WebhookServiceDeps {
   urls: WebhookUrlFacts
   isPausedByAdmin(webhookId: string): boolean
-  allowsUnverifiedWebhooks(organizationId: string): boolean
+  /**
+   * Why the webhook's actions may not start organization work from this host, or null
+   * (plan §2.7, §3.7): `unattendedOrganizationRefusal` of `turn-organization.ts`.
+   */
+  organizationRefusal(organizationId: string, work: { unverified: boolean }): string | null
   /** A one-use `secretRef` from `request_secret` (plan §3.6), for the session that asked; null when it is not valid. */
   takeSecretRef?(secretRef: string, sessionId: string | null): string | null
   /** A webhook was deleted, with its last view: the organization mirror sends its removal (plan §2.7). */
@@ -122,9 +125,13 @@ export function createWebhookService(deps: WebhookServiceDeps) {
         throw new WebhookInputError('The public key is not valid. Give a PEM key, or the raw key in hex or base64.')
       }
     }
-    if (refusedAsUnverified({ verification: input, organizationId }, deps.allowsUnverifiedWebhooks)) {
-      throw new WebhookInputError('This organization does not allow unverified webhooks. Choose a verification scheme.')
-    }
+  }
+
+  /** An enabled webhook of an organization must be work the organization lets start here. A paused one may be saved. */
+  function assertAdmitted(record: Pick<WebhookRecord, 'organizationId' | 'enabled' | 'verification'>): void {
+    if (!record.enabled) return
+    const refusal = deps.organizationRefusal(record.organizationId, { unverified: record.verification.scheme === 'none' })
+    if (refusal) throw new WebhookInputError(refusal)
   }
 
   async function view(record: WebhookRecord, now = Date.now()): Promise<Webhook> {
@@ -214,6 +221,7 @@ export function createWebhookService(deps: WebhookServiceDeps) {
         createdAt: now,
         updatedAt: now,
       }
+      assertAdmitted(record)
       const secrets: WebhookSecrets = { token: newWebhookToken() }
       if (secret) secrets.secret = secretBytes(input.verification, secret)
       writeWebhookSecrets(record.id, secrets)
@@ -236,6 +244,7 @@ export function createWebhookService(deps: WebhookServiceDeps) {
         assertActions(patch.actions)
         record.actions = patch.actions
       }
+      let secretsChanged = false
       if (patch.verification) {
         const given = givenSecret(patch.verification, sessionId)
         // A verification without a secret keeps the stored one only for the same scheme.
@@ -244,11 +253,14 @@ export function createWebhookService(deps: WebhookServiceDeps) {
         record.verification = storedVerification(patch.verification)
         if (given) secrets.secret = secretBytes(patch.verification, given)
         else if (!keepsSecret) delete secrets.secret
-        writeWebhookSecrets(id, secrets)
+        secretsChanged = true
       }
       if (patch.name !== undefined) record.name = patch.name
       if (patch.project !== undefined) record.project = patch.project
       if (patch.enabled !== undefined) record.enabled = patch.enabled
+      // Checked on the saved result, before anything is written.
+      assertAdmitted(record)
+      if (secretsChanged) writeWebhookSecrets(id, secrets)
       if (patch.replayKey !== undefined) record.replayKey = patch.replayKey
       if (patch.copiedUrl !== undefined) {
         const url = webhookUrl(id, secrets.token, deps.urls).url
