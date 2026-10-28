@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { join } from 'path'
 import { z } from 'zod'
 import {
+  hookDrainResponseSchema,
   hostTunnelSchema,
+  hostWebhookHoldSchema,
   linkHostResponseSchema,
   uplinkDesiredStateSchema,
   uplinkErrorBodySchema,
@@ -10,6 +12,8 @@ import {
   type HostLinkResponse,
   type HostLinkStatus,
   type HostRegistration,
+  type HookDrainRequest,
+  type HookDrainResponse,
   type HostTunnel,
   type LinkHostRequest,
   type UplinkLinkState,
@@ -52,10 +56,14 @@ const persistedLinkSchema = z.object({
   hostId: z.string().min(1),
   desired: uplinkDesiredStateSchema,
   tunnel: hostTunnelSchema,
+  /** Whether the webhook forwarder holds requests while this host is offline (docs/plans/webhooks.md §2.3); Solus cloud stores it. */
+  holdWebhooks: z.boolean().optional(),
 }).strict()
 /** The tunnel's connector token: infrastructure, not identity. Absent for a directly reached link (a managed host). */
 const tokensSchema = z.object({
   connectorToken: z.string().min(1).optional(),
+  /** The webhook forwarder secret of this link (docs/plans/webhooks.md §2.5); absent from a control plane without the forwarder. */
+  forwarderSecret: z.string().min(1).optional(),
 })
 
 type PersistedLink = z.infer<typeof persistedLinkSchema>
@@ -79,6 +87,8 @@ export interface UplinkLinkDeps {
   fetchImpl?: FetchLike
   /** A provisioned machine (managed-hosts.md §2): the link the control plane put in the environment; null on a machine a person links. */
   provisionedLink?: () => HostLinkEnv | null
+  /** The link came online: the tunnel registered a connection, or a directly reached link started. The host asks for a webhook drain then. */
+  onOnline?: (reason: HookDrainRequest['reason']) => void
 }
 
 export class UplinkLinkError extends Error {
@@ -92,6 +102,7 @@ export class UplinkLinkManager {
   private persisted: PersistedLink | null
   private observed: UplinkObservedState = 'offline'
   private observedError: string | undefined
+  private hasBeenOnline = false
 
   constructor(private readonly deps: UplinkLinkDeps) {
     this.persisted = readPersistedLink()
@@ -135,8 +146,57 @@ export class UplinkLinkManager {
       throw new UplinkLinkError('link-rejected', linkRejectionMessage(response.status, detail.data?.error, detail.data?.message))
     }
     const linked = linkHostResponseSchema.parse(await response.json())
-    this.storeLink(registration.hostId, linked.tunnel, linked.connectorToken)
+    this.storeLink(registration.hostId, linked.tunnel, linked.connectorToken, linked.forwarderSecret, linked.holdWebhooks)
     return this.status()
+  }
+
+  // ── Webhook forwarder (docs/plans/webhooks.md §2.3–§2.5) ──
+
+  /** The forwarder secret of the current link: it proves a forwarded delivery. Null while not linked or without the forwarder. */
+  forwarderSecret(): Buffer | null {
+    if (!this.currentTunnel()) return null
+    const secret = this.loadTokens()?.forwarderSecret
+    return secret ? Buffer.from(secret, 'base64url') : null
+  }
+
+  /** Whether the forwarder holds requests while this host is offline; null while not linked. On by default. */
+  holdWebhooks(): boolean | null {
+    return this.currentTunnel() ? this.persisted?.holdWebhooks ?? true : null
+  }
+
+  /** Turns holding on or off in Solus cloud. Turning it off deletes the held requests there. */
+  async setHoldWebhooks(hold: boolean): Promise<boolean> {
+    const registration = this.deps.registration()
+    if (!registration || !this.persisted || !this.currentTunnel()) throw new UplinkLinkError('not-linked', 'This host is not linked.')
+    const response = await this.request(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/link/hooks`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${await this.controlToken()}`, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ holdWebhooks: hold }),
+    })
+    if (!response.ok) throw new UplinkLinkError('link-rejected', `Solus cloud refused the change (${response.status}).`)
+    const answer = hostWebhookHoldSchema.parse(await response.json())
+    this.setPersisted({ ...this.persisted, holdWebhooks: answer.holdWebhooks })
+    log.info('uplink_webhook_hold_changed', { holdWebhooks: answer.holdWebhooks })
+    return answer.holdWebhooks
+  }
+
+  /**
+   * Asks Solus cloud to deliver the requests it held while this host was offline
+   * (plan §2.4). Answers the lost counts, or null when the host is not linked or
+   * the control plane has no forwarder (an older one answers 404).
+   */
+  async drainWebhooks(reason: HookDrainRequest['reason']): Promise<HookDrainResponse | null> {
+    const registration = this.deps.registration()
+    if (!registration || !this.currentTunnel()) return null
+    const body: HookDrainRequest = { reason }
+    const response = await this.request(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/hooks/drain`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${await this.controlToken()}`, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (response.status === 404) return null
+    if (!response.ok) throw new UplinkLinkError('link-rejected', `Solus cloud refused the drain (${response.status}).`)
+    return hookDrainResponseSchema.parse(await response.json())
   }
 
   /** Turns the tunnel off: the connector stops and Solus cloud removes the tunnel. The registration stays. */
@@ -195,6 +255,7 @@ export class UplinkLinkManager {
       this.forgetLink('uplink_link_ended_elsewhere')
       return
     }
+    if (remote) this.adoptWebhookFacts(remote)
     const connectorToken = this.loadTokens()?.connectorToken
     if (!connectorToken) {
       this.setObservation({ observed: 'error', error: 'The tunnel credential is missing; turn the link off and on again.' })
@@ -208,6 +269,17 @@ export class UplinkLinkManager {
       return
     }
     this.startReach(connectorToken)
+  }
+
+  /** A link made before the forwarder existed gets its secret and hold switch from the boot check (docs/plans/webhooks.md §2.5). */
+  private adoptWebhookFacts(remote: HostLinkResponse): void {
+    const tokens = this.loadTokens()
+    if (remote.forwarderSecret && remote.forwarderSecret !== tokens?.forwarderSecret) {
+      secretStore().saveJson(TOKENS_KEY, tokensElectronPath(), { ...tokens, forwarderSecret: remote.forwarderSecret })
+    }
+    if (this.persisted && remote.holdWebhooks !== undefined && remote.holdWebhooks !== this.persisted.holdWebhooks) {
+      this.setPersisted({ ...this.persisted, holdWebhooks: remote.holdWebhooks })
+    }
   }
 
   /** The registration changed: a tunnel of another registration, or of none, is dropped here. */
@@ -231,9 +303,9 @@ export class UplinkLinkManager {
     else this.setObservation({ observed: 'online' })
   }
 
-  private storeLink(hostId: string, tunnel: HostTunnel, connectorToken: string | undefined): void {
-    secretStore().saveJson(TOKENS_KEY, tokensElectronPath(), { connectorToken })
-    this.setPersisted({ version: 2, hostId, desired: 'linked', tunnel })
+  private storeLink(hostId: string, tunnel: HostTunnel, connectorToken: string | undefined, forwarderSecret?: string, holdWebhooks?: boolean): void {
+    secretStore().saveJson(TOKENS_KEY, tokensElectronPath(), { connectorToken, forwarderSecret })
+    this.setPersisted(holdWebhooks === undefined ? { version: 2, hostId, desired: 'linked', tunnel } : { version: 2, hostId, desired: 'linked', tunnel, holdWebhooks })
     this.setObservation({ observed: 'offline' })
     this.startReach(connectorToken)
     log.info('uplink_linked', { hostId, hostname: tunnel.hostname })
@@ -299,9 +371,15 @@ export class UplinkLinkManager {
   }
 
   private setObservation(observation: ConnectorObservation): void {
+    const cameOnline = observation.observed === 'online' && this.observed !== 'online'
     this.observed = observation.observed
     this.observedError = observation.observed === 'error' ? observation.error : undefined
     this.deps.onStatusChanged?.()
+    // The first online after boot is the server start; a later one is a tunnel that registered again.
+    if (cameOnline) {
+      this.deps.onOnline?.(this.hasBeenOnline ? 'tunnel_registered' : 'server_start')
+      this.hasBeenOnline = true
+    }
   }
 }
 

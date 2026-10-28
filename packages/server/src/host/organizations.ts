@@ -88,6 +88,16 @@ export class HostOrganizations {
     return this.organization(organizationId)?.policy ?? DEFAULT_ORGANIZATION_POLICY
   }
 
+  /** An organization admin paused this webhook (docs/plans/webhooks.md §2.7). */
+  isWebhookPausedByAdmin(webhookId: string): boolean {
+    return this.organizations().some((organization) => organization.pausedWebhookIds?.includes(webhookId) ?? false)
+  }
+
+  /** The organization lets an unverified webhook start its work (plan §3.7). Off by default. */
+  allowsUnverifiedWebhooks(organizationId: string): boolean {
+    return this.policyFor(organizationId)?.allowsUnverifiedWebhooks === true
+  }
+
   /** The account this host is registered to, as the control plane knows it. */
   owner(): HostOwnerIdentity | null {
     return this.standing?.owner ?? null

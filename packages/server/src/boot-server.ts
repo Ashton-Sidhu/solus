@@ -52,7 +52,7 @@ import { adoptProvisionedRegistration, applyHostCategory, hostCategory, provisio
 import { getInsightsOptIn, hostUserSettings } from './host/settings'
 import { adoptHostUser, followHostAccount } from './host/host-user-rows'
 import { registerOrganizationHandlers } from './transport/handlers/organization-handlers'
-import { enrollHostCategorySchema, type EnrollHostCategory } from '@solus/contracts/uplink'
+import { enrollHostCategorySchema, type EnrollHostCategory, type HookDrainRequest } from '@solus/contracts/uplink'
 import { TranscriptMirror, listOwnInterruptedSessions } from './sync/mirror/transcript-mirror'
 import { applyApiMode, isApiMode, apiModeConfig } from './host/api-mode'
 import type { HostCredential } from './host/host-credential'
@@ -1192,6 +1192,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     localClient.registrationChanged()
   }
   // What `uplinkStatus` answers: the registration, and apart from it, the link.
+  /** Set once the webhook services exist; an online link before then asks again through the next online. */
+  let drainWebhooks: (reason: HookDrainRequest['reason']) => void = () => {}
   const uplinkStatus = () => ({ registration: registrar.status(), link: uplinkManager.status() })
   const broadcastUplinkStatus = () => { if (uplinkManager) events.broadcast('host.uplinkStatusChanged', uplinkStatus()) }
   const registrar = new HostRegistrar({
@@ -1216,6 +1218,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // status line follows this instead of waiting for a reload.
     onStatusChanged: broadcastUplinkStatus,
     provisionedLink: readHostLinkEnv,
+    onOnline: (reason) => drainWebhooks(reason),
   })
   followRegistration(registrar.current())
   // The attachment is stored with the registration (organization-vms §4): a deleted host is personal again.
@@ -1372,9 +1375,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // on hosts, so the Solus API has no receiver (§2.1).
   const webhookFacts = {
     hostId: () => registrar.current()?.hostId ?? null,
-    forwarderSecret: (): Buffer | null => null,
-    isPausedByAdmin: (_webhookId: string) => false,
-    allowsUnverifiedWebhooks: (_organizationId: string) => false,
+    forwarderSecret: () => uplinkManager?.forwarderSecret() ?? null,
+    isPausedByAdmin: (webhookId: string) => hostOrganizations.isWebhookPausedByAdmin(webhookId),
+    allowsUnverifiedWebhooks: (organizationId: string) => hostOrganizations.allowsUnverifiedWebhooks(organizationId),
   }
   const webhooks = createWebhookServices(opts.sessionRuntime, webhookFacts)
   const webhookService = createWebhookService({
@@ -1390,7 +1393,26 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerWebhookHandlers(server, {
     actions: webhooks.actions,
     webhooks: webhookService,
-    link: { linked: () => false, holdWhileOffline: () => null, setHoldWhileOffline: async () => {} },
+    link: {
+      linked: () => !!uplinkManager?.currentTunnel(),
+      holdWhileOffline: () => uplinkManager?.holdWebhooks() ?? null,
+      setHoldWhileOffline: async (hold) => { await uplinkManager?.setHoldWebhooks(hold) },
+    },
+  })
+  // The host asks Solus cloud for its held webhook requests when its link comes online (plan §2.4).
+  drainWebhooks = (reason) => {
+    void uplinkManager?.drainWebhooks(reason)
+      .then((answer) => answer && webhookService.recordLost(answer.lost))
+      .catch((err) => log.warn('webhook_drain_failed', { reason, error: err instanceof Error ? err.message : String(err) }))
+  }
+  const linkNow = uplinkManager?.status()
+  if (linkNow?.linked && linkNow.state.observed === 'online') drainWebhooks('server_start')
+  // An admin's pause or resume reaches clients when the host reads its organization facts (plan §2.7).
+  let pausedWebhooks = new Set<string>()
+  hostOrganizations.onChanged(() => {
+    const paused = new Set(hostOrganizations.organizations().flatMap((organization) => organization.pausedWebhookIds ?? []))
+    for (const id of new Set([...paused, ...pausedWebhooks])) if (paused.has(id) !== pausedWebhooks.has(id)) void webhookService.announce(id)
+    pausedWebhooks = paused
   })
   // The one sweeper of expired replay keys and delivery IDs.
   setInterval(() => {

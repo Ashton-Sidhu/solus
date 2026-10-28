@@ -18,6 +18,7 @@ import type { Attribution } from '@solus/contracts/user'
 import { createLogger } from '../../logger'
 import { creatorKeyOf } from '../../data/automations/automations-store'
 import {
+  addLostRequests,
   deleteWebhook,
   deliveryStats,
   insertWebhook,
@@ -269,6 +270,22 @@ export function createWebhookService(deps: WebhookServiceDeps) {
       await saveWebhook(record)
       log.info('webhook_rotated', { webhookId: id })
       return withUrl(await announce(record), secrets)
+    },
+
+    /** Tells clients that a webhook changed outside an edit: an admin pause, or lost requests. */
+    async announce(id: string): Promise<void> {
+      const record = await loadWebhook(id)
+      if (record) await announce(record)
+    },
+
+    /** Adds the forwarder's lost counts from one drain (plan §2.3). */
+    async recordLost(lost: { webhookId: string; count: number }[], at = Date.now()): Promise<void> {
+      for (const entry of lost) {
+        if (await addLostRequests(entry.webhookId, entry.count, at)) {
+          log.info('webhook_requests_lost', { webhookId: entry.webhookId, count: entry.count })
+          await this.announce(entry.webhookId)
+        }
+      }
     },
 
     async delete(id: string): Promise<boolean> {
