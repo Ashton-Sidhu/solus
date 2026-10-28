@@ -804,7 +804,7 @@
 
         {#if contentsOpensFromHeader}{@render contentsTrigger()}{/if}
         {@render voiceControl()}
-        <button type="button" class="doc-shell-toolbar-btn" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"} aria-label="Toggle markdown view">
+        <button type="button" class="doc-shell-header-btn doc-shell-header-btn--icon" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"} aria-label="Toggle markdown view">
           {#if editorMode === "rich"}<MarkdownLogoIcon size={14} />{:else}<TextAaIcon size={14} />{/if}
         </button>
         {/if}
@@ -1141,6 +1141,19 @@
   .doc-shell-header-btn:hover {
     background: var(--wash-1);
   }
+  /* The compact row's Markdown toggle: a glyph on the microphone's circle. */
+  .doc-shell-header-btn--icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.625rem;
+    padding: 0;
+  }
+  .doc-shell-header-btn--icon :global(svg) {
+    width: 15px;
+    height: 15px;
+    stroke-width: 1.5;
+  }
   /* The microphone is the input bar's control, so the header gives it the
      row's pill from here rather than changing it everywhere. */
   .doc-shell-voice :global(.rc-bar-mic) {
@@ -1317,15 +1330,17 @@
      wider chip a published document carries — the reserve scrolls out of view
      and the trailing actions come to rest under the maximize and close buttons.
      A margin takes the room off the scrollport itself, so it cannot be spent.
-     A scrollport also clips on the block axis, which cut the raised pills'
-     drop shadows into a hard-edged grey band behind the row. The row fills the
-     header's height, so the clip falls where the shadow has faded, and the end
-     padding gives the last pill's shadow its room. */
+     The raised pills each cast a 10px drop shadow. Packed 2px apart, those
+     shadows ran together into one grey band behind the row, and the
+     scrollport, which also clips on the block axis, cut that band off at a
+     hard edge. The pills keep the standard header's 6px gap, so each shadow
+     stays its own; the row fills the header's height, so the clip falls where
+     the shadow has faded; and the end padding gives the last shadow room. */
   .doc-shell-toolbar-row {
     flex: 1;
     align-self: stretch;
     min-width: 0;
-    gap: 0.125rem;
+    gap: 0.375rem;
     padding: 0 0.625rem 0 max(0.625rem, var(--solus-chrome-lead-inset, 0px));
     margin-right: max(0.625rem, var(--solus-pane-chrome-inset, 3.25rem));
     overflow-x: auto;
@@ -1378,6 +1393,10 @@
       width: 2.5rem;
       height: 2.5rem;
       border-radius: 0.5rem;
+    }
+    .doc-shell-header-btn--icon {
+      width: 2.5rem;
+      height: 2.5rem;
     }
     .doc-shell-toolbar-btn :global(svg) {
       width: 1.1875rem;
