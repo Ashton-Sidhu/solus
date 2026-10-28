@@ -49,6 +49,8 @@ const ids = (view: Partial<WebhooksView>) => filterWebhookRows(rows, { ...EMPTY_
 describe('webhooks view in the URL', () => {
   test('every filter and the open webhook survive a round trip', () => {
     const view: WebhooksView = {
+      scope: 'organization',
+      adminOrganization: 'org-2',
       query: 'ci & deploy',
       host: 'host-a',
       project: '/repo/app with space',

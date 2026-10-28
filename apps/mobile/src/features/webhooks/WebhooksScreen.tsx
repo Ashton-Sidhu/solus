@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ActivityIndicator, Alert, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -13,8 +14,10 @@ import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import { errorMessage } from "../settings/integrations";
+import { OrganizationWebhooks } from "./OrganizationWebhooks";
+import { useHasOrganization } from "./use-organization-webhooks";
 import { useHostWebhookSettings, useWebhooks } from "./use-webhooks";
-import { PillButton, WebhookListRow, type RowLine } from "./webhook-rows";
+import { ChoiceChip, PillButton, WebhookListRow, type RowLine } from "./webhook-rows";
 import {
   deliveries24hText,
   hostUrlMode,
@@ -36,7 +39,8 @@ type HostWebhookSettingsModel = ReturnType<typeof useHostWebhookSettings>;
  * The webhooks of one host (docs/plans/webhooks.md §4, mobile version 1): the
  * list, and the host's two webhook settings. A row opens the webhook, with
  * Pause, Copy, and its deliveries. The editor, Rotate, and dry run are on
- * desktop and web for now.
+ * desktop and web for now. A person in an organization also gets the
+ * Organization view (plan §2.7), which reads the organization's Solus API.
  */
 export function WebhooksScreen({ navigation, route }: ScreenProps<"Webhooks">) {
   const { hostId } = route.params;
@@ -44,6 +48,9 @@ export function WebhooksScreen({ navigation, route }: ScreenProps<"Webhooks">) {
   const { list, connected, reload } = useWebhooks(hostId);
   const hostSettings = useHostWebhookSettings(hostId);
   const settings = hostSettings.state.kind === "loaded" ? hostSettings.state.settings : null;
+  const hasOrganization = useHasOrganization();
+  const [view, setView] = useState<"host" | "organization">("host");
+  const showsOrganization = hasOrganization && view === "organization";
 
   return (
     <SettingsScreen title="Webhooks">
@@ -54,8 +61,17 @@ export function WebhooksScreen({ navigation, route }: ScreenProps<"Webhooks">) {
         contentContainerClassName="gap-6 px-5 pt-4"
         contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
       >
+        {hasOrganization ? (
+          <View accessibilityRole="tablist" className="flex-row gap-2">
+            <ChoiceChip role="tab" label="This host" selected={view === "host"} onPress={() => setView("host")} />
+            <ChoiceChip role="tab" label="Organization" selected={view === "organization"} onPress={() => setView("organization")} />
+          </View>
+        ) : null}
+
         {/* A host that is not connected shows no rows: old rows would read as current. */}
-        {!connected ? (
+        {showsOrganization ? (
+          <OrganizationWebhooks />
+        ) : !connected ? (
           <SettingsNote>Connect this host to see its webhooks.</SettingsNote>
         ) : list.kind === "unsupported" ? (
           <SettingsNote>{UNSUPPORTED_NOTE}</SettingsNote>
@@ -88,7 +104,7 @@ export function WebhooksScreen({ navigation, route }: ScreenProps<"Webhooks">) {
           </SettingsSection>
         )}
 
-        {connected ? <HostWebhookSettingsSection model={hostSettings} /> : null}
+        {connected && !showsOrganization ? <HostWebhookSettingsSection model={hostSettings} /> : null}
       </ScreenScrollView>
     </SettingsScreen>
   );

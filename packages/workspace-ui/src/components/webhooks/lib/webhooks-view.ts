@@ -12,12 +12,18 @@ export type WebhookState = 'active' | 'paused' | 'admin-paused'
 /** `failing` is a failed, partial, or unverified last delivery. */
 export type WebhookOutcomeFilter = 'failing' | 'never' | WebhookDeliveryOutcome
 
+/** `hosts`: the webhooks of every connected host. `organization`: an organization's webhooks of all members, read from its Solus API (plan §2.7). */
+export type WebhooksScope = 'hosts' | 'organization'
+
 /** What the view opens: a saved webhook on one host, or the editor for a new one. */
 export type WebhookOpenTarget =
   | { kind: 'webhook'; serverId: string; webhookId: string }
   | { kind: 'new'; serverId: string | null }
 
 export interface WebhooksView {
+  scope: WebhooksScope
+  /** The organization the Organization view shows; null is the window's organization. */
+  adminOrganization: string | null
   query: string
   host: string | null
   project: string | null
@@ -37,6 +43,8 @@ export interface WebhookRow {
 }
 
 export const EMPTY_WEBHOOKS_VIEW: WebhooksView = {
+  scope: 'hosts',
+  adminOrganization: null,
   query: '',
   host: null,
   project: null,
@@ -70,6 +78,8 @@ function parseOpen(params: URLSearchParams): WebhookOpenTarget | null {
 export function parseWebhooksView(text: string): WebhooksView {
   const params = new URLSearchParams(text)
   return {
+    scope: params.get('view') === 'organization' ? 'organization' : 'hosts',
+    adminOrganization: params.get('aorg') || null,
     query: params.get('q') ?? '',
     host: params.get('host') || null,
     project: params.get('project') || null,
@@ -84,6 +94,8 @@ export function parseWebhooksView(text: string): WebhooksView {
 
 export function serializeWebhooksView(view: WebhooksView): string {
   const params = new URLSearchParams()
+  if (view.scope === 'organization') params.set('view', 'organization')
+  if (view.adminOrganization) params.set('aorg', view.adminOrganization)
   if (view.query) params.set('q', view.query)
   if (view.host) params.set('host', view.host)
   if (view.project) params.set('project', view.project)

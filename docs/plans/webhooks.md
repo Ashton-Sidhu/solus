@@ -253,7 +253,7 @@ Desktop and web (shared Svelte UI):
   - Filters: host, project, state, last outcome (for example "failing"), URL mode, owner, and organization. A text search matches the name and the project. The filters are kept in the URL of the page, so a link opens the same view.
   - A host that is not connected shows one row: "<host> is not connected. Its webhooks are not shown." The table never shows old rows as current.
   - A row opens the editor, the URL with Copy and Rotate, the deliveries, and the dry run.
-  - Organization admins get a second view, **Organization**, that reads the Solus API (§2.7). It shows the organization webhooks of all members, with Pause and Resume.
+  - Organization admins get a second view, **Organization**, that reads the Solus API (§2.7). It shows the organization webhooks of all members, with Pause and Resume. As built: Settings → Webhooks has "Hosts" and "Organization" tabs when the person belongs to an organization; the page URL keeps `view=organization` and `aorg=<id>`. The view reads `webhookAdminList` on `solusApiId(organizationId)`. A refusal shows as "Only an organization admin can see this view." or "That host does not deliver to this organization.", and a failed call shows "The Solus API did not answer. Try again." with Retry, never a blank list. Mobile shows the same list in the Webhooks screen ("This host" / "Organization"), through a new mobile connection to the organization's Solus API (`HostConnections.solusApi`).
 - **Project panel → Webhooks**: the webhooks of this project, with state and last delivery. A row opens the webhook in Settings.
 - **Host settings**: **Hold webhooks while offline** (linked hosts) and **Public URL** (all hosts).
 - **Command palette**: "New webhook" and "Open webhooks".

@@ -90,3 +90,26 @@ export function PillButton(props: {
     </Pressable>
   );
 }
+
+/** A choice among a few, as Solus Cloud draws the organization choice. */
+export function ChoiceChip(props: {
+  readonly label: string;
+  readonly accessibilityLabel?: string;
+  readonly role: "tab" | "button";
+  readonly selected: boolean;
+  readonly onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole={props.role}
+      accessibilityState={{ selected: props.selected }}
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      onPress={props.onPress}
+      className={cn("rounded-full px-3.5 py-2 active:opacity-70", props.selected ? "bg-primary" : "bg-subtle")}
+    >
+      <Text className={cn("text-xs font-t3-bold", props.selected ? "text-primary-foreground" : "text-foreground")}>
+        {props.label}
+      </Text>
+    </Pressable>
+  );
+}
