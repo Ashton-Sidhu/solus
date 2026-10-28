@@ -1316,12 +1316,17 @@
      the scrollport, so the moment the row overflows — one extra verb, or the
      wider chip a published document carries — the reserve scrolls out of view
      and the trailing actions come to rest under the maximize and close buttons.
-     A margin takes the room off the scrollport itself, so it cannot be spent. */
+     A margin takes the room off the scrollport itself, so it cannot be spent.
+     A scrollport also clips on the block axis, which cut the raised pills'
+     drop shadows into a hard-edged grey band behind the row. The row fills the
+     header's height, so the clip falls where the shadow has faded, and the end
+     padding gives the last pill's shadow its room. */
   .doc-shell-toolbar-row {
     flex: 1;
+    align-self: stretch;
     min-width: 0;
     gap: 0.125rem;
-    padding: 0 0 0 max(0.625rem, var(--solus-chrome-lead-inset, 0px));
+    padding: 0 0.625rem 0 max(0.625rem, var(--solus-chrome-lead-inset, 0px));
     margin-right: max(0.625rem, var(--solus-pane-chrome-inset, 3.25rem));
     overflow-x: auto;
     scrollbar-width: none;

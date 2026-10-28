@@ -126,6 +126,15 @@
   const shareServerId = $derived(workId ? session.worksStore.hostFor(workId) ?? null : null);
   const shareResource = $derived(workId ? ({ kind: "work", id: workId } as const) : null);
   const canShare = $derived(!!shareServerId && !!shareResource && sharesStore.canShareFrom(shareServerId, "work"));
+  // Share is offered, or shown disabled so a signed-out reader learns why.
+  const shareOffered = $derived(
+    shell.canOpenResource("workspace") && (canShare || (!!shareServerId && !!shareResource && !accountStore.isSignedIn)),
+  );
+  // The header's Share button folds into ⋯ at the narrow rung. The menu is
+  // portalled out of the container, so it cannot read that rung itself: it
+  // reads whether the button still has a width.
+  let shareButtonWidth = $state(0);
+  const shareInHeader = $derived(shareButtonWidth > 0);
 
   function openShare() {
     if (!shareServerId || !shareResource) return;
@@ -194,11 +203,12 @@
   <WorkReviewControl {workId} {title} type={workType} currentContent={resolvedContent} />
 {/if}
 
-{#if workId && shell.canOpenResource("workspace")}
-  <!-- A glyph on the ⋯ trigger's square geometry, so the two quiet header
-       controls read as one pair. A scoped class would not reach the child, so
-       that geometry is restated as utilities. -->
-  <ShareButton serverId={shareServerId} resource={shareResource} {title} class="inline-flex size-6.5 shrink-0 items-center justify-center rounded-full bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] pointer-coarse:size-10 [&_svg]:size-[15px] [&_svg]:stroke-[1.5]" />
+{#if workId && shareOffered}
+  <!-- Labelled like the session band's Share, on this row's pill geometry.
+       Below the rung it leaves for the ⋯ menu, which takes it over. -->
+  <span class="inline-flex shrink-0 @max-[36rem]:hidden" bind:clientWidth={shareButtonWidth}>
+    <ShareButton serverId={shareServerId} resource={shareResource} {title} labelled class="inline-flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-background pl-2.5 pr-3 text-workspace-chrome text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-colors hover:bg-[var(--wash-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) max-md:h-10 max-md:pl-3 max-md:pr-3.5 [&_svg]:size-[15px] [&_svg]:stroke-[1.5]" />
+  </span>
 {/if}
 
 <!-- Layout, integration & destructive actions collapse into a single overflow menu. -->
@@ -225,7 +235,7 @@
           <CopyIcon size={14} /><span class="flex-1 text-left">Duplicate</span>
         </DropdownMenu.Item>
       {/if}
-      {#if shell.canOpenResource("workspace") && (canShare || (shareServerId && shareResource && !accountStore.isSignedIn))}
+      {#if shareOffered && !shareInHeader}
         <DropdownMenu.Item data-testid="share-work" disabled={!accountStore.isSignedIn} title={!accountStore.isSignedIn ? "Sign in to share" : undefined} onSelect={openShare}>
           <UsersIcon size={14} /><span class="flex-1 text-left">Share…</span>
         </DropdownMenu.Item>

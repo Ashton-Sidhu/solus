@@ -8,10 +8,9 @@
   /**
    * The Share control (docs/plans/multiplayer-sharing.md §4.4): present wherever the
    * resource can be shared (`sharesStore.canShareFrom`), and shaped like the header it sits
-   * in. Every header that carries it — the session band, the task chrome bar,
-   * the work header — is a row of glyphs, so the control is a glyph: the one
-   * share glyph every Share entry point uses. The count and the state ride the
-   * tooltip; the control stays as quiet as its neighbours. A session is shared
+   * in. Every Share entry point uses the one share glyph; the session band and
+   * the work header add the word beside it (`labelled`). The count and the
+   * state ride the tooltip; the control stays as quiet as its neighbours. A session is shared
    * from its host with no sign-in; a work is pushed to the cloud by this button,
    * which needs one (docs/plans/host-sharing.md §2).
    */
