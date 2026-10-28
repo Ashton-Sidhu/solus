@@ -121,6 +121,9 @@ describe('webhook receiver check order', () => {
     expect(wrongToken).toEqual(unknown)
     expect(wrongToken.status).toBe(404)
     expect(wrongToken.outcome).toBe('not_found')
+    // An ID or a token outside the forwarder's forms is unknown, before any read.
+    expect(await r.receive(post('bad id!', '{}', signed('{}')))).toEqual(unknown)
+    expect(await r.receive(post(webhook.id, '{}', signed('{}'), 't'.repeat(257)))).toEqual(unknown)
     expect(await store.listDeliveries(webhook.id)).toEqual([])
   })
 

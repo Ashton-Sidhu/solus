@@ -16,7 +16,7 @@ const DIRECTORY = 'https://app.example.test'
 const HOST_ID = 'host_abc'
 const registration = { hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/jwks`, directoryUrl: DIRECTORY, generation: 1 }
 const tunnel = { hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 }
-const FORWARDER_SECRET = Buffer.from('forwarder-secret-bytes').toString('base64url')
+const FORWARDER_SECRET = `hfs_${'A'.repeat(52)}`
 
 interface Call { method: string; url: string; body: unknown }
 
@@ -39,9 +39,9 @@ function plane(options: { drain?: () => Response } = {}) {
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) : null
     calls.push({ method, url, body })
-    if (url.endsWith('/link') && method === 'POST') return Response.json({ tunnel, connectorToken: 'connector-1', forwarderSecret: FORWARDER_SECRET, holdWebhooks: true })
+    if (url.endsWith('/link') && method === 'POST') return Response.json({ tunnel, connectorToken: 'connector-1', forwarderSecret: FORWARDER_SECRET })
     if (url.endsWith('/link/hooks') && method === 'PUT') return Response.json({ holdWebhooks: body.holdWebhooks })
-    if (url.endsWith('/hooks/drain') && method === 'POST') return options.drain?.() ?? Response.json({ held: 2, lost: [{ webhookId: 'wh-1', count: 3 }] })
+    if (url.endsWith('/hooks/drain') && method === 'POST') return options.drain?.() ?? Response.json({ lost: { 'wh-1': 3 } })
     return new Response('not found', { status: 404 })
   }
   return { calls, fetchImpl }
@@ -59,12 +59,12 @@ function manager(fetchImpl: typeof fetch, online: string[] = []) {
 }
 
 describe('webhook forwarder on the link', () => {
-  test('the link answer gives the forwarder secret, kept in the secret store, never in host-link.json', async () => {
+  test('the link answer gives the forwarder secret, kept in the secret store, never in host-link.json; its UTF-8 bytes are the key', async () => {
     const { fetchImpl } = plane()
     const link = manager(fetchImpl)
     expect(link.forwarderSecret()).toBeNull()
     await link.link()
-    expect(link.forwarderSecret()?.toString()).toBe('forwarder-secret-bytes')
+    expect(link.forwarderSecret()).toEqual(Buffer.from(FORWARDER_SECRET, 'utf8'))
     expect(readFileSync(join(dataDir, 'host-link.json'), 'utf8')).not.toContain(FORWARDER_SECRET)
     expect(link.holdWebhooks()).toBe(true)
   })
@@ -79,15 +79,31 @@ describe('webhook forwarder on the link', () => {
     expect(link.holdWebhooks()).toBe(false)
   })
 
-  test('the drain is a POST to /v1/hosts/:id/hooks/drain with its reason, and answers one lost count for each webhook', async () => {
+  test('the drain is a POST of {} to /v1/hosts/:id/hooks/drain, and answers one lost count for each webhook', async () => {
     const { calls, fetchImpl } = plane()
     const link = manager(fetchImpl)
-    expect(await link.drainWebhooks('server_start')).toBeNull()
+    expect(await link.drainWebhooks()).toBeNull()
     await link.link()
-    expect(await link.drainWebhooks('tunnel_registered')).toEqual({ held: 2, lost: [{ webhookId: 'wh-1', count: 3 }] })
-    expect(calls.at(-1)).toEqual({ method: 'POST', url: `${DIRECTORY}/v1/hosts/${HOST_ID}/hooks/drain`, body: { reason: 'tunnel_registered' } })
-    // A control plane without the forwarder answers 404: nothing to drain.
-    expect(await manager(plane({ drain: () => new Response('', { status: 404 }) }).fetchImpl).drainWebhooks('server_start')).toBeNull()
+    expect(await link.drainWebhooks()).toEqual({ kind: 'drained', lost: { 'wh-1': 3 } })
+    expect(calls.at(-1)).toEqual({ method: 'POST', url: `${DIRECTORY}/v1/hosts/${HOST_ID}/hooks/drain`, body: {} })
+  })
+
+  test('an inbox that does not answer means ask again after retry-after; a control plane without the forwarder answers 404', async () => {
+    const busy = manager(plane({ drain: () => Response.json({ error: 'hook_inbox_unavailable' }, { status: 503, headers: { 'retry-after': '60' } }) }).fetchImpl)
+    await busy.link()
+    expect(await busy.drainWebhooks()).toEqual({ kind: 'retry', afterMs: 60_000 })
+    const old = manager(plane({ drain: () => new Response('', { status: 404 }) }).fetchImpl)
+    await old.link()
+    expect(await old.drainWebhooks()).toBeNull()
+  })
+
+  test('the hold switch of a host that Solus cloud does not see as linked answers 409 host_not_linked', async () => {
+    const fetchImpl: typeof fetch = async (input, init) => String(input).endsWith('/link/hooks')
+      ? Response.json({ error: 'host_not_linked' }, { status: 409 })
+      : plane().fetchImpl(input, init)
+    const link = manager(fetchImpl)
+    await link.link()
+    await expect(link.setHoldWebhooks(false)).rejects.toThrow('not linked')
   })
 
   test('the host asks for a drain when its link comes online: first at server start, then each time the tunnel registers again', async () => {
@@ -112,9 +128,10 @@ describe('organization facts for webhooks', () => {
     const answer = hostOrganizationsResponseSchema.parse({
       hostId: HOST_ID, category: 'personal', owner: null,
       organizations: [
-        { organizationId: 'org-1', name: 'Acme', shared: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false, allowsUnverifiedWebhooks: true }, pausedWebhookIds: ['wh-paused'] },
-        { organizationId: 'org-2', name: 'Beta', shared: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false } },
+        { organizationId: 'org-1', name: 'Acme', shared: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false, allowsUnverifiedWebhooks: true } },
+        { organizationId: 'org-2', name: 'Beta', shared: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false, allowsUnverifiedWebhooks: false } },
       ],
+      pausedWebhookIds: ['wh-paused'],
     })
     const organizations = new HostOrganizations({
       registration: () => registration,

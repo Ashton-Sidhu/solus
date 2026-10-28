@@ -679,12 +679,6 @@ export const hostOrganizationSchema = z.object({
    * and then the host removes nothing.
    */
   memberUserIds: z.array(z.string().min(1)).optional(),
-  /**
-   * The webhooks of this organization that its admins paused (docs/plans/webhooks.md §2.7).
-   * The receiver refuses them after verification, and Replay refuses them.
-   * Absent from an older control plane: nothing is paused.
-   */
-  pausedWebhookIds: z.array(z.string().min(1)).optional(),
 })
 export type HostOrganization = z.infer<typeof hostOrganizationSchema>
 
@@ -701,6 +695,12 @@ export const hostOrganizationsResponseSchema = z.object({
   /** Null on a managed host: nobody's machine. */
   owner: hostOwnerIdentitySchema.nullable(),
   organizations: z.array(hostOrganizationSchema),
+  /**
+   * The webhooks of this host that an organization admin paused (docs/plans/webhooks.md §2.7).
+   * The receiver refuses them after verification, and Replay refuses them.
+   * Absent from an older control plane: nothing is paused.
+   */
+  pausedWebhookIds: z.array(z.string().min(1)).optional(),
 })
 export type HostOrganizationsResponse = z.infer<typeof hostOrganizationsResponseSchema>
 
@@ -865,9 +865,15 @@ export const hostLinkResponseSchema = z.object({
   generation: z.number().int().nonnegative(),
   desired: uplinkDesiredStateSchema,
   tunnel: hostTunnelSchema.nullable(),
-  /** The webhook forwarder secret of the current link (see `linkHostResponseSchema`); absent while not linked or from an older control plane. */
+  /**
+   * The webhook forwarder secret of the current link (see `linkHostResponseSchema`), only
+   * while linked. A managed host gets it only here: the control plane links it.
+   */
   forwarderSecret: z.string().min(1).optional(),
-  /** Whether the forwarder holds webhooks while this host is offline (docs/plans/webhooks.md §2.3). */
+  /**
+   * Whether the forwarder holds webhooks while this host is offline (docs/plans/webhooks.md §2.3);
+   * true when the host was never linked. Optional only for an older control plane, which has no forwarder.
+   */
   holdWebhooks: z.boolean().optional(),
 })
 export type HostLinkResponse = z.infer<typeof hostLinkResponseSchema>
@@ -891,15 +897,14 @@ export const linkHostResponseSchema = z.object({
    */
   connectorToken: z.string().min(1).optional(),
   /**
-   * The webhook forwarder secret (docs/plans/webhooks.md §2.5): random bytes,
-   * base64url. The forwarder signs `hostId.webhookId.deliveryId.receivedAt` with it
-   * (HMAC-SHA256, lowercase hex, header `x-solus-hook-proof`). A new link makes a new
-   * secret. The host keeps it in its secret store next to the connector token.
-   * Absent from a control plane without the forwarder: the host then shows no cloud URL.
+   * The webhook forwarder secret (docs/plans/webhooks.md §2.5): `hfs_` and 52 base32
+   * characters. The HMAC key is the UTF-8 bytes of the whole string. The forwarder signs
+   * `hostId.webhookId.deliveryId.receivedAt` with it (HMAC-SHA256, lowercase hex, header
+   * `x-solus-hook-proof`). A new link makes a new secret. The host keeps it in its secret
+   * store next to the connector token. Absent from a control plane without the
+   * forwarder: the host then shows no cloud URL.
    */
   forwarderSecret: z.string().min(1).optional(),
-  /** Whether the forwarder holds webhooks while this host is offline. Default on. */
-  holdWebhooks: z.boolean().optional(),
 })
 export type LinkHostResponse = z.infer<typeof linkHostResponseSchema>
 
@@ -912,26 +917,21 @@ export const hostWebhookHoldSchema = z.object({
 export type HostWebhookHold = z.infer<typeof hostWebhookHoldSchema>
 
 /**
- * `POST /v1/hosts/:id/hooks/drain` with the host's control token: deliver the held
- * requests of this host now, oldest first. The host asks when its tunnel registers a
- * connection and at server start. `reason` is for the logs only.
+ * `POST /v1/hosts/:id/hooks/drain` with the host's control token, body `{}`: deliver the
+ * held requests of this host now, oldest first. The host asks when its tunnel registers a
+ * connection and at server start. `503 {"error":"hook_inbox_unavailable"}` with
+ * `retry-after` means ask again.
  */
-export const hookDrainRequestSchema = z.object({
-  reason: z.enum(['tunnel_registered', 'server_start']),
-})
+export const hookDrainRequestSchema = z.object({})
 export type HookDrainRequest = z.infer<typeof hookDrainRequestSchema>
 
-/**
- * The drain answer: the requests the inbox dropped at a limit or deleted at 24 hours
- * since the last drain, one count for each webhook ID. The inbox resets the counts
- * when it answers. `held` is the number of requests still waiting when the drain started.
- */
+/** The requests the inbox lost for each webhook ID since the last drain (dropped at a limit, or deleted at 24 hours). */
+export const lostWebhookRequestsSchema = z.record(z.string().min(1), z.number().int().nonnegative())
+export type LostWebhookRequests = z.infer<typeof lostWebhookRequestsSchema>
+
+/** The drain answer. The inbox resets the counts when it answers; a host that is not linked gets `{ lost: {} }`. */
 export const hookDrainResponseSchema = z.object({
-  held: z.number().int().nonnegative(),
-  lost: z.array(z.object({
-    webhookId: z.string().min(1),
-    count: z.number().int().positive(),
-  })),
+  lost: lostWebhookRequestsSchema,
 })
 export type HookDrainResponse = z.infer<typeof hookDrainResponseSchema>
 
@@ -1051,6 +1051,10 @@ export const uplinkErrorCodeSchema = z.enum([
   'rate_limited',
   'tunnel_provisioning_failed',
   'tunnel_not_configured',
+  /** `PUT /v1/hosts/:id/link/hooks` for a host that is not linked (docs/plans/webhooks.md §2.3). */
+  'host_not_linked',
+  /** `POST /v1/hosts/:id/hooks/drain`: the inbox did not answer. The host asks again after `retry-after`. */
+  'hook_inbox_unavailable',
   'tunnel_account_limit',
   'managed_hosts_not_configured',
   'managed_host_limit',

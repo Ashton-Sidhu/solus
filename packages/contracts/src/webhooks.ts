@@ -23,6 +23,10 @@ export const WEBHOOK_RECEIVER_PREFIX = '/hooks/'
 /** The origin of the cloud forwarder: `https://hooks.solus.sh/<hostId>/<webhookId>/<token>`. */
 export const WEBHOOK_CLOUD_ORIGIN = 'https://hooks.solus.sh'
 
+/** The forwarder sends only IDs and tokens of these forms; the receiver refuses any other as unknown. */
+export const WEBHOOK_ID_PATTERN = /^[A-Za-z0-9._~-]{1,128}$/
+export const WEBHOOK_TOKEN_PATTERN = /^[A-Za-z0-9._~-]{1,256}$/
+
 export const WEBHOOK_MAX_BODY_BYTES = 1024 * 1024
 export const WEBHOOK_MAX_ACTIONS = 10
 export const WEBHOOK_MAX_FILTERS = 16

@@ -281,7 +281,7 @@ export function createWebhookService(deps: WebhookServiceDeps) {
     /** Adds the forwarder's lost counts from one drain (plan §2.3). */
     async recordLost(lost: { webhookId: string; count: number }[], at = Date.now()): Promise<void> {
       for (const entry of lost) {
-        if (await addLostRequests(entry.webhookId, entry.count, at)) {
+        if (entry.count > 0 && await addLostRequests(entry.webhookId, entry.count, at)) {
           log.info('webhook_requests_lost', { webhookId: entry.webhookId, count: entry.count })
           await this.announce(entry.webhookId)
         }

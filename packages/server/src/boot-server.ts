@@ -27,7 +27,7 @@ import { buildHttpServer } from './transport/http'
 import { answerSocketRequest } from './transport/solus-api/router'
 import { AccessTokenVerifier, type TokenVerdict } from './admission/access-tokens'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
-import { readStoredTunnel, splitLegacyLinkRecord, UplinkLinkManager } from './transport/uplink/link'
+import { readStoredTunnel, splitLegacyLinkRecord, UplinkLinkManager, type WebhookDrainReason } from './transport/uplink/link'
 import { HostRegistrar, readStoredRegistration } from './host/host-registration'
 import { createWebhookServices } from './execution/webhooks/webhook-runtime'
 import { createWebhookService } from './execution/webhooks/webhook-service'
@@ -52,7 +52,7 @@ import { adoptProvisionedRegistration, applyHostCategory, hostCategory, provisio
 import { getInsightsOptIn, hostUserSettings } from './host/settings'
 import { adoptHostUser, followHostAccount } from './host/host-user-rows'
 import { registerOrganizationHandlers } from './transport/handlers/organization-handlers'
-import { enrollHostCategorySchema, type EnrollHostCategory, type HookDrainRequest } from '@solus/contracts/uplink'
+import { enrollHostCategorySchema, type EnrollHostCategory } from '@solus/contracts/uplink'
 import { TranscriptMirror, listOwnInterruptedSessions } from './sync/mirror/transcript-mirror'
 import { applyApiMode, isApiMode, apiModeConfig } from './host/api-mode'
 import type { HostCredential } from './host/host-credential'
@@ -1193,7 +1193,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   // What `uplinkStatus` answers: the registration, and apart from it, the link.
   /** Set once the webhook services exist; an online link before then asks again through the next online. */
-  let drainWebhooks: (reason: HookDrainRequest['reason']) => void = () => {}
+  let drainWebhooks: (reason: WebhookDrainReason) => void = () => {}
   const uplinkStatus = () => ({ registration: registrar.status(), link: uplinkManager.status() })
   const broadcastUplinkStatus = () => { if (uplinkManager) events.broadcast('host.uplinkStatusChanged', uplinkStatus()) }
   const registrar = new HostRegistrar({
@@ -1401,8 +1401,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   // The host asks Solus cloud for its held webhook requests when its link comes online (plan §2.4).
   drainWebhooks = (reason) => {
-    void uplinkManager?.drainWebhooks(reason)
-      .then((answer) => answer && webhookService.recordLost(answer.lost))
+    void uplinkManager?.drainWebhooks()
+      .then(async (answer) => {
+        if (answer?.kind === 'retry') {
+          // The inbox did not answer: ask again after the time Solus cloud named.
+          setTimeout(() => drainWebhooks(reason), answer.afterMs).unref()
+          return
+        }
+        if (answer) await webhookService.recordLost(Object.entries(answer.lost).map(([webhookId, count]) => ({ webhookId, count })))
+        log.info('webhook_drain_asked', { reason, answered: answer !== null })
+      })
       .catch((err) => log.warn('webhook_drain_failed', { reason, error: err instanceof Error ? err.message : String(err) }))
   }
   const linkNow = uplinkManager?.status()
@@ -1410,7 +1418,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // An admin's pause or resume reaches clients when the host reads its organization facts (plan §2.7).
   let pausedWebhooks = new Set<string>()
   hostOrganizations.onChanged(() => {
-    const paused = new Set(hostOrganizations.organizations().flatMap((organization) => organization.pausedWebhookIds ?? []))
+    const paused = new Set(hostOrganizations.pausedWebhookIds())
     for (const id of new Set([...paused, ...pausedWebhooks])) if (paused.has(id) !== pausedWebhooks.has(id)) void webhookService.announce(id)
     pausedWebhooks = paused
   })

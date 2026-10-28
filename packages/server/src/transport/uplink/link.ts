@@ -13,7 +13,7 @@ import {
   type HostLinkStatus,
   type HostRegistration,
   type HookDrainRequest,
-  type HookDrainResponse,
+  type LostWebhookRequests,
   type HostTunnel,
   type LinkHostRequest,
   type UplinkLinkState,
@@ -88,8 +88,16 @@ export interface UplinkLinkDeps {
   /** A provisioned machine (managed-hosts.md §2): the link the control plane put in the environment; null on a machine a person links. */
   provisionedLink?: () => HostLinkEnv | null
   /** The link came online: the tunnel registered a connection, or a directly reached link started. The host asks for a webhook drain then. */
-  onOnline?: (reason: HookDrainRequest['reason']) => void
+  onOnline?: (reason: WebhookDrainReason) => void
 }
+
+/** What a drain request gave (docs/plans/webhooks.md §2.4). */
+export type WebhookDrainResult =
+  | { kind: 'drained'; lost: LostWebhookRequests }
+  | { kind: 'retry'; afterMs: number }
+
+/** Why the host asks for a drain; for its logs only. */
+export type WebhookDrainReason = 'server_start' | 'tunnel_registered'
 
 export class UplinkLinkError extends Error {
   constructor(readonly code: 'not-registered' | 'not-linked' | 'link-rejected' | 'control-plane-unreachable', message: string) {
@@ -146,7 +154,7 @@ export class UplinkLinkManager {
       throw new UplinkLinkError('link-rejected', linkRejectionMessage(response.status, detail.data?.error, detail.data?.message))
     }
     const linked = linkHostResponseSchema.parse(await response.json())
-    this.storeLink(registration.hostId, linked.tunnel, linked.connectorToken, linked.forwarderSecret, linked.holdWebhooks)
+    this.storeLink(registration.hostId, linked.tunnel, linked.connectorToken, linked.forwarderSecret)
     return this.status()
   }
 
@@ -155,8 +163,9 @@ export class UplinkLinkManager {
   /** The forwarder secret of the current link: it proves a forwarded delivery. Null while not linked or without the forwarder. */
   forwarderSecret(): Buffer | null {
     if (!this.currentTunnel()) return null
+    // The HMAC key is the UTF-8 bytes of the whole secret, `hfs_` included.
     const secret = this.loadTokens()?.forwarderSecret
-    return secret ? Buffer.from(secret, 'base64url') : null
+    return secret ? Buffer.from(secret, 'utf8') : null
   }
 
   /** Whether the forwarder holds requests while this host is offline; null while not linked. On by default. */
@@ -173,6 +182,7 @@ export class UplinkLinkManager {
       headers: { authorization: `Bearer ${await this.controlToken()}`, 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ holdWebhooks: hold }),
     })
+    if (response.status === 409) throw new UplinkLinkError('not-linked', 'Solus cloud says this host is not linked.')
     if (!response.ok) throw new UplinkLinkError('link-rejected', `Solus cloud refused the change (${response.status}).`)
     const answer = hostWebhookHoldSchema.parse(await response.json())
     this.setPersisted({ ...this.persisted, holdWebhooks: answer.holdWebhooks })
@@ -182,21 +192,26 @@ export class UplinkLinkManager {
 
   /**
    * Asks Solus cloud to deliver the requests it held while this host was offline
-   * (plan §2.4). Answers the lost counts, or null when the host is not linked or
-   * the control plane has no forwarder (an older one answers 404).
+   * (plan §2.4). Answers the lost counts; `retry` when the inbox did not answer
+   * (`503 hook_inbox_unavailable`, ask again after `retry-after`); null when the host is
+   * not linked or the control plane has no forwarder (an older one answers 404).
    */
-  async drainWebhooks(reason: HookDrainRequest['reason']): Promise<HookDrainResponse | null> {
+  async drainWebhooks(): Promise<WebhookDrainResult | null> {
     const registration = this.deps.registration()
     if (!registration || !this.currentTunnel()) return null
-    const body: HookDrainRequest = { reason }
+    const body: HookDrainRequest = {}
     const response = await this.request(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/hooks/drain`, {
       method: 'POST',
       headers: { authorization: `Bearer ${await this.controlToken()}`, 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify(body),
     })
     if (response.status === 404) return null
+    if (response.status === 503) {
+      const seconds = Number(response.headers.get('retry-after'))
+      return { kind: 'retry', afterMs: (Number.isFinite(seconds) && seconds > 0 ? seconds : 60) * 1000 }
+    }
     if (!response.ok) throw new UplinkLinkError('link-rejected', `Solus cloud refused the drain (${response.status}).`)
-    return hookDrainResponseSchema.parse(await response.json())
+    return { kind: 'drained', lost: hookDrainResponseSchema.parse(await response.json()).lost }
   }
 
   /** Turns the tunnel off: the connector stops and Solus cloud removes the tunnel. The registration stays. */

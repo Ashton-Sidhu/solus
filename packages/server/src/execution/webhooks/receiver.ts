@@ -2,6 +2,8 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import {
   WEBHOOK_DELIVERIES_PER_MINUTE,
   WEBHOOK_DELIVERY_ID_TTL_MS,
+  WEBHOOK_ID_PATTERN,
+  WEBHOOK_TOKEN_PATTERN,
   WEBHOOK_MAX_BODY_BYTES,
   WEBHOOK_REPLAY_KEY_TTL_MS,
   type WebhookAnswerOutcome,
@@ -133,6 +135,7 @@ export function createWebhookReceiver(deps: WebhookReceiverDeps) {
     if (!ALLOWED_METHODS.has(request.method)) return answer(405, 'method_not_allowed', { error: 'Use POST, PUT, or PATCH.' })
     if (request.body.length > WEBHOOK_MAX_BODY_BYTES) return answer(413, 'too_large', { error: 'The body is larger than 1 MiB.' })
 
+    if (!WEBHOOK_ID_PATTERN.test(request.webhookId) || !WEBHOOK_TOKEN_PATTERN.test(request.token)) return answer(404, 'not_found', { error: 'not found' })
     const webhook = await loadWebhook(request.webhookId)
     const stored = webhook ? readWebhookSecrets(webhook.id) : null
     if (!webhook || !stored || !tokenMatches(request.token, stored.token)) return answer(404, 'not_found', { error: 'not found' })

@@ -35,6 +35,8 @@ export interface HostStanding {
   category: HostCategory
   owner: HostOwnerIdentity | null
   organizations: HostOrganization[]
+  /** The webhooks of this host an organization admin paused (docs/plans/webhooks.md §2.7). */
+  pausedWebhookIds?: string[]
   /** When the control plane last answered (epoch ms). */
   refreshedAt: number
 }
@@ -90,7 +92,12 @@ export class HostOrganizations {
 
   /** An organization admin paused this webhook (docs/plans/webhooks.md §2.7). */
   isWebhookPausedByAdmin(webhookId: string): boolean {
-    return this.organizations().some((organization) => organization.pausedWebhookIds?.includes(webhookId) ?? false)
+    return this.pausedWebhookIds().includes(webhookId)
+  }
+
+  /** Every webhook of this host an organization admin paused; none before the first answer. */
+  pausedWebhookIds(): string[] {
+    return this.standing?.pausedWebhookIds ?? []
   }
 
   /** The organization lets an unverified webhook start its work (plan §3.7). Off by default. */
