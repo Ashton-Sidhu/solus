@@ -12,6 +12,12 @@
  *
  * Claude prefixes these with `mcp__solus__`; Codex passes them bare.
  */
+/**
+ * A `secretRef` from `request_secret` works once, only in the session that asked,
+ * for 15 minutes. Any tool with a `secretRef` field takes one in place of a secret.
+ */
+export const SECRET_REF_TTL_MS = 15 * 60 * 1000
+
 /** User-controlled tools, grouped by their function in Settings. */
 export const SOLUS_TOOL_GROUPS = [
   { id: 'intelligence', label: 'Intelligence', tools: [
@@ -58,7 +64,6 @@ export const SOLUS_TOOL_GROUPS = [
     'list_webhooks',
     'read_webhook_delivery',
     'dry_run_webhook',
-    'request_secret',
   ] },
   { id: 'connections', label: 'Connections', tools: [
     'connection_status',
@@ -101,6 +106,7 @@ export const SOLUS_TOOL_GROUPS = [
     'device_install',
   ] },
   { id: 'sessions', label: 'Sessions', tools: [
+    'request_secret',
     'list_agent_targets',
     'search_sessions',
     'read_session',

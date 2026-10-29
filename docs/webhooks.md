@@ -23,7 +23,7 @@ You manage webhooks in these places:
   settings. To edit a webhook, use desktop or web.
 - **An agent**: ask it. The agent tools are `create_webhook`,
   `update_webhook`, `delete_webhook`, `rotate_webhook`, `list_webhooks`,
-  `read_webhook_delivery`, `dry_run_webhook`, and `request_secret`. A change
+  `read_webhook_delivery`, and `dry_run_webhook`; for a secret they use the session tool `request_secret`. A change
   asks for your approval first.
 
 ## The URL

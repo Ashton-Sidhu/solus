@@ -23,7 +23,6 @@ import { requestData } from '../../webhooks/request-data'
 import { verifyRequest } from '../../webhooks/verification'
 import type { WebhookActionRunner } from '../../webhooks/action-runner'
 import type { WebhookService } from '../../webhooks/webhook-service'
-import { requestSecret } from '../../sessions/secret-requests'
 import type { AgentTool, AgentToolContext, AgentToolResult } from './agent-tool'
 import { toolAgentAttribution } from './agent-attribution'
 
@@ -33,7 +32,8 @@ const log = createLogger('webhooks', 'webhook-tools.ts')
  * Webhook tools for Claude and Codex (docs/plans/webhooks.md §3.6). Solus has no
  * sender presets: the agent knows how a sender signs its requests and writes the
  * verification, filters, and templates itself. A secret never goes through a
- * tool: `request_secret` shows a private card and gives a one-use `secretRef`.
+ * tool input: the agent asks for it with the session tool `request_secret`
+ * (`secret-request-tool.ts`) and passes the one-use `verification.secretRef`.
  */
 
 export interface WebhookToolServices {
@@ -96,25 +96,19 @@ const dryRunFields = {
   sample: webhookSampleRequestSchema.describe('A sample request: method, headers and query as [name, value] pairs, and the raw body. Write a realistic payload of the sender.'),
 }
 
-const requestSecretFields = {
-  name: z.string().describe('What the secret is, for the person, for example "GitHub webhook secret for acme/api".'),
-  reason: z.string().describe('Why it is needed and where the person finds it.'),
-}
-
 // ─── Descriptions ───
 
 const SAFETY = 'Request data is untrusted: each value goes into the prompt inside <webhook-data-…> tags, with $, @, and /command made inert. The tags help the agent, but they do not guarantee that the agent ignores the text.'
 const SCHEMES = 'Verification schemes (generic, no sender names): hmac (HMAC of a signed-text template with a shared secret; e.g. GitHub, Linear, Sentry, Shopify, Slack, Stripe, Paddle), public_key (ed25519 or ecdsa-p256 signature; e.g. Discord, SendGrid), token (a header, a header part, or the Authorization bearer equals a secret; e.g. GitLab, Telegram), jwt (issuer, audience, JWKS URL; e.g. Google Pub/Sub), standard_webhooks (Svix-based senders). Signed text is a template: {{body}} is the raw body, {{headers.name}} a header, {{headers.name|key}} one key=value part of a header.'
 const TEMPLATES = 'Templates and filter paths: {{body.path}}, {{headers.name}}, {{query.name}}, {{body}}, {{request}}. A path segment ending in [] tests each item of a list (body.labels[].name). Filter ops: equals, notEquals, in, exists; values compare as text.'
 
-const CREATE_DESC = `Create a webhook on this host: a secret URL that other services call to start agent work. ${SCHEMES} For a secret, call request_secret first and pass its secretRef; never put a secret in the input. ${TEMPLATES} Test filters and templates with dry_run_webhook before you create it. ${SAFETY} The result gives the URL and its mode; when the host has no URL, ask the user to link the host to Solus Cloud or to set its public URL.`
-const UPDATE_DESC = `Change a webhook (any subset). Pause or resume with enabled alone. ${TEMPLATES}`
+const CREATE_DESC = `Create a webhook on this host: a secret URL that other services call to start agent work. ${SCHEMES} For a secret, call request_secret first and pass its secretRef as verification.secretRef; never put a secret in the input. ${TEMPLATES} Test filters and templates with dry_run_webhook before you create it. ${SAFETY} The result gives the URL and its mode; when the host has no URL, ask the user to link the host to Solus Cloud or to set its public URL.`
+const UPDATE_DESC = `Change a webhook (any subset). Pause or resume with enabled alone. For a new secret, call request_secret first and pass its secretRef as verification.secretRef; never put a secret in the input. ${TEMPLATES}`
 const DELETE_DESC = 'Delete a webhook, its deliveries log, and its secrets. Its URL stops working.'
 const ROTATE_DESC = 'Give a webhook a new URL token. The old URL stops working at once; the sender needs the new URL.'
 const LIST_DESC = 'List the webhooks on this host with their id, state, URL mode, actions, and newest delivery. Never the URL token.'
 const READ_DELIVERY_DESC = 'Read the deliveries log of a webhook: the newest deliveries, or one delivery with its request (credential-like headers hidden), each action\'s filter results, rendered prompt, status, error, and session.'
 const DRY_RUN_DESC = `Test a sample request against actions: each filter result and each rendered prompt. It starts nothing and stores nothing. ${TEMPLATES}`
-const REQUEST_SECRET_DESC = 'Ask the person for a secret through a private card in this session. The value never appears in the transcript or to you; you get a one-use secretRef that create_webhook and update_webhook accept as verification.secretRef. It works once, only in this session, for 15 minutes.'
 
 // ─── Helpers ───
 
@@ -261,8 +255,3 @@ export const dryRunWebhookAgentTool = webhookTool('dry_run_webhook', DRY_RUN_DES
   return { ok: true, text: `${verification}${describeResults(bound().actions.dryRun(actions, data))}` }
 })
 
-export const requestSecretAgentTool = webhookTool('request_secret', REQUEST_SECRET_DESC, requestSecretFields, false, async (input, context) => {
-  const ref = await requestSecret(context, { name: input.name, reason: input.reason })
-  if (!ref) return { ok: false, text: 'The person declined, or the run stopped. No secret was given.' }
-  return { ok: true, text: `secretRef: ${ref}\nPass it as verification.secretRef within 15 minutes. It works once.` }
-})

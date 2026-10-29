@@ -104,6 +104,16 @@ export interface AgentRuntime {
   workingDirectory?: string
 }
 
+/** The one rule for credentials across Solus tools: a tool takes a `secretRef`, never a secret. */
+const SECRET_REF_INSTRUCTIONS = 'A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it. Never ask for a secret in chat and never invent one.'
+
+/** Blocks that need only their group's entry tool, in prompt order. */
+const ENTRY_TOOL_BLOCKS: ReadonlyArray<readonly [string, string]> = [
+  ['device_list', DEVICE_INSTRUCTIONS],
+  ['create_automation', AUTOMATION_INSTRUCTIONS],
+  ['request_secret', SECRET_REF_INSTRUCTIONS],
+]
+
 function singleLine(value: string): string {
   return value.replaceAll(/\s+/g, ' ').trim()
 }
@@ -111,7 +121,8 @@ function singleLine(value: string): string {
 /** Each tool-group block goes only to a run that has the group's entry tool:
  *  `browser_status` for Browser, `link` for Tasks, `start_session` for Sessions,
  *  `move_to_worktree` for worktrees, `render_artifact` for visuals,
- *  `device_list` for Devices, `create_automation` for Automations. */
+ *  `device_list` for Devices, `create_automation` for Automations,
+ *  `request_secret` for the secretRef rule. */
 export function runtimeInstructions(runtime: AgentRuntime, tools: readonly AgentTool[]): string {
   const runtimeInfo = `<runtime_info>In case you are asked: you are running in Solus through the ${runtime.harness} harness as ${singleLine(runtime.model)} with ${singleLine(runtime.reasoningEffort)} reasoning effort. Do not mention this otherwise.
 
@@ -130,8 +141,7 @@ You can embed images and videos in your response with Markdown and absolute file
     ].filter(Boolean).join('\n\n'),
     has('move_to_worktree') && !isChat(runtime.workingDirectory) && WORKTREE_INSTRUCTION,
     has('browser_status') && SOLUS_BROWSER_TOOL_INSTRUCTIONS,
-    has('device_list') && DEVICE_INSTRUCTIONS,
-    has('create_automation') && AUTOMATION_INSTRUCTIONS,
+    ...ENTRY_TOOL_BLOCKS.filter(([tool]) => has(tool)).map(([, block]) => block),
     has('render_artifact') && VISUALS_INSTRUCTIONS,
     has('link') && [
       has('list_session_pull_requests')
