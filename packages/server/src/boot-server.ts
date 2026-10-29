@@ -1393,7 +1393,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const webhookService = createWebhookService({
     ...webhookFacts,
     urls: {
-      hostId: webhookFacts.hostId,
+      // The Solus Cloud origin is the registration's directory URL, the one the uplink calls.
+      cloudHost: () => {
+        const registration = registrar.current()
+        return registration ? { hostId: registration.hostId, origin: registration.directoryUrl } : null
+      },
       cloudReady: () => webhookFacts.forwarderSecret() !== null,
       publicUrl: () => getServerSettings().webhookPublicUrl ?? null,
     },

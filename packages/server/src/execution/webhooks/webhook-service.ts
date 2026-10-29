@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
   SECRET_SCHEMES,
-  WEBHOOK_CLOUD_ORIGIN,
   WEBHOOK_RECEIVER_PREFIX,
   webhookCreateInputSchema,
   webhookUpdateInputSchema,
@@ -48,8 +47,11 @@ const log = createLogger('webhooks', 'webhook-service.ts')
 
 /** What decides a webhook's URL mode (plan §2.2). */
 export interface WebhookUrlFacts {
-  /** This host's ID in Solus Cloud; null while it is not registered. */
-  hostId(): string | null
+  /**
+   * This host's ID in Solus Cloud and the Solus Cloud origin it is registered with (the
+   * registration's `directoryUrl`, which the uplink also calls); null while it is not registered.
+   */
+  cloudHost(): { hostId: string; origin: string } | null
   /** The host is linked and the forwarder serves it: the link answer gave a forwarder secret (plan §2.5). */
   cloudReady(): boolean
   /** The host public URL, without a trailing slash; null when it is not set. */
@@ -74,10 +76,13 @@ export class WebhookInputError extends Error {}
 
 export function webhookUrl(webhookId: string, token: string, facts: WebhookUrlFacts): WebhookUrl {
   const path = `${WEBHOOK_RECEIVER_PREFIX}${webhookId}/${token}`
-  const hostId = facts.hostId()
+  const cloud = facts.cloudHost()
   // The Cloud URL keeps the token in the query: Cloudflare's logs record the path and redact the query.
   // The forwarder still sends the token to the receiver in the path.
-  if (facts.cloudReady() && hostId) return { mode: 'cloud', path, url: `${WEBHOOK_CLOUD_ORIGIN}/${hostId}/${webhookId}?t=${encodeURIComponent(token)}` }
+  if (facts.cloudReady() && cloud) {
+    const origin = cloud.origin.replace(/\/+$/, '')
+    return { mode: 'cloud', path, url: `${origin}${WEBHOOK_RECEIVER_PREFIX}${cloud.hostId}/${webhookId}?t=${encodeURIComponent(token)}` }
+  }
   const publicUrl = facts.publicUrl()
   if (publicUrl) return { mode: 'direct', path, url: `${publicUrl}${path}` }
   return { mode: 'none', path, url: null }
