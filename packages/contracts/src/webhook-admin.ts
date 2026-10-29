@@ -7,7 +7,7 @@ import { z } from 'zod'
  * Solus Cloud keeps the data and the rules and gives them to the record service as
  * the `webhookAdmin` port of `createSolusApiService` (`WebhookAdminPort`).
  *
- * `solus-cloud` (`src/lib/shared/webhook-admin.ts`) has the same shapes; change both.
+ * `solus-cloud` imports this file through `@solus/contracts/webhook-admin`; it keeps no copy.
  * There is no field for a token, a verification secret, a body, headers, or a
  * prompt. The schemas are not strict on purpose: a field this side does not know is
  * dropped.
@@ -35,8 +35,8 @@ export type WebhookAdminRecord = z.infer<typeof webhookAdminRecordSchema>
 
 /**
  * A summary of one delivery for the admin view: the time, the outcome, and the status
- * of each action. `solus-cloud` names it `WebhookDeliverySummary`; here that name is
- * the host's own log summary (`webhooks.ts`), so this one is `WebhookAdminDeliverySummary`.
+ * of each action. `WebhookDeliverySummary` is the host's own log summary (`webhooks.ts`),
+ * so this one is `WebhookAdminDeliverySummary`.
  */
 export const webhookAdminDeliverySummarySchema = z.object({
   webhookId: id,
