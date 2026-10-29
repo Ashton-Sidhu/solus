@@ -31,10 +31,10 @@
   const description = $derived.by(() => {
     if (!location) return "Update or restart this host to add a key.";
     if (location === "account") return accountConnectionText(typeSafeAccountStatus(source));
-    if (location === "none") return "Ask Jev needs your own TypeSafe key. A guest has none on this host.";
+    if (location === "none") return "Auto model selection needs your own TypeSafe key. A guest has none on this host.";
     if (source === "saved") return "A key is saved. Enter a new one to replace it.";
     if (source === "environment") return "Uses TYPESAFE_API_KEY. A saved key overrides it.";
-    return "Lets your agents on this host use Ask Jev.";
+    return "Enables Auto model selection on this host.";
   });
 
   $effect(() => {

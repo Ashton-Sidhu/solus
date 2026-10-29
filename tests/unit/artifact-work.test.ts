@@ -130,38 +130,22 @@ describe('render_artifact persists a work', () => {
     expect((await works.listWorks('local')).map((work) => work.id)).toContain(artifact.workId)
   })
 
-  test('an artifact is not filed on the task unless asked', async () => {
-    // WHY: a document written for a task belongs on it, but a render is
-    // often a glance — a chart the user wanted to see once. Filing every one
-    // on the ticket turned the task's Linked list into a gallery of throwaway
-    // renders. The reader links or pins from the rail; the agent passes
-    // link_to_task when the user asked for it on the task.
+  test('a saved artifact stays with its session without being filed on its task', async () => {
     const record = await taskStore.createTask('local', { title: 'Report latency' })
     const task = await tasks.Task.byId('local', record.id)
     await task.linkSession(SESSION_ID)
-
     const emitted: Array<{ workId: string }> = []
-    const unlinked = await artifactTools.executeArtifactTool(
+    const result = await artifactTools.executeArtifactTool(
       { html: HTML, title: 'Latency report' },
       {
         ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' },
         onArtifact: (artifact) => emitted.push(artifact),
       },
     )
-    expect(unlinked.text).toContain('not linked to a task')
+    expect(result.ok).toBe(true)
+    expect(result.text).toContain('associated with this session')
+    expect((await works.loadWork('local', emitted[0].workId))?.sessionIds).toContain(SESSION_ID)
     expect((await task.details()).links.map((link) => link.targetKey)).not.toContain(emitted[0].workId)
-
-    const linked = await artifactTools.executeArtifactTool(
-      { html: HTML, title: 'Latency report, kept', link_to_task: true },
-      {
-        ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' },
-        onArtifact: (artifact) => emitted.push(artifact),
-      },
-    )
-    expect(linked.text).toContain('linked to the session')
-    expect((await task.details()).links).toContainEqual(
-      expect.objectContaining({ kind: 'work', targetKey: emitted[1].workId, liveStatus: 'artifact' }),
-    )
   })
 
   test('empty html is refused before anything is written', async () => {

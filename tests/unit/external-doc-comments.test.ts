@@ -1,18 +1,12 @@
 import { afterEach, expect, mock, test } from 'bun:test'
 import type { DocRef } from '@solus/contracts/docs'
-import type { DocCommentsAdapter } from '@solus/server/docs/types'
-import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 
 mock.module('@solus/server/google/oauth', () => ({ getAccessToken: async () => 'fixture-token' }))
 const { GoogleDocComments } = await import('@solus/server/docs/gdrive/comments')
 const google = new GoogleDocComments()
 const ref: DocRef = { provider: 'gdrive', externalId: 'doc', externalKey: 'root', url: 'https://docs.google.com/document/d/doc/edit' }
-let comments: DocCommentsAdapter | undefined = google
-mock.module('@solus/server/docs/registry', () => ({ resolveDocUrl: () => ({ ref, adapter: { comments } }) }))
-const { readExternalDocCommentsAgentTool: read, writeExternalDocCommentAgentTool: write } = await import('@solus/server/docs/comment-tools')
-const context: AgentToolContext = { provider: 'codex', cwd: '/tmp', sessionId: () => undefined, abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {} }
 const originalFetch = globalThis.fetch
-afterEach(() => { globalThis.fetch = originalFetch; comments = google })
+afterEach(() => { globalThis.fetch = originalFetch })
 const modifiedAt = '2026-09-09T00:00:00Z'
 const thread = { id: 'thread', content: 'Review', author: { me: true, displayName: 'Owner' }, createdTime: modifiedAt, modifiedTime: modifiedAt, resolved: true, replies: [{ id: 'reply', content: 'Answer', author: { me: true }, createdTime: modifiedAt, modifiedTime: modifiedAt }] }
 
@@ -26,25 +20,7 @@ function respond(value = thread) {
   return calls
 }
 
-test('reads resolved threads and reply IDs with provider capabilities', async () => {
-  respond()
-  const result = await read.execute({ url: ref.url }, context)
-  expect(result.ok).toBe(true)
-  expect(result.text).toContain('"resolved":true')
-  expect(result.text).toContain('"id":"reply"')
-  expect(result.text).toContain('"edit"')
-})
 
-test('writes only the supplied message with agent attribution and quoted context', async () => {
-  const calls = respond()
-  const result = await write.execute({ url: ref.url, mutation: { action: 'create', text: 'Public answer', quote: 'Sentence' } }, context)
-  expect(result.ok).toBe(true)
-  expect(calls).toHaveLength(1)
-  expect(JSON.parse(calls[0].body!).content).toBe('Public answer\n\n— Sent by a Solus agent')
-  expect(JSON.parse(calls[0].body!).quotedFileContent).toEqual({ mimeType: 'text/plain', value: 'Sentence' })
-  expect(write.requiresApproval).toBe(true)
-  expect(read.requiresApproval).toBe(false)
-})
 
 test('published quote survives provider read-back and restores an exact Solus range', async () => {
   const { Schema } = await import('@tiptap/pm/model')
@@ -98,22 +74,7 @@ test('refuses stale edits and edits to other authors without sending a mutation'
   expect(calls).toHaveLength(1)
 })
 
-test('uncertain sends return an error without retry or read-back masking', async () => {
-  let calls = 0
-  globalThis.fetch = (async () => { calls++; throw new Error('lost response') }) as typeof fetch
-  const result = await write.execute({ url: ref.url, mutation: { action: 'create', text: 'Answer' } }, context)
-  expect(result.ok).toBe(false)
-  expect(result.text).toContain('before sending again')
-  expect(calls).toBe(1)
-})
 
-test('provider capability is generic and unsupported actions are refused before writes', async () => {
-  comments = { actions: [], limitations: [], list: async () => [], mutate: async () => { throw new Error('must not write') } }
-  expect((await read.execute({ url: ref.url }, context)).ok).toBe(true)
-  expect((await write.execute({ url: ref.url, mutation: { action: 'resolve', threadId: 'thread' } }, context)).text).toContain('does not support comment action')
-  comments = undefined
-  expect((await read.execute({ url: ref.url }, context)).text).toContain('does not support comments')
-})
 
 test('Google normalizes actions and quoted text at the adapter boundary', async () => {
   respond({ ...thread, quotedFileContent: { value: 'Review target', mimeType: 'text/plain' } } as typeof thread)

@@ -1,4 +1,5 @@
-import { linkCallerItem } from './session-link-tools'
+import { resolveHomePath } from '../../../platform/paths'
+import { taskSessions } from '../../../data/tasks/task-sessions'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
 import { taskRecord } from '@solus/contracts/solus-api/records'
 import { z } from 'zod'
@@ -7,26 +8,21 @@ import type { AgentTool } from './agent-tool'
 import { toolAgentAttribution } from './agent-attribution'
 import { resolveRepoRoot, resolveRepositoryKey } from '../../../git/git-helpers'
 import { Task } from '../../../data/tasks/task'
-import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
-import { linkSessionPullRequest, readSessionPullRequests, unlinkSessionPullRequest } from '../../../data/sessions/session-pull-requests'
-import { resolvePullRequestUrl } from '../../../providers/pull-request-url'
 import { applyOpToForeignTask, foreignTaskFor } from '../../../data/tasks/foreign-tasks'
 import { formatTaskEpic, formatTaskLink } from '../../../data/tasks/task-context'
 import { recordOutboxOp } from '../../../sync/outbox/outbox-store'
-import { readStoredRegistration } from '../../../host/host-registration'
-import type { WorkspaceLinkTarget } from '@solus/contracts/solus-api'
 import { ulid } from '@solus/contracts/ulid'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { sessionSettings } from '../../sessions/session-settings'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
-import type { TaskCommentOpPayload, TaskLinkOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
+import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
 import type {
+  TaskSessionLink,
   Task as TaskRecord,
   TaskCreateInput,
   TaskLink as TaskLinkRecord,
 } from '@solus/contracts/task-types'
 import type { AgentId } from '@solus/contracts/types'
-import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { attributionLabel } from '@solus/contracts/user'
 import { mentionsAsText } from '@solus/contracts/mentions'
 
@@ -45,7 +41,6 @@ const log = createLogger('main', 'task-tools.ts')
 const STATUS_VALUES = ['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped'] as const
 const LIST_STATUS_VALUES = [...STATUS_VALUES, 'all'] as const
 const PRIORITY_VALUES = ['urgent', 'high', 'medium', 'low'] as const
-const LINK_KIND_VALUES = ['work', 'plan', 'pr', 'automation', 'session', 'file'] as const
 
 // ─── Schemas ───
 
@@ -93,48 +88,16 @@ const commentTaskFields = {
     ),
 }
 
-const linkFields = {
-  path: z.string().optional().describe('For kind=file: a file path on the execution host, relative to the calling session’s working directory or absolute. Markdown plan files use kind=file.'),
-  task_id: z
-    .string()
-    .optional()
-    .describe('The id of the task to link to. Omit it to link a work, automation, PR, or file to the calling session. Required for kind=plan and kind=session.'),
-  kind: z
-    .enum(LINK_KIND_VALUES)
-    .describe("What is being linked: 'work' (a Solus doc, slides or diagram), 'plan', 'pr', 'automation', 'session' (a Solus agent session), or 'file' (including Markdown plan files)."),
-  target_id: z
-    .string()
-    .optional()
-    .describe("The target's id: a work id, an automation id, a plan tool-use id, a PR number, or a GitHub PR URL. For kind=session, omit it to link the calling session. Required for work, plan, PR, and automation; files use path."),
-  session_id: z
-    .string()
-    .optional()
-    .describe('For kind=plan only: the session the plan belongs to. Defaults to the calling session. A session being linked is named by target_id, not here.'),
-  role: z
-    .enum(['working', 'referenced'])
-    .optional()
-    .describe("For kind=session only: 'working' (the session doing the work, the default) or 'referenced'."),
-  title: z.string().optional().describe('Optional label; resolved from the target when omitted.'),
-}
-
-const listSessionPullRequestsFields = {}
-
-const unlinkPullRequestFields = {
-  target_id: z.string().min(1).describe('The pull request to remove from this session: its number in the project repository, or its URL.'),
-}
-
 const listTasksInputSchema = z.object(listTasksFields)
 const readTaskInputSchema = z.object(readTaskFields)
 const updateStatusInputSchema = z.object(updateStatusFields)
 const createTaskInputSchema = z.object(createTaskFields)
 const commentTaskInputSchema = z.object(commentTaskFields)
-const linkInputSchema = z.object(linkFields)
-const unlinkPullRequestInputSchema = z.object(unlinkPullRequestFields)
 
 // ─── Descriptions ───
 
 const READ_TASK_DESC =
-  "Read a local Solus task by id, including its description, its upstream epic, comments, and linked items (works, plans, PRs, automations) with the ids their read tools take."
+  "Read a local Solus task by id, including its description, upstream epic, comments, linked items, and linked session IDs. Use read_session with a session ID for its status, pending input and history."
 const UPDATE_DESC =
   "Move a local task to a lifecycle status. This does not write to an external tracker."
 const LIST_TASKS_DESC =
@@ -143,13 +106,6 @@ const CREATE_TASK_DESC =
   "Create a local Solus task in the calling project. This never creates an external ticket."
 const COMMENT_TASK_DESC =
   "Add a local comment to a Solus task for durable findings, status, or handoff notes."
-const LINK_DESC =
-  "Link a work, automation, pull request, or file to the calling session by omitting task_id. Markdown plan files use kind=file and path, relative to the calling session’s working directory or absolute on its host. Other items use target_id. Link each PR you create or work on immediately; Solus keeps its state current and settles the session when its PRs end. With task_id, existing task links for works, Solus plans, PRs, automations, and sessions retain their meaning. Repeated links are safe."
-const UNLINK_PULL_REQUEST_DESC =
-  "Remove a pull request from the calling session's links. Use it when a linked pull request is not this session's work, such as one Solus found by mistake. Solus does not link it again on its own; link it again to undo. Removing a pull request that is not linked is safe."
-const LIST_SESSION_PULL_REQUESTS_DESC =
-  "List the pull requests linked to this session, with the state that Solus last saw for each. Before you finish pull request work, call this and link each pull request from your work that is missing."
-
 // ─── Executor (one implementation behind every agent backend's tool surface) ───
 
 export interface TaskToolCtx {
@@ -175,18 +131,13 @@ interface TaskToolArgs {
   body?: unknown
   due_date?: unknown
   inbox?: unknown
-  kind?: unknown
   labels?: unknown
   priority?: unknown
-  role?: unknown
   cursor?: unknown
   scope?: unknown
-  session_id?: unknown
   status?: unknown
-  target_id?: unknown
   task_id?: unknown
   title?: unknown
-  path?: unknown
 }
 
 async function executeTaskTool(
@@ -234,7 +185,7 @@ async function executeTaskTool(
         const { operations, context, remote } = await toolContext()
         const task = await operations.getTask(context, id)
         // The organization's task: its fields from the Solus API. Comments and links stay on the task page.
-        if (remote) return { ok: true, text: `${formatTaskForAgent(taskRecord(task))}\n\n(Comments and linked items of an organization task are on its task page in Solus.)` }
+        if (remote) return { ok: true, text: `${formatTaskForAgent(taskRecord(task), [], [], task.sessions ?? [])}\n\n(Comments and linked items of an organization task are on its task page in Solus.)` }
       }
       const details = foreign ? foreign.details : await (await Task.byId(scope, id)).details()
       const task = details.task
@@ -244,7 +195,7 @@ async function executeTaskTool(
           author: comment.author ? attributionLabel(comment.author) : comment.externalAuthor ?? 'unknown',
           // A mention reads as `@Name`, as read_work shows it (plan 004 item 13).
           body: mentionsAsText(comment.body),
-        })), details.links),
+        })), details.links, foreign?.sessions ?? (await taskSessions(scope, id))[id] ?? []),
       }
     }
 
@@ -334,195 +285,10 @@ async function executeTaskTool(
       return { ok: true, text: `Comment added to task ${id}.` }
     }
 
-    if (name === 'link') {
-      const input = linkInputSchema.parse(args)
-      const taskId = input.task_id?.trim() ?? ''
-      const kind = input.kind
-      // A pull request with no task is the calling session's own link, which
-      // the task the session works on reads (docs/plans/session-pull-requests.md).
-      if (!taskId) {
-        if (kind === 'pr') return await linkCallerPullRequest(deps.ctx, toolContext, projectKey, input)
-        if (kind === 'work' || kind === 'automation' || kind === 'file') return await linkCallerItem(deps.ctx, { ...input, kind })
-        return { ok: false, text: `link requires a task_id for kind=${kind}. Use kind=file and path for a project plan file.` }
-      }
-      if (kind === 'file') return { ok: false, text: 'File links belong to sessions. Omit task_id.' }
-      if (foreignTaskFor(deps.ctx.sessionId, taskId)) {
-        return { ok: false, text: foreignWriteUnsupported('link', taskId) }
-      }
-
-      // A session is not a linked *item*: it owns a role on the task/session
-      // map rather than a row in the task's Linked list, and it is the one kind
-      // whose target defaults to the caller.
-      if (kind === 'session') {
-        const sessionId = input.target_id?.trim() || deps.ctx.sessionId
-        if (!sessionId) return { ok: false, text: 'link with kind=session requires target_id when no calling session id is available.' }
-        const { operations, context, remote } = await toolContext()
-        if (remote) {
-          await operations.putLink(context, { from: { kind: 'task', id: taskId }, to: { kind: 'session', id: sessionId }, role: input.role ?? 'working' })
-          return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
-        }
-        await (await Task.byId(scope, taskId)).linkSession(sessionId, input.role ?? 'working')
-        return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
-      }
-
-      let targetKey = input.target_id?.trim() ?? ''
-      if (!targetKey) return { ok: false, text: `link requires a target_id for kind=${kind}.` }
-
-      // Only plans and PRs need a qualifier: a plan is identified by the session
-      // it belongs to, and a PR number is only unique within a repo.
-      let targetScope = ''
-      const externalPr = kind === 'pr' ? parseGitHubPullRequestUrl(targetKey) : null
-      if (kind === 'plan') {
-        targetScope = input.session_id?.trim()
-          ? input.session_id.trim()
-          : deps.ctx.sessionId ?? ''
-        if (!targetScope) return { ok: false, text: 'link requires session_id for kind=plan.' }
-      } else if (kind === 'pr') {
-        targetScope = externalPr
-          ? `${externalPr.baseRepo.host}/${externalPr.baseRepo.owner}/${externalPr.baseRepo.repo}`
-          : projectKey ?? ''
-        if (externalPr) targetKey = String(externalPr.number)
-      }
-
-      const link: TaskLinkOpPayload = {
-        kind,
-        targetScope,
-        targetKey,
-        title: input.title ?? (externalPr
-          ? `#${externalPr.number} ${externalPr.baseRepo.owner}/${externalPr.baseRepo.repo}`
-          : undefined),
-        url: externalPr?.url,
-        originSessionId: deps.ctx.sessionId ?? null,
-        actor: await toolAgentAttribution(deps.ctx),
-      }
-      // A pull request named by number gets its URL here, on the machine that
-      // has the repository: a session link is made from the URL.
-      const prNumber = Number(targetKey)
-      if (kind === 'pr' && !link.url && deps.ctx.sessionId && projectKey && Number.isSafeInteger(prNumber) && prNumber > 0) {
-        link.url = await resolvePullRequestUrl(projectKey, prNumber).catch(() => undefined)
-      }
-      const { operations, context, remote } = await toolContext()
-      if (remote) {
-        const to = organizationLinkTarget(link)
-        if (!to) return { ok: false, text: `link could not find the URL of pull request ${targetKey}. Pass its URL as target_id.` }
-        await operations.putLink(context, { from: { kind: 'task', id: taskId }, to, title: link.title, originSessionId: deps.ctx.sessionId })
-        return { ok: true, text: `Linked ${kind} ${targetKey} to task ${taskId}.` }
-      }
-
-      const { actor, ...linkInput } = link
-      const by = actor ?? await toolAgentAttribution(deps.ctx)
-      const task = await Task.byId(scope, taskId)
-      // A pull request of a session that works on the task is the session's
-      // link, which the task reads (docs/plans/session-pull-requests.md).
-      const callerSessionId = deps.ctx.sessionId
-      if (kind === 'pr' && callerSessionId && link.url
-        && await task.linkWorkingSessionPullRequest(callerSessionId, { url: link.url, title: input.title }, by)) {
-        return { ok: true, text: `Linked ${kind} ${targetKey} to task ${taskId}.` }
-      }
-      await task.link(linkInput, by)
-      return { ok: true, text: `Linked ${kind} ${targetKey} to task ${taskId}.` }
-    }
-
-    if (name === 'list_session_pull_requests') return await listCallerPullRequests(deps.ctx)
-    if (name === 'unlink_pull_request') {
-      return await unlinkCallerPullRequest(deps.ctx, toolContext, projectKey, unlinkPullRequestInputSchema.parse(args))
-    }
-
     return { ok: false, text: `Unknown task tool: ${name}` }
   } catch (err: unknown) {
     log.error('task_tool_failed', { tool: name, error: err instanceof Error ? err.message : String(err) })
     return { ok: false, text: `Task tool error: ${err instanceof Error ? err.message : String(err)}` }
-  }
-}
-
-/** The pull request an agent names by number or URL, or null when the
- *  project's code host has none by that name. */
-export async function namedPullRequest(projectKey: string, named: string): Promise<{ repository: string; number: number; url: string } | null> {
-  const trimmed = named.trim()
-  const number = Number(trimmed.replace(/^#/, ''))
-  const url = parseGitHubPullRequestUrl(trimmed)?.url
-    ?? (Number.isSafeInteger(number) && number > 0 ? await resolvePullRequestUrl(projectKey, number) : null)
-  return url ? pullRequestIdentityOf(url) : null
-}
-
-/**
- * Link a pull request to the calling session. The machine that runs the
- * session always holds the link, because its PR sync watches the pull request.
- * For an organization session on an attached machine the organization's Solus
- * API holds the session too, so the same link is written there, as the person.
- */
-export async function linkCallerPullRequest(
-  ctx: TaskToolCtx,
-  toolContext: () => ReturnType<typeof workspaceToolContext>,
-  projectKey: string,
-  input: { target_id?: string; title?: string },
-): Promise<TaskToolResult> {
-  // Durable rows of a session are keyed by Solus's session id.
-  const callerSessionId = ctx.sessionId
-  if (!callerSessionId) return { ok: false, text: 'link with kind=pr and no task_id needs a calling session, and this session has no id yet.' }
-  const named = input.target_id?.trim() ?? ''
-  const identity = await namedPullRequest(projectKey, named)
-  if (!identity) return { ok: false, text: `link could not find pull request "${named}". Pass its number or URL as target_id.` }
-  const sessionId = callerSessionId
-  const actor = await toolAgentAttribution(ctx)
-  await linkSessionPullRequest(sessionId, { url: identity.url, title: input.title, source: 'agent', by: actor })
-  const { operations, context, remote } = await toolContext()
-  if (remote) await operations.putLink(context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url }, title: input.title })
-  return { ok: true, text: `Linked pull request #${identity.number} (${identity.repository}) to this session.` }
-}
-
-/**
- * Remove a pull request from the calling session. The row stays as a
- * tombstone, so PR sync does not link it again. For an organization session
- * the Solus API holds the session too, so the link is removed there as well.
- */
-export async function unlinkCallerPullRequest(
-  ctx: TaskToolCtx,
-  toolContext: () => ReturnType<typeof workspaceToolContext>,
-  projectKey: string,
-  input: { target_id: string },
-): Promise<TaskToolResult> {
-  const sessionId = ctx.sessionId
-  if (!sessionId) return { ok: false, text: 'unlink_pull_request needs a calling session, and this session has no id yet.' }
-  const named = input.target_id.trim()
-  const identity = await namedPullRequest(projectKey, named)
-  if (!identity) return { ok: false, text: `unlink_pull_request could not find pull request "${named}". Pass its number or URL as target_id.` }
-  const removed = await unlinkSessionPullRequest(sessionId, identity.repository, identity.number)
-  const { operations, context, remote } = await toolContext()
-  if (remote) await operations.deleteLink(context, { from: { kind: 'session', id: sessionId }, to: { kind: 'pr', url: identity.url } })
-  return removed || remote
-    ? { ok: true, text: `Removed pull request #${identity.number} (${identity.repository}) from this session.` }
-    : { ok: true, text: `Pull request #${identity.number} (${identity.repository}) was not linked to this session.` }
-}
-
-/** The pull requests linked to the calling session, as the rail shows them. */
-async function listCallerPullRequests(ctx: TaskToolCtx): Promise<TaskToolResult> {
-  const callerSessionId = ctx.sessionId
-  if (!callerSessionId) return { ok: false, text: 'list_session_pull_requests needs a calling session, and this session has no id yet.' }
-  const links = (await readSessionPullRequests(ANY_ORGANIZATION, [callerSessionId]))[callerSessionId] ?? []
-  if (!links.length) return { ok: true, text: 'No pull requests are linked to this session.' }
-  const lines = links.map((link) => {
-    const state = link.missing ? 'missing' : link.snapshot ? (link.snapshot.draft && link.snapshot.state === 'open' ? 'draft' : link.snapshot.state) : 'not yet synced'
-    const title = link.snapshot?.title || link.title
-    return `- #${link.number} ${link.repository} [${state}]${title ? ` "${title}"` : ''} — ${link.url} (linked by ${link.source})`
-  })
-  return { ok: true, text: `Pull requests linked to this session:\n${lines.join('\n')}` }
-}
-
-/** The honest answer for a foreign-task write the outbox does not carry: the
- *  task exists, but on another host this one cannot reach. */
-function foreignWriteUnsupported(operation: string, taskId: string): string {
-  return `Task ${taskId} lives on another host (this session was dispatched), and ${operation} is not supported from here. Use comment_task or update_task_status — those sync back — or note it in your final message.`
-}
-
-/** What a task link names on the organization's Solus API; null for a pull request whose URL is unknown. */
-function organizationLinkTarget(link: TaskLinkOpPayload): WorkspaceLinkTarget | null {
-  switch (link.kind) {
-    case 'work': return { kind: 'work', id: link.targetKey }
-    case 'plan': return { kind: 'plan', sessionId: link.targetScope, planId: link.targetKey }
-    case 'pr': return link.url ? { kind: 'pr', url: link.url } : null
-    // The API keeps no automation: it is this host's.
-    case 'automation': return { kind: 'automation', id: link.targetKey, hostId: readStoredRegistration()?.hostId }
   }
 }
 
@@ -535,6 +301,7 @@ function formatTaskForAgent(
   task: TaskRecord,
   comments: Array<{ author: string; body: string }> = [],
   links: TaskLinkRecord[] = [],
+  sessions: Pick<TaskSessionLink, 'sessionId' | 'sessionTitle' | 'role'>[] = [],
 ): string {
   const lines = [
     `Task ${task.id} — "${task.title}"`,
@@ -547,6 +314,10 @@ function formatTaskForAgent(
   if (links.length) {
     lines.push('', 'Linked:')
     for (const link of links) lines.push(`- ${formatTaskLink(link)}`)
+  }
+  if (sessions.length) {
+    lines.push('', 'Sessions (read_session with session_id):')
+    for (const session of sessions) lines.push(`- ${session.sessionId} [${session.role ?? 'working'}]${session.sessionTitle ? ` — ${JSON.stringify(session.sessionTitle)}` : ''}`)
   }
   lines.push('', task.body.trim() || '(no description)')
   if (comments.length) {
@@ -568,7 +339,7 @@ function taskAgentTool(
     inputFields,
     requiresApproval,
     execute: async (args, context) => executeTaskTool(name, args, {
-      ctx: { cwd: context.cwd, sessionId: context.sessionId(), agentProvider: context.provider },
+      ctx: { cwd: resolveHomePath(context.cwd), sessionId: context.sessionId(), agentProvider: context.provider },
       onTaskCreated: (task) => context.emit({
         type: 'task_created',
         taskId: task.taskId,
@@ -584,6 +355,3 @@ export const readTaskAgentTool = taskAgentTool('read_task', READ_TASK_DESC, read
 export const updateTaskStatusAgentTool = taskAgentTool('update_task_status', UPDATE_DESC, updateStatusFields, true)
 export const createTaskAgentTool = taskAgentTool('create_task', CREATE_TASK_DESC, createTaskFields, true)
 export const commentTaskAgentTool = taskAgentTool('comment_task', COMMENT_TASK_DESC, commentTaskFields, true)
-export const linkAgentTool = taskAgentTool('link', LINK_DESC, linkFields, true)
-export const listSessionPullRequestsAgentTool = taskAgentTool('list_session_pull_requests', LIST_SESSION_PULL_REQUESTS_DESC, listSessionPullRequestsFields, false)
-export const unlinkPullRequestAgentTool = taskAgentTool('unlink_pull_request', UNLINK_PULL_REQUEST_DESC, unlinkPullRequestFields, true)

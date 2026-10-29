@@ -392,7 +392,7 @@ kinds of credential, and each kind has one rule:
 TypeSafe is a `typesafe` ref with the same location rule. `TYPESAFE_API_KEY`
 from the launching shell is a machine credential, like `gh`: it counts only at
 the `host` location, never for a signed-in person. Reads use the acting scope's
-`personKey`, so `ask_jev` and Auto routing in a run use the run's person.
+`personKey`, so Auto routing in a run uses the run's person.
 
 Open item, not changed here: the host store is plaintext JSON (mode 0600) on a
 standalone server. Only the desktop app encrypts it (Electron safe storage).

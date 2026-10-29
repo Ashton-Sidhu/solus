@@ -35,7 +35,7 @@
   {#if chips.hiddenCount > 0}
     <button
       type="button"
-      class="inline-flex h-5 shrink-0 cursor-pointer items-center rounded-full border-0 bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] px-2 text-transcript-meta leading-none font-medium tabular-nums text-muted-foreground transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_10%,transparent)] hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:h-7"
+      class="inline-flex h-5 shrink-0 cursor-pointer items-center rounded-full border-0 bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] px-2 text-[0.6875rem] leading-[1.35] font-medium tabular-nums text-muted-foreground transition-colors hover:bg-[color-mix(in_oklch,var(--foreground)_10%,transparent)] hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:h-7"
       aria-label="Show all {items.length} linked items"
       title="Show all {items.length}"
       onclick={onOpenAll}

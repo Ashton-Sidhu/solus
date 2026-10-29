@@ -289,12 +289,8 @@ describe('runner delivery', () => {
 
       const commented = await taskTools.commentTaskAgentTool.execute({ task_id: 'task-org', body: 'note' }, inOrganizationSession())
       expect(commented).toEqual({ ok: true, text: 'Comment added to task task-org.' })
-      expect((await taskTools.linkAgentTool.execute({ task_id: 'task-org', kind: 'session' }, inOrganizationSession())).ok).toBe(true)
-      expect((await taskTools.linkAgentTool.execute({ task_id: 'task-org', kind: 'work', target_id: 'work-1', title: 'Spec' }, inOrganizationSession())).ok).toBe(true)
       expect(calls).toEqual([
         ['createTaskComment', { taskId: 'task-org', body: 'note', originSessionId: 'solus-org' }],
-        ['putLink', { from: { kind: 'task', id: 'task-org' }, to: { kind: 'session', id: 'solus-org' }, role: 'working' }],
-        ['putLink', { from: { kind: 'task', id: 'task-org' }, to: { kind: 'work', id: 'work-1' }, title: 'Spec', originSessionId: 'solus-org' }],
       ])
       await tick()
       expect(queue.deliveryDestinations()).toEqual([])

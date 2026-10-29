@@ -9,6 +9,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
+import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -142,6 +143,19 @@ function AgentArtifactChips(props: { readonly hostId: string; readonly sessionId
 }
 
 /**
+ * The chips' frame. The space around the chips opens the session, as the row
+ * above does, so the whole card is one target; a chip opens its item. Hidden
+ * from accessibility: the row above is the control that opens the session.
+ */
+function ChipsFrame(props: { readonly className: string; readonly onOpenSession: () => void; readonly children: ReactNode }) {
+  return (
+    <Pressable accessible={false} importantForAccessibility="no" onPress={props.onOpenSession} className={cn(props.className, "active:bg-subtle")}>
+      {props.children}
+    </Pressable>
+  );
+}
+
+/**
  * The list of the thread whose feed shows the agents. Its screen reads and
  * follows it (`ThreadRouteScreen`); this only reads the shared feed, so every
  * agent group of the thread costs no read of its own.
@@ -162,24 +176,25 @@ export function AgentRowArtifacts(props: {
   readonly callerArtifacts: SessionArtifacts | null;
   readonly sessionId: string;
   readonly className: string;
+  readonly onOpenSession: () => void;
 }) {
   if (!props.callerArtifacts) return null;
   const items = sessionArtifactItems(props.callerArtifacts, props.callerSessionId, props.sessionId);
-  if (items === null) return <OwnAgentArtifacts hostId={props.hostId} sessionId={props.sessionId} className={props.className} />;
+  if (items === null) return <OwnAgentArtifacts hostId={props.hostId} sessionId={props.sessionId} className={props.className} onOpenSession={props.onOpenSession} />;
   return items.length > 0 ? (
-    <View className={props.className}>
+    <ChipsFrame className={props.className} onOpenSession={props.onOpenSession}>
       <AgentArtifactChips hostId={props.hostId} sessionId={props.sessionId} items={items} />
-    </View>
+    </ChipsFrame>
   ) : null;
 }
 
-function OwnAgentArtifacts(props: { readonly hostId: string; readonly sessionId: string; readonly className: string }) {
+function OwnAgentArtifacts(props: { readonly hostId: string; readonly sessionId: string; readonly className: string; readonly onOpenSession: () => void }) {
   const { snapshot } = useSessionArtifacts(props.hostId, props.sessionId, false);
   if (snapshot.state.kind !== "ready" || snapshot.state.artifacts.own.length === 0) return null;
   return (
-    <View className={props.className}>
+    <ChipsFrame className={props.className} onOpenSession={props.onOpenSession}>
       <AgentArtifactChips hostId={props.hostId} sessionId={props.sessionId} items={snapshot.state.artifacts.own} />
-    </View>
+    </ChipsFrame>
   );
 }
 

@@ -269,7 +269,8 @@ export function ThreadAgentGroup(props: {
                   callerSessionId={callerSessionId}
                   callerArtifacts={callerArtifacts}
                   sessionId={row.sessionId}
-                  className="-mt-1.5 pb-3 pl-8 pr-3"
+                  className="-mt-1.5 rounded-lg pb-3 pl-8 pr-3"
+                  onOpenSession={() => row.sessionId && open(row.sessionId)}
                 />
               ) : null}
             </View>
@@ -333,6 +334,7 @@ function ThreadAgentsSheetContent(props: { readonly store: ConversationStore; re
                 callerArtifacts={callerArtifacts}
                 sessionId={row.sessionId}
                 className="-mt-2 pb-3.5 pl-5"
+                onOpenSession={() => row.sessionId && open(row.sessionId)}
               />
             ) : null}
           </View>

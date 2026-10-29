@@ -100,15 +100,15 @@ export function effectiveFilter(filter: ArtifactFilter, chips: readonly Artifact
  * The sections the list shows, newest first inside each. A session that started
  * no other session groups its rows by kind. A lead shows its own rows as "This
  * session", then one section per session it started, titled by that session's
- * name. A section with no rows under the filter is left out.
+ * name. A section with no rows under the filter and the search is left out.
  */
-export function artifactSections(artifacts: SessionArtifacts, filter: ArtifactFilter): ArtifactSection[] {
+export function artifactSections(artifacts: SessionArtifacts, filter: ArtifactFilter, query = ''): ArtifactSection[] {
   if (artifacts.children.length === 0) {
     return KIND_ORDER.filter((kind) => filter === 'all' || filter === kind)
       .map((kind) => ({
         key: `kind:${kind}`,
         title: SECTION_TITLES[kind],
-        items: newestFirst(artifacts.own.filter((artifact) => artifact.kind === kind)),
+        items: newestFirst(artifacts.own.filter((artifact) => artifact.kind === kind && artifactMatchesQuery(artifact, query))),
       }))
       .filter((section) => section.items.length > 0)
   }
@@ -162,13 +162,28 @@ export function pullRequestState(link: SessionPullRequestLink): PullRequestArtif
   return snapshot.state
 }
 
-/** What the card says the artifact is: "Pull request", a work's type, "File". */
+/** What the artifact is: "Pull request", a work's type, "File". */
 export function artifactKindLabel(artifact: SessionArtifact): string {
   return artifact.kind === 'work' ? WORK_TYPE_LABELS[artifact.workType] : KIND_LABELS[artifact.kind]
 }
 
+const PULL_REQUEST_STATE_LABELS = {
+  open: 'Open pull request',
+  draft: 'Draft pull request',
+  merged: 'Merged pull request',
+  closed: 'Closed pull request',
+  missing: 'Pull request not found',
+} satisfies { [State in PullRequestArtifactState]: string }
+
+/** What the row's icon stands for, said in words for its tooltip and screen readers. */
+export function artifactIconLabel(artifact: SessionArtifact): string {
+  if (artifact.kind !== 'pull-request') return artifactKindLabel(artifact)
+  const state = pullRequestState(artifact.link)
+  return state ? PULL_REQUEST_STATE_LABELS[state] : KIND_LABELS['pull-request']
+}
+
 /**
- * The card's second line: where a pull request lives, the folder a file or
+ * The row's muted line after the title: where a pull request lives, the folder a file or
  * image is in. A work or an automation is named by its title alone.
  */
 export function artifactDetail(artifact: SessionArtifact): string | null {

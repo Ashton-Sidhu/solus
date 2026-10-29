@@ -53,7 +53,7 @@ async function storedLinks(sessionId: string) {
 test('the existing link tool stores a project plan as a host file and resolves equivalent relative paths once', async () => {
   const path = join(directory, 'plan.md')
   writeFileSync(path, '# Project plan')
-  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/task-tools')
+  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
   expect((await linkAgentTool.execute({ kind: 'file', path: 'plan.md' }, tools)).ok).toBe(true)
   expect((await linkAgentTool.execute({ kind: 'file', path: './plan.md' }, tools)).ok).toBe(true)
   const links = (await storedLinks('session-1')).filter(link => link.target.kind === 'file')
@@ -64,7 +64,7 @@ test('the existing link tool stores a project plan as a host file and resolves e
 
 test('works use their existing session membership; a repeated link changes nothing', async () => {
   const work = await operations.createWork(context, { title: 'Linked work', type: 'doc', content: 'Retained' }, 'session-links-work-1')
-  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/task-tools')
+  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
   expect((await linkAgentTool.execute({ kind: 'work', target_id: work.id }, tools)).ok).toBe(true)
   const first = await operations.getWork(context, work.id)
   expect(first.sessionIds).toEqual(['session-1'])
@@ -79,7 +79,7 @@ test('works use their existing session membership; a repeated link changes nothi
 test('automation links retain their host and do not enable or run the automation', async () => {
   const { createAutomation, loadAutomation } = await import('@solus/server/data/automations/automations-store')
   const automation = await createAutomation('Linked schedule', { prompt: 'Check later', cwd: directory, agentProvider: 'codex', modelId: null, reasoningEffort: 'medium' }, actor, false)
-  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/task-tools')
+  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
   expect((await linkAgentTool.execute({ kind: 'automation', target_id: automation.id }, tools)).ok).toBe(true)
   expect((await linkAgentTool.execute({ kind: 'automation', target_id: automation.id }, tools)).ok).toBe(true)
   const links = (await storedLinks('session-1')).filter(link => link.target.kind === 'automation')
@@ -89,7 +89,7 @@ test('automation links retain their host and do not enable or run the automation
 })
 
 test('invalid files and task destinations do not write references', async () => {
-  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/task-tools')
+  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
   const before = await storedLinks('session-1')
   expect((await linkAgentTool.execute({ kind: 'file', path: directory }, tools)).ok).toBe(false)
   expect((await linkAgentTool.execute({ kind: 'file', path: 'missing.md' }, tools)).ok).toBe(false)
@@ -99,7 +99,7 @@ test('invalid files and task destinations do not write references', async () => 
 
 test('a caller cannot link items to a session it cannot edit', async () => {
   const { withWorkspaceToolAuthority } = await import('@solus/server/admission/workspace-tool-authority')
-  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/task-tools')
+  const { linkAgentTool } = await import('@solus/server/execution/agents/tools/session-link-tools')
   const principal = { kind: 'org-member' as const, userId: 'bob', organizationId: 'organization-A', organizationRole: 'member' as const, teamIds: [], hostKind: 'personal' as const, displayName: 'Bob', deviceId: 'bob-device', deviceLabel: 'Test', expiresAt: Date.now() + 300000 }
   const result = await withWorkspaceToolAuthority(principal, () => linkAgentTool.execute({ kind: 'file', path: 'plan.md' }, tools))
   expect(result.ok).toBe(false)

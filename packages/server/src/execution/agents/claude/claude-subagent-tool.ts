@@ -79,11 +79,9 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher, seatF
         cwd: resolveHomePath(context.cwd),
         tools: [
           ...Object.values(solusToolbox.works),
-          ...Object.values(solusToolbox.docs),
           ...Object.values(solusToolbox.artifact),
           ...Object.values(solusToolbox.connections),
           ...Object.values(solusToolbox.insights),
-          ...Object.values(solusToolbox.intelligence),
           ...Object.values(solusToolbox.browser),
           ...Object.values(solusToolbox.devices),
           ...Object.values(solusToolbox.sessions),

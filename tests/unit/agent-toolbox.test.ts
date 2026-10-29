@@ -11,6 +11,12 @@ beforeAll(async () => {
 })
 
 describe('Solus toolbox', () => {
+  test('does not offer the retired Jev tool', () => {
+    const names = Object.values(solusToolbox).flatMap((group) => Object.values(group)).map((tool) => tool.name)
+    expect(names).not.toContain('ask_jev')
+    expect(SOLUS_AGENT_TOOL_NAMES).not.toContain('ask_jev')
+  })
+
   test('every toolbox name is one the clients know', () => {
     // WHY: a client decides from the name alone whether a tool call is Solus's
     // own — which card to draw, which label to print. The renderer used to keep
@@ -41,7 +47,6 @@ describe('Solus toolbox', () => {
     expect(solusToolbox.works.update.requiresApproval).toBe(true)
     expect(solusToolbox.tasks.list.requiresApproval).toBe(false)
     expect(solusToolbox.insights.query.requiresApproval).toBe(false)
-    expect(solusToolbox.intelligence.askJev.requiresApproval).toBe(false)
     expect(solusToolbox.tasks.create.requiresApproval).toBe(true)
     expect(solusToolbox.sessions.send.requiresApproval).toBe(false)
     expect(solusToolbox.sessions.stop.requiresApproval).toBe(false)
@@ -50,11 +55,12 @@ describe('Solus toolbox', () => {
     expect(solusToolbox.config.update.requiresApproval).toBe(true)
   })
 
-  test('addresses provider documents by URL so their site scope is preserved', () => {
-    // WHY: a Confluence page id is only unique inside one cloud site. An id-only
-    // tool call cannot safely resolve the document it names.
-    expect(Object.keys(solusToolbox.docs.read.inputFields)).toEqual(['url'])
-    expect(Object.keys(solusToolbox.docs.update.inputFields)).toEqual(['url', 'content', 'title'])
+  test('works owns publish and pull without an external document tool group', () => {
+    expect(Object.keys(solusToolbox)).not.toContain('docs')
+    expect(solusToolbox.works.publish.name).toBe('publish_work')
+    expect(solusToolbox.works.pullUpstream.name).toBe('pull_work_upstream')
+    expect(Object.keys(solusToolbox.works.pullUpstream.inputFields)).toEqual(['work_id', 'url'])
+    expect(SOLUS_AGENT_TOOL_NAMES.some(name => name.includes('external_doc'))).toBe(false)
   })
 
   test('requires an explicit automation worktree choice', () => {

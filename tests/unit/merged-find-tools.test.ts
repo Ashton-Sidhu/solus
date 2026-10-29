@@ -7,20 +7,12 @@ import { join } from 'node:path'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
-/**
- * One name per question.
- *
- * `list_works`/`search_works` were two tools for one question — find the
- * thing — and the model picks a tool by name before it can read either
- * description. `link_task_session` was `link_task`
- * with one more kind, and linking a pull request to a session is `link` with no
- * task. These tests pin that the merged tools still answer both
- * ways, because a merge that quietly drops the listing half is the failure this
- * change could actually cause.
- */
+/** Work discovery composes with reads; links belong to the calling session.
+ * Task reads name prior sessions without introducing a second session reader. */
 
 let workTools: typeof import('@solus/server/execution/agents/tools/work-tools')
 let taskTools: typeof import('@solus/server/execution/agents/tools/task-tools')
+let linkTools: typeof import('@solus/server/execution/agents/tools/session-link-tools')
 let works: typeof import('@solus/server/data/works/works')
 let createTask: typeof import('@solus/server/data/tasks/task-store')['createTask']
 let TaskModule: typeof import('@solus/server/data/tasks/task')
@@ -44,6 +36,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   workTools = await import('@solus/server/execution/agents/tools/work-tools')
   taskTools = await import('@solus/server/execution/agents/tools/task-tools')
+  linkTools = await import('@solus/server/execution/agents/tools/session-link-tools')
   works = await import('@solus/server/data/works/works')
   ;({ createTask } = await import('@solus/server/data/tasks/task-store'))
   TaskModule = await import('@solus/server/data/tasks/task')
@@ -106,48 +99,28 @@ describe('search_sessions only searches', () => {
   })
 })
 
-describe('link carries the session kind', () => {
-  test('kind=session with no target links the calling session', async () => {
-    const task = await createTask('local', { title: 'Bind me', projectKey: '/p', body: '' })
-
-    const linked = await taskTools.linkAgentTool.execute(
+describe('session-only links', () => {
+  test('rejects task destinations and task session membership', async () => {
+    const task = await createTask('local', { title: 'No implicit task links', projectKey: '/p', body: '' })
+    for (const args of [
+      { task_id: task.id, kind: 'work', target_id: 'work-1' },
       { task_id: task.id, kind: 'session' },
-      toolContext('calling-session-id'),
-    )
-
-    expect(linked.ok).toBe(true)
-    expect(linked.text).toContain('calling-session-id')
+      { kind: 'plan', target_id: 'plan-1' },
+    ]) {
+      const { executeAgentTool } = await import('@solus/server/execution/agents/tools/agent-tool')
+      const result = await executeAgentTool(linkTools.linkAgentTool, args, toolContext('calling-session-id'))
+      expect(result.ok).toBe(false)
+      expect(result.text).toContain('Invalid arguments for link')
+    }
   })
 
-  test('a session is named by target_id — session_id belongs to plans', async () => {
-    // WHY: session_id survives on this tool for kind=plan, where it names the
-    // plan's owning session. Reading it for kind=session too would keep the old
-    // link_task_session call shape alive as a second way to say the same thing.
-    const task = await createTask('local', { title: 'One way to name it', projectKey: '/p', body: '' })
-
-    const linked = await taskTools.linkAgentTool.execute(
-      { task_id: task.id, kind: 'session', session_id: 'not-the-target' },
-      toolContext('calling-session-id'),
-    )
-
-    expect(linked.ok).toBe(true)
-    expect(linked.text).toContain('calling-session-id')
-    expect(linked.text).not.toContain('not-the-target')
-  })
-
-  test('every other kind still demands its target', async () => {
-    // WHY: making target_id optional for the session default must not make it
-    // optional for a work or a PR, where there is nothing to fall back to.
-    const task = await createTask('local', { title: 'Needs a target', projectKey: '/p', body: '' })
-
-    const linked = await taskTools.linkAgentTool.execute(
-      { task_id: task.id, kind: 'work' },
-      toolContext('calling-session-id'),
-    )
-
-    expect(linked.ok).toBe(false)
-    expect(linked.text).toContain('target_id')
-    expect((await TaskModule.Task.byId('local', task.id)).links ?? []).toHaveLength(0)
+  test('read_task lists session IDs for read_session', async () => {
+    const task = await createTask('local', { title: 'Read prior attempts', projectKey: '/p', body: '' })
+    await (await TaskModule.Task.byId('local', task.id)).linkSession('prior-attempt')
+    const read = await taskTools.readTaskAgentTool.execute({ task_id: task.id }, toolContext('calling-session-id'))
+    expect(read.ok).toBe(true)
+    expect(read.text).toContain('prior-attempt [working]')
+    expect(read.text).toContain('read_session with session_id')
   })
 })
 
@@ -158,7 +131,7 @@ describe('link with no task', () => {
     // the same question.
     const sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
 
-    const linked = await taskTools.linkAgentTool.execute(
+    const linked = await linkTools.linkAgentTool.execute(
       { kind: 'pr', target_id: 'https://github.com/acme/solus/pull/7' },
       toolContext('calling-session-id'),
     )
@@ -168,14 +141,7 @@ describe('link with no task', () => {
     expect(links).toEqual([expect.objectContaining({ number: 7, repository: 'github.com/acme/solus', source: 'agent' })])
   })
 
-  test('every other kind needs a task', async () => {
-    const linked = await taskTools.linkAgentTool.execute(
-      { kind: 'work', target_id: 'work-1' },
-      toolContext('calling-session-id'),
-    )
 
-    expect(linked).toEqual({ ok: false, text: 'link requires a task_id for kind=work.' })
-  })
 })
 
 describe('list_session_pull_requests', () => {
@@ -183,16 +149,16 @@ describe('list_session_pull_requests', () => {
   // list before it finishes, so it must show exactly this session's links —
   // another session's pull request here would hide the one that is missing.
   test('lists the calling session\'s links and no other session\'s', async () => {
-    await taskTools.linkAgentTool.execute(
+    await linkTools.linkAgentTool.execute(
       { kind: 'pr', target_id: 'https://github.com/acme/solus/pull/7' },
       toolContext('calling-session-id'),
     )
-    await taskTools.linkAgentTool.execute(
+    await linkTools.linkAgentTool.execute(
       { kind: 'pr', target_id: 'https://github.com/acme/solus/pull/8' },
       toolContext('other-session-id'),
     )
 
-    const listed = await taskTools.listSessionPullRequestsAgentTool.execute({}, toolContext('calling-session-id'))
+    const listed = await linkTools.listSessionPullRequestsAgentTool.execute({}, toolContext('calling-session-id'))
 
     expect(listed.ok).toBe(true)
     expect(listed.text).toContain('#7 github.com/acme/solus [not yet synced]')
@@ -201,7 +167,7 @@ describe('list_session_pull_requests', () => {
   })
 
   test('says so when the session has no links', async () => {
-    const listed = await taskTools.listSessionPullRequestsAgentTool.execute({}, toolContext('unlinked-session-id'))
+    const listed = await linkTools.listSessionPullRequestsAgentTool.execute({}, toolContext('unlinked-session-id'))
 
     expect(listed).toEqual({ ok: true, text: 'No pull requests are linked to this session.' })
   })
@@ -213,20 +179,20 @@ describe('unlink_pull_request', () => {
   // not bring it back.
   test("removes the pull request from the calling session's links only", async () => {
     const url = 'https://github.com/acme/solus/pull/9'
-    await taskTools.linkAgentTool.execute({ kind: 'pr', target_id: url }, toolContext('unlinking-session-id'))
-    await taskTools.linkAgentTool.execute({ kind: 'pr', target_id: url }, toolContext('keeping-session-id'))
+    await linkTools.linkAgentTool.execute({ kind: 'pr', target_id: url }, toolContext('unlinking-session-id'))
+    await linkTools.linkAgentTool.execute({ kind: 'pr', target_id: url }, toolContext('keeping-session-id'))
 
-    const removed = await taskTools.unlinkPullRequestAgentTool.execute({ target_id: url }, toolContext('unlinking-session-id'))
+    const removed = await linkTools.unlinkPullRequestAgentTool.execute({ target_id: url }, toolContext('unlinking-session-id'))
 
     expect(removed).toEqual({ ok: true, text: 'Removed pull request #9 (github.com/acme/solus) from this session.' })
-    const listed = await taskTools.listSessionPullRequestsAgentTool.execute({}, toolContext('unlinking-session-id'))
+    const listed = await linkTools.listSessionPullRequestsAgentTool.execute({}, toolContext('unlinking-session-id'))
     expect(listed.text).toBe('No pull requests are linked to this session.')
-    const kept = await taskTools.listSessionPullRequestsAgentTool.execute({}, toolContext('keeping-session-id'))
+    const kept = await linkTools.listSessionPullRequestsAgentTool.execute({}, toolContext('keeping-session-id'))
     expect(kept.text).toContain('#9')
   })
 
   test('says so when the pull request was not linked', async () => {
-    const removed = await taskTools.unlinkPullRequestAgentTool.execute(
+    const removed = await linkTools.unlinkPullRequestAgentTool.execute(
       { target_id: 'https://github.com/acme/solus/pull/10' },
       toolContext('never-linked-session-id'),
     )

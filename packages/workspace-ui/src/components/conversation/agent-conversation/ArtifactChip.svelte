@@ -33,8 +33,10 @@
   }
   let { tone, label, note = null, pullRequestState = null, workType, title, onclick }: Props = $props();
 
-  // Works keep the WorkspaceCard hues apart from files: teal is written, purple
-  // drawn. Amber and sage are left out; they mean "needs you" and "done".
+  // Works take the WorkspaceCard hues: teal is written, purple drawn. Amber and
+  // sage are left out; they mean "needs you" and "done". The ink mixes in oklab,
+  // as `.solus-token` does: in oklch the hue turns on its way to the warm
+  // foreground, so purple reads as magenta and teal as green.
   const HUE = {
     "pull-request": "var(--muted-foreground)",
     written: "var(--solus-art-4)",
@@ -74,10 +76,10 @@
 
 <button
   type="button"
-  class="inline-flex h-5 max-w-[min(12rem,100%)] min-w-0 cursor-pointer overflow-hidden items-center gap-1 rounded-full border-0 pr-2 pl-1.5 text-transcript-meta leading-none font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:h-7 {tone ===
+  class="inline-flex h-5 max-w-[min(12rem,100%)] min-w-0 cursor-pointer overflow-hidden items-center gap-1 rounded-full border-0 pr-2 pl-1.5 text-[0.6875rem] leading-[1.35] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border-medium) pointer-coarse:h-7 {tone ===
   'pull-request'
     ? 'bg-background text-(--solus-text-primary) shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_16%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_4%,var(--background))]'
-    : 'bg-[color-mix(in_oklch,var(--chip-hue)_14%,transparent)] text-[color-mix(in_oklch,var(--chip-hue)_72%,var(--foreground))] hover:bg-[color-mix(in_oklch,var(--chip-hue)_22%,transparent)]'}"
+    : 'bg-[color-mix(in_oklab,var(--chip-hue)_14%,transparent)] text-[color-mix(in_oklab,var(--chip-hue)_72%,var(--foreground))] hover:bg-[color-mix(in_oklab,var(--chip-hue)_22%,transparent)]'}"
   style:--chip-hue={HUE[tone]}
   title={title ?? label}
   {onclick}

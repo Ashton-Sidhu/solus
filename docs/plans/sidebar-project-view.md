@@ -68,7 +68,14 @@ the last prompt the person sent).
    to: `PrChip` shows the leading pull request, a muted "+n", and a menu of
    the pull requests then the started sessions (selecting one opens it). The
    linked task has no chip on the row and is not in that menu: the tooltip
-   names it, and the task page is reached from the row's context menu; → unfolds and
+   names it, and the task page is reached from the row's context menu. The
+   chips only count. What the started sessions are doing is said by the
+   row's trailing slot: when the row has no mark of its own, it stacks the
+   children's marks (`nestedStateMarks`), each distinct state once, glyphs
+   that want the person first, then the unread ring, then the spinner. The
+   row's own mark wins the slot. Nothing pulses. The row's own
+   section is decided by its own turn alone (`sidebarSectionOf`), so a parent
+   never moves to Working for its sessions; → unfolds and
    ← folds by key, before ← climbs. The drawer follows the conversation on
    screen (`SessionSidebarStore.isNestedOpen`): open under the row on its path,
    closed under every other row. The caret and the keys set an override for one

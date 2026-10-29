@@ -7,11 +7,13 @@
   import ArtifactView from "./ArtifactView.svelte";
   import ArtifactCommentLayer from "./ArtifactCommentLayer.svelte";
   import * as Select from "../ui/select";
-  import { Download as DownloadIcon, RotateCw as ReloadIcon, MessageSquare as CommentsIcon, MessageSquarePlus as PinIcon } from "@lucide/svelte";
+  import { ArrowUp as ArrowUpIcon, Download as DownloadIcon, RotateCw as ReloadIcon, MessageSquare as CommentsIcon, MessageSquarePlus as PinIcon } from "@lucide/svelte";
+  import { Button } from "../ui/button";
   import { downloadPayload } from "../work/lib/work-export";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import { ARTIFACT_WIDTH_OPTIONS, artifactWidthFor } from "./lib/artifact-viewport";
-  import { getSurfaceContext, presenceStore, sharesStore } from "../../contexts";
+  import { openThreadsPrompt } from "../work/lib/work-review";
+  import { getClientShellContext, getSurfaceContext, presenceStore, sharesStore } from "../../contexts";
   import { setCommentViewer, workCommentViewer } from "../comments/lib/comment-viewer";
   import { openThreads } from "../comments/lib/thread";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
@@ -111,7 +113,8 @@
   const openCommentCount = $derived(openThreads(comments).length);
   // A viewer on the share list reads the threads; the host would refuse a
   // comment anyway, so the pin tool is not offered.
-  const commentsReadOnly = $derived(!!serverId && sharesStore.listFor(serverId, shareResource)?.callerRole === "viewer");
+  const callerRole = $derived(serverId ? sharesStore.listFor(serverId, shareResource)?.callerRole : undefined);
+  const commentsReadOnly = $derived(callerRole === "viewer");
 
   let pinArmed = $state(false);
   let draftPin = $state<CommentPin | null>(null);
@@ -153,6 +156,30 @@
     if (pinArmed) draftPin = null;
   });
   useKeybinding("artifact.dismiss", dismissCommentOverlay, { enabled: () => hasCommentOverlay });
+
+  // Hand the open threads to the work's own session, as the Review popover's
+  // "Send open comments to agent" does (docs/plans/work-review-and-live-editing.md).
+  // The threads stay open: the agent answers and resolves each one. Only an
+  // owner or editor sends, because the agent changes the work.
+  const shell = getClientShellContext();
+  const canSendComments = $derived(
+    !!session.workspace && shell.canOpenResource("chat") && (callerRole === undefined || callerRole === "owner" || callerRole === "editor") && openCommentCount > 0,
+  );
+  // Guards a second send while the first one opens its chat.
+  let sendingComments = $state(false);
+  async function sendCommentsToAgent() {
+    const workspace = session.workspace;
+    const prompt = openThreadsPrompt(title, workId, comments);
+    if (sendingComments || !workspace || !canSendComments || !prompt) return;
+    sendingComments = true;
+    commentListOpen = false;
+    try {
+      await workspace.sendMessageToWorkSession(workId, prompt);
+    } finally {
+      sendingComments = false;
+    }
+  }
+  useKeybinding("artifact.send-comments", () => void sendCommentsToAgent(), { enabled: () => canSendComments });
 </script>
 
 <div
@@ -253,6 +280,19 @@
         <span class="text-workspace-chrome tabular-nums">{openCommentCount}</span>
       </button>
     {/if}
+    {#if canSendComments}
+      <Button
+        size="sm"
+        class="h-[1.625rem] shrink-0 gap-1 rounded-full px-2.5 text-workspace-chrome pointer-coarse:h-10"
+        title={`Send the open comments to an agent (${comboHint("artifact.send-comments")})`}
+        disabled={sendingComments}
+        data-testid="artifact-shell-send-comments"
+        onclick={sendCommentsToAgent}
+      >
+        <ArrowUpIcon size={14} strokeWidth={2} />
+        Send {openCommentCount} to agent
+      </Button>
+    {/if}
     <Select.Root type="single" value={widthChoice} onValueChange={(next) => (widthChoice = next)}>
       <Select.Trigger
         aria-label="Render width"
@@ -315,6 +355,8 @@
         bind:openThreadId
         bind:listOpen={commentListOpen}
         now={threadClockNow}
+        onSendToAgent={canSendComments ? sendCommentsToAgent : null}
+        sending={sendingComments}
         onAdd={addPinnedComment}
         onEdit={(commentId, text) => void session.worksStore.editAnnotationComment(workId, commentId, text)}
         onDelete={(commentId) => void session.worksStore.deleteAnnotationComment(workId, commentId)}

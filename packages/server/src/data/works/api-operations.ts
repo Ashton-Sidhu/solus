@@ -138,7 +138,7 @@ export class WorkApiOperations {
         workPreview(input.type, input.content), input.originSessionId ?? undefined, session?.provider ?? input.agentProvider ?? 'claude-code', projectKey ?? '~', input.id, requestAttribution(context),
         ownerKeyOf(actorFor(context.principal)) ?? undefined))
       await this.shares.shareWithOrganization({ kind: 'work', id: work.id }, context.principal)
-      if (context.actingAgent?.linkWorkToTask !== false) await linkWorkToSessionTasks(apiScope(context), work)
+      if (work.type !== 'artifact' && context.actingAgent?.linkWorkToTask !== false) await linkWorkToSessionTasks(apiScope(context), work)
       return (await this.records(context, [work]))[0]
     }, async workId => {
       await requireResource(this.shares, context, { kind: 'work', id: workId }, 'edit')

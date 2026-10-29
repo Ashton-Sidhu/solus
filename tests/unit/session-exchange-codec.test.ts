@@ -81,7 +81,7 @@ describe('session report v2', () => {
       { kind: 'work', workId: `w${index}`, title: 'T'.repeat(ORCHESTRATION_LIMITS.title + 50), workType: 'doc' }
     ))
     const text = formatSessionReport({ ...report, outputs: many })
-    expect(text).toContain('- +5 more; call read_task_sessions')
+    expect(text).toContain('- +5 more; call read_task then read_session')
     const [item] = parseOrchestrationItems(text)!
     const outputs = item!.type === 'report' ? item!.report.outputs : []
     expect(outputs).toHaveLength(ORCHESTRATION_LIMITS.outputs)

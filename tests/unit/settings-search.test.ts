@@ -17,7 +17,7 @@ describe('settings search', () => {
   })
 
   test('a Solus tool name finds the Tools page', () => {
-    expect(dataMatches('tools', 'ask jev', {})).toBe(true)
+    expect(dataMatches('tools', 'query insights', {})).toBe(true)
     expect(dataMatches('tools', 'zzz-no-such-tool', {})).toBe(false)
   })
 

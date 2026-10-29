@@ -121,6 +121,12 @@ export function getServerSettings(): ServerSettings {
   return _settings
 }
 
+const RETIRED_TOOL_NAMES = new Set([
+  'ask_jev', 'read_task_sessions', 'search_external_doc', 'read_external_doc',
+  'read_external_doc_comments', 'write_external_doc_comment', 'create_external_doc',
+  'update_external_doc', 'import_external_doc',
+])
+
 /**
  * The stored config, read one key at a time. This file is local to the host, so
  * a key that no longer validates falls back to its default and a key this host
@@ -132,7 +138,12 @@ function storedHostConfig(stored: z.infer<typeof persistedServerSettingsSchema>[
   const patch: HostConfigPatch = {}
   const dropped: string[] = []
   for (const [key, value] of Object.entries(stored)) {
-    const parsed = isHostConfigKey(key) ? HOST_CONFIG_FIELDS[key].patch.safeParse(value) : null
+    // Retiring tools must not reset the person's other tool switches.
+    const storedTools = key === 'solusTools' ? z.record(z.string(), z.boolean()).safeParse(value) : null
+    const currentValue = storedTools?.success
+      ? Object.fromEntries(Object.entries(storedTools.data).filter(([name]) => !RETIRED_TOOL_NAMES.has(name)))
+      : value
+    const parsed = isHostConfigKey(key) ? HOST_CONFIG_FIELDS[key].patch.safeParse(currentValue) : null
     if (parsed?.success) Object.assign(patch, { [key]: parsed.data })
     else dropped.push(key)
   }

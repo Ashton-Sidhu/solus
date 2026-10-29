@@ -93,6 +93,14 @@ describe('reviewer rows', () => {
     expect(prompt).not.toContain('c2')
     expect(openThreadsPrompt('Spec', 'w1', [comment('c2', 5)])).toBeNull()
   })
+
+  test('a pin on an artifact tells the agent where on the render it points, by the number the reader sees', () => {
+    // An artifact has no text to quote: without the pin's place, "Pin 2" means nothing to the agent.
+    const pinned: PlanComment = { id: 'p2', selectedText: 'Pin 2', comment: 'Use the accent colour', pin: { x: 0.5, y: 0.25 }, createdAt: 1 }
+    const prompt = openThreadsPrompt('Pricing hero', 'w1', [pinned])!
+    expect(prompt).toContain('At 50% across, 25% down the render ("Pin 2")')
+    expect(prompt).toContain('update_work')
+  })
 })
 
 describe('the gallery', () => {

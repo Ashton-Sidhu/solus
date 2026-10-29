@@ -15,7 +15,6 @@ import { Task } from '../../../data/tasks/task'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import type { Exchange } from '../../orchestration/exchange'
 import { MAX_WAIT_MS, type RemoteTarget, type SendOrder, type SpawnedSession, type SpawnOrder } from '../../orchestration/session-orchestrator'
-import { formatTaskSessions } from '../../orchestration/task-view'
 import type { ReachRequest, RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
 import { agentTargetFromMetadata } from '../agent-targets'
 import { hostDisplayName } from '../../../platform/host-display-name'
@@ -118,37 +117,6 @@ export interface SessionToolDeps {
   ctx?: SessionToolCtx
 }
 
-interface SessionToolArgs {
-  after?: unknown
-  after_position?: unknown
-  agent_provider?: unknown
-  before?: unknown
-  cwd?: unknown
-  delivery?: unknown
-  item_id?: unknown
-  limit?: unknown
-  max_chars_per_item?: unknown
-  message?: unknown
-  model_id?: unknown
-  project?: unknown
-  prompt?: unknown
-  query?: unknown
-  reasoning_effort?: unknown
-  report?: unknown
-  request_id?: unknown
-  exchange_id?: unknown
-  host?: unknown
-  reply_offset?: unknown
-  role?: unknown
-  session_id?: unknown
-  task?: unknown
-  task_id?: unknown
-  text_offset?: unknown
-  view?: unknown
-  wait_seconds?: unknown
-  worktree_base_branch?: unknown
-}
-
 // ─── Schema ───
 
 const REPORT_FIELD = z
@@ -229,10 +197,6 @@ const listAgentTargetsFields = {
   host: HOST_FIELD.describe('Optional. List what another of your hosts offers, by its id or name, with its projects to use as start_session cwd. Omit for this host, which also lists the other hosts you can start sessions on.'),
 }
 
-const readTaskSessionsFields = {
-  task_id: z.string().optional().describe('The task to show. Defaults to the task this session works on.'),
-}
-
 // T3 Code's thread read bounds; a larger value reads the bound.
 const MAX_READ_ITEMS = 100
 const MAX_ITEM_CHARS = 50_000
@@ -283,7 +247,7 @@ const START_SESSION_DESC = [
   "Start a separate durable Solus session for work that needs its own conversation, worktree, another host, or independent continuation. Use task='none' outside task mode; a session linked to a task follows its Working On Task packet. Native and wrapper subagents need no task fields. With wait_seconds=0, return an accepted exchange before provider startup finishes. The session ID names the card from the start; use read_session_exchange to read startup state. Startup failures return through the same report path.",
   "How orchestration works: with `report` on, the session's outcome comes back to this conversation on its own — a [session notice] as soon as it waits on the user or is rate limited, and a [session report] when its turn ends, with its last message and references to what it produced. Do not poll for it; end your turn and you are woken. Use `wait_seconds` only when you cannot continue without the answer.",
   "Only the user answers a session's questions, plans and permissions, from the cards in this conversation or in that session's tab. When a notice says a session waits on the user, tell the user what it asks. A rate-limited session resumes on its own at the reset; you can wait, stop it, or start the work on another provider.",
-  "A report names what the session produced by id, not by content: read a plan with read_plan, a work with read_work, the transcript with read_session; link any of them to a task with link; show one to the user by putting its link in your reply. read_task_sessions shows every session in your task and what each produced.",
+  "A report names what the session produced by id, not by content: read a plan with read_plan, a work with read_work, the transcript with read_session; link a work or file to this session with link; show one to the user by putting its link in your reply. read_task lists the sessions linked to a task; read_session reads their status and history.",
   "Give each session everything it needs in `prompt`: it does not see this conversation.",
   "Prefer async work: keep wait_seconds=0 and report=true, end your turn, and let the report wake you. A request stays open while its nested reported work or completion follow-up is pending. read_session_exchange reads the stored state and result by exchange id when needed mid-turn; do not poll in a loop.",
   "Use the built-in subagent tool for supported work on the current provider, including a different model when its schema permits it. Use an available provider wrapper subagent for temporary work on the other provider. A different model or provider alone does not require a separate session. Use send_session to continue an existing Solus session; each new request and review round has its own exchange. Include the full brief, prior findings, responses, and unresolved issues for each review round.",
@@ -298,8 +262,6 @@ const READ_SESSION_DESC =
   "Read any Solus session by id: its status, task, pending input, and timeline. `messages` (default): user and assistant messages and plans. `activity`: every item, with tool calls and their output. Reads from the start; page with `after_position=nextPosition`. Keep reads small: low `limit` and `max_chars_per_item`. Cut-off text: `item_id` with `text_offset=nextTextOffset`. To find a passage, use search_sessions and read its item id. A session not on this host is looked up on your other hosts, then on your organizations' Solus APIs. In your reply, name it as its `link` verbatim."
 const SEND_SESSION_DESC =
   "Send a message to another Solus session. `delivery` 'queue' (default) runs it after the session's current turn; 'steer' changes the turn in progress now, and falls back to queue if that turn cannot take it. With `report` on, the outcome comes back like start_session's. Cannot target your own session."
-const READ_TASK_SESSIONS_DESC =
-  "Show everything that happened in a task: every session working on it, whoever started it — its status, what it waits on the user for, its last message, and references to what it produced (plans, works, sessions it started). Read it to catch up after a restart or before deciding what to do next; read one session in full with read_session."
 const STOP_SESSION_DESC =
   "Stop another running Solus session and clear its queued prompts. Cannot target your own session."
 
@@ -441,9 +403,9 @@ export interface SessionToolResult {
   text: string
 }
 
-export async function executeSessionTool(
+export async function executeSessionTool<Input>(
   name: string,
-  args: SessionToolArgs,
+  args: Input,
   deps: SessionToolDeps = {},
 ): Promise<SessionToolResult> {
   const handler = SESSION_TOOL_HANDLERS.get(name)
@@ -456,13 +418,26 @@ export async function executeSessionTool(
   }
 }
 
-type SessionToolHandler = (args: SessionToolArgs, deps: SessionToolDeps) => Promise<SessionToolResult>
+type SessionToolHandler = <Input>(args: Input, deps: SessionToolDeps) => Promise<SessionToolResult>
 
-async function listAgentTargetsTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
-  const parsed = z.object(listAgentTargetsFields).safeParse(args)
-  if (!parsed.success) return { ok: false, text: 'list_agent_targets received invalid arguments.' }
-  if (parsed.data.host) {
-    const remote = await connectRemoteHost(parsed.data.host, deps.ctx?.sessionId)
+/** Validate at dispatch so each handler receives only its schema's output. */
+function validatedSessionTool<Args>(
+  schema: z.ZodType<Args>,
+  handler: (args: Args, deps: SessionToolDeps) => Promise<SessionToolResult>,
+  invalidArguments: (error: z.ZodError) => string,
+): SessionToolHandler {
+  return async (args, deps) => {
+    const parsed = schema.safeParse(args)
+    if (!parsed.success) {
+      return { ok: false, text: invalidArguments(parsed.error) }
+    }
+    return handler(parsed.data, deps)
+  }
+}
+
+async function listAgentTargetsTool(args: z.infer<z.ZodObject<typeof listAgentTargetsFields>>, deps: SessionToolDeps): Promise<SessionToolResult> {
+  if (args.host) {
+    const remote = await connectRemoteHost(args.host, deps.ctx?.sessionId)
     if ('error' in remote) return { ok: false, text: remote.error }
     const targets = await remoteAgentTargets(remote)
     if ('error' in targets) return { ok: false, text: targets.error }
@@ -538,19 +513,17 @@ async function remoteProjects(remote: RemoteHost): Promise<{ name: string; path:
   }
 }
 
-async function readSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
+async function readSessionTool(args: z.infer<z.ZodObject<typeof readSessionFields>>, deps: SessionToolDeps): Promise<SessionToolResult> {
   if (!sessionController) return { ok: false, text: 'read_session is unavailable — no session controller is wired.' }
   const controller = sessionController
-  const parsed = z.object(readSessionFields).safeParse(args)
-  if (!parsed.success) return { ok: false, text: `read_session received invalid arguments: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}` }
   const request: TimelineRequest = {
-    view: parsed.data.view ?? 'messages',
-    afterPosition: parsed.data.after_position ?? -1,
-    limit: Math.min(parsed.data.limit ?? 50, MAX_READ_ITEMS),
-    maxCharsPerItem: Math.min(parsed.data.max_chars_per_item ?? 20_000, MAX_ITEM_CHARS),
-    ...(parsed.data.item_id !== undefined && { itemId: parsed.data.item_id, textOffset: parsed.data.text_offset ?? 0 }),
+    view: args.view ?? 'messages',
+    afterPosition: args.after_position ?? -1,
+    limit: Math.min(args.limit ?? 50, MAX_READ_ITEMS),
+    maxCharsPerItem: Math.min(args.max_chars_per_item ?? 20_000, MAX_ITEM_CHARS),
+    ...(args.item_id !== undefined && { itemId: args.item_id, textOffset: args.text_offset ?? 0 }),
   }
-  const requestedId = parsed.data.session_id.trim()
+  const requestedId = args.session_id.trim()
   const meta = await findSession(requestedId)
   if (!meta) {
     const remote = await findOffHost(requestedId, deps.ctx?.sessionId)
@@ -618,39 +591,20 @@ async function findOffHost(sessionId: string, callerSessionId: string | undefine
   return findRemoteSession(sessionId, hosts, apis)
 }
 
-async function readTaskSessionsTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
-  if (!sessionController) return { ok: false, text: 'read_task_sessions is unavailable — no session controller is wired.' }
-  const parsed = z.object(readTaskSessionsFields).safeParse(args)
-  if (!parsed.success) return { ok: false, text: 'read_task_sessions received invalid arguments.' }
-  const own = deps.ctx?.sessionId ? await Task.forSession(ANY_ORGANIZATION, deps.ctx.sessionId) : null
-  const taskId = parsed.data.task_id?.trim() || own?.id
-  if (!taskId) return { ok: false, text: 'This session has no task. Pass task_id.' }
-  const controller = sessionController
-  const view = await formatTaskSessions(taskId, {
-    liveStatus: (sessionId) => controller.liveStatus(sessionId),
-    pendingInputEvents: (sessionId) => controller.pendingInputEvents(sessionId),
-    loadSessionTail: (provider, sessionId, projectPath, limit) => controller.loadSessionTail(provider, sessionId, projectPath, limit),
-    link: sessionLink,
-  })
-  return view ? { ok: true, text: view } : { ok: false, text: `Task ${taskId} not found.` }
-}
-
-async function searchSessionsTool(args: SessionToolArgs): Promise<SessionToolResult> {
-  const parsed = z.object(searchSessionsFields).safeParse(args)
-  if (!parsed.success) return { ok: false, text: 'search_sessions requires a non-empty query.' }
-  const query = parsed.data.query.trim()
+async function searchSessionsTool(args: z.infer<z.ZodObject<typeof searchSessionsFields>>): Promise<SessionToolResult> {
+  const query = args.query.trim()
   if (!query) return { ok: false, text: 'search_sessions requires a non-empty query.' }
 
-  const role = parsed.data.role
-  const window = searchWindow(parsed.data.after?.trim() ?? '', parsed.data.before?.trim() ?? '')
+  const role = args.role
+  const window = searchWindow(args.after?.trim() ?? '', args.before?.trim() ?? '')
   if ('error' in window) return { ok: false, text: window.error }
   const { sinceTs, untilTs, rangeNote } = window
-  const limit = Math.min(parsed.data.limit ?? 10, MAX_READ_PAGE)
+  const limit = Math.min(args.limit ?? 10, MAX_READ_PAGE)
 
   // Resolve the optional project scope. No project → search all projects.
   let projectRoot: string | undefined
   let scopeNote = ''
-  const projectArg = parsed.data.project?.trim() ?? ''
+  const projectArg = args.project?.trim() ?? ''
   if (projectArg) {
     const resolved = resolveProject(projectArg)
     if (resolved.kind === 'one') {
@@ -685,23 +639,21 @@ async function searchSessionsTool(args: SessionToolArgs): Promise<SessionToolRes
   return { ok: true, text: `${scopeNote}${rangeNote}Search results:\n\n${lines.join('\n\n')}\n\n${nextStep}` }
 }
 
-async function sendSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
+async function sendSessionTool(args: z.infer<z.ZodObject<typeof sendSessionFields>>, deps: SessionToolDeps): Promise<SessionToolResult> {
   if (!sessionOrchestration) return { ok: false, text: 'send_session is unavailable — no session orchestrator is wired.' }
-  const parsed = z.object(sendSessionFields).safeParse(args)
-  if (!parsed.success) return { ok: false, text: 'send_session received invalid arguments.' }
-  const sessionId = parsed.data.session_id.trim()
+  const sessionId = args.session_id.trim()
   const callerSessionId = deps.ctx?.sessionId
   if (!callerSessionId) return { ok: false, text: 'send_session is unavailable before the calling session is initialized.' }
   if (sessionId === callerSessionId) return { ok: false, text: 'Cannot message your own session.' }
-  const message = parsed.data.message
+  const message = args.message
   if (!message.trim()) return { ok: false, text: 'send_session requires a non-empty message.' }
-  const report = parsed.data.report
-  const waitMs = parsed.data.wait_seconds * 1000
-  const order: SendOrder = { prompt: message, delivery: parsed.data.delivery, notify: report, waitMs }
-  if (parsed.data.request_id) order.requestId = parsed.data.request_id
+  const report = args.report
+  const waitMs = args.wait_seconds * 1000
+  const order: SendOrder = { prompt: message, delivery: args.delivery, notify: report, waitMs }
+  if (args.request_id) order.requestId = args.request_id
   const recipient = await sendRecipient(sessionId, callerSessionId, deps)
   if ('error' in recipient) return { ok: false, text: recipient.error }
-  const attachError = await attachTo(order, parsed.data.attachments, deps)
+  const attachError = await attachTo(order, args.attachments, deps)
   if (attachError) return { ok: false, text: attachError }
   const sent = await sessionOrchestration.send(callerSessionId, recipient.sessionId, order, recipient.target)
   const dispatch = sent.disposition === 'queued'
@@ -762,16 +714,15 @@ const readExchangeFields = {
   reply_offset: z.number().int().nonnegative().optional().describe('Read the full saved reply in bounded pages. Start at 0, then use the returned next_reply_offset until it is null. Offsets count UTF-16 code units.'),
 }
 
-async function readExchangeTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
-  const parsed = z.object(readExchangeFields).safeParse(args)
+async function readExchangeTool(args: z.infer<z.ZodObject<typeof readExchangeFields>>, deps: SessionToolDeps): Promise<SessionToolResult> {
   const sender = deps.ctx?.sessionId
-  if (!parsed.success || !sender) return { ok: false, text: 'read_session_exchange requires exchange_id and an initialized calling session.' }
-  const exchange = sessionOrchestration?.readExchange?.(sender, parsed.data.exchange_id)
+  if (!sender) return { ok: false, text: 'read_session_exchange requires exchange_id and an initialized calling session.' }
+  const exchange = sessionOrchestration?.readExchange?.(sender, args.exchange_id)
   if (!exchange) return { ok: false, text: 'Exchange not found for this calling session.' }
   const lines = [`Exchange ${exchange.exchangeId}: ${exchange.state}. Session ${exchange.targetSessionId}.`]
   if (exchange.deliveryState) lines.push(`Report delivery: ${exchange.deliveryState}.`)
   if (exchange.report) {
-    const offset = parsed.data.reply_offset
+    const offset = args.reply_offset
     if (offset === undefined) lines.push(formatOrchestrationItem({ type: 'report', report: exchange.report }))
     else {
       const reply = exchange.report.reply
@@ -783,11 +734,9 @@ async function readExchangeTool(args: SessionToolArgs, deps: SessionToolDeps): P
   return { ok: true, text: lines.join('\n\n') }
 }
 
-async function stopSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
+async function stopSessionTool(args: z.infer<z.ZodObject<typeof stopSessionFields>>, deps: SessionToolDeps): Promise<SessionToolResult> {
   if (!sessionOrchestration) return { ok: false, text: 'stop_session is unavailable — no session orchestrator is wired.' }
-  const parsed = z.object(stopSessionFields).safeParse(args)
-  if (!parsed.success) return { ok: false, text: 'stop_session requires session_id.' }
-  const sessionId = parsed.data.session_id.trim()
+  const sessionId = args.session_id.trim()
   if (sessionId === deps.ctx?.sessionId) return { ok: false, text: 'Cannot stop your own session.' }
   const remoteHost = remoteHostOf(deps, sessionId)
   if (remoteHost) {
@@ -802,10 +751,7 @@ async function stopSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
     : { ok: true, text: `Session ${sessionId} is not currently running.` }
 }
 
-async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
-  const parsed = startSessionSchema.safeParse(args)
-  if (!parsed.success) return { ok: false, text: `Invalid arguments for start_session: ${z.prettifyError(parsed.error).slice(0, 1200)}` }
-  const input = parsed.data
+async function startSessionTool(input: z.infer<typeof startSessionSchema>, deps: SessionToolDeps): Promise<SessionToolResult> {
   if (!input.prompt.trim()) return { ok: false, text: 'start_session requires a non-empty prompt.' }
   if (!sessionOrchestration) {
     return { ok: false, text: 'start_session is unavailable — it requires the app to be running with an active control plane.' }
@@ -850,7 +796,7 @@ function formatStartedSessionReceipt(created: SpawnedSession, runner: Runner, cw
  *  hosts, as if the owner started it there (docs/plans/cross-host-sessions.md). */
 async function startRemoteSessionTool(
   orchestration: SessionOrchestration,
-  input: z.infer<z.ZodObject<typeof startSessionFields>>,
+  input: z.infer<typeof startSessionSchema>,
   hostRef: string,
   deps: SessionToolDeps,
 ): Promise<SessionToolResult> {
@@ -935,14 +881,15 @@ function chooseRunner(targets: readonly AgentTarget[], requestedProvider: string
 }
 
 const SESSION_TOOL_HANDLERS = new Map<string, SessionToolHandler>([
-  ['list_agent_targets', listAgentTargetsTool],
-  ['read_session', readSessionTool],
-  ['read_session_exchange', readExchangeTool],
-  ['read_task_sessions', readTaskSessionsTool],
-  ['search_sessions', searchSessionsTool],
-  ['send_session', sendSessionTool],
-  ['stop_session', stopSessionTool],
-  ['start_session', startSessionTool],
+  ['list_agent_targets', validatedSessionTool(z.object(listAgentTargetsFields), listAgentTargetsTool, () => 'list_agent_targets received invalid arguments.')],
+  ['read_session', validatedSessionTool(z.object(readSessionFields), readSessionTool,
+    (error) => `read_session received invalid arguments: ${error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`)],
+  ['read_session_exchange', validatedSessionTool(z.object(readExchangeFields), readExchangeTool, () => 'read_session_exchange requires exchange_id and an initialized calling session.')],
+  ['search_sessions', validatedSessionTool(z.object(searchSessionsFields), searchSessionsTool, () => 'search_sessions requires a non-empty query.')],
+  ['send_session', validatedSessionTool(z.object(sendSessionFields), sendSessionTool, () => 'send_session received invalid arguments.')],
+  ['stop_session', validatedSessionTool(z.object(stopSessionFields), stopSessionTool, () => 'stop_session requires session_id.')],
+  ['start_session', validatedSessionTool(startSessionSchema, startSessionTool,
+    (error) => `Invalid arguments for start_session: ${z.prettifyError(error).slice(0, 1200)}`)],
 ])
 
 function sessionAgentTool(
@@ -970,7 +917,6 @@ export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARC
 export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
 export const readSessionExchangeAgentTool = sessionAgentTool('read_session_exchange', 'Read the stored state and result of a message this session sent. Use when a result is needed mid-turn, or after a timeout or restart. This read does not consume or cancel a pending report. A completed provider turn can still be waiting_for_children; settled is the final exchange result.', readExchangeFields, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)
-export const readTaskSessionsAgentTool = sessionAgentTool('read_task_sessions', READ_TASK_SESSIONS_DESC, readTaskSessionsFields, false)
 export const startSessionAgentTool = sessionAgentTool('start_session', START_SESSION_DESC, startSessionFields, false)
 startSessionAgentTool.alwaysLoad = true
 export const sendSessionAgentTool = sessionAgentTool('send_session', SEND_SESSION_DESC, sendSessionFields, false)
@@ -981,7 +927,6 @@ export const sessionAgentTools: AgentTool[] = [
   searchSessionsAgentTool,
   readSessionAgentTool,
   readSessionExchangeAgentTool,
-  readTaskSessionsAgentTool,
   startSessionAgentTool,
   sendSessionAgentTool,
   stopSessionAgentTool,

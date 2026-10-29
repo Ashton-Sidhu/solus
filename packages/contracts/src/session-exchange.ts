@@ -40,10 +40,6 @@ export const ORCHESTRATION_LIMITS = {
   cardChangedPaths: 200,
   /** Reports and notices kept whole in one merged prompt. */
   mergedItems: 10,
-  /** Characters of a session's last message in the task view. */
-  taskViewLastMessage: 600,
-  /** Sessions shown in full in the task view. */
-  taskViewSessions: 20,
 } as const
 
 /** `text` on one line, cut to `max` characters with an ellipsis. */
@@ -312,7 +308,7 @@ export function formatSessionReport(report: SessionReport): string {
   if (shown.length) {
     lines.push('Outputs:', ...shown.map(formatSessionOutput))
     const more = report.outputs.length - shown.length
-    if (more > 0) lines.push(`- +${more} more; call read_task_sessions`)
+    if (more > 0) lines.push(`- +${more} more; call read_task then read_session`)
   }
   lines.push('Reply:', clipReply(report.reply, report.messageId))
   return lines.join('\n')
@@ -495,7 +491,7 @@ export function formatOrchestrationItem(item: OrchestrationItem): string {
 /**
  * The one prompt that carries every item waiting for a parent, oldest first.
  * Past the merged limit, the oldest reports keep only their head line; the
- * parent reads them in full with `read_task_sessions` or `read_session`.
+ * parent reads them in full with `read_task` followed by `read_session`.
  */
 export function formatParentPrompt(items: readonly OrchestrationItem[]): string {
   let shorten = Math.max(0, items.length - ORCHESTRATION_LIMITS.mergedItems)
@@ -511,7 +507,7 @@ export function formatParentPrompt(items: readonly OrchestrationItem[]): string 
     }
   }
   const lines = [PARENT_PROMPT_GUIDANCE, '', blocks.join('\n\n')]
-  if (shortened) lines.push('', `${shortened} earlier ${shortened === 1 ? 'report was' : 'reports were'} shortened to their first line; call read_task_sessions or read_session for them.`)
+  if (shortened) lines.push('', `${shortened} earlier ${shortened === 1 ? 'report was' : 'reports were'} shortened to their first line; call read_task then read_session for them.`)
   return lines.join('\n')
 }
 

@@ -49,7 +49,7 @@ No development server, global package install, or application build is required.
 
 Check the final payload. Do not read `bundle.html` into your output: the tools read the file on this host.
 
-For a new visual the user asks to build, keep, revise, embed, or share, call `render_artifact` with `html_path` set to the `bundle.html` path and a short `title` matching the document title. Do not open the bundle in a browser instead; that saves no work. The returned work ID is its durable identity. Set `link_to_task: true` only when the user asked to file it on that task or its pull request. Do not also emit the same HTML in a fence.
+For a new visual the user asks to build, keep, revise, embed, or share, call `render_artifact` with `html_path` set to the `bundle.html` path and a short `title` matching the document title. Do not open the bundle in a browser instead; that saves no work. The returned work ID is its durable identity. The saved artifact keeps its originating session. Use `link` to attach an existing work to the calling session. Do not also emit the same HTML in a fence.
 
 Use the same compiled output in a rendered fence only when it is small enough to write in your reply and the result is a one-time inline explanation with no durable identity need, or the user explicitly does not want a saved work. This is a delivery option, not another build path. Use `html render artifact=<stable-name>`; names use letters, digits, hyphens, or underscores, up to 80 characters. Reuse the name for revisions of that inline visual. Emit one completed revision per identity per reply. `html source` shows code instead.
 

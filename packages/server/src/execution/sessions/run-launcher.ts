@@ -36,7 +36,6 @@ import { shareTurnTranscripts } from '../seats/member-transcripts'
 import { SeatRequiredError } from '../seats/seat-manager'
 import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
 import { integrationAgentTools } from '../../integrations/integration-tools'
-import { typeSafeKey } from '../../typesafe/credentials'
 import { withActorScope } from '../seats/acting-identity'
 import { userKey } from '@solus/contracts/user'
 import { AGENT_SETUP_STEP, WORKTREE_SETUP_STEPS, worktreeSetupCardId } from '@solus/contracts/setup-card'
@@ -1106,12 +1105,6 @@ export class RunLauncher {
       // The MCP servers' tools are listed here, for the run's person, so every run —
       // typed, queued, restored, or started by an agent — gets that person's own.
       const integrationTools = await integrationAgentTools(request.actor ?? HOST_ACTOR)
-      // Ask Jev uses the run's person's own TypeSafe key (access-model.md §2.6); without one it is not offered.
-      // A key that cannot be read (the account is unreachable) only leaves the tool out; it never stops the turn.
-      const hasTypeSafeKey = await typeSafeKey().then((key) => !!key.apiKey, (error: unknown) => {
-        log.warn('typesafe_key_unreadable', { sessionId, error: error instanceof Error ? error.message : String(error) })
-        return false
-      })
       if (this.rt.isShuttingDown) throw new Error('Interrupted')
       // The last check before the provider spawns; from here Stop cancels its run.
       turn.signal.throwIfAborted()
@@ -1145,7 +1138,7 @@ export class RunLauncher {
         prompt: options.prompt,
         cwd: effectiveCwd,
         tools: credentialScopedAgentTools([
-          ...request.tools.filter((tool) => hasTypeSafeKey || tool.name !== 'ask_jev'),
+          ...request.tools,
           ...integrationTools,
           // The other backend's subagent runs on the turn author's own login.
           (provider === 'codex' ? createClaudeSubagentAgentTool : createCodexSubagentAgentTool)(

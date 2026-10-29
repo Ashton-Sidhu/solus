@@ -38,7 +38,7 @@
     type SidebarTask,
   } from "./lib/task-list";
   import { alignStatusAnimationPhase } from "./lib/status-animation-phase";
-  import { visibleNestedSessions } from "./lib/session-tree";
+  import { nestedStateMarks, visibleNestedSessions } from "./lib/session-tree";
   import UserAvatar from "../users/UserAvatar.svelte";
   import type { User } from "@solus/contracts/user";
   import { shareRoleText } from "../../contexts/workspace/shared-sessions";
@@ -161,6 +161,20 @@
   // where you are inside the session that started it.
   const isCardRaised = $derived(
     hasStartedSessions && nestedSessions.some((listed) => !!listed.tabId && listed.tabId === onScreenTabId),
+  );
+  // What the sessions under the row are doing, as marks the trailing slot
+  // stacks when the row has no mark of its own. The row itself stays where
+  // it is: only its own turn moves it to the Working section
+  // (`sidebarSectionOf`).
+  const nestedMarks = $derived(hasStartedSessions ? nestedStateMarks(nestedSessions) : []);
+  const nestedMarksLabel = $derived(
+    nestedMarks
+      .map((nested) =>
+        nested.kind === "spinner" ? "a session it started is working"
+        : nested.kind === "unread" ? "a session it started has unread output"
+        : `a session it started: ${nested.status}`,
+      )
+      .join("; "),
   );
   const nestedToggleLabel = $derived(
     `${isNestedOpen ? "Hide" : "Show"} ${nestedSessions.length} ${nestedSessions.length === 1 ? "session" : "sessions"} it started`,
@@ -350,6 +364,42 @@
       title={`Completed ${new Date(task.completedAt).toLocaleString()}`}
       >{mark.label}</span
     >
+  {:else if nestedMarks.length > 0}
+    <!-- A quiet row with sessions under it shows their marks instead,
+         stacked: each state once, the ones that want you first. The same
+         ring or spinner sits on the session's own row in the drawer, so the
+         summary and the detail never disagree. Every mark keeps its own
+         colour, so the stack holds at full strength on a receded row. -->
+    <!-- The marks overlap like a stack of avatars, each later one cut out
+         of the one beneath by a halo in the row's own surface: the sidebar
+         at rest, the card on hover, when selected, and inside the raised
+         card. -->
+    <span
+      class="flex shrink-0 items-center {isCurrentSession || isCardRaised
+        ? '[--mark-halo:var(--card)]'
+        : '[--mark-halo:var(--sidebar)] group-hover/row:[--mark-halo:var(--card)]'}"
+      role="img"
+      aria-label={nestedMarksLabel}
+      title={nestedMarksLabel}
+    >
+      {#each nestedMarks as nested, index (index)}
+        <span
+          class="flex shrink-0 items-center rounded-full [box-shadow:0_0_0_1.5px_var(--mark-halo)] {index > 0
+            ? '-ml-1'
+            : ''}"
+        >
+          {#if nested.kind === "glyph"}
+            <TaskStatusGlyph status={nested.status} size={13} label="" />
+          {:else if nested.kind === "unread"}
+            <UnreadDot size={12} />
+          {:else}
+            <span class="flex shrink-0 items-center text-chart-5" onanimationstart={alignStatusAnimationPhase}>
+              <SpinnerGapIcon size={13} class="animate-spin" />
+            </span>
+          {/if}
+        </span>
+      {/each}
+    </span>
   {/if}
 {/snippet}
 
@@ -372,7 +422,7 @@
        quiet row — and the actions cost nothing at rest, because they are out of
        flow until the pointer arrives. -->
   <span
-    class="relative ml-auto flex h-5 shrink-0 items-center justify-end {mark
+    class="relative ml-auto flex h-5 shrink-0 items-center justify-end {mark || nestedMarks.length > 0
       ? 'min-w-[1.75rem]'
       : ''}"
   >
@@ -483,6 +533,9 @@
         onToggleNested();
       }}
     >
+      <!-- The chip only counts. What those sessions are doing is the
+           trailing slot's to say, with the marks the rest of the sidebar
+           uses. -->
       <StartedSessionsIcon size={12.5} class="shrink-0" />
       <span>{nestedSessions.length}</span>
     </button>
@@ -758,7 +811,7 @@
          row's 0.5rem pull; the guide stands there, and a child row pads its
          title 0.625rem past it. -->
     <div
-      class="border-l border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] pb-1 pl-1 {inFolder
+      class="border-l border-[color-mix(in_oklch,var(--foreground)_12%,transparent)] mt-0.5 pb-2 pl-1 {inFolder
         ? 'ml-[1.6875rem]'
         : 'ml-[0.125rem]'}"
     >

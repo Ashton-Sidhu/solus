@@ -5,7 +5,7 @@ export function matchingToolGroups(query: string) {
   return SOLUS_TOOL_GROUPS.map((group) => ({
     ...group,
     visibleTools: group.tools.filter((name) =>
-      `${name === 'ask_jev' ? 'typesafe api key' : ''} ${group.label} solus tools ${name.replaceAll('_', ' ')}`.toLowerCase().includes(search)),
+      `${group.label} solus tools ${name.replaceAll('_', ' ')}`.toLowerCase().includes(search)),
   })).filter((group) => group.visibleTools.length > 0)
 }
 

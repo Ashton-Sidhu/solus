@@ -1,10 +1,10 @@
 # Solus tool settings
 
-Settings → Tools lists Solus agent tools by function: Works, External documents,
-Automations, Browser, Devices, Sessions, Tasks, Intelligence, Connections,
+Settings → Tools lists Solus agent tools by function: Works,
+Automations, Browser, Devices, Sessions, Tasks, Connections,
 Insights, and Configuration. Search by group or tool name. Each tool has a switch; each group
 has an Enable all switch that changes the full group, even during a search.
-All tools are enabled by default. Intelligence includes `ask_jev`.
+All tools are enabled by default.
 
 Choices belong to the selected host. The same page is available on desktop, web,
 and mobile. Connected clients receive changes through `config.changed`; the page
@@ -70,7 +70,7 @@ simulator, emulator or connected phone. See
 [Device previews](native-devices.md).
 
 The Sessions group holds the orchestration tools: `start_session`,
-`send_session`, `stop_session`, `read_session`, `read_task_sessions`,
+`send_session`, `stop_session`, `read_session`,
 `search_sessions`, and `list_agent_targets`. See
 [Session orchestration](session-orchestration.md). It also holds
 `move_to_worktree`, which moves the calling session into a new or an existing
@@ -80,15 +80,23 @@ directory the session is bound to, its branch and target branch, and every
 checkout of its repository. See
 [Agent worktrees](worktree-names.md#agent-worktrees).
 
-The Tasks group holds one tool for links, `link`. With a `task_id` it attaches
-a work, plan, pull request, automation or session to the task. With `kind=pr`
-and no `task_id` it links the pull request to the calling session.
-`list_session_pull_requests` lists the pull requests linked to the calling
-session with their last known state, so the agent can find one that it forgot
-to link. See [Session pull requests](plans/session-pull-requests.md).
+The Sessions group holds `link`, `list_session_pull_requests`,
+`unlink_pull_request`, and `watch_pull_request`. `link` attaches a work,
+automation, pull request, or file to the calling session. It does not accept
+`task_id`, task session membership, or Solus plan links. Markdown plan files use
+`kind=file` and `path`. Task links remain available through the task interface.
+`list_session_pull_requests` lists this session's pull requests and their last
+known state. See [Session pull requests](plans/session-pull-requests.md).
 
-Ask Jev requires the TypeSafe key of the person the run acts for. The host's
-user adds or removes theirs under Settings → Tools → TypeSafe, or sets
-TYPESAFE_API_KEY in the host environment. A member's key belongs in their Solus
-account. A run whose person has no key does not get the tool.
-See [TypeSafe configuration](typesafe.md).
+`read_task` includes linked session IDs. Use `read_session` for a session's
+status, pending input, and history. There is no separate task-session read tool.
+Organization task reads include only sessions the caller may read.
+
+`render_artifact` saves a work associated with the calling session. It has no
+task-link option. Use `link` to attach an existing work to the current session.
+
+Works includes `publish_work` and `pull_work_upstream` for connected document
+providers. Publish sends a work to Confluence or Google Docs and keeps the link.
+Pull accepts exactly one of `url` (import into Solus) or `work_id` (refresh a
+linked work). The separate external document tools are removed. Read imported
+content with `read_work`; private replies use `reply_comment`.

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fade } from "svelte/transition";
-  import { X as CloseIcon } from "@lucide/svelte";
+  import { ArrowUp as ArrowUpIcon, X as CloseIcon } from "@lucide/svelte";
+  import { Button } from "../ui/button";
   import type { CommentPin, PlanComment } from "@solus/contracts/types";
   import CommentThreadCard from "../comments/CommentThreadCard.svelte";
   import { CommentComposer } from "../ui/comment-composer";
@@ -46,6 +47,10 @@
     onReply: (commentId: string, text: string) => void;
     onResolve: (commentId: string, resolved: boolean) => void;
     onRead: (commentId: string) => void;
+    /** Hands the open threads to an agent; null where the reader cannot. */
+    onSendToAgent: (() => void) | null;
+    /** A send is opening its chat. */
+    sending: boolean;
   }
 
   let {
@@ -62,6 +67,8 @@
     onReply,
     onResolve,
     onRead,
+    onSendToAgent,
+    sending,
   }: Props = $props();
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -190,25 +197,15 @@
   {#if openThread && cardPlacement}
     <div
       data-artifact-card
-      class="pointer-events-auto absolute z-[8] flex flex-col gap-1.5 drop-shadow-[0_1rem_2.375rem_rgba(60,40,25,0.42)]"
+      class="pointer-events-auto absolute z-[8] flex flex-col drop-shadow-[0_1rem_2.375rem_rgba(60,40,25,0.42)] [&_.ctc\_\_edge]:hidden"
       style="left:{cardPlacement.left}px;top:{cardPlacement.top}px;width:{cardWidth}px"
       bind:clientHeight={cardHeight}
       transition:fade|global={{ duration: reduceMotion ? 0 : 120 }}
       data-testid="artifact-thread-card"
     >
-      <!-- The card always says what it is on. A render cannot be clicked to
-           dismiss it — the frame keeps the click — so the chip carries the way out. -->
-      <div class="flex max-w-full items-center gap-1.5 self-start rounded-md border border-(--solus-container-border) bg-(--solus-container-bg) px-[0.4375rem] py-0.5 text-xs text-(--solus-text-tertiary)">
-        <span class="truncate">{pinNumber(openThread) === null ? "Whole render" : openThread.selectedText}</span>
-        <button
-          type="button"
-          class="-mr-1 flex size-5 shrink-0 items-center justify-center rounded text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
-          aria-label="Close thread"
-          onclick={closeCard}
-        >
-          <CloseIcon size={12} />
-        </button>
-      </div>
+      <!-- The dot beside the card is its anchor, so the card carries no margin
+           rail and no caption. A render cannot be clicked to dismiss it — the
+           frame keeps the click — so the card carries its own close. -->
       <CommentThreadCard
         comment={openThread}
         focused
@@ -230,6 +227,7 @@
           onDelete(openThread.id);
           closeCard();
         }}
+        onClose={closeCard}
       />
     </div>
   {/if}
@@ -308,6 +306,24 @@
           {/each}
         {/if}
       </div>
+      {#if onSendToAgent && openList.length > 0}
+        <div class="flex items-center gap-2 border-t border-(--solus-container-border) py-2 pr-2 pl-3">
+          <span class="flex-1 text-xs text-(--solus-text-tertiary) tabular-nums">
+            {openList.length} open thread{openList.length === 1 ? "" : "s"}
+          </span>
+          <Button
+            size="icon"
+            class="size-7 rounded-full pointer-coarse:size-10"
+            aria-label="Send comments to agent"
+            title="Send to agent"
+            disabled={sending}
+            data-testid="artifact-thread-list-send"
+            onclick={onSendToAgent}
+          >
+            <ArrowUpIcon size={15} strokeWidth={2.25} />
+          </Button>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>

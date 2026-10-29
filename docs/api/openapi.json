@@ -1241,6 +1241,40 @@
                     "body": {
                       "type": "string",
                       "maxLength": 1000000
+                    },
+                    "sessions": {
+                      "description": "Linked sessions the caller may read. Use their IDs to read session status and history.",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "sessionId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "sessionTitle": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "working",
+                              "referenced"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "sessionId",
+                          "sessionTitle",
+                          "role"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -1885,6 +1919,40 @@
                     "body": {
                       "type": "string",
                       "maxLength": 1000000
+                    },
+                    "sessions": {
+                      "description": "Linked sessions the caller may read. Use their IDs to read session status and history.",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "sessionId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "sessionTitle": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "working",
+                              "referenced"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "sessionId",
+                          "sessionTitle",
+                          "role"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -2396,6 +2464,40 @@
                     "body": {
                       "type": "string",
                       "maxLength": 1000000
+                    },
+                    "sessions": {
+                      "description": "Linked sessions the caller may read. Use their IDs to read session status and history.",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "sessionId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "sessionTitle": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "working",
+                              "referenced"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "sessionId",
+                          "sessionTitle",
+                          "role"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [

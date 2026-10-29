@@ -1,3 +1,4 @@
+import { taskSessions } from './task-sessions'
 import { workspaceTaskQuerySchema, workspaceCreateTaskSchema, workspaceCreateTaskCommentSchema, workspaceUpdateTaskSchema } from '@solus/contracts/solus-api'
 import { ulid } from '@solus/contracts/ulid'
 import { sql } from 'drizzle-orm'
@@ -52,7 +53,11 @@ export class TaskApiOperations {
   async get(context: WorkspaceRequestContext, taskId: string): Promise<WorkspaceTask> {
     requireScope(context, 'tasks:read')
     await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'read')
-    return this.read(context, taskId)
+    const task = await this.read(context, taskId)
+    if (!context.scopes.includes('sessions:read')) return task
+    const linked = (await taskSessions(apiScope(context), taskId))[taskId] ?? []
+    const visible = await this.shares.filterVisible(context.principal, 'session', linked, (session) => session.sessionId)
+    return { ...task, sessions: visible.map(({ sessionId, sessionTitle, role }) => ({ sessionId, sessionTitle, role: role ?? 'working' })) }
   }
 
   async list(context: WorkspaceRequestContext, query: WorkspaceTaskQuery): Promise<WorkspaceTaskPage> {

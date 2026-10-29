@@ -14,7 +14,6 @@
 
   let { serverId, searchQuery = "" }: { serverId: string; searchQuery?: string } = $props();
   const state = $derived(store.states.get(serverId));
-  const hasKey = $derived(!!state?.typeSafe?.source);
   const groups = $derived(matchingToolGroups(searchQuery));
   const locked = $derived(!state?.preferences || state.saving || !!state.error);
   const expanded = new SvelteSet<string>();
@@ -27,14 +26,6 @@
   function toggle(groupId: string) {
     if (expanded.has(groupId)) expanded.delete(groupId);
     else expanded.add(groupId);
-  }
-
-  function describe(group: (typeof groups)[number]): string {
-    if (group.id === "intelligence" && !hasKey)
-      return state?.typeSafe?.location === "account"
-        ? "Add your TypeSafe key in your Solus account to enable Ask Jev."
-        : "Add a TypeSafe API key to enable Ask Jev.";
-    return groupSummary(group.tools, state?.preferences);
   }
 </script>
 
@@ -55,14 +46,13 @@
   {/snippet}
   {#each groups as group (group.id)}
     {@const open = isExpanded(group)}
-    {@const keyLocked = group.id === "intelligence" && !hasKey}
-    <SettingsRow label={group.label} description={describe(group)} bodyVisible={open}>
+    <SettingsRow label={group.label} description={groupSummary(group.tools, state?.preferences)} bodyVisible={open}>
       {#snippet control()}
         <div class="flex items-center gap-1.5">
           <Switch
             aria-label={`Enable all ${group.label.toLowerCase()} tools`}
-            checked={!!state?.preferences && groupEnabled(group.tools, state.preferences) && !keyLocked}
-            disabled={locked || keyLocked}
+            checked={!!state?.preferences && groupEnabled(group.tools, state.preferences)}
+            disabled={locked}
             onCheckedChange={(enabled) => void store.save(serverId, groupPatch(group.tools, enabled))}
           />
           <Button
@@ -87,8 +77,8 @@
               </div>
               <Switch
                 aria-label={toolLabel(name)}
-                checked={!!state?.preferences && isSolusToolEnabled(name, state.preferences) && !(name === "ask_jev" && !hasKey)}
-                disabled={locked || (name === "ask_jev" && !hasKey)}
+                checked={!!state?.preferences && isSolusToolEnabled(name, state.preferences)}
+                disabled={locked}
                 onCheckedChange={(enabled) => void store.save(serverId, { [name]: enabled })}
               />
             </li>

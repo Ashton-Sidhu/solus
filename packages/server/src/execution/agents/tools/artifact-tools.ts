@@ -60,10 +60,7 @@ const artifactFields = {
     'The path of a compiled HTML file on this host, such as the visual-artifacts bundle.html. A relative path is relative to your working directory. Solus reads the file, so its content does not pass through your output. Pass this or html, not both.',
   ),
   title: z.string().describe(
-    'A short, human-readable title for the artifact, as it should read in the works gallery and on a task.',
-  ),
-  link_to_task: z.boolean().optional().describe(
-    'Also link the artifact to the session\'s task, so it shows on the task page and on any pull request the task is linked to. Default false: the reader links or pins it from the render\'s rail when they want it there. Pass true when the user asked for it on the task.',
+    'A short, human-readable title for the artifact, as it should read in the works gallery in the session.',
   ),
   preview: z.boolean().optional().describe(
     'Check the page instead of saving it: returns a screenshot you see in the result, the page height, console output and errors, and missing local images. Saves no work and renders nothing in the conversation. Use it before a ```html fence as well as before saving an artifact.',
@@ -76,8 +73,8 @@ const artifactFields = {
 
 export const ARTIFACT_TOOL_DESC = [
   'Render a finished, self-contained HTML artifact flush in the conversation (charts, diagrams, simulations, interactive widgets).',
-  'The artifact is saved as a work: the result names its work_id, which read_work and update_work accept, which link_to_task files on the session\'s task, and which embeds it in a document or plan.',
-  'Only call this when the render needs that durable identity — you will revise it by id, it belongs on a task, or the user asked to keep it. It is not linked to a task unless link_to_task is true.',
+  'The artifact is saved as a work: the result names its work_id, which read_work and update_work accept, which link attaches to the calling session, and which embeds it in a document or plan.',
+  'Only call this when the render needs that durable identity — you will revise it by id, it belongs in the session, or the user asked to keep it. It is associated with the calling session.',
   'For something visual the user reads once, write a fenced ```html block in your reply instead: Solus renders it live in the same sandboxed frame, with no tool call. A fence carrying a <style>, a <script>, or a whole document renders; a bare fragment stays code to read. Write ```html render or ```html source to say which when the content does not make it obvious.',
   'The reader sees the page as part of your reply, so do not announce it, say where it is, or restate it: write only what the page does not say.',
   'Solus injects its active theme as CSS custom properties on :root, and they follow the user\'s light or dark mode live: --background (page background, identical to the conversation around the frame), --foreground, --muted, --muted-foreground, --card, --card-foreground, --popover, --popover-foreground, --secondary, --secondary-foreground, --border, --input, --ring, --primary, --primary-foreground (solid buttons), --accent, --accent-foreground (brand accent), --accent-surface, --accent-surface-foreground, --brand, --brand-foreground (the Solus app accent: use these instead of --primary for solid buttons in a mock-up of Solus\'s own UI), --destructive, --destructive-foreground, --destructive-surface, --warning, --warning-foreground, --warning-surface, --success, --success-foreground, --info, --info-foreground, --code-background, --code-foreground, --chart-1 … --chart-6 (categorical series for charts), --radius, --font-sans, --font-mono. The base stylesheet sets html background, color, and a 14px font from these, body margin to 0, monospace for code, and hides the page\'s scrollbar; your own CSS overrides it. Style with these variables, never fixed colors.',
@@ -98,7 +95,6 @@ interface ArtifactToolArgs {
   html?: string
   html_path?: string
   title: string
-  link_to_task?: boolean
   preview?: boolean
   preview_width?: number
   preview_appearance?: 'light' | 'dark'
@@ -185,15 +181,13 @@ export async function executeArtifactTool(
     // A saved artifact carries its local images, so it renders on any client
     // and matches what a preview showed.
     html = (await (deps.inlineImages ?? inlineHostImages)(html)).html
-    const created = await createAgentWork(title, 'artifact', html, deps.ctx, input.link_to_task === true)
+    const created = await createAgentWork(title, 'artifact', html, deps.ctx, false)
     deps.onArtifact?.({ html, workId: created.workId, title: created.title })
     const syncNote = created.foreignTaskId
-      ? ` It syncs to the task's host and links to task ${created.foreignTaskId}.`
+      ? ` It syncs to the task's host and keeps its originating session.`
       : created.organizationOwned
-        ? ` It is saved in the organization's Solus API${input.link_to_task ? ' and linked to the session\'s task there' : ''}.`
-      : input.link_to_task
-        ? ' It is linked to the session\'s task.'
-        : ' It is not linked to a task; pass link_to_task: true, or the reader can link it from the rail.'
+        ? ' It is saved in the organization’s Solus API and associated with this session.'
+        : ' It is associated with this session.'
     const checkNote = await saveCheckNote(html, deps)
     const embedNote = `\n\nTo embed this artifact in a Solus document or plan, place this token on its own line:\n\n${serializeWorkEmbed({ workId: created.workId, title: created.title, type: 'artifact' })}`
     return {
@@ -210,7 +204,6 @@ const artifactInputSchema = z.object({
   html: z.string().catch(''),
   html_path: z.string().optional().catch(undefined),
   title: z.string().catch(''),
-  link_to_task: z.boolean().optional().catch(undefined),
   preview: z.boolean().optional().catch(undefined),
   preview_width: z.number().int().optional().catch(undefined),
   preview_appearance: z.enum(['light', 'dark']).optional().catch(undefined),

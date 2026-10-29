@@ -49,8 +49,7 @@ is "linked to a session". A session makes an output. A task links it.
 5. **A person removes an output from the task with Remove.** The row is
    deleted. It does not come back when the session is linked again.
 6. **An artifact is not an output for this rule.** Most artifacts are read
-   once. An artifact is on the task only when its maker asked for that
-   (`link_to_task`), and then it is an output link like the others.
+   once. An artifact is on the task only when a person explicitly links it from the interface, and then it is an output link like the others.
 
 ## Data
 
@@ -73,8 +72,6 @@ delete.
 
 ## Limits
 
-- An artifact made with `link_to_task` while its session had no task does not
-  come to the task when the session joins one. The request is not stored.
 - An output that a person removed from the task comes back if the session
   changes the same item again, because a change writes the output link again.
 - A dispatched session's work that names its task (`taskId` on the work op) is

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { nestedRowParents, visibleNestedSessions } from '@solus/workspace-ui/components/session/lib/session-tree'
+import { nestedRowParents, nestedStateMarks, visibleNestedSessions } from '@solus/workspace-ui/components/session/lib/session-tree'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 
 type Row = Pick<SidebarTask, 'id' | 'lifecycle'>
@@ -66,5 +66,25 @@ describe('sidebar session tree', () => {
     expect(visibleNestedSessions(nested, false, 'b')).toEqual(nested)
     expect(visibleNestedSessions(nested, true, null)).toEqual([])
     expect(visibleNestedSessions(nested, true, 'b')).toEqual([{ tabId: 'b' }])
+  })
+})
+
+describe('the marks a row stacks for the sessions it started', () => {
+  test('each state once, what wants the person first, then unread, then working', () => {
+    // WHY: a folded drawer must not hide a session that asks a question or
+    // has finished unread. The stack is a summary, so a state appears once
+    // however many sessions share it.
+    expect(
+      nestedStateMarks([
+        { attention: 'running', unread: false },
+        { attention: 'idle', unread: true },
+        { attention: 'running', unread: true },
+        { attention: 'awaiting', unread: false },
+      ]),
+    ).toEqual([{ kind: 'glyph', status: 'question' }, { kind: 'unread' }, { kind: 'spinner' }])
+  })
+
+  test('quiet sessions add no mark', () => {
+    expect(nestedStateMarks([{ attention: 'idle', unread: false }])).toEqual([])
   })
 })

@@ -43,7 +43,7 @@ export class TypeSafeKeyMissingError extends TypeSafeError {}
 const MISSING_KEY = {
   host: 'Add a TypeSafe API key in Settings → Tools.',
   account: 'Add your TypeSafe key in your Solus account.',
-  none: 'Ask Jev needs your own TypeSafe key, and a guest has none on this host.',
+  none: 'Auto model selection needs your own TypeSafe key, and a guest has none on this host.',
 } as const
 
 /** The acting person's client (docs/plans/access-model.md §2.6): their own key, never the host's. */

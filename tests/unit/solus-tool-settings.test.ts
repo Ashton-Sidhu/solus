@@ -42,11 +42,21 @@ describe('Solus tool settings', () => {
     expect([...CONFIGURABLE_SOLUS_TOOL_NAMES].sort()).toEqual([...expected, 'claude_subagent', 'codex_subagent'].sort())
     expect(new Set(CONFIGURABLE_SOLUS_TOOL_NAMES).size).toBe(CONFIGURABLE_SOLUS_TOOL_NAMES.length)
   })
+  test('session links are grouped with sessions and task reads compose with session reads', async () => {
+    const sessions = SOLUS_TOOL_GROUPS.find(group => group.id === 'sessions')!
+    for (const name of ['link', 'list_session_pull_requests', 'unlink_pull_request', 'watch_pull_request']) {
+      expect(sessions.tools).toContain(name)
+    }
+    expect(CONFIGURABLE_SOLUS_TOOL_NAMES).not.toContain('read_task_sessions')
+    const { renderArtifactAgentTool } = await import('@solus/server/execution/agents/tools/artifact-tools')
+    expect(Object.keys(renderArtifactAgentTool.inputFields)).not.toContain('link_to_task')
+  })
   test('patches preserve other choices and reject unknown tool names', () => {
     const first = mergeHostConfig(DEFAULT_HOST_CONFIG, { solusTools: { read_work: false } })
-    const second = mergeHostConfig(first, hostConfigPatchSchema.parse({ solusTools: { ask_jev: false } }))
-    expect(second.solusTools).toEqual({ read_work: false, ask_jev: false })
+    const second = mergeHostConfig(first, hostConfigPatchSchema.parse({ solusTools: { query_insights: false } }))
+    expect(second.solusTools).toEqual({ read_work: false, query_insights: false })
     expect(hostConfigPatchSchema.safeParse({ solusTools: { typo: false } }).success).toBe(false)
+    expect(hostConfigPatchSchema.safeParse({ solusTools: { ask_jev: false } }).success).toBe(false)
     expect(hostConfigPatchSchema.safeParse({ solusTools: { wait_for_session: false } }).success).toBe(false)
   })
   test('both providers hide disabled tools and restore enabled tools', () => {
@@ -70,7 +80,7 @@ describe('Solus tool settings', () => {
   })
   test('search accepts group and tool names; group switches cover the full group', () => {
     expect(matchingToolGroups('works')[0].id).toBe('works')
-    expect(matchingToolGroups('ask_jev')[0].visibleTools).toEqual(['ask_jev'])
+    expect(matchingToolGroups('query_insights')[0].visibleTools).toEqual(['query_insights'])
     const works = SOLUS_TOOL_GROUPS.find((group) => group.id === 'works')!
     expect(Object.keys(groupPatch(works.tools, false))).toEqual([...works.tools])
     expect(matchingToolGroups('does not exist')).toEqual([])
@@ -81,6 +91,6 @@ describe('Solus tool settings', () => {
     expect(groupSummary(tools, {})).toBe('All 3 tools on')
     expect(groupSummary(tools, { read_work: false })).toBe('2 of 3 tools on')
     expect(groupSummary(tools, groupPatch(tools, false))).toBe('All 3 tools off')
-    expect(groupSummary(['ask_jev'], { ask_jev: false })).toBe('All 1 tool off')
+    expect(groupSummary(['query_insights'], { query_insights: false })).toBe('All 1 tool off')
   })
 })

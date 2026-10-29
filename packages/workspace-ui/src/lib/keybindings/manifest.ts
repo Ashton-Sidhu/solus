@@ -242,6 +242,8 @@ export const KEYBINDINGS = {
   // The same ⌥C the diagram gives its comments: arms the pin tool, Esc disarms.
   'artifact.comment':             { combo: { alt: true, code: 'KeyC' },                     scope: 'artifact',           label: 'Comment on the render',    group: 'Artifact' },
   'artifact.dismiss':             { combo: { code: 'Escape' },                              scope: 'artifact',           label: 'Close thread / disarm',    group: 'Artifact' },
+  // The same ⌥↵ the diff panel sends its comments with.
+  'artifact.send-comments':       { combo: { alt: true, code: 'Enter' },                    scope: 'artifact',           label: 'Send comments to agent',   group: 'Artifact' },
 
   // ── Attachment preview ─────────────────────────────────────────────────────
   'attachment.close-preview':     { combo: { code: 'Escape' },                             scope: 'attachment-preview', label: 'Close preview',            group: 'General' },

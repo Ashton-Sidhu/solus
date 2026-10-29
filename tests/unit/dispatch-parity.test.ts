@@ -284,15 +284,14 @@ describe('task tools on a dispatched session (foreign task)', () => {
     expect(read.text).toContain('status: in_review')
   })
 
-  test('unsupported foreign writes fail honestly, never with "not found"', async () => {
-    // WHY: "Task not found" is a lie about a task that exists on another host,
-    // and it teaches the agent to re-create work that is already tracked.
-    const linked = await taskTools.linkAgentTool.execute(
+  test('session links reject a task destination even on a dispatched host', async () => {
+    // The session-only contract must also apply on a borrowed execution host.
+    const linked = await (await import('@solus/server/execution/agents/tools/session-link-tools')).linkAgentTool.execute(
       { task_id: foreignTaskId, kind: 'session' },
       toolContext(sessionId),
     )
     expect(linked.ok).toBe(false)
-    expect(linked.text).toContain('another host')
+    expect(linked.text).toContain('Invalid arguments for link')
   })
 
   test('a local task is untouched by the foreign branch', async () => {

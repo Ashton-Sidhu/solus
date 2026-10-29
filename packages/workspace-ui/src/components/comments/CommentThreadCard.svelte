@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { X as CloseIcon } from '@lucide/svelte'
   import type { PlanComment } from '@solus/contracts/types'
   import { threadTime } from '../../lib/relative-time'
   import { CommentComposer } from '../ui/comment-composer'
@@ -41,6 +42,8 @@
     onSaveEdit: (text: string) => void
     onCancelEdit: () => void
     onDelete: () => void
+    /** A floating card has no margin to click away into, so it carries its own close. */
+    onClose?: () => void
   }
 
   let {
@@ -59,6 +62,7 @@
     onSaveEdit,
     onCancelEdit,
     onDelete,
+    onClose,
   }: Props = $props()
 
   const byAgent = $derived(isAgentMessage(comment))
@@ -183,6 +187,11 @@
           >
         {/if}
       </div>
+      {#if onClose}
+        <button type="button" class="ctc__close" aria-label="Close thread" onclick={onClose}>
+          <CloseIcon size={14} />
+        </button>
+      {/if}
     </div>
 
     <!-- The highlight in the text is the real anchor. This quote is the
@@ -419,6 +428,36 @@
     outline-offset: 0.125rem;
     border-radius: 0.25rem;
   }
+  .ctc__close {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: -0.125rem -0.25rem -0.125rem 0;
+    padding: 0;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+  }
+  .ctc__close:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  .ctc__close:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.125rem;
+  }
+  @media (pointer: coarse) {
+    .ctc__close {
+      width: 2.5rem;
+      height: 2.5rem;
+      margin: -0.75rem -0.625rem -0.75rem 0;
+    }
+  }
   /* The quoted anchor, with the amber rule that ties it to the highlight. */
   .ctc__anchor-row {
     display: flex;
@@ -487,6 +526,15 @@
     gap: 0.4375rem;
     padding-top: 0.4375rem;
     border-top: 0.0625rem solid color-mix(in srgb, var(--solus-art-border) 55%, transparent);
+  }
+  /* The reply and edit fields write in the thread's own register: the body's
+     size and leading, flush with its left edge, without the input bar's tall well. */
+  .ctc {
+    --plain-editor-padding: 0.25rem 0;
+  }
+  .ctc :global(.cm-editor) {
+    --plain-editor-font-size: var(--text-xs);
+    --plain-editor-line-height: 1.6;
   }
   .ctc__reply-open {
     padding: 0;

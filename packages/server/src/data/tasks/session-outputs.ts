@@ -17,7 +17,7 @@ import { listWorkRefsForSessions } from '../works/works'
 /**
  * The works, plans and automations a session made. An artifact is not one of
  * them: most are read once, so an artifact is on a task only when its maker
- * asked for that (`link_to_task`).
+ * explicitly linked it from the interface.
  */
 export async function readSessionOutputs(scope: RecordScope, sessionId: string): Promise<TaskLinkInput[]> {
   const [works, plans] = await Promise.all([

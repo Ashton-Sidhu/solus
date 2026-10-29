@@ -54,6 +54,15 @@ describe.serial('server settings defaults', () => {
 })
 
 describe.serial('the stored host config heals one key at a time', () => {
+  test('removes retired tool preferences without enabling other disabled tools', async () => {
+    const settings = await loadSettings('retired-jev', {
+      hostConfig: { solusTools: { ask_jev: false, read_task_sessions: false, search_external_doc: false, read_external_doc: false, read_external_doc_comments: false, write_external_doc_comment: false, create_external_doc: false, update_external_doc: false, import_external_doc: false, read_work: false } },
+    })
+    expect(settings.getHostConfig().config.solusTools).toEqual({ read_work: false })
+    settings.setHostConfig({ analyticsEnabled: false })
+    expect(savedHostConfig()).toHaveProperty('solusTools', { read_work: false })
+  })
+
   // The file is local to the host. A key this host does not know (a person's
   // key an older build stored) or a value that no longer validates must cost
   // only that key: the operator's other choices stay.

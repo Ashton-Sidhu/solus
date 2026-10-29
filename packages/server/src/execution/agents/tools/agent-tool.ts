@@ -66,6 +66,8 @@ export interface AgentTool<TFields extends ZodFieldMap = ZodFieldMap> {
   alwaysLoad?: boolean
   /** The input is an object Solus does not describe (an integration tool whose schema did not convert): it reaches `execute` unchanged. */
   passthroughInput?: boolean
+  /** Refuse extra input fields before parsing can discard a retired argument. */
+  strictInput?: boolean
   execute(
     input: z.output<z.ZodObject<TFields>>,
     context: AgentToolContext,
@@ -90,7 +92,8 @@ export async function executeAgentTool<Input>(
   if (!isSolusToolEnabled(agentTool.name, getHostConfig().config.solusTools)) {
     return { ok: false, text: `${agentTool.name} is disabled in Settings → Tools on this host.` }
   }
-  const parsed = (agentTool.passthroughInput ? z.looseObject(agentTool.inputFields ?? {}) : z.object(agentTool.inputFields)).safeParse(input)
+  const schema = agentTool.passthroughInput ? z.looseObject(agentTool.inputFields ?? {}) : z.object(agentTool.inputFields)
+  const parsed = (agentTool.strictInput ? schema.strict() : schema).safeParse(input)
   if (!parsed.success) {
     return { ok: false, text: `Invalid arguments for ${agentTool.name}: ${z.prettifyError(parsed.error)}` }
   }

@@ -110,7 +110,11 @@ other personal settings. The default is **By status**.
     title that counts them, or press → and ← on the row, to fold or unfold
     them while you read. A folded row still shows the session that is on screen.
     While one of them is on screen, the session and its sessions sit on one
-    raised card.
+    raised card. When the session's own row has no mark of its own, its
+    trailing slot shows the marks of the sessions it started, stacked: a
+    question or error first, then the unread ring, then the working spinner,
+    each once. The same mark sits on that session's row. The session's own
+    row stays where it is and does not move to the Working section.
   - The + on a folder header, and **New session** in its right-click menu,
     start a session in that project on the host of its checkout. **Copy
     path** copies the checkout path.

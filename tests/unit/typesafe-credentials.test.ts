@@ -66,7 +66,7 @@ test('signed in, the host user reads their account\'s key, never the shell\'s, a
 })
 
 test('a member never reads the host user\'s key or the host\'s shell key; theirs is in their account', async () => {
-  // WHY: before, one host-wide key served every person's Ask Jev and Auto routing.
+  // WHY: before, one host-wide key served every person's Auto routing.
   useHostUser({ localId: 'mac' })
   as('local:mac', () => setTypeSafeApiKey('owner-synthetic-key'))
   process.env.TYPESAFE_API_KEY = 'shell-synthetic-key'

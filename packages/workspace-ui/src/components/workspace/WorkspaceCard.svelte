@@ -89,15 +89,15 @@
   const shareState = $derived(shared ? null : shareStateLabel(item.share));
 
   const KIND_LABEL = { doc: "Doc", slides: "Slides", diagram: "Diagram", artifact: "Artifact" } as const;
-  // Works take the two Solus brand hues that carry no lifecycle meaning: teal
-  // for written artifacts, dusty blue for drawn ones. Amber and sage are spoken
-  // for elsewhere — they read as "needs you" and "done" on every other surface,
-  // so a document must not wear them.
+  // Works take two Solus hues that carry no lifecycle meaning: teal for written
+  // artifacts, purple for drawn ones, as a session card's chips draw them. Amber
+  // and sage are spoken for elsewhere — they read as "needs you" and "done" on
+  // every other surface, so a document must not wear them.
   const GLYPH_COLOR = {
     doc: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
     slides: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
-    diagram: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
-    artifact: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
+    diagram: "text-[color-mix(in_oklab,var(--solus-art-6)_66%,var(--foreground))]",
+    artifact: "text-[color-mix(in_oklab,var(--solus-art-6)_66%,var(--foreground))]",
   } as const;
 </script>
 

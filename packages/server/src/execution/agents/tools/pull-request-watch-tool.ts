@@ -4,8 +4,8 @@ import { resolveHomePath } from '../../../platform/paths'
 import { stopPullRequestWatch } from '../../../data/sessions/pull-request-watches'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
 import { startSessionPullRequestWatch, type WatchStartOutcome } from '../../../prs/start-pull-request-watch'
-import type { AgentTool } from './agent-tool'
-import { linkCallerPullRequest, namedPullRequest, type TaskToolCtx, type TaskToolResult } from './task-tools'
+import type { AgentTool, AgentToolResult } from './agent-tool'
+import { linkCallerPullRequest, namedPullRequest, type SessionLinkCtx } from './session-link-tools'
 
 /**
  * `watch_pull_request` (docs/plans/pr-watch.md §1): one tool starts and stops
@@ -22,7 +22,7 @@ const fields = {
 }
 const inputSchema = z.object(fields)
 
-async function watchPullRequest(input: z.output<typeof inputSchema>, ctx: TaskToolCtx): Promise<TaskToolResult> {
+async function watchPullRequest(input: z.output<typeof inputSchema>, ctx: SessionLinkCtx): Promise<AgentToolResult> {
   const sessionId = ctx.sessionId
   if (!sessionId) return { ok: false, text: 'watch_pull_request needs a calling session, and this session has no id yet.' }
   const projectKey = await resolveRepoRoot(ctx.cwd) ?? ctx.cwd
@@ -53,7 +53,7 @@ async function watchPullRequest(input: z.output<typeof inputSchema>, ctx: TaskTo
   return outcomeResult(outcome, label)
 }
 
-function outcomeResult(outcome: WatchStartOutcome, label: string): TaskToolResult {
+function outcomeResult(outcome: WatchStartOutcome, label: string): AgentToolResult {
   switch (outcome) {
     case 'started': return { ok: true, text: `Watching ${label}. End your turn now; Solus wakes you when something changes.` }
     case 'already-watching': return { ok: true, text: `Already watching ${label}. End your turn; Solus wakes you when something changes.` }

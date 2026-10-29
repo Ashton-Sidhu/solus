@@ -177,18 +177,8 @@
       onOpen={neverStarted ? undefined : () => open()}
       onOpenSecondary={neverStarted ? undefined : () => open({ split: true })}
       trailing={neverStarted ? undefined : rowActions}
+      below={linked.length > 0 ? linkedChips : undefined}
     />
-    {#if linked.length > 0}
-      <!-- Indented to the title, as the answer below is. Outside the row, so a
-           chip opens its item and never the session. -->
-      <div class="-mt-0.5 pr-2 pb-1.5 pl-[2.625rem]">
-        <ArtifactChipRow
-          items={linked}
-          onOpen={(artifact) => openArtifact(session, artifact, ref.sessionId, serverId)}
-          onOpenAll={openAllLinked}
-        />
-      </div>
-    {/if}
     {#if needsDecision}
       <!-- Indented to the title: px-2, the 24px avatar, and the 10px gap. -->
       <!-- A click in the answer must not open the session. -->
@@ -210,6 +200,16 @@
     {/if}
   </div>
 </div>
+
+<!-- Inside the row, so the whole card opens the session; a chip opens its
+     item instead, as the row's own buttons do. -->
+{#snippet linkedChips()}
+  <ArtifactChipRow
+    items={linked}
+    onOpen={(artifact) => openArtifact(session, artifact, ref.sessionId, serverId)}
+    onOpenAll={openAllLinked}
+  />
+{/snippet}
 
 <!-- The split and ⋯ stay out of the way until the row is hovered or focused;
      on touch, where nothing hovers, they always show. -->

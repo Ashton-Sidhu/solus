@@ -30,7 +30,16 @@
     startedSessions?: SidebarSessionChild[];
     onOpenSession?: (session: SidebarSessionChild) => void;
   }
-  let { chip, choices, onOpen, onMore, onWarm, onUnlink, startedSessions = [], onOpenSession }: Props = $props();
+  let {
+    chip,
+    choices,
+    onOpen,
+    onMore,
+    onWarm,
+    onUnlink,
+    startedSessions = [],
+    onOpenSession,
+  }: Props = $props();
   let menuOpen = $state(false);
 
   // The chip shows the pull request that leads, and a menu when there is

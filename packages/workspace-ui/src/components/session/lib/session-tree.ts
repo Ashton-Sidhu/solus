@@ -1,4 +1,6 @@
+import { hasGlyph, taskStatusFor, type TaskStatus } from './task-list'
 import type { SidebarTask } from './task-list'
+import type { AttentionState } from '../../../lib/sessionUtils'
 
 /**
  * Which rows nest under another row, and under which one.
@@ -55,4 +57,39 @@ export function visibleNestedSessions<T extends { tabId?: string | null }>(
 ): T[] {
   if (!isCollapsed) return [...nested]
   return nested.filter((session) => !!session.tabId && session.tabId === onScreenTabId)
+}
+
+/** One mark of a session under a row, as the row's trailing slot stacks them. */
+export type NestedStateMark =
+  | { kind: 'glyph'; status: TaskStatus }
+  | { kind: 'unread' }
+  | { kind: 'spinner' }
+
+/** The order the stack reads in: what wants the person first, then unread
+ *  output, then work in flight. */
+const GLYPH_ORDER: TaskStatus[] = ['error', 'question', 'plan', 'limit']
+
+/**
+ * What the sessions under a row are doing, as one stack of marks: each
+ * distinct state once, in the order the sidebar ranks them. The row's own
+ * mark takes the slot when it has one; this stack stands in only when the
+ * row itself is quiet, so a folded drawer never hides a session that wants
+ * the person or is still working.
+ */
+export function nestedStateMarks(
+  sessions: readonly Pick<{ attention: AttentionState; unread: boolean }, 'attention' | 'unread'>[],
+): NestedStateMark[] {
+  const glyphs = new Set<TaskStatus>()
+  let unread = false
+  let running = false
+  for (const session of sessions) {
+    const status = taskStatusFor(session.attention)
+    if (hasGlyph(status)) glyphs.add(status)
+    if (session.unread) unread = true
+    if (status === 'running') running = true
+  }
+  const marks: NestedStateMark[] = GLYPH_ORDER.filter((status) => glyphs.has(status)).map((status) => ({ kind: 'glyph', status }))
+  if (unread) marks.push({ kind: 'unread' })
+  if (running) marks.push({ kind: 'spinner' })
+  return marks
 }

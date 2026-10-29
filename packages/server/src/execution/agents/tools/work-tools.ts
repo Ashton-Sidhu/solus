@@ -173,7 +173,7 @@ export async function createAgentWork(
   ctx: WorkCreateCtx | undefined,
   /** File the work on the session's task. A document written for a task
    *  belongs on it; an artifact is a render the reader may not want on the
-   *  ticket, so `render_artifact` passes false unless asked. A dispatched
+   *  ticket, so `render_artifact` passes false. A dispatched
    *  session's works are created on the task by construction either way. */
   linkToTask = true,
 ): Promise<AgentWorkCreated> {
@@ -196,10 +196,9 @@ export async function createAgentWork(
 
   const { operations, context, remote } = await workspaceToolContext(ctx?.sessionId)
   if (context.actingAgent) context.actingAgent.linkWorkToTask = linkToTask
-  // The Solus API files a work that names its session on that session's task; one the
-  // reader did not ask to link names no session there, so it is not filed.
+  // Keep the originating session on every saved work, including artifacts.
   const created = await operations.createWork(context, {
-    title, type: docType, content, originSessionId: remote && !linkToTask ? undefined : context.actingAgent?.sessionId,
+    title, type: docType, content, originSessionId: context.actingAgent?.sessionId,
     agentProvider: ctx?.agentProvider, projectKey: ctx?.cwd,
   }, randomUUID())
 

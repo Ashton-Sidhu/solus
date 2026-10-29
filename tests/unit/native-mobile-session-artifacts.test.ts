@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { SessionArtifact, SessionArtifacts } from '@solus/contracts/session-artifacts'
-import { artifactFilterChips, artifactSections } from '../../apps/mobile/src/features/threads/artifacts/session-artifacts'
+import { artifactFilterChips, artifactIcon, artifactRowText, artifactSections } from '../../apps/mobile/src/features/threads/artifacts/session-artifacts'
 import { SessionArtifactsFeed } from '../../apps/mobile/src/features/threads/artifacts/session-artifacts-feed'
 
 const pr = (number: number, sessionId = 'lead'): SessionArtifact => ({
@@ -35,6 +35,23 @@ describe('native artifacts screen: filters and sections', () => {
     }
     expect(titles(artifacts, 'all')).toEqual([['This session', 1], ['Fix login', 1], ['Untitled session', 1]])
     expect(titles(artifacts, 'pull-request')).toEqual([['Fix login', 1]])
+  })
+
+  test('the search narrows the list under the kind filter, by title, path, or pull request reference', () => {
+    // WHY: the phone must find the same artifacts the desktop search finds.
+    const artifacts: SessionArtifacts = { own: [file('/repo/login.ts'), pr(5), work('login-spec')], children: [] }
+    expect(artifactSections(artifacts, 'all', 'LOGIN').map((section) => [section.title, section.items.length])).toEqual([['Works', 1], ['Files', 1]])
+    expect(artifactSections(artifacts, 'file', 'login').map((section) => section.title)).toEqual(['Files'])
+    expect(artifactSections(artifacts, 'all', 'o/r #5').map((section) => section.title)).toEqual(['Pull requests'])
+    expect(artifactSections(artifacts, 'all', 'nothing')).toEqual([])
+  })
+
+  test('the icon carries a work type and a pull request state, so the row spends no words on them', () => {
+    const merged: SessionArtifact = { kind: 'pull-request', link: { ...(pr(6) as Extract<SessionArtifact, { kind: 'pull-request' }>).link, snapshot: { number: 6, url: '', title: '', state: 'merged', draft: false, updatedAt: '', baseRepo: { host: 'github.com', owner: 'o', repo: 'r' } } } }
+    expect(artifactIcon(merged)).toBe('arrow.triangle.merge')
+    expect(artifactRowText(merged).iconLabel).toBe('Merged pull request')
+    expect(artifactIcon({ kind: 'work', workId: 'd', title: 'd', workType: 'diagram', linkedAt: 1 })).toBe('point.3.connected.trianglepath.dotted')
+    expect(artifactRowText(work('spec')).detail).toBeNull()
   })
 
   test('an empty list has no sections', () => {

@@ -1,4 +1,5 @@
 import type { WorkType } from '@solus/contracts/types'
+import type { AppSymbolName } from '../../../components/AppSymbol'
 import { allSessionArtifacts, type SessionArtifact, type SessionArtifactKind, type SessionArtifacts } from '@solus/contracts/session-artifacts'
 
 /**
@@ -59,9 +60,22 @@ export function artifactFilterChips(artifacts: SessionArtifacts): ArtifactFilter
   return chips
 }
 
-/** The sections for one filter. A section with nothing to show is left out. */
-export function artifactSections(artifacts: SessionArtifacts, filter: ArtifactFilter): ArtifactSection[] {
-  const shown = (items: readonly SessionArtifact[]) => filter === 'all' ? items : items.filter((item) => item.kind === filter)
+/**
+ * Whether the search finds the item: the query, without case, inside its
+ * title, its path or pull request reference, or what its icon stands for.
+ * An empty query finds everything.
+ */
+export function artifactMatchesQuery(item: SessionArtifact, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  const text = artifactRowText(item)
+  return [text.title, text.detail ?? '', text.iconLabel].some((value) => value.toLowerCase().includes(needle))
+}
+
+/** The sections for one filter and search. A section with nothing to show is left out. */
+export function artifactSections(artifacts: SessionArtifacts, filter: ArtifactFilter, query = ''): ArtifactSection[] {
+  const shown = (items: readonly SessionArtifact[]) =>
+    items.filter((item) => (filter === 'all' || item.kind === filter) && artifactMatchesQuery(item, query))
   if (artifacts.children.length === 0) {
     return KIND_ORDER
       .map((kind) => ({ key: kind, title: KIND_TITLE[kind], items: shown(artifacts.own).filter((item) => item.kind === kind) }))
@@ -84,18 +98,74 @@ export function artifactKey(item: SessionArtifact): string {
   }
 }
 
-/** A row's title and the line under it. */
+/**
+ * A row's title, the line under it, and what its icon stands for. The icon
+ * carries the kind and the state, so the line under the title names only
+ * where the item lives; a work or an automation has no such line.
+ */
 export interface ArtifactRowText {
   readonly title: string
-  readonly detail: string
+  readonly detail: string | null
+  readonly iconLabel: string
 }
+
+const PULL_REQUEST_STATE_LABEL = {
+  open: 'Open pull request',
+  draft: 'Draft pull request',
+  merged: 'Merged pull request',
+  closed: 'Closed pull request',
+  missing: 'Pull request not found',
+} satisfies Record<PullRequestState, string>
 
 export function artifactRowText(item: SessionArtifact): ArtifactRowText {
   switch (item.kind) {
-    case 'pull-request': return { title: item.link.title || `#${item.link.number}`, detail: `${item.link.repository} #${item.link.number}` }
-    case 'work': return { title: item.title, detail: WORK_TYPE_LABEL[item.workType] }
-    case 'file':
-    case 'image': return { title: item.title, detail: item.path }
-    case 'automation': return { title: item.title, detail: 'Automation' }
+    case 'pull-request': {
+      const state = pullRequestState(item)
+      return {
+        title: item.link.title || `#${item.link.number}`,
+        detail: `${item.link.repository} #${item.link.number}`,
+        iconLabel: state ? PULL_REQUEST_STATE_LABEL[state] : 'Pull request',
+      }
+    }
+    case 'work': return { title: item.title, detail: null, iconLabel: WORK_TYPE_LABEL[item.workType] }
+    case 'file': return { title: item.title, detail: item.path, iconLabel: 'File' }
+    case 'image': return { title: item.title, detail: item.path, iconLabel: 'Image' }
+    case 'automation': return { title: item.title, detail: null, iconLabel: 'Automation' }
+  }
+}
+
+/** Where a pull request stands, as PR sync last saw it. Null before it answers. */
+type PullRequestState = 'open' | 'draft' | 'merged' | 'closed' | 'missing'
+
+function pullRequestState(item: Extract<SessionArtifact, { kind: 'pull-request' }>): PullRequestState | null {
+  if (item.link.missing) return 'missing'
+  const snapshot = item.link.snapshot
+  if (!snapshot) return null
+  return snapshot.state === 'open' && snapshot.draft ? 'draft' : snapshot.state
+}
+
+const WORK_TYPE_ICON = {
+  doc: 'doc.text',
+  slides: 'square.on.square',
+  diagram: 'point.3.connected.trianglepath.dotted',
+  artifact: 'chevron.left.forwardslash.chevron.right',
+} satisfies Record<WorkType, AppSymbolName>
+
+const PULL_REQUEST_ICON = {
+  open: 'arrow.triangle.pull',
+  draft: 'arrow.triangle.pull',
+  merged: 'arrow.triangle.merge',
+  closed: 'xmark.circle.fill',
+  missing: 'exclamationmark.triangle',
+} satisfies Record<PullRequestState, AppSymbolName>
+
+/** The row's icon: a work's type, a pull request's state, else the kind. */
+export function artifactIcon(item: SessionArtifact): AppSymbolName {
+  switch (item.kind) {
+    case 'pull-request': return PULL_REQUEST_ICON[pullRequestState(item) ?? 'open']
+    case 'work': return WORK_TYPE_ICON[item.workType]
+    case 'file': return 'doc'
+    case 'image': return 'photo'
+    case 'automation': return 'clock'
   }
 }

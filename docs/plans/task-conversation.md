@@ -61,7 +61,7 @@ Do not coin "task thread", "task conversation" or "task row".
 ## Orchestrator
 
 The orchestration runtime is unchanged: `start_session`, `send_session`,
-`stop_session`, `read_session`, `read_task_sessions`, reports and notices into
+`stop_session`, `read_session`, reports and notices into
 the parent, and the cards where a person answers a child
 (`docs/session-orchestration.md`).
 

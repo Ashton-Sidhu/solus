@@ -111,7 +111,14 @@ export const workspaceTaskSummarySchema = z.strictObject({
 }).meta({ description: 'Task metadata without the body. Read an individual task for its full body. Links and comments remain on their existing routes.', examples: [taskExample] })
 export type WorkspaceTaskSummary = z.infer<typeof workspaceTaskSummarySchema>
 
-export const workspaceTaskSchema = workspaceTaskSummarySchema.extend({ body: z.string().max(1000000) })
+export const workspaceTaskSchema = workspaceTaskSummarySchema.extend({
+  body: z.string().max(1000000),
+  sessions: z.array(z.strictObject({
+    sessionId: workspaceIdSchema,
+    sessionTitle: z.string().nullable(),
+    role: z.enum(['working', 'referenced']),
+  })).optional().describe('Linked sessions the caller may read. Use their IDs to read session status and history.'),
+})
   .meta({ description: 'Preserve existing ownership, parent-access and sharing rules. Organization membership alone does not bypass resource access.', examples: [{ ...taskExample, body: 'Check the task endpoints.' }] })
 export type WorkspaceTask = z.infer<typeof workspaceTaskSchema>
 

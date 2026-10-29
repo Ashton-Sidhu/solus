@@ -14,9 +14,6 @@
  */
 /** User-controlled tools, grouped by their function in Settings. */
 export const SOLUS_TOOL_GROUPS = [
-  { id: 'intelligence', label: 'Intelligence', tools: [
-    'ask_jev',
-  ] },
   { id: 'works', label: 'Works', tools: [
     'find_works',
     'read_work',
@@ -30,15 +27,6 @@ export const SOLUS_TOOL_GROUPS = [
     'publish_work',
     'pull_work_upstream',
     'request_work_review',
-  ] },
-  { id: 'docs', label: 'External documents', tools: [
-    'search_external_doc',
-    'read_external_doc',
-    'read_external_doc_comments',
-    'write_external_doc_comment',
-    'create_external_doc',
-    'update_external_doc',
-    'import_external_doc',
   ] },
   { id: 'automations', label: 'Automations', tools: [
     'create_automation',
@@ -105,11 +93,14 @@ export const SOLUS_TOOL_GROUPS = [
     'search_sessions',
     'read_session',
     'read_session_exchange',
-    'read_task_sessions',
     'start_session',
     'send_session',
     'stop_session',
     'organize_session',
+    'watch_pull_request',
+    'unlink_pull_request',
+    'list_session_pull_requests',
+    'link',
     'background_wait',
     'worktree_status',
     'move_to_worktree',
@@ -122,10 +113,6 @@ export const SOLUS_TOOL_GROUPS = [
     'update_task_status',
     'create_task',
     'comment_task',
-    'link',
-    'list_session_pull_requests',
-    'unlink_pull_request',
-    'watch_pull_request',
   ] },
 ] as const
 

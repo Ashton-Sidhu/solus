@@ -89,6 +89,26 @@ afterAll(() => {
 const deps = (sessionId = 'solus-parent') => ({ ctx: { agentProvider: 'codex' as const, cwd: '/repo', sessionId } })
 const start = { prompt: 'build it', model_id: 'gpt-test' }
 
+test('each session tool rejects invalid input before running its handler', async () => {
+  calls.length = 0
+  const invalidCalls = [
+    { name: 'list_agent_targets', args: { host: 42 } },
+    { name: 'read_session', args: { session_id: 42 } },
+    { name: 'read_session_exchange', args: { exchange_id: 42 } },
+    { name: 'search_sessions', args: { query: 42 } },
+    { name: 'send_session', args: { session_id: 'solus-peer', message: 42 } },
+    { name: 'stop_session', args: { session_id: 42 } },
+    { name: 'start_session', args: { ...start, task: 'none', title: 42 } },
+  ]
+  for (const { name, args } of invalidCalls) {
+    const result = await sessionTools.executeSessionTool(name, args, deps())
+    expect(result.ok).toBe(false)
+    expect(result.text).not.toContain('Session tool error:')
+    expect(result.text).toContain(name)
+  }
+  expect(calls).toEqual([])
+})
+
 /** The history row a tool result becomes, as a reloading client receives it. */
 function reloaded(toolName: string, result: string) {
   const rows: SessionLoadMessage[] = [
@@ -229,15 +249,6 @@ describe('the acting session tools', () => {
     expect(calls).toEqual([])
   })
 
-  test('read_task_sessions shows the caller\'s own task by default, and needs a task otherwise', async () => {
-    const root = await taskStore.createTask('local', { title: 'Coordinate the work', projectKey: '/repo', body: '' })
-    await bind('solus-coordinator', root.id)
-    const view = await sessionTools.executeSessionTool('read_task_sessions', {}, deps('solus-coordinator'))
-    expect(view.ok).toBe(true)
-    expect(view.text).toContain(`Task ${root.id}`)
-    expect(await sessionTools.executeSessionTool('read_task_sessions', {}, deps('solus-without-task'))).toEqual({ ok: false, text: 'This session has no task. Pass task_id.' })
-  })
-
   test('stop_session stops the target on behalf of the caller', async () => {
     calls.length = 0
     expect((await sessionTools.executeSessionTool('stop_session', { session_id: 'solus-peer' }, deps())).ok).toBe(true)
@@ -251,9 +262,9 @@ describe('the acting session tools', () => {
 
   test('the tools the redesign replaced are gone', async () => {
     expect(sessionTools.sessionAgentTools.map((tool) => tool.name)).toEqual([
-      'list_agent_targets', 'search_sessions', 'read_session', 'read_session_exchange', 'read_task_sessions', 'start_session', 'send_session', 'stop_session',
+      'list_agent_targets', 'search_sessions', 'read_session', 'read_session_exchange', 'start_session', 'send_session', 'stop_session',
     ])
-    for (const retired of ['wait_for_session', 'create_session', 'prompt_session', 'find_sessions']) {
+    for (const retired of ['read_task_sessions', 'wait_for_session', 'create_session', 'prompt_session', 'find_sessions']) {
       expect((await sessionTools.executeSessionTool(retired, { session_id: 'solus-peer' }, deps())).ok).toBe(false)
     }
   })

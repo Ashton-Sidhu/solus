@@ -11,9 +11,11 @@ import type { AgentMetadata, SessionRunInput } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
 
+let keyReads = 0
+
 // The account that holds the run's person's TypeSafe key cannot be reached.
 mock.module('@solus/server/typesafe/credentials', () => ({
-  typeSafeKey: () => Promise.reject(new Error('Your account connection is unavailable. Open Connections on the account website.')),
+  typeSafeKey: () => { keyReads++; return Promise.reject(new Error('Your account connection is unavailable. Open Connections on the account website.')) },
   typeSafeKeyStatus: () => Promise.reject(new Error('unavailable')),
   setTypeSafeApiKey: () => {},
 }))
@@ -91,16 +93,15 @@ function tool(name: string): AgentTool {
 }
 
 describe('a run whose person\'s TypeSafe key cannot be read', () => {
-  test('still reaches the agent, without ask_jev', async () => {
-    // WHY: the key only decides whether one tool joins the run. An account that does
-    // not answer must not fail the person's prompt.
+  test('starts a fixed-model run without reading a TypeSafe key', async () => {
+    // WHY: a fixed-model run does not use TypeSafe. It must not wait for an account key.
     const backend = new RecordingBackend()
     const plane = new runtime.SessionRuntime(new Map([['claude-code', backend]]))
     plane.on('error', () => {})
 
     const lifecycle = await plane.runTurn({
       target: { kind: 'new-session' }, sessionId: 'solus-typesafe-unreadable', input: input(),
-      tools: [tool('ask_jev'), tool('create_task')],
+      tools: [tool('create_task')],
       options: { prompt: 'do the work', promptSource: 'typed' },
     })
     await lifecycle.agentSessionId
@@ -108,7 +109,7 @@ describe('a run whose person\'s TypeSafe key cannot be read', () => {
     expect(backend.runs).toHaveLength(1)
     const names = backend.runs[0]!.tools.map((each) => each.name)
     expect(names).toContain('create_task')
-    expect(names).not.toContain('ask_jev')
+    expect(keyReads).toBe(0)
     plane.shutdown()
   })
 })

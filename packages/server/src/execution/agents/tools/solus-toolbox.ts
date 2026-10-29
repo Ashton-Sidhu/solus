@@ -1,5 +1,5 @@
+import { linkAgentTool, listSessionPullRequestsAgentTool, unlinkPullRequestAgentTool } from './session-link-tools'
 import { deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '../../../devices/device-tools'
-import { readExternalDocCommentsAgentTool, writeExternalDocCommentAgentTool } from '../../../docs/comment-tools'
 import {
   createWorkAgentTool,
   findWorksAgentTool,
@@ -22,7 +22,6 @@ import {
   listAgentTargetsAgentTool,
   readSessionAgentTool,
   readSessionExchangeAgentTool,
-  readTaskSessionsAgentTool,
   searchSessionsAgentTool,
   sendSessionAgentTool,
   startSessionAgentTool,
@@ -37,22 +36,11 @@ import {
 import {
   commentTaskAgentTool,
   createTaskAgentTool,
-  linkAgentTool,
-  listSessionPullRequestsAgentTool,
-  unlinkPullRequestAgentTool,
   listTasksAgentTool,
   readTaskAgentTool,
   updateTaskStatusAgentTool,
 } from './task-tools'
-import {
-  createExternalDocAgentTool,
-  importExternalDocAgentTool,
-  publishWorkAgentTool,
-  pullWorkUpstreamAgentTool,
-  readExternalDocAgentTool,
-  searchExternalDocAgentTool,
-  updateExternalDocAgentTool,
-} from '../../../docs/doc-tools'
+import { publishWorkAgentTool, pullWorkUpstreamAgentTool } from './work-sync-tools'
 import { connectionStatusAgentTool } from '../../../connections/connection-tools'
 import { connectIntegrationAgentTool } from '../../../integrations/connect-integration-tool'
 import { queryInsightsAgentTool } from './insights-tools'
@@ -80,7 +68,6 @@ import {
 } from '../../../browser/browser-tools'
 import { readConfigAgentTool, updateConfigAgentTool } from './config-tools'
 import { moveToWorktreeAgentTool, worktreeStatusAgentTool } from './worktree-tools'
-import { askJevAgentTool } from '../../../typesafe/jev-tool'
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 import { organizeSessionAgentTool } from './session-organize-tool'
 import { backgroundWaitAgentTool } from './background-wait-tool'
@@ -96,9 +83,6 @@ import {
 } from './webhook-tools'
 
 export const solusToolbox = {
-  intelligence: {
-    askJev: askJevAgentTool,
-  },
   works: {
     find: findWorksAgentTool,
     read: readWorkAgentTool,
@@ -111,15 +95,6 @@ export const solusToolbox = {
     publish: publishWorkAgentTool,
     pullUpstream: pullWorkUpstreamAgentTool,
     requestReview: requestWorkReviewAgentTool,
-  },
-  docs: {
-    readComments: readExternalDocCommentsAgentTool,
-    writeComment: writeExternalDocCommentAgentTool,
-    search: searchExternalDocAgentTool,
-    read: readExternalDocAgentTool,
-    create: createExternalDocAgentTool,
-    update: updateExternalDocAgentTool,
-    import: importExternalDocAgentTool,
   },
   artifact: {
     render: renderArtifactAgentTool,
@@ -185,11 +160,14 @@ export const solusToolbox = {
     search: searchSessionsAgentTool,
     read: readSessionAgentTool,
     exchange: readSessionExchangeAgentTool,
-    readTask: readTaskSessionsAgentTool,
     start: startSessionAgentTool,
     send: sendSessionAgentTool,
     stop: stopSessionAgentTool,
     organize: organizeSessionAgentTool,
+    watchPullRequest: watchPullRequestAgentTool,
+    unlinkPullRequest: unlinkPullRequestAgentTool,
+    listSessionPullRequests: listSessionPullRequestsAgentTool,
+    link: linkAgentTool,
     backgroundWait: backgroundWaitAgentTool,
     worktreeStatus: worktreeStatusAgentTool,
     moveToWorktree: moveToWorktreeAgentTool,
@@ -200,10 +178,6 @@ export const solusToolbox = {
     updateStatus: updateTaskStatusAgentTool,
     create: createTaskAgentTool,
     comment: commentTaskAgentTool,
-    link: linkAgentTool,
-    listSessionPullRequests: listSessionPullRequestsAgentTool,
-    unlinkPullRequest: unlinkPullRequestAgentTool,
-    watchPullRequest: watchPullRequestAgentTool,
   },
   config: {
     read: readConfigAgentTool,

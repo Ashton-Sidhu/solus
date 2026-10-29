@@ -21,7 +21,7 @@ export function formatTaskContext(
   const title = task.title ? ` — "${task.title}"` : ''
   return [
     `[Working On Task${title} (task_id: ${task.id})]`,
-    `Call read_task with task_id "${task.id}" before you start work. It returns the description, comments, epic, and linked items. Call it again only to refresh them. Call read_task_sessions to see prior attempts.`,
+    `Call read_task with task_id "${task.id}" before you start work. It returns the description, comments, epic, and linked items. Call it again only to refresh them. It lists session IDs; use read_session for the status and history of a prior attempt.`,
     '',
     'Work contract:',
     ...workContract(lifecyclePolicy),

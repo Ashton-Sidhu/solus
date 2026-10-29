@@ -72,6 +72,26 @@ test('work writes preserve read-only provider rules and versions', async () => {
   await expect(operations.updateWork(context, work.id, { content: 'Forbidden', expectedContentVersion: linked.contentVersion }, linked.version)).rejects.toThrow('Google Docs')
 })
 
+test('task reads expose only readable session IDs and artifacts retain their session', async () => {
+  const { Task } = await import('@solus/server/data/tasks/task')
+  const task = await operations.createTask(context, { title: 'Session context' }, 'task-session-context')
+  const db = database.getDatabase()
+  for (const [sessionId, owner] of [['task-session-alice', 'alice'], ['task-session-bob', 'bob']]) {
+    await db.run(sql`INSERT INTO session_records(session_id,organization_id,owner_key,provider,project_path,status,created_at,last_activity_at,size) VALUES (${sessionId},'A',${owner},'codex','/project','idle',1,2,100)`)
+    await (await Task.byId('A', task.id)).linkSession(sessionId)
+  }
+  const read = workspaceTaskSchema.parse(await operations.getTask(context, task.id))
+  expect(read.sessions?.map(session => session.sessionId)).toEqual(['task-session-alice'])
+  const taskOnly = await operations.getTask({ ...context, scopes: ['tasks:read'] }, task.id)
+  expect(taskOnly.sessions).toBeUndefined()
+
+  const artifact = await operations.createWork(context, {
+    title: 'Saved chart', type: 'artifact', content: '<p>Chart</p>', originSessionId: 'task-session-alice',
+  }, 'session-artifact-context')
+  expect(artifact.sessionIds).toContain('task-session-alice')
+  expect((await (await Task.byId('A', task.id)).details()).links.map(link => link.targetKey)).not.toContain(artifact.id)
+})
+
 test('transcript paging reconstructs Unicode text without loading an unbounded message', async () => {
   const db = database.getDatabase(), sessionId = 'text-session'
   await db.run(sql`INSERT INTO session_records(session_id,organization_id,owner_key,provider,project_path,status,created_at,last_activity_at,size) VALUES (${sessionId},'A','alice','codex','/project','idle',1,2,100)`)

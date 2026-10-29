@@ -9,7 +9,7 @@
     { id: "code-editor", keywords: ["code", "editor", "vscode", "ide", "open"] },
     { id: "terminal", keywords: ["terminal", "shell", "command", "console", "tmux", "fallback"] },
     { id: "code-intel", keywords: ["code", "intelligence", "scip", "index", "definition", "references", "symbol", "navigation", "typescript", "python", "go", "rust"] },
-    { id: "typesafe", keywords: ["typesafe", "jev", "api", "key", "credential", "intelligence"] },
+    { id: "typesafe", keywords: ["typesafe", "auto", "model", "api", "key", "credential"] },
   ];
 </script>
 

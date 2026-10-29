@@ -9,6 +9,8 @@ import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
 import { serializeWorkEmbed } from '@solus/contracts/work-embed'
 import { documentToMarkdown } from '@solus/server/google/docs-markdown'
 import { DocVersionConflictError } from '@solus/server/docs/types'
+import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
+import { installTestWorkspaceTools } from './helpers/workspace-tools'
 
 /**
  * Publish and pull against the real works store, on a throwaway data dir. The
@@ -147,6 +149,40 @@ beforeEach(async () => {
   upstream.lastReadHints = null
   upstream.beforeUpdate = null
   workId = await newWork()
+})
+
+describe('work publish and pull tools', () => {
+  const context: AgentToolContext = {
+    provider: 'codex', cwd: '/project', sessionId: () => undefined,
+    abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {},
+  }
+
+  test('pull imports a URL, refreshes that work by ID, and publish keeps the source link', async () => {
+    const stop = await installTestWorkspaceTools()
+    try {
+      const { pullWorkUpstreamAgentTool: pull, publishWorkAgentTool: publish } = await import('@solus/server/execution/agents/tools/work-sync-tools')
+      const imported = await pull.execute({ url: 'https://acme.atlassian.net/wiki/x' }, context)
+      expect(imported.ok).toBe(true)
+      const importedId = imported.text.match(/as work ([^, ]+)/)?.[1]
+      expect(importedId).toBeDefined()
+      upstream.markdown = '# Changed upstream'
+      expect((await pull.execute({ work_id: importedId }, context)).ok).toBe(true)
+      expect((await works.loadWork('local', importedId!))?.content).toBe('# Changed upstream')
+      expect((await publish.execute({ work_id: importedId }, context)).ok).toBe(true)
+      expect(upstream.lastPatch?.markdown).toBe('# Changed upstream')
+      expect((await linkOf(importedId!))?.url).toBe('https://acme.atlassian.net/wiki/x')
+    } finally { stop() }
+  })
+
+  test('pull rejects missing and ambiguous targets before reading a document', async () => {
+    const { pullWorkUpstreamAgentTool: pull } = await import('@solus/server/execution/agents/tools/work-sync-tools')
+    for (const args of [{}, { work_id: workId, url: 'https://acme.atlassian.net/wiki/x' }]) {
+      const result = await pull.execute(args, context)
+      expect(result.ok).toBe(false)
+      expect(result.text).toContain('exactly one of work_id or url')
+    }
+    expect(upstream.lastReadHints).toBeNull()
+  })
 })
 
 describe('publishWork', () => {

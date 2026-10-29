@@ -26,8 +26,8 @@ describe('Solus tool settings store', () => {
     expect(store.states.get('remote')?.preferences).toEqual({ read_work: false })
     await store.save('remote', { read_work: true })
     expect(writes).toEqual([{ read_work: true }])
-    connections.emit('remote', 'config.changed', snapshot({ ask_jev: false }))
-    expect(store.states.get('remote')?.preferences).toEqual({ ask_jev: false })
+    connections.emit('remote', 'config.changed', snapshot({ query_insights: false }))
+    expect(store.states.get('remote')?.preferences).toEqual({ query_insights: false })
     stop()
   })
   test('a stale load cannot overwrite a host event', async () => {

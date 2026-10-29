@@ -3,6 +3,7 @@ import type { SessionArtifact, SessionArtifacts } from '@solus/contracts/session
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import {
   artifactDetail,
+  artifactIconLabel,
   artifactKindLabel,
   artifactMatchesQuery,
   artifactSections,
@@ -89,7 +90,17 @@ describe('artifact rows', () => {
     expect(artifactTooltip(artifact)).toBe('/repo/src/deep/name.ts')
   })
 
-  test('the card names the kind, a work by its type, and where a pull request or file lives', () => {
+  test('the icon label says a pull request state in words for the tooltip and screen readers', () => {
+    // WHY: the row shows status only as an icon; its words must still reach a screen reader.
+    const snapshot = { number: 1, url: '', title: '', state: 'open' as const, draft: true, updatedAt: '', baseRepo: { host: 'github.com', owner: 'acme', repo: 'app' } }
+    expect(artifactIconLabel(pr(1, 1, { snapshot }))).toBe('Draft pull request')
+    expect(artifactIconLabel(pr(1, 1, { snapshot: { ...snapshot, state: 'merged', draft: false } }))).toBe('Merged pull request')
+    expect(artifactIconLabel(pr(1, 1, { missing: true }))).toBe('Pull request not found')
+    expect(artifactIconLabel(pr(1, 1))).toBe('Pull request')
+    expect(artifactIconLabel(work('w', 1))).toBe('Slides')
+  })
+
+  test('the row names the kind, a work by its type, and where a pull request or file lives', () => {
     expect(artifactKindLabel(work('w', 1))).toBe('Slides')
     expect(artifactKindLabel(pr(1, 1))).toBe('Pull request')
     expect(artifactDetail(pr(12, 1))).toBe('github.com/acme/app #12')

@@ -1,10 +1,8 @@
 import { useFocusEffect } from "@react-navigation/native";
-import type { SessionArtifact } from "@solus/contracts/session-artifacts";
-import { useCallback, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { AppSymbolName } from "../../../components/AppSymbol";
 import { AppText as Text } from "../../../components/AppText";
 import { EmptyState } from "../../../components/EmptyState";
 import { ListRow } from "../../../components/ListRow";
@@ -16,6 +14,7 @@ import type { ScreenProps } from "../../../navigation/routes";
 import { HostStatusBanner } from "../../hosts/HostStatusBanner";
 import {
   artifactFilterChips,
+  artifactIcon,
   artifactKey,
   artifactRowText,
   artifactSections,
@@ -24,25 +23,31 @@ import {
 import { useOpenArtifact } from "./use-open-artifact";
 import { useSessionArtifacts } from "./use-session-artifacts";
 
-const KIND_ICON = {
-  "pull-request": "arrow.triangle.pull",
-  work: "doc.text",
-  file: "doc",
-  image: "photo",
-  automation: "clock",
-} satisfies Record<SessionArtifact["kind"], AppSymbolName>;
-
 /**
  * What a session produced or linked (docs/plans/session-artifacts.md). Pull
  * requests open their screen, or the browser when no project of the host
  * reads them; files and images open the file screen of their host. Works and
  * automations have no screen on the phone, so their rows only name them.
  */
-export function ArtifactsScreen({ route }: ScreenProps<"ThreadArtifacts">) {
+export function ArtifactsScreen({ navigation, route }: ScreenProps<"ThreadArtifacts">) {
   const { hostId, sessionId } = route.params;
   const insets = useSafeAreaInsets();
   const { feed, snapshot } = useSessionArtifacts(hostId, sessionId, false);
   const [filter, setFilter] = useState<ArtifactFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  // The header search, as the Files screen has it: it narrows the list under
+  // the kind filter.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerSearchBarOptions: {
+        placeholder: "Search artifacts",
+        autoCapitalize: "none",
+        hideWhenScrolling: false,
+        onChangeText: (event) => setSearchQuery(event.nativeEvent.text),
+        onCancelButtonPress: () => setSearchQuery(""),
+      },
+    });
+  }, [navigation]);
   // Open clears the unread mark, and keeps it clear while open.
   useFocusEffect(useCallback(() => feed.view(), [feed]));
 
@@ -70,9 +75,9 @@ export function ArtifactsScreen({ route }: ScreenProps<"ThreadArtifacts">) {
     const chips = artifactFilterChips(state.artifacts);
     // A kind that is gone after a reload has no chip: show all.
     const activeFilter = chips.some((chip) => chip.filter === filter) ? filter : "all";
-    const sections = artifactSections(state.artifacts, activeFilter);
+    const sections = artifactSections(state.artifacts, activeFilter, searchQuery);
     body =
-      sections.length === 0 ? (
+      chips[0].count === 0 ? (
         <EmptyState
           variant="plain"
           title="Nothing linked yet."
@@ -112,6 +117,9 @@ export function ArtifactsScreen({ route }: ScreenProps<"ThreadArtifacts">) {
               </Pressable>
             ))}
           </ScrollView>
+          {sections.length === 0 ? (
+            <EmptyState variant="plain" title="No matches." detail="Try a different search." />
+          ) : null}
           {sections.map((section) => (
             <ListSection key={section.key} title={section.title}>
               {section.items.map((item) => {
@@ -119,21 +127,22 @@ export function ArtifactsScreen({ route }: ScreenProps<"ThreadArtifacts">) {
                 return opens(item) ? (
                   <ListRow
                     key={artifactKey(item)}
-                    icon={KIND_ICON[item.kind]}
+                    icon={artifactIcon(item)}
                     label={text.title}
-                    description={text.detail}
+                    description={text.detail ?? undefined}
+                    accessibilityHint={text.iconLabel}
                     onPress={() => open(item)}
                   />
                 ) : (
-                  <View key={artifactKey(item)} accessible accessibilityLabel={`${text.title}, ${text.detail}`}>
+                  <View
+                    key={artifactKey(item)}
+                    accessible
+                    accessibilityLabel={[text.title, text.iconLabel, text.detail, "Open it on desktop or web"].filter(Boolean).join(", ")}
+                  >
                     <ListRowLayout
-                      icon={KIND_ICON[item.kind]}
+                      icon={artifactIcon(item)}
                       label={text.title}
-                      description={
-                        item.kind === "work" || item.kind === "automation"
-                          ? `${text.detail} · Open it on desktop or web`
-                          : text.detail
-                      }
+                      description={text.detail ?? "Open it on desktop or web"}
                     />
                   </View>
                 );
