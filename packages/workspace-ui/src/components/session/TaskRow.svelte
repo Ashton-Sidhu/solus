@@ -370,24 +370,18 @@
          ring or spinner sits on the session's own row in the drawer, so the
          summary and the detail never disagree. Every mark keeps its own
          colour, so the stack holds at full strength on a receded row. -->
-    <!-- The marks overlap like a stack of avatars, each later one cut out
-         of the one beneath by a halo in the row's own surface: the sidebar
-         at rest, the card on hover, when selected, and inside the raised
-         card. -->
+    <!-- The marks sit side by side, close enough to read as one cluster.
+         They do not overlap: the ring and the spinner are strokes, not
+         discs, and a halo that cut one out of the other left both as
+         broken arcs. -->
     <span
-      class="flex shrink-0 items-center {isCurrentSession || isCardRaised
-        ? '[--mark-halo:var(--card)]'
-        : '[--mark-halo:var(--sidebar)] group-hover/row:[--mark-halo:var(--card)]'}"
+      class="flex shrink-0 items-center gap-[0.1875rem]"
       role="img"
       aria-label={nestedMarksLabel}
       title={nestedMarksLabel}
     >
       {#each nestedMarks as nested, index (index)}
-        <span
-          class="flex shrink-0 items-center rounded-full [box-shadow:0_0_0_1.5px_var(--mark-halo)] {index > 0
-            ? '-ml-1'
-            : ''}"
-        >
+        <span class="flex shrink-0 items-center">
           {#if nested.kind === "glyph"}
             <TaskStatusGlyph status={nested.status} size={13} label="" />
           {:else if nested.kind === "unread"}
