@@ -2,9 +2,7 @@
   import { localApi } from "@solus/client-core/local-api";
   import { fly } from "svelte/transition";
   import {
-    ChevronLeft as CaretLeftIcon,
     ChevronRight as CaretRightIcon,
-    MessageSquareText as ChatTeardropTextIcon,
     Check as CheckIcon,
   } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
@@ -28,7 +26,7 @@
   import { conversationIsVisible } from "./lib/conversation-visibility";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
-  import { callTitle } from "../presence/lib/actor-name";
+  import { othersTurnLabel } from "../presence/lib/actor-name";
   import { runHost } from "../../contexts/workspace/run-location";
   import { formatComboText } from "../../lib/keybindings/match";
 
@@ -60,6 +58,12 @@
   const self = $derived(sess ? presenceStore.currentUserId(runHost(sess.run)) : null);
   // A member who may only read the session reads the question but cannot answer it.
   const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id, "drive.approve"));
+  const agentName = $derived(provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : "the agent");
+  // Who asks, in the eyebrow: an MCP server by name, a teammate's turn (plan 004 F2), else the agent.
+  const othersTurn = $derived(othersTurnLabel(request.turnAuthor, self));
+  const eyebrow = $derived(
+    `${request.serverName ?? othersTurn ?? (agentName === "the agent" ? "The agent" : agentName)} asks${request.responseMode === "message" ? " · turn continues" : ""}`,
+  );
 
   // The typed remark lives on the request (`request.remarks`), so it stays when
   // the card mounts again and goes back to the composer if the question closes
@@ -71,7 +75,7 @@
   let responded = $state(false);
   // The host closed it unanswered (its run ended), or the answer was sent.
   const closed = $derived(responded || !!request.expired);
-  let previewOpen = $state(true);
+  let previewOpen = $state(false);
   // Callback questions pause a turn. Async questions can remain open after it ends.
   let askedAt = $state(Date.now());
   let now = $state(Date.now());
@@ -96,7 +100,7 @@
 
   $effect(() => {
     void currentIndex;
-    previewOpen = true;
+    previewOpen = false;
   });
 
   const total = $derived(request.questions.length);
@@ -108,15 +112,15 @@
     request.kind === "mcp_form" || request.kind === "mcp_url"
   );
   const primaryLabel = $derived(
-    request.kind === "mcp_url" ? "Open" : isLast ? "Send answer" : "Next"
+    request.kind === "mcp_url" ? "Open" : isLast ? "Send" : "Next"
   );
   const waiting = $derived(formatWaiting(now - askedAt));
 
   /**
    * §11 — questions are a conversation, not a modal: an answered one collapses to
-   * a single line carrying the choice made and a Change control, and the live
-   * question takes the body. Only questions behind the current one can be
-   * answered, so the trail always reads as history.
+   * a single line carrying the choice made, and the live question takes the
+   * body. Only questions behind the current one can be answered, so the trail
+   * always reads as history.
    */
   const trail = $derived(
     request.questions
@@ -129,8 +133,7 @@
     const q = currentQuestion;
     if (!q || q.options.length === 0) return null;
     const selections = getSelections(q);
-    const sel = q.options.find((o) => selections.includes(o.label));
-    return sel ?? q.options[0];
+    return q.options.find((o) => selections.includes(o.label)) ?? null;
   });
 
   const hasPreview = $derived(!!activeOption?.preview);
@@ -287,115 +290,85 @@
 
 <InterruptCard
   type="question"
-  title={callTitle(request.serverName, request.turnAuthor, self)}
+  title={eyebrow}
   blocking={request.responseMode !== "message"}
-  target={provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : undefined}
   testId="question-card"
 >
   {#snippet rail()}
+    {#if total > 1}<span>{currentIndex + 1} of {total}</span>{/if}
     <span>{waiting}</span>
-    {#if total > 1}
-      <div class="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          class="interrupt-pager"
-          disabled={closed || isFirst}
-          aria-label="Previous question"
-          onclick={goPrev}
-        >
-          <CaretLeftIcon size={14} weight="bold" />
-        </button>
-        <span class="interrupt-pager-count">{currentIndex + 1} of {total}</span>
-        <button
-          type="button"
-          class="interrupt-pager"
-          disabled={closed || isLast}
-          aria-label="Next question"
-          onclick={() => !isLast && (currentIndex += 1)}
-        >
-          <CaretRightIcon size={14} weight="bold" />
-        </button>
-      </div>
-    {/if}
   {/snippet}
 
   {#if currentQuestion}
     {#key currentIndex}
-      <div in:fly={{ y: 4, duration: 140 }} class="min-w-0">
-        <!-- Answers stack as a numbered trail above the live question, each
-             showing the choice made and reopenable in place. -->
-        {#if trail.length > 0}
-          <div class="flex flex-col gap-2 pt-3 pb-4">
+      <div in:fly={{ y: 4, duration: 140 }} class="flex min-w-0 flex-col gap-3.5">
+        <div class="flex min-w-0 flex-col gap-1">
+          <!-- Answers stack as muted lines above the live question, each
+               showing the choice made and reopenable in place. -->
+          {#if trail.length > 0}
             {#each trail as entry (entry.index)}
               <button
                 type="button"
-                class="trail-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[0.4375rem] text-left"
+                class="trail-row flex w-full items-baseline gap-2 text-left text-transcript-meta text-(--muted-foreground)"
                 disabled={closed}
                 onclick={() => goTo(entry.index)}
               >
-                <span class="trail-index">{entry.index + 1}</span>
-                <CheckIcon size={14} weight="bold" class="trail-check" />
-                <span class="min-w-0 flex-1 truncate text-transcript-meta text-(--muted-foreground)">
-                  {entry.question.question}
-                </span>
-                <span class="shrink-0 text-transcript-meta opacity-40" aria-hidden="true">→</span>
-                <span class="max-w-[45%] min-w-0 truncate text-transcript-meta font-medium">
-                  {entry.answer}
-                </span>
-                <span class="trail-change">Change</span>
+                <CheckIcon size={11} class="trail-check self-center" />
+                <span class="min-w-0 truncate">{entry.question.question}</span>
+                <span class="shrink-0 font-medium text-(--solus-text-secondary)">{entry.answer}</span>
               </button>
             {/each}
-          </div>
-        {/if}
+            <div class="interrupt-divider my-2" aria-hidden="true"></div>
+          {/if}
 
-        <!-- The question is a sentence, not a heading: the header's title stays
-             the card's only bold line. -->
-        <div
-          class="prose prose-question min-w-0 pb-2.5 text-transcript-card font-normal"
-        >
-          <SvelteMarkdown
-            source={currentQuestion.question}
-            options={{ breaks: true }}
-            renderers={bodyRenderers}
-            sanitizeUrl={markdownSanitizeUrl}
-          />
+          <!-- The question is the card's one bold line. -->
+          <div class="prose prose-question interrupt-title min-w-0">
+            <SvelteMarkdown
+              source={currentQuestion.question}
+              options={{ breaks: true }}
+              renderers={bodyRenderers}
+              sanitizeUrl={markdownSanitizeUrl}
+            />
+          </div>
+
+          {#if request.kind === "mcp_url" && request.url}
+            <div class="font-mono text-transcript-meta leading-relaxed break-all text-(--muted-foreground)">
+              {request.url}
+            </div>
+          {/if}
+
+          {#if currentQuestion.multiSelect && hasOptions}
+            <p class="m-0 text-transcript-meta text-(--muted-foreground)">Select all that apply.</p>
+          {/if}
         </div>
 
-        {#if request.kind === "mcp_url" && request.url}
-          <div class="pb-2 font-mono text-transcript-meta leading-relaxed break-all text-(--muted-foreground)">
-            {request.url}
-          </div>
-        {/if}
-
-        {#if currentQuestion.multiSelect && hasOptions}
-          <div class="pb-2 text-transcript-meta text-(--muted-foreground)">
-            Select all that apply
-          </div>
-        {/if}
-
         {#if hasOptions}
-          <!-- Options are rows, not chips: each carries a consequence line,
+          <!-- Options are soft rows, not boxes: each carries a consequence line,
                which is the part that makes the choice decidable. -->
-          <div class="flex flex-col gap-2">
+          <div class="-mx-2.5 flex flex-col" role={currentQuestion.multiSelect ? "group" : "radiogroup"}>
             {#each currentQuestion.options as opt, i (opt.label)}
               {@const selected = isSelected(currentQuestion, opt.label)}
+              {@const previousSelected = i > 0 && isSelected(currentQuestion, currentQuestion.options[i - 1].label)}
               {@const label = optionLabelParts(opt.label)}
+              {#if i > 0}
+                <div class="interrupt-divider" class:opacity-0={selected || previousSelected} aria-hidden="true"></div>
+              {/if}
               <button
                 type="button"
-                class="option-row flex items-start gap-3 rounded-lg px-[0.6875rem] py-[0.5625rem] text-left"
+                class="option-row flex items-start gap-3 px-2.5 py-2 text-left"
                 class:is-selected={selected}
+                role={currentQuestion.multiSelect ? "checkbox" : "radio"}
+                aria-checked={selected}
                 disabled={closed || !canDrive}
-                aria-pressed={selected}
                 onclick={() => toggleOption(currentQuestion, opt.label)}
               >
-                <span class="option-index">{i + 1}</span>
                 <span class="flex min-w-0 flex-1 flex-col gap-px">
                   <span class="text-transcript-card font-medium">
                     {#each inlineCodeParts(label.text) as part, p (p)}
                       {#if part.code}<code class="option-code">{part.text}</code
                         >{:else}{part.text}{/if}
                     {/each}{#if label.note}<span class="option-note"
-                        >· {label.note}</span
+                        >{label.note}</span
                       >{/if}
                   </span>
                   {#if opt.description}
@@ -407,69 +380,57 @@
                     </span>
                   {/if}
                 </span>
-                <span class="option-mark" aria-hidden="true">
-                  {#if selected}
-                    <CheckIcon size={14} weight="bold" />
+                <span class="mt-0.5 flex shrink-0 items-center gap-2">
+                  {#if selected && opt.preview}
+                    <!-- A nested control inside the row: a span with a role, so the row stays one button. -->
+                    <span
+                      class="interrupt-link inline-flex items-center gap-1"
+                      role="button"
+                      tabindex="0"
+                      aria-expanded={previewOpen}
+                      onclick={(e) => { e.stopPropagation(); previewOpen = !previewOpen; }}
+                      onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); previewOpen = !previewOpen; } }}
+                    >
+                      <span class="interrupt-caret inline-flex" class:is-open={previewOpen}><CaretRightIcon size={11} /></span>
+                      preview <span class="interrupt-key">P</span>
+                    </span>
                   {/if}
+                  <span class="interrupt-key option-index">{i + 1}</span>
+                  <span class="option-mark" class:is-on={selected} aria-hidden="true">
+                    <CheckIcon size={10} strokeWidth={3} />
+                  </span>
                 </span>
               </button>
             {/each}
           </div>
         {/if}
 
-        {#if hasPreview && activeOption}
-          <div class="flex flex-col gap-1.5 pt-3">
-            <button
-              type="button"
-              class="interrupt-disclosure self-start"
-              aria-expanded={previewOpen}
-              onclick={() => (previewOpen = !previewOpen)}
-            >
-              <span class="interrupt-caret" class:is-open={previewOpen}>
-                <CaretRightIcon size={14} weight="bold" />
-              </span>
-              Preview “{activeOption.label}”
-              <span class="key-chip">P</span>
-            </button>
-            {#if previewOpen}
-              <div
-                in:fly={{ y: -2, duration: 140 }}
-                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] text-transcript-meta leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
-              >
-                <SvelteMarkdown
-                  source={activeOption.preview ?? ""}
-                  options={{ breaks: true }}
-                  renderers={{ link: MarkdownLink }}
-                  sanitizeUrl={markdownSanitizeUrl}
-                />
-              </div>
-            {/if}
+        {#if hasPreview && activeOption && previewOpen}
+          <div
+            in:fly={{ y: -2, duration: 140 }}
+            class="interrupt-payload px-3.5 py-2.5 text-transcript-meta leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
+          >
+            <SvelteMarkdown
+              source={activeOption.preview ?? ""}
+              options={{ breaks: true }}
+              renderers={{ link: MarkdownLink }}
+              sanitizeUrl={markdownSanitizeUrl}
+            />
           </div>
         {/if}
 
         <!-- Permanent: an off-menu reply must never require abandoning the card.
-             Card fill, not a grey well — it is an alternative, not the emphasis. -->
-        {#if canDrive}
-        <div class="pt-3">
+             The bar holds the words and the one action that sends them. -->
+        {#if canDrive && !request.expired}
           <!-- The mic overlays the textarea, so its offsets are measured against
-               that box, not this row. The box is this row's tallest item, so
-               `--rc-mic-top:50%` puts the mic on the same centre line the ⏎ chip
-               gets from `items-center` — they stay level as the answer wraps —
-               and `--rc-mic-right` pulls it into the row gap so the mic sits 4px
-               from that chip at either gap rung.
-
-               The mic's strip is reserved with `mr-8`, not `pr-8`: margin keeps
-               the strip outside the field's own box, so a long answer scrolls
-               its thumb down the gutter's inner edge instead of over the words
-               and under the mic. The cap stops the field growing until the
-               footer — and its Send answer — leaves the viewport. -->
-          <div class="answer-field flex items-center gap-2 rounded-lg px-2.5 py-2 [--rc-mic-top:50%] [--rc-mic-right:-0.25rem]">
-            <ChatTeardropTextIcon size={14} class="shrink-0 text-(--muted-foreground)" />
+               that box. `mr-8` reserves its strip outside the field's own box, so
+               a long answer scrolls under the words and not under the mic. -->
+          <div class="interrupt-bar [--rc-mic-top:50%] [--rc-mic-right:-0.25rem]">
             <Textarea
               name="question-answer"
               aria-label="Your answer"
               value={getRemark(currentQuestion)}
-              placeholder={hasOptions ? "Or answer in your own words…" : "Type your answer…"}
+              placeholder={hasOptions ? "Add your own words…" : "Write your answer…"}
               disabled={closed}
               rows={1}
               mic
@@ -478,152 +439,101 @@
                 (request.remarks ??= {})[questionKey(currentQuestion)] = (e.target as HTMLTextAreaElement).value;
               }}
             />
-            <span class="key-chip shrink-0">⏎</span>
+            <button type="button" class="interrupt-send" disabled={closed} onclick={goNext}>
+              {#if responded}
+                <CheckIcon size={13} strokeWidth={2.5} />
+                Answered
+              {:else}
+                {primaryLabel}
+                <span class="interrupt-key">{isLast ? submitKey : "→"}</span>
+              {/if}
+            </button>
           </div>
-        </div>
         {/if}
       </div>
     {/key}
   {/if}
 
   {#snippet footer()}
-    {#if request.expired}
-      <span class="text-transcript-meta text-(--muted-foreground)" data-testid="question-expired">{requestExpiryText(request.expired)}</span>
-    {:else if !canDrive}
-      <span class="text-transcript-meta text-(--muted-foreground)">Waiting for an editor</span>
-    {:else}
-    {#if isMcpRequest && (request.canDecline || request.canCancel)}
-      <button
-        type="button"
-        class="tx-card-action is-ghost"
-        disabled={closed}
-        onclick={() => handleAction(request.canDecline ? "decline" : "cancel")}
-      >
-        {request.canDecline ? "Decline" : "Cancel"}
-      </button>
-    {:else}
-      <button type="button" class="tx-card-action is-ghost" disabled={closed} onclick={handleDefer}>
-        {request.responseMode === "message" ? "Dismiss" : "Let the agent decide"}
-        <span class="interrupt-key">{deferKey}</span>
-      </button>
-    {/if}
-    <div class="flex-1"></div>
-    <button
-      type="button"
-      class="tx-card-action is-filled"
-      disabled={closed}
-      onclick={goNext}
-    >
-      {#if responded}
-        <CheckIcon size={14} weight="bold" />
-        Answered
+    <div class="flex items-center justify-end gap-3">
+      {#if request.expired}
+        <span class="text-transcript-meta text-(--muted-foreground)" data-testid="question-expired">{requestExpiryText(request.expired)}</span>
+      {:else if !canDrive}
+        <span class="text-transcript-meta text-(--muted-foreground)">Waiting for an editor</span>
+      {:else if isMcpRequest && (request.canDecline || request.canCancel)}
+        <button
+          type="button"
+          class="interrupt-link"
+          disabled={closed}
+          onclick={() => handleAction(request.canDecline ? "decline" : "cancel")}
+        >
+          {request.canDecline ? "Decline" : "Cancel"}
+        </button>
       {:else}
-        {primaryLabel}
-        <span class="interrupt-key">{isLast ? submitKey : "→"}</span>
+        <button type="button" class="interrupt-link" disabled={closed} onclick={handleDefer}>
+          {request.responseMode === "message" ? "Dismiss" : `Let ${agentName} decide`}
+          <span class="interrupt-key">{deferKey}</span>
+        </button>
       {/if}
-    </button>
-    {/if}
+    </div>
   {/snippet}
 </InterruptCard>
 
 <style>
-  .interrupt-pager {
-    display: inline-flex;
-    width: 1.5rem;
-    height: 1.5rem;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 0.375rem;
-    background: color-mix(in oklch, var(--foreground) 6%, transparent);
-    color: var(--muted-foreground);
-    cursor: pointer;
-  }
-  .interrupt-pager:disabled {
-    background: transparent;
-    opacity: 0.35;
-    cursor: default;
-  }
-  .interrupt-pager-count {
-    padding: 0 0.1875rem;
-    font-size: var(--text-transcript-meta);
-    font-variant-numeric: tabular-nums;
-    color: var(--muted-foreground);
-  }
-
-  /* An answered question is history, so it sits in the neutral wash rather than
-     keeping the selected tint that would make it compete with the live one. */
+  /* An answered question is history: a muted line the reader can reopen. */
   .trail-row {
     border: none;
-    background: color-mix(in oklch, var(--foreground) 3%, transparent);
+    background: transparent;
+    padding: 0;
     cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium);
+    transition: color var(--duration-quick) var(--ease-premium);
   }
   .trail-row:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--foreground) 5%, transparent);
+    color: var(--solus-text-primary);
   }
   .trail-row:disabled {
     cursor: default;
   }
-
-  .trail-index {
-    width: 0.875rem;
-    flex-shrink: 0;
-    font-size: var(--text-transcript-meta);
-    color: var(--muted-foreground);
-    opacity: 0.5;
-  }
-
   :global(.trail-check) {
     flex-shrink: 0;
     color: color-mix(in oklch, var(--solus-art-3) 62%, var(--foreground));
   }
 
-  .trail-change {
-    flex-shrink: 0;
-    border-radius: 0.375rem;
-    padding: 0.125rem 0.4375rem;
-    font-size: var(--text-transcript-meta);
-    font-weight: 500;
-    color: var(--muted-foreground);
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-  .trail-row:hover:not(:disabled) .trail-change {
-    background: color-mix(in oklch, var(--foreground) 7%, transparent);
-  }
-
   /* "recommended" is a note about the option, never part of its name. */
   .option-note {
-    margin-left: 0.25rem;
+    margin-left: 0.375rem;
     font-size: var(--text-transcript-meta);
     font-weight: 400;
     color: var(--muted-foreground);
   }
 
-  /* A choice at rest is card fill and a hairline, like every other interactive
-     surface on the card. Hover moves the border only — a fill shift on hover
-     would read as a second selected row. */
+  /* A choice at rest is text on the card. Hover washes the row; the selected
+     row takes the card's one accent: a soft tint, an inset ring, and the check. */
   .option-row {
-    border: 0.0625rem solid color-mix(in oklab, var(--border) 50%, transparent);
+    border: none;
+    border-radius: 0.625rem;
     background: transparent;
     cursor: pointer;
     transition:
       background var(--duration-quick) var(--ease-premium),
-      border-color var(--duration-quick) var(--ease-premium),
       box-shadow var(--duration-quick) var(--ease-premium);
   }
   .option-row:hover:not(:disabled) {
-    border-color: color-mix(in oklch, var(--primary) 25%, color-mix(in oklab, var(--border) 50%, transparent));
+    background: color-mix(in oklch, var(--foreground) 5%, transparent);
   }
   .option-row.is-selected {
-    border-color: color-mix(in oklch, var(--primary) 60%, transparent);
+    background: color-mix(in oklch, var(--primary) 8%, transparent);
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in oklch, var(--primary) 35%, transparent);
+  }
+  :global(.dark) .option-row.is-selected {
+    background: color-mix(in oklch, var(--primary) 12%, transparent);
   }
   .option-row:focus-visible {
     outline: 0.125rem solid var(--solus-accent-border-medium);
     outline-offset: 0.125rem;
   }
   .option-row:disabled {
-    opacity: 0.5;
+    opacity: 0.6;
     cursor: not-allowed;
   }
 
@@ -636,57 +546,37 @@
     font-size: 1em;
   }
 
-  /* Number keys select, so the number is part of the row — and it stays neutral
-     when selected, because the card only gets one terracotta. */
+  /* The digit that selects, at the row's end, visible with the other key hints. */
   .option-index {
-    display: inline-flex;
-    width: 1.125rem;
-    height: 1.125rem;
-    flex-shrink: 0;
-    margin-top: 0.0625rem;
-    align-items: center;
-    justify-content: center;
-    border: 0.0625rem solid var(--border);
-    border-radius: 0.25rem;
-    color: var(--muted-foreground);
-    font-size: var(--text-transcript-meta);
+    min-width: 0.75rem;
+    text-align: right;
   }
 
   .option-mark {
     display: inline-flex;
-    width: 0.9375rem;
-    height: 0.9375rem;
+    width: 1rem;
+    height: 1rem;
     flex-shrink: 0;
-    margin-top: 0.125rem;
     align-items: center;
     justify-content: center;
-    color: var(--primary);
+    border-radius: 9999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    opacity: 0;
+    transition: opacity var(--duration-quick) var(--ease-premium);
+  }
+  .option-mark.is-on {
+    opacity: 1;
   }
 
-  .answer-field {
-    border: 0.0625rem solid color-mix(in oklab, var(--border) 50%, transparent);
-    background: transparent;
-    transition: border-color var(--duration-quick) var(--ease-premium);
+  :global(.interrupt-caret) {
+    transition: transform var(--duration-quick) var(--ease-premium);
   }
-  .answer-field:focus-within {
-    border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
-  }
-
-  /* A key hint that names a control rather than living inside a button. */
-  .key-chip {
-    border: 0.0625rem solid var(--border);
-    border-radius: 0.25rem;
-    padding: 0 0.25rem;
-    color: var(--muted-foreground);
-    font-size: var(--text-transcript-meta);
-    line-height: 1.5;
+  :global(.interrupt-caret.is-open) {
+    transform: rotate(90deg);
   }
 
   @media (pointer: coarse) {
-    .interrupt-pager {
-      width: 2rem;
-      height: 2rem;
-    }
     .option-row {
       min-height: 3rem;
     }

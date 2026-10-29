@@ -150,6 +150,29 @@ export function optionLabelParts(label: string): OptionLabelParts {
   return { text: label.slice(0, match.index).trim(), note: 'recommended' }
 }
 
+/**
+ * What a grant means, read under the footer while a pill has the pointer or
+ * focus. The provider hands the card ids and labels only, so the wording maps
+ * from the id; an id this does not know gets no sentence rather than a wrong one.
+ */
+export function permissionScope(optionId: string, toolTitle: string, agentName: string): string {
+  switch (optionId) {
+    case 'allow':
+    case 'accept':
+      return `This call only. ${agentName} asks again next time.`
+    case 'allow-session':
+    case 'acceptForSession':
+      return `Every ${toolTitle} call in this session, until the session ends.`
+    case 'acceptWithExecpolicyAmendment':
+      return 'Commands that match this one, in this and later sessions.'
+    case 'deny':
+    case 'decline':
+      return `Nothing runs. ${agentName} continues without it.`
+    default:
+      return ''
+  }
+}
+
 export interface PermissionFooterOrder {
   escape: PermissionOption | null
   middle: PermissionOption[]

@@ -118,10 +118,23 @@ or a Claude `authentication_failed` row, has the mark `loginRefused` on the
 history row. When that row ends the newest page, the card opens again on open,
 restore, or reload. A later turn after the row, or an older page, does not open it.
 
-`AttentionCard` and `InterruptCard` use the same `TranscriptCard` shell.
-Permission and question bodies stay open, with their decision controls in the
-wrapping footer. Their header uses a glyph, a lowercase type word, and a time
-rail. Message-mode questions use the quiet shell because they do not stop a turn.
+`AttentionCard` uses the `TranscriptCard` shell. `InterruptCard` (permission,
+question, and secret requests) is its own glass shell: the card background, the
+attention lift, a 16px radius, and no header line, inner rule, or footer rule.
+One eyebrow line in meta type says who asks ("Claude asks", "Claude asks for
+permission", "Alice's turn asks to run a shell command") with the count and the
+clock at its right. The body's one bold line is the question, or what the agent
+wants to do with a chip naming the worktree. Options are soft rows with a short
+centered rule between them; the selected row takes the accent tint, an inset
+ring, and a check. The own-words field is a bar with the Send or Next action
+inside it, and "Let Claude decide" is a text link under it. A permission ends in
+one row: Deny as text, broader grants as quiet pills, the narrowest grant as the
+filled pill, and the scope of the pill under the pointer or focus written at the
+left of the row (`permissionScope`). The command is the only boxed thing, a
+terminal line with Copy on hover; Details in the eyebrow folds the request id,
+tool, cwd, and time. Key hints exist for focus and show only while the pointer
+or focus is on the card. Message-mode questions use the quiet lift because they
+do not stop a turn.
 
 Codex may emit a message-mode question while its turn continues. Its question
 card remains open when that turn ends and after the client reconnects. An

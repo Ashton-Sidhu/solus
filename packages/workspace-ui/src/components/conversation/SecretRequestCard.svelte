@@ -62,7 +62,7 @@
   }
 </script>
 
-<InterruptCard type="question" title="Secret requested" target={prompt.name} testId="secret-request-card">
+<InterruptCard type="question" title="Secret requested · {prompt.name}" testId="secret-request-card">
   <div class="flex flex-col gap-2">
     <p class="m-0 text-transcript-card">{prompt.reason}</p>
     <p class="m-0 flex items-center gap-1.5 text-transcript-meta text-(--muted-foreground)">
@@ -87,15 +87,17 @@
   </div>
   {#snippet footer()}
     {#if !request.expired}
-      <Button size="sm" variant="ghost" disabled={closed || isSending || !canDrive} onclick={() => void send(null)}>Decline</Button>
-      <Button
-        size="sm"
-        type="submit"
-        form="secret-request-{request.questionId}"
-        disabled={closed || isSending || !canDrive || !canSubmitSecret(value)}
-      >
-        Submit
-      </Button>
+      <div class="flex items-center justify-end gap-1">
+        <Button size="sm" variant="ghost" disabled={closed || isSending || !canDrive} onclick={() => void send(null)}>Decline</Button>
+        <Button
+          size="sm"
+          type="submit"
+          form="secret-request-{request.questionId}"
+          disabled={closed || isSending || !canDrive || !canSubmitSecret(value)}
+        >
+          Submit
+        </Button>
+      </div>
     {/if}
   {/snippet}
 </InterruptCard>
