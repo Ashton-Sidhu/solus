@@ -1,0 +1,39 @@
+{
+  "mode": "cloud",
+  "snapshots": 4,
+  "completedCloudRepos": 0,
+  "controlPlaneRequests": 4,
+  "receipts": [],
+  "publicationReviewGap": null,
+  "scale": [
+    {
+      "revisions": 1,
+      "historyBodyBytes": 131072,
+      "publication": {
+        "commit": "9e66a9c1e7b1c2cdbb1ca291a5a2086733f9de96",
+        "scratchBytes": 212992,
+        "elapsedMs": 1359.5804170000001
+      },
+      "nextSave": {
+        "commit": "c1dfcf8536f42ca614bb9302343b1cbda1098784",
+        "scratchBytes": 245760,
+        "elapsedMs": 1448.8169590000002
+      }
+    },
+    {
+      "revisions": 40,
+      "historyBodyBytes": 5242880,
+      "publication": {
+        "commit": "55b0b85d9c4d78d5cad7c3e3e0c3ef2ad9a9de55",
+        "scratchBytes": 4685824,
+        "elapsedMs": 3981.0476660000004
+      },
+      "nextSave": {
+        "commit": "e429800b86ead2f097cdf2ec8ac62883649600e4",
+        "scratchBytes": 253952,
+        "elapsedMs": 2032.7048749999994
+      }
+    }
+  ],
+  "cleanupErrors": []
+}

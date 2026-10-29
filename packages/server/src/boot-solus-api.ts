@@ -23,6 +23,7 @@ import { onWorkReviewsChanged } from './data/works/work-reviews'
 import { publishNotificationChanges } from './notifications/hub-events'
 import { WorkLiveManager } from './work-live/work-live-manager'
 import { installWorkLiveBridge } from './data/works/work-live-bridge'
+import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { createWorkspaceOperations } from './data/workspace/service'
 import { applyRunnerDelivery } from './sync/runner-intake'
 import { SolusServer } from './transport/server'
@@ -124,6 +125,12 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   const events = new HostEventPublisher(clients)
   // Organization works are edited live here, where they are stored (work review plan, phase 3b).
   const workLive = new WorkLiveManager({ publish: (clientIds, type, payload) => { void events.publishToRoom({ kind: 'work', id: payload.workId }, clientIds, type, payload) } })
+  let workStorageRuntime: Awaited<ReturnType<typeof startWorkStorage>>
+  try {
+    workStorageRuntime = await startWorkStorage({ database: getDatabase, cloud: true, flushLive: workId => workLive.flushPersisted(workId) })
+  } catch (error) {
+    await closeDatabase(); closeDb(); throw error
+  }
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
   const presence = workspacePresence(server, events)
   if (options.webhookAdmin) registerWebhookAdminHandlers(server, options.webhookAdmin)
@@ -202,6 +209,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
         closeLiveTransport()
         // Disconnected rooms write their bodies in the background; finish before the database closes.
         await workLive.flushAll()
+        await workStorageRuntime.stop()
         await closeDatabase(); closeDb()
       })()
     },

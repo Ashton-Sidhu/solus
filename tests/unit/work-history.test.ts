@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { WorkRevisionSummary } from '@solus/contracts/types'
 import {
+  comparisonBase,
   diagramRevisionDiff,
   historyPoints,
   historyRows,
@@ -8,6 +9,8 @@ import {
   markdownBlocks,
   pointBefore,
 } from '@solus/workspace-ui/components/work/lib/work-history'
+import { workSourceDiff } from '@solus/workspace-ui/components/work/lib/work-source-diff'
+import { detectMovedBlocks } from '@solus/workspace-ui/lib/diff-moves'
 
 /**
  * The History dialog (docs/plans/work-review-and-live-editing.md, phase 1):
@@ -36,6 +39,59 @@ describe('history rows', () => {
     expect(pointBefore(points, 'current')).toBe(2)
     expect(pointBefore(points, 2)).toBe(1)
     expect(pointBefore(points, 1)).toBeNull()
+  })
+
+  test('unsaved edits remain selectable when the saved body matches the latest checkpoint', () => {
+    expect(historyPoints([revision(2, 'agent', 'b')], 'b', true)).toEqual(['current', 2])
+  })
+
+  test('an explicit empty base stays empty, while automatic comparison follows the selection', () => {
+    const points = ['current', 2, 1] as const
+    expect(comparisonBase(points, 'current', null)).toBeNull()
+    expect(comparisonBase(points, 'current', undefined)).toBe(2)
+    expect(comparisonBase(points, 'current', 1)).toBe(1)
+    expect(comparisonBase(points, 2, 2)).toBe(1)
+    expect(comparisonBase(points, 2, 99)).toBe(1)
+  })
+})
+
+describe('source comparison', () => {
+  test('a moved paragraph reaches the same moved-line analysis as code diffs', () => {
+    const paragraph = 'A paragraph with an important first line.\nIt has a second line with more details.\nThe final line completes the paragraph.\n'
+    const unchanged = Array.from({ length: 10 }, (_, index) => `Unchanged paragraph ${index}.\n`).join('')
+    const { file } = workSourceDiff('doc', paragraph + unchanged, unchanged + paragraph)
+    expect(file).not.toBeNull()
+    const moves = detectMovedBlocks(file ? [file] : []).moves
+    expect(moves).toHaveLength(1)
+    expect(moves[0]?.kind).toBe('unchanged')
+  })
+
+  test('counts changed lines without counting context, in the selected direction', () => {
+    const before = '# Plan\n\nOld paragraph.\n\nEnd.\n'
+    const after = '# Plan\n\nNew paragraph.\nAnother line.\n\nEnd.\n'
+    const forward = workSourceDiff('doc', before, after)
+    expect(forward.error).toBeNull()
+    expect(forward.additions).toBe(2)
+    expect(forward.deletions).toBe(1)
+    const reverse = workSourceDiff('doc', after, before)
+    expect(reverse.additions).toBe(1)
+    expect(reverse.deletions).toBe(2)
+  })
+
+  test('empty and identical bodies have accurate counts', () => {
+    expect(workSourceDiff('doc', '', '')).toEqual({ file: null, additions: 0, deletions: 0, error: null })
+    expect(workSourceDiff('doc', '', 'First\nSecond').additions).toBe(2)
+    expect(workSourceDiff('doc', 'First\nSecond', '').deletions).toBe(2)
+  })
+
+  test('all work types use their source language and retain the complete bodies', () => {
+    for (const [type, extension] of [['doc', 'md'], ['slides', 'md'], ['artifact', 'html'], ['diagram', 'json']] as const) {
+      const result = workSourceDiff(type, 'before\n', 'after\n')
+      expect(result.file?.name).toBe(`content.${extension}`)
+      expect(result.file?.isPartial).toBeFalsy()
+      expect(result.file?.deletionLines.join('')).toBe('before\n')
+      expect(result.file?.additionLines.join('')).toBe('after\n')
+    }
   })
 })
 

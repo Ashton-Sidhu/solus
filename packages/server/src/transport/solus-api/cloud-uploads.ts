@@ -96,6 +96,7 @@ export function registerCloudUploadHandlers(server: SolusServer, deps: { shares:
       const existing = await Work.find(ANY_ORGANIZATION, transfer.work.id)
       if (existing && existing.organizationId !== organizationId) throw new Error('This work already belongs to another organization.')
       const work = await importWorkFromHost(organizationId, transfer, principal.userId)
+      await (await Work.byId(organizationId, work.id)).flushStorage()
       await deps.shares.shareWithOrganization({ kind: 'work', id: work.id }, principal)
       await linkWorkToSessionTasks(organizationId, work)
       log.info('work_uploaded', { organizationId, workId: work.id, userId: principal.userId, alreadyThere: existing !== null, revisions: transfer.revisions.length })

@@ -47,3 +47,4 @@ Status is the result of the last full run (2026-10-13). A failing scenario is th
 | [Access roles](./access-roles.md) | `access-roles` | Lab issuer | PASS (2026-10-14) |
 | [Cloud vault](./vault.md) | `vault`, `account-reads`, `profile-across-hosts` | cloud | PASS (2026-10-14) |
 | [Member users](./member-users.md) | `member-users` (managed) | Lab issuer | PASS (2026-10-15) |
+| [Work Git storage](./work-git-storage.md) | `work-git-storage` | Lab issuer; optional real Cloudflare | PASS (2026-10-15): 49 local checks, 50 with Cloudflare |

@@ -8,6 +8,8 @@ import { type RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { attributionJson, parseStoredAttribution, userOfStoredKey } from '../stored-attribution'
 import { workRevisions, works } from './schema'
+import './database-work-storage'
+import { initializeWorkStorage, storageForWork } from './work-storage'
 
 /**
  * The storage rows of one work and its revisions, shared by `Work` (one work's
@@ -138,12 +140,14 @@ export function workFromRow(row: WorkRow): WorkRecord {
  * write transaction already serializes. A shared work is not here: its row
  * holds only where it went (`workLocation`). */
 export async function workRow(db: Db, scope: RecordScope, id: string, lock = false): Promise<WorkRow | undefined> {
-  return workRowSchema.nullish().parse(await db.get(sql`
+  const row = workRowSchema.nullish().parse(await db.get(sql`
     SELECT ${WORK_COLUMNS}
     FROM ${works}
     WHERE id = ${id} AND ${scopeClause(scope)} AND location IS NULL
     ${lock && db.engine === 'postgres' ? sql`FOR UPDATE` : sql``}
   `)) ?? undefined
+  if (row) row.content = await (await storageForWork(db, row.organization_id, row.id)).read(db, { organizationId: row.organization_id, workId: row.id, contentHash: row.content_hash, revisionId: null }, row.content)
+  return row
 }
 
 /** Where a shared work is now (cloud-sharing.md §3a). */
@@ -168,6 +172,7 @@ export interface WorkBody {
 
 /** `ownerKey` is the person the new work belongs to (docs/plans/access-model.md §2.2). */
 export async function insertWorkRow(db: Db, organizationId: string, ownerKey: string, id: string, meta: WorkMeta, body: WorkBody, previousRevisionId: number | null = null): Promise<void> {
+  await initializeWorkStorage(db, organizationId, id)
   await db.run(sql`
     INSERT INTO ${works} (
       id, title, preview, type, session_id, agent_provider, cwd,
@@ -176,10 +181,11 @@ export async function insertWorkRow(db: Db, organizationId: string, ownerKey: st
     ) VALUES (
       ${id}, ${meta.title}, ${meta.preview}, ${meta.type}, ${meta.sessionId ?? null},
       ${meta.agentProvider}, ${meta.cwd}, ${meta.pinned === undefined ? null : meta.pinned ? 1 : 0},
-      ${body.content}, ${epochMs(meta.createdAt)}, ${epochMs(meta.updatedAt)}, ${metaJson(meta)}, ${organizationId},
+      NULL, ${epochMs(meta.createdAt)}, ${epochMs(meta.updatedAt)}, ${metaJson(meta)}, ${organizationId},
       ${body.contentVersion}, ${body.contentHash}, ${authorJson(body.contentAuthor)}, ${previousRevisionId}, ${ownerKey}
     )
   `)
+  await (await storageForWork(db, organizationId, id)).capture(db, { organizationId, workId: id, contentHash: body.contentHash, revisionId: null }, body.content)
 }
 
 export interface NewRevision {
@@ -201,10 +207,11 @@ export async function insertRevision(db: Db, organizationId: string, workId: str
   await db.run(sql`
     INSERT INTO ${workRevisions} (work_id, rev, content, updated_at, organization_id, source_content_version, author, reason, content_hash)
     VALUES (
-      ${workId}, ${next}, ${revision.content}, ${revision.capturedAt}, ${organizationId},
+      ${workId}, ${next}, NULL, ${revision.capturedAt}, ${organizationId},
       ${revision.sourceContentVersion}, ${authorJson(revision.author)}, ${revision.reason}, ${revision.contentHash}
     )
   `)
+  await (await storageForWork(db, organizationId, workId)).capture(db, { organizationId, workId, contentHash: revision.contentHash, revisionId: next }, revision.content)
   return next
 }
 
@@ -214,10 +221,11 @@ export async function copyRevision(db: Db, organizationId: string, revision: Wor
   await db.run(sql`
     INSERT INTO ${workRevisions} (work_id, rev, content, updated_at, organization_id, source_content_version, author, reason, content_hash)
     VALUES (
-      ${revision.workId}, ${revision.revisionId}, ${revision.content}, ${epochMs(revision.capturedAt)}, ${organizationId},
+      ${revision.workId}, ${revision.revisionId}, NULL, ${epochMs(revision.capturedAt)}, ${organizationId},
       ${revision.sourceContentVersion}, ${authorJson(revision.author)}, ${revision.reason}, ${revision.contentHash}
     )
   `)
+  await (await storageForWork(db, organizationId, revision.workId)).capture(db, { organizationId, workId: revision.workId, contentHash: revision.contentHash, revisionId: revision.revisionId }, revision.content)
 }
 
 export function revisionSummaryFromRow(row: RevisionRow): WorkRevisionSummary {
@@ -232,10 +240,16 @@ export function revisionSummaryFromRow(row: RevisionRow): WorkRevisionSummary {
   }
 }
 
-export async function revisionRow(db: Db, workId: string, rev: number): Promise<RevisionRow | undefined> {
-  return revisionRowSchema.nullish().parse(await db.get(sql`
-    SELECT ${REVISION_COLUMNS} FROM ${workRevisions} WHERE work_id = ${workId} AND rev = ${rev}
+export async function revisionRow(db: Db, organizationId: string, workId: string, rev: number): Promise<RevisionRow | undefined> {
+  const row = revisionRowSchema.nullish().parse(await db.get(sql`
+    SELECT ${REVISION_COLUMNS} FROM ${workRevisions} WHERE work_id = ${workId} AND rev = ${rev} AND organization_id = ${organizationId}
   `)) ?? undefined
+  if (row) row.content = await readRevisionBody(db, organizationId, row)
+  return row
+}
+
+export async function readRevisionBody(db: Db, organizationId: string, row: RevisionRow): Promise<string> {
+  return (await storageForWork(db, organizationId, row.work_id)).read(db, { organizationId, workId: row.work_id, contentHash: row.content_hash, revisionId: row.rev }, row.content)
 }
 
 /** A new work's first history row: its initial body. */

@@ -1,0 +1,12 @@
+{
+  "ownedWorkers": [
+    "solus-proof-mv72ea8f",
+    "solus-proof-mv72rpzu",
+    "solus-proof-mv72tb83"
+  ],
+  "remainingWorkers": [],
+  "artifactsNamespace": "solus-artifacts-proof",
+  "remainingArtifactsRepos": [],
+  "postgresContainerStopped": true,
+  "vmFilesRemoved": true
+}

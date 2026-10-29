@@ -1,0 +1,13 @@
+{
+  "mode": "cloud",
+  "snapshots": 4,
+  "completedCloudRepos": 0,
+  "controlPlaneRequests": 2,
+  "receipts": [],
+  "publicationReviewGap": {
+    "sourceReviewers": 1,
+    "importedReviewers": 0
+  },
+  "scale": [],
+  "cleanupErrors": []
+}

@@ -2,9 +2,9 @@ import { bigint, defineTable, integer, json, text } from '../../db/schema/define
 
 /**
  * The works domain's tables, declared once for both engines
- * (docs/plans/cloud-service-model.md). Every work is a database row (decision
- * D3): the repository-file storage and its manifests are gone. Column names
- * are the ones the hand-written SQLite migration established;
+ * Work identity and editing projections remain database rows. Body I/O goes
+ * through work storage adapters; accepted Artifacts revisions keep only their
+ * hash and archive reference here. Column names retain the SQLite contract;
  * `organization_id` is `'local'` on a host.
  */
 
@@ -117,8 +117,41 @@ export const workLiveDocs = defineTable('work_live_docs', {
   state: text({ notNull: true }),
   /** `{ [clientKey]: lastSeq }` JSON. */
   client_seqs: json(),
+  /** Attribution of the last durably accepted live edit, for restart projection. */
+  last_author: json(),
+  /** Version this live state was based on; null for a legacy state. */
+  body_version: integer(),
+  needs_projection: integer({ notNull: true, default: 0 }),
   updated_at: bigint({ notNull: true }),
   organization_id: ORGANIZATION,
 })
 
-export const WORK_TABLES = [works, workRevisions, workAnnotations, workReviewers, workLiveDocs]
+/** Provider mappings survive a default change and a work deletion until remote cleanup completes. */
+export const workStorage = defineTable('work_storage', {
+  work_id: text({ primaryKey: true }),
+  organization_id: ORGANIZATION,
+  provider: text({ notNull: true }),
+  repository: text(),
+  /** Account/namespace identity; an environment change cannot redirect existing works. */
+  storage_scope: text(),
+  commit_id: text(),
+  generation: integer({ notNull: true, default: 0 }),
+  archived_generation: integer({ notNull: true, default: 0 }),
+  dirty_since: bigint(),
+  due_at: bigint(),
+  deleted: integer({ notNull: true, default: 0 }),
+  error: text(),
+  claim_id: text(),
+  claim_until: bigint(),
+  operation: json(),
+}, { indexes: [{ name: 'work_storage_due', columns: ['provider', 'due_at'], where: 'due_at IS NOT NULL' }] })
+
+/** Immutable bodies are pending here until their Git commit is accepted. */
+export const workStorageBodies = defineTable('work_storage_bodies', {
+  work_id: text({ notNull: true, references: { table: workStorage, column: 'work_id', onDelete: 'cascade' } }),
+  content_hash: text({ notNull: true }),
+  content: text(),
+  commit_id: text(),
+}, { primaryKey: ['work_id', 'content_hash'] })
+
+export const WORK_TABLES = [works, workRevisions, workAnnotations, workReviewers, workLiveDocs, workStorage, workStorageBodies]

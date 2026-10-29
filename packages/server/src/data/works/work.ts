@@ -16,10 +16,11 @@ import { parseDiagram } from '@solus/contracts/diagram-types'
 import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
 import { documentContentHash } from '../../docs/content-hash'
 import { type RecordScope } from '../../admission/principal'
-import { workAnnotations, workRevisions, works } from './schema'
+import { workAnnotations, workRevisions, works, workLiveDocs } from './schema'
 import { emitWorkChanged } from './work-events'
 import { emitSessionArtifactsChanged } from '../sessions/session-artifacts'
 import { workLiveBridge } from './work-live-bridge'
+import { storageForWork } from './work-storage'
 import { recordNewMentions } from '../activity/mentions'
 import { removeNotificationsFor } from '../notifications/store'
 import { hostAttribution } from '../stored-attribution'
@@ -197,13 +198,13 @@ async function writeBody(db: Db, row: WorkRow, body: { content: string; author: 
     UPDATE ${works} SET
       title = ${body.title ?? row.title},
       preview = ${workPreview(row.type ?? 'doc', body.content)},
-      content = ${body.content},
       content_version = ${contentVersion},
       content_hash = ${contentHash},
       content_author = ${authorJson(body.author)},
       updated_at = ${nextUpdatedAt(row)}
     WHERE id = ${row.id}
   `)
+  await (await storageForWork(db, row.organization_id, row.id)).capture(db, { organizationId: row.organization_id, workId: row.id, contentHash, revisionId: null }, body.content)
   return { contentVersion, contentHash }
 }
 
@@ -223,9 +224,10 @@ function checkPreconditions(row: WorkRow, expected: { expectedContentVersion?: n
  * inside its own transaction, checks its preconditions there, and refreshes
  * the instance after. Anything crossing RPC or HTTP returns `record()`.
  *
- * History is immutable. A revision row is written once, with the body,
- * version, author, and hash that existed when it was captured; restore adds
- * rows and never updates one. The previous-version comparison and revert use
+ * History is immutable. A revision records the version, author and hash that
+ * existed when captured. An adapter may move its body to remote storage;
+ * restore adds revisions and never changes their content or metadata.
+ * The previous-version comparison and revert use
  * the explicit `previousRevisionId`, never the newest revision.
  *
  * Listing, search, creation, and transfer are not about one work and stay in
@@ -295,6 +297,13 @@ export class Work implements WorkRecord {
     return this.#previousRevisionId
   }
 
+  /** Publication must wait for remote acceptance before the source changes location. */
+  async flushStorage(): Promise<void> {
+    const db = getDatabase()
+    if (!await workRow(db, this.#organizationId, this.id)) throw new Error(`Work not found: ${this.id}`)
+    await (await storageForWork(db, this.#organizationId, this.id)).flush(this.id)
+  }
+
   /** Reread and lock the row in one transaction, run `change`, then refresh
    * this snapshot from what was committed inside it. A write that changed the
    * row announces `works.changed` once the outermost transaction commits. */
@@ -307,6 +316,7 @@ export class Work implements WorkRecord {
       if (!committed) throw new Error(`Work not found: ${this.id}`)
       this.hydrate(committed)
       if (committed.updated_at !== row.updated_at || committed.content_version !== row.content_version || committed.meta !== row.meta || committed.pinned !== row.pinned) {
+        await (await storageForWork(db, this.#organizationId, this.id)).changed(db, this.#organizationId, this.id, false)
         emitWorkChanged({ workId: this.id, version: this.updatedAt, contentVersion: this.contentVersion })
       }
       return this
@@ -335,6 +345,8 @@ export class Work implements WorkRecord {
   async applyLiveProjection(input: { content: string; author: Attribution | null }): Promise<this> {
     return this.mutate(async (db, row) => {
       await changeBody(db, row, { content: input.content, author: input.author }, null)
+      await db.run(sql`UPDATE ${workLiveDocs} SET body_version = (SELECT content_version FROM ${works} WHERE id = ${row.id}),
+        needs_projection = 0 WHERE work_id = ${row.id} AND organization_id = ${row.organization_id}`)
     })
   }
 
@@ -384,12 +396,15 @@ export class Work implements WorkRecord {
    * Restoring the body the work already has changes nothing.
    */
   async restoreRevision(input: { revisionId: number; author: Attribution | null } & WorkPreconditions): Promise<this> {
+    // Fetch an immutable archived body before holding the mutable work row.
+    const target = await this.revision(input.revisionId)
     return this.throughLiveDoc(input.author, () => this.mutate(async (db, row) => {
       assertWorkEditable(metaFromRow(row))
       checkPreconditions(row, input)
-      const target = await revisionRow(db, row.id, input.revisionId)
-      if (!target) throw new Error(`Revision ${input.revisionId} of work ${row.id} not found.`)
-      const content = target.content ?? ''
+      const stored = z.object({ content_hash: z.string() }).nullish().parse(await db.get(sql`SELECT content_hash FROM ${workRevisions}
+        WHERE work_id = ${row.id} AND rev = ${input.revisionId} AND organization_id = ${row.organization_id}`))
+      if (!stored || stored.content_hash !== target.contentHash) throw new Error('The revision changed before it could be restored.')
+      const content = target.content
       if (content === (row.content ?? '')) return
       const displaced = await checkpointOfCurrent(db, row)
       const written = await writeBody(db, row, { content, author: input.author })
@@ -444,7 +459,7 @@ export class Work implements WorkRecord {
   }
 
   async revision(revisionId: number): Promise<WorkRevision> {
-    const row = await revisionRow(getDatabase(), this.id, revisionId)
+    const row = await revisionRow(getDatabase(), this.#organizationId, this.id, revisionId)
     if (!row) throw new Error(`Revision ${revisionId} of work ${this.id} not found.`)
     return { ...revisionSummaryFromRow(row), content: row.content ?? '' }
   }
@@ -453,7 +468,7 @@ export class Work implements WorkRecord {
    * upstream pull, or restore displaced. */
   async previous(): Promise<WorkPrevious | null> {
     if (this.#previousRevisionId === null) return null
-    const row = await revisionRow(getDatabase(), this.id, this.#previousRevisionId)
+    const row = await revisionRow(getDatabase(), this.#organizationId, this.id, this.#previousRevisionId)
     return row ? { content: row.content ?? '', updatedAt: isoTime(row.updated_at) } : null
   }
 
@@ -527,6 +542,7 @@ export class Work implements WorkRecord {
     await getDatabase().transaction(async (db) => {
       const row = await workRow(db, this.#organizationId, this.id, true)
       if (!row) throw new Error(`Work not found: ${this.id}`)
+      await (await storageForWork(db, this.#organizationId, this.id)).remove(db, this.#organizationId, this.id)
       await db.run(sql`DELETE FROM ${workAnnotations} WHERE work_id = ${this.id}`)
       await db.run(sql`DELETE FROM ${works} WHERE id = ${this.id}`)
       await removeNotificationsFor(db, row.organization_id, { kind: 'work', workId: this.id })

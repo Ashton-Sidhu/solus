@@ -166,10 +166,17 @@ export type HistoryPoint = number | 'current'
  * the list when no checkpoint holds it yet (a person's edits since the last
  * checkpoint); otherwise the newest checkpoint stands for it.
  */
-export function historyPoints(rows: readonly WorkRevisionSummary[], currentHash: string): HistoryPoint[] {
+export function historyPoints(rows: readonly WorkRevisionSummary[], currentHash: string, hasDraftChanges = false): HistoryPoint[] {
   const points: HistoryPoint[] = rows.map((row) => row.revisionId)
-  if (rows[0]?.contentHash !== currentHash) points.unshift('current')
+  if (hasDraftChanges || rows[0]?.contentHash !== currentHash) points.unshift('current')
   return points
+}
+
+/** Undefined follows the selected version; null explicitly selects an empty body. */
+export function comparisonBase(points: readonly HistoryPoint[], picked: HistoryPoint | null, chosen: HistoryPoint | null | undefined): HistoryPoint | null {
+  if (chosen === null) return null
+  if (chosen !== undefined && points.includes(chosen) && chosen !== picked) return chosen
+  return picked === null ? null : pointBefore(points, picked)
 }
 
 /** What a picked point is compared against by default: the point before it,

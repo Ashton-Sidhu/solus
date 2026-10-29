@@ -1,0 +1,61 @@
+{
+  "mode": "cloud",
+  "snapshots": 4,
+  "completedCloudRepos": 4,
+  "receipts": [
+    {
+      "type": "doc",
+      "commit": "54452055e97ca74c22c0987aa9781ed015ed66aa",
+      "scratchBytes": 155648,
+      "elapsedMs": 565.891042
+    },
+    {
+      "type": "diagram",
+      "commit": "82b3e77cb1af75ddc005d92b5a3ef7256f29fbd8",
+      "scratchBytes": 155648,
+      "elapsedMs": 536.4129579999999
+    },
+    {
+      "type": "slides",
+      "commit": "859b170e4334d845c75f59fe1f736adcc5924909",
+      "scratchBytes": 155648,
+      "elapsedMs": 548.3391670000001
+    },
+    {
+      "type": "artifact",
+      "commit": "6e3dbc0c9d8d8597383124b1cbeb76915a96b442",
+      "scratchBytes": 155648,
+      "elapsedMs": 537.6857920000002
+    },
+    {
+      "type": "cloud-doc",
+      "commit": "54452055e97ca74c22c0987aa9781ed015ed66aa",
+      "scratchBytes": 155648,
+      "elapsedMs": 2085.5851250000014
+    },
+    {
+      "type": "cloud-diagram",
+      "commit": "82b3e77cb1af75ddc005d92b5a3ef7256f29fbd8",
+      "scratchBytes": 155648,
+      "elapsedMs": 1632.6708749999998
+    },
+    {
+      "type": "cloud-slides",
+      "commit": "859b170e4334d845c75f59fe1f736adcc5924909",
+      "scratchBytes": 155648,
+      "elapsedMs": 1459.3853339999987
+    },
+    {
+      "type": "cloud-artifact",
+      "commit": "6e3dbc0c9d8d8597383124b1cbeb76915a96b442",
+      "scratchBytes": 155648,
+      "elapsedMs": 1790.2506250000006
+    }
+  ],
+  "publicationReviewGap": {
+    "sourceReviewers": 1,
+    "importedReviewers": 0
+  },
+  "cleanupErrors": [],
+  "controlPlaneRequests": 16
+}

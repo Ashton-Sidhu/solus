@@ -1,0 +1,167 @@
+{
+  "main": "889dde187",
+  "multiplayer": [
+    {
+      "status": "PASS",
+      "scenario": "access-roles: automations, notifications, Insights, projects, and browser profiles follow roleOf",
+      "host": "personal",
+      "checks": 79,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "cloud sessions: the transcript in the cloud, a turn that resumes on the runner",
+      "host": "personal",
+      "checks": 32,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "cloud sharing: resources stay readable without runners; guests stay in their resource and organization",
+      "host": "personal",
+      "checks": 20,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "cloud workspace: one service for the organization, a runner that writes to it",
+      "host": "personal",
+      "checks": 40,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "guest revoke: regenerate and remove the link; remove a member",
+      "host": "personal",
+      "checks": 19,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "host provider auth: credentials stay on each execution host",
+      "host": "personal",
+      "checks": 21,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "ownership: the creator owns a work and a session; transfer is the owner's alone",
+      "host": "personal",
+      "checks": 20,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "presence: rooms, typing, focus, and leaving",
+      "host": "personal",
+      "checks": 38,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "seats: every turn runs on its author's own login",
+      "host": "personal",
+      "checks": 39,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "session home: list state and pull requests on the machine and on the Solus API",
+      "host": "personal",
+      "checks": 56,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "session settle: signed out on the local machine and a linked VM; signed in on a connected VM and a cloud machine",
+      "host": "personal",
+      "checks": 56,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "share matrix: rows decide, owner, guest, and a link on one work",
+      "host": "personal",
+      "checks": 47,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "uplink admission: grant per dial, ticket one-use, expiry disconnect",
+      "host": "personal",
+      "checks": 8,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "work Git storage: local restart, publication, shared editing and revoked access",
+      "host": "personal",
+      "checks": 49,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "access-roles: automations, notifications, Insights, projects, and browser profiles follow roleOf",
+      "host": "managed",
+      "checks": 79,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "managed link: stored from the environment, system-owned, nothing trusted by position",
+      "host": "managed",
+      "checks": 14,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "ownership: the creator owns a work and a session; transfer is the owner's alone",
+      "host": "managed",
+      "checks": 24,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "presence: rooms, typing, focus, and leaving",
+      "host": "managed",
+      "checks": 40,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "seats: every turn runs on its author's own login",
+      "host": "managed",
+      "checks": 31,
+      "failed": 0
+    },
+    {
+      "status": "PASS",
+      "scenario": "uplink admission: grant per dial, ticket one-use, expiry disconnect",
+      "host": "managed",
+      "checks": 8,
+      "failed": 0
+    }
+  ],
+  "localGitLab": {
+    "passed": 49,
+    "failed": 0
+  },
+  "cloudflareGitLab": {
+    "passed": 50,
+    "failed": 0
+  },
+  "accountCloud": {
+    "organizationWork": 18,
+    "signIn": 12
+  },
+  "unitTests": {
+    "passed": 91,
+    "skipped": 1
+  },
+  "limits": [
+    "No client screens driven",
+    "Targeted typecheck blocked by seven errors in unchanged dependencies",
+    "Module-boundary check reports two unchanged crossings",
+    "lint:types script is absent"
+  ]
+}

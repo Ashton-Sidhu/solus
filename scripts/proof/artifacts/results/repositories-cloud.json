@@ -1,0 +1,137 @@
+{
+  "checks": [
+    {
+      "name": "partial-upstream: selected commit, complete ancestry, branches and tags",
+      "status": "pass",
+      "elapsedMs": 180.1577910000001
+    },
+    {
+      "name": "partial-upstream: search, dependency installation and tests",
+      "status": "pass",
+      "elapsedMs": 755.567583
+    },
+    {
+      "name": "partial-upstream: linked worktree and an isolated commit",
+      "status": "pass",
+      "elapsedMs": 203.25745800000004
+    },
+    {
+      "name": "partial-upstream: checkpoint restores staged, unstaged, untracked and ignored state",
+      "status": "pass",
+      "elapsedMs": 483.16491700000006
+    },
+    {
+      "name": "upstream refuses a stale push and preserves the accepted commit",
+      "status": "pass",
+      "elapsedMs": 587.3900409999997
+    },
+    {
+      "name": "partial-artifacts: selected commit, complete ancestry, branches and tags",
+      "status": "pass",
+      "elapsedMs": 163.45045799999934
+    },
+    {
+      "name": "partial-artifacts: search, dependency installation and tests",
+      "status": "pass",
+      "elapsedMs": 523.9163339999996
+    },
+    {
+      "name": "partial-artifacts: linked worktree and an isolated commit",
+      "status": "pass",
+      "elapsedMs": 138.8199999999997
+    },
+    {
+      "name": "partial-artifacts: checkpoint restores staged, unstaged, untracked and ignored state",
+      "status": "pass",
+      "elapsedMs": 521.6297919999997
+    },
+    {
+      "name": "Artifacts HTTP reads the selected commit without a checkout",
+      "status": "pass",
+      "elapsedMs": 149.0545409999977
+    },
+    {
+      "name": "read token cannot push to an Artifacts repository",
+      "status": "pass",
+      "elapsedMs": 2097.1429160000007
+    },
+    {
+      "name": "ArtifactFS lane",
+      "status": "blocked",
+      "detail": "Run fuse-proof.ts on a Linux host with the pinned ArtifactFS binary"
+    },
+    {
+      "name": "managed-host R2/snapshot recovery",
+      "status": "blocked",
+      "detail": "This runner checks tar recovery; the existing host controller must be exercised separately"
+    },
+    {
+      "name": "Claude/Codex execution and client verification",
+      "status": "blocked",
+      "detail": "No product adapter has been installed; provider and UI lanes cannot validate it yet"
+    }
+  ],
+  "lanes": [
+    {
+      "name": "partial-upstream",
+      "cloneMs": 144.4098329999997,
+      "samples": [
+        {
+          "phase": "clone",
+          "totalBytes": 17387520,
+          "gitBytes": 8560640,
+          "dependenciesBytes": 0,
+          "outputBytes": 0
+        },
+        {
+          "phase": "dependencies-and-tests",
+          "totalBytes": 42582016,
+          "gitBytes": 8560640,
+          "dependenciesBytes": 16801792,
+          "outputBytes": 8388608
+        },
+        {
+          "phase": "dirty-checkpoint",
+          "totalBytes": 42614784,
+          "gitBytes": 8585216,
+          "dependenciesBytes": 16801792,
+          "outputBytes": 8388608
+        }
+      ],
+      "filterAccepted": true,
+      "statusMs": 10.189499999999953
+    },
+    {
+      "name": "partial-artifacts",
+      "cloneMs": 2137.4250840000004,
+      "samples": [
+        {
+          "phase": "clone",
+          "totalBytes": 17395712,
+          "gitBytes": 8568832,
+          "dependenciesBytes": 0,
+          "outputBytes": 0
+        },
+        {
+          "phase": "dependencies-and-tests",
+          "totalBytes": 42590208,
+          "gitBytes": 8568832,
+          "dependenciesBytes": 16801792,
+          "outputBytes": 8388608
+        },
+        {
+          "phase": "dirty-checkpoint",
+          "totalBytes": 42622976,
+          "gitBytes": 8593408,
+          "dependenciesBytes": 16801792,
+          "outputBytes": 8388608
+        }
+      ],
+      "filterAccepted": true,
+      "statusMs": 10.644499999998516
+    }
+  ],
+  "cleanupErrors": [],
+  "fixture": "synthetic: 16 MiB obsolete blobs, 8 MiB current assets, 100 source modules, one npm dependency, 16 MiB synthetic dependencies, 8 MiB synthetic output",
+  "controlPlaneRequests": 4
+}

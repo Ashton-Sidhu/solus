@@ -13,7 +13,7 @@ import { resetTestDatabase } from './helpers/test-db'
 // it opened, after a successful boot and after a failed one.
 
 mock.module('node:sqlite', () => ({ DatabaseSync }))
-const environment = ['SOLUS_DATA_DIR', 'SOLUS_API', 'SOLUS_DB', 'DATABASE_URL', 'SOLUS_CLOUD_ISSUER', 'SOLUS_CLOUD_JWKS_URL', 'SOLUS_API_SIGNING_KEY'] as const
+const environment = ['SOLUS_DATA_DIR', 'SOLUS_API', 'SOLUS_DB', 'DATABASE_URL', 'SOLUS_CLOUD_ISSUER', 'SOLUS_CLOUD_JWKS_URL', 'SOLUS_API_SIGNING_KEY', 'SOLUS_WORK_STORAGE', 'SOLUS_ARTIFACTS_ACCOUNT_ID', 'SOLUS_ARTIFACTS_NAMESPACE', 'SOLUS_ARTIFACTS_API_TOKEN'] as const
 const previous = environment.map(key => [key, process.env[key]] as const)
 type ServiceModule = typeof import('@solus/server/boot-solus-api')
 let api: ServiceModule
@@ -83,7 +83,7 @@ test('every route the record service registers is a record path, or one only its
   // These answer only in standalone API mode, where the service owns its listener. In
   // the cloud application they are the site's: pairing does not exist in API mode, and
   // the integration callbacks are the account site's.
-  const ownListenerOnly = new Set(['/endpoints', '/pair', '/pair/open', '/upload', '/voice/transcribe', '/artifact', '/oauth/google/callback', '/oauth/atlassian/callback'])
+  const ownListenerOnly = new Set(['/endpoints', '/pair', '/pair/open', '/upload', '/voice/transcribe', '/artifact', '/oauth/google/callback', '/oauth/atlassian/callback', '/hooks/x/x'])
   const service = await api.createSolusApiService({ host: '127.0.0.1', port: () => 0 })
   try {
     // `ALL <path>/*` entries are middleware (CORS, the static fallback), not routes.
@@ -117,4 +117,21 @@ test('the standalone API mode still owns its listener and frees the port on shut
   const rebound = createServer()
   await new Promise<void>((resolve, reject) => { rebound.once('error', reject); rebound.listen(booted.port, '127.0.0.1', resolve) })
   await new Promise<void>(resolve => rebound.close(() => resolve()))
+})
+
+test('the record service starts the selected work adapter and refuses missing Artifacts credentials', async () => {
+  process.env.SOLUS_WORK_STORAGE = 'cloudflare-artifacts'
+  delete process.env.SOLUS_ARTIFACTS_ACCOUNT_ID
+  delete process.env.SOLUS_ARTIFACTS_NAMESPACE
+  delete process.env.SOLUS_ARTIFACTS_API_TOKEN
+  try {
+    await expect(api.createSolusApiService({ host: '127.0.0.1', port: () => 0 })).rejects.toThrow('SOLUS_ARTIFACTS_ACCOUNT_ID')
+    process.env.SOLUS_WORK_STORAGE = 'database'
+    const service = await api.createSolusApiService({ host: '127.0.0.1', port: () => 0 })
+    await service.close()
+  } finally {
+    for (const [key, value] of previous.filter(([key]) => key === 'SOLUS_WORK_STORAGE' || key.startsWith('SOLUS_ARTIFACTS_'))) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value
+    }
+  }
 })

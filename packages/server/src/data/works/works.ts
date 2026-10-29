@@ -27,6 +27,7 @@ import {
   insertWorkRow,
   metaFromRow,
   revisionRowSchema,
+  readRevisionBody,
   revisionSummaryFromRow,
   revisionReasonSchema,
   workFromRow,
@@ -230,20 +231,25 @@ export function workExportExtension(type: WorkType): 'md' | 'json' | 'html' {
  */
 export async function exportWorkForCloud(scope: RecordScope, id: string): Promise<WorkTransfer> {
   await workLiveBridge()?.flush(id)
-  return database().transaction(async (db) => {
+  const captured = await database().transaction(async (db) => {
     const row = await workRow(db, scope, id, true)
     if (!row) throw new Error(`Work not found: ${id}`)
-    const revisions = revisionRowSchema.array().parse(await db.all(sql`
+    const revisionRows = revisionRowSchema.array().parse(await db.all(sql`
       SELECT ${REVISION_COLUMNS} FROM ${workRevisions} WHERE work_id = ${id} ORDER BY rev
-    `)).map((revision) => ({ ...revisionSummaryFromRow(revision), content: revision.content ?? '' }))
-    const snapshot: WorkSnapshot = {
-      work: workFromRow(row),
-      previousRevisionId: row.previous_revision_id,
-      revisions,
+    `))
+    return {
+      work: workFromRow(row), previousRevisionId: row.previous_revision_id, revisionRows,
       annotations: await loadWorkAnnotations(scope, id),
     }
-    return { ...snapshot, fingerprint: workTransferFingerprint(snapshot) }
   })
+  // Immutable body reads need no work lock. The source fingerprint still guards handoff.
+  const revisions = await Promise.all(captured.revisionRows.map(async revision => ({
+    ...revisionSummaryFromRow(revision), content: await readRevisionBody(database(), captured.work.organizationId, revision),
+  })))
+  const snapshot: WorkSnapshot = {
+    work: captured.work, previousRevisionId: captured.previousRevisionId, revisions, annotations: captured.annotations,
+  }
+  return { ...snapshot, fingerprint: workTransferFingerprint(snapshot) }
 }
 
 type WorkSnapshot = Omit<WorkTransfer, 'fingerprint'>

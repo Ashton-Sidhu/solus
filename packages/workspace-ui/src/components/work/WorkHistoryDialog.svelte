@@ -12,14 +12,16 @@
   import { toasts } from "../../lib/toasts";
   import { getWorkPaneContext } from "./lib/work-pane-context";
   import {
+    comparisonBase,
     diagramRevisionDiff,
     historyPoints,
     historyRows,
     markdownBlockDiff,
-    pointBefore,
     revisionReasonLabel,
     type HistoryPoint,
   } from "./lib/work-history";
+
+  import { workSourceDiff } from "./lib/work-source-diff";
 
   interface Props {
     open: boolean;
@@ -47,19 +49,25 @@
   const rows = $derived(revisions ? historyRows(revisions) : []);
   const rowById = $derived(new Map(rows.map((row) => [row.revisionId, row])));
   const currentHash = $derived(session.worksStore.savedWork(workId)?.contentHash ?? "");
-  const points = $derived(historyPoints(rows, currentHash));
+  const currentBody = $derived(currentContent());
+  const savedContent = $derived(session.worksStore.savedWork(workId)?.content);
+  const hasDraftChanges = $derived(savedContent !== undefined && currentBody !== savedContent);
+  const points = $derived(historyPoints(rows, currentHash, hasDraftChanges));
   const loadError = $derived(history.errors.get(workId) ?? null);
 
   let picked = $state<HistoryPoint | null>(null);
-  /** The comparison base the reader chose; null follows the picked point. */
-  let chosenBase = $state<HistoryPoint | null>(null);
+  /** Undefined follows the picked point; null means an empty body. */
+  let chosenBase = $state<HistoryPoint | null | undefined>(undefined);
   let sourceView = $state(false);
   let restoring = $state(false);
+  let diffStyle = $state<"unified" | "split">("unified");
+  let tokenHighlight = $state(true);
+  let retry = $state(0);
 
   $effect(() => {
     if (!open) return;
     picked = null;
-    chosenBase = initialBase;
+    chosenBase = initialBase ?? undefined;
     void history.load(workId);
   });
 
@@ -67,15 +75,17 @@
   const activePick = $derived<HistoryPoint | null>(
     picked ?? (initialPick !== null && initialPick !== "current" && rowById.has(initialPick) ? initialPick : (points[0] ?? null)),
   );
-  const base = $derived(chosenBase ?? (activePick === null ? null : pointBefore(points, activePick)));
+  const base = $derived(comparisonBase(points, activePick, chosenBase));
 
-  let bodies = $state<{ key: string; before: string; after: string } | null>(null);
+  let bodies = $state<{ key: string; current: string | null; before: string; after: string } | null>(null);
   let bodyError = $state<string | null>(null);
-  const comparisonKey = $derived(activePick === null ? null : `${base ?? "none"}→${activePick}`);
+  const comparisonKey = $derived(activePick === null ? null : `${workId}:${base ?? "none"}→${activePick}`);
 
-  async function bodyOf(point: HistoryPoint | null): Promise<string> {
+  const comparisonCurrent = $derived(base === "current" || activePick === "current" ? currentBody : null);
+
+  async function bodyOf(point: HistoryPoint | null, current: string | null): Promise<string> {
     if (point === null) return "";
-    if (point === "current") return currentContent();
+    if (point === "current") return current ?? "";
     return history.body(workId, point);
   }
 
@@ -83,24 +93,29 @@
     const key = comparisonKey;
     const from = base;
     const to = activePick;
+    const current = comparisonCurrent;
+    void retry;
     if (!open || key === null) return;
     bodyError = null;
-    void Promise.all([bodyOf(from), bodyOf(to)]).then(
+    let cancelled = false;
+    void Promise.all([bodyOf(from, current), bodyOf(to, current)]).then(
       ([before, after]) => {
-        if (comparisonKey === key) bodies = { key, before, after };
+        if (!cancelled) bodies = { key, current, before, after };
       },
       (error: Error) => {
-        if (comparisonKey === key) bodyError = error.message;
+        if (!cancelled) bodyError = error.message;
       },
     );
+    return () => { cancelled = true; };
   });
 
-  const shown = $derived(bodies && bodies.key === comparisonKey ? bodies : null);
+  const shown = $derived(bodies && bodies.key === comparisonKey && bodies.current === comparisonCurrent ? bodies : null);
   const blocks = $derived(shown && (type === "doc" || type === "slides") && !sourceView ? markdownBlockDiff(shown.before, shown.after) : []);
-  const diagramDiff = $derived(shown && type === "diagram" ? diagramRevisionDiff(shown.before, shown.after) : null);
+  const sourceDiff = $derived(shown && sourceView ? workSourceDiff(type, shown.before, shown.after) : null);
+  const diagramDiff = $derived(shown && !sourceView && type === "diagram" ? diagramRevisionDiff(shown.before, shown.after) : null);
 
   function pointLabel(point: HistoryPoint): string {
-    if (point === "current") return "Current version";
+    if (point === "current") return hasDraftChanges ? "Current version (unsaved edits)" : "Current version";
     const row = rowById.get(point);
     return row ? `${revisionReasonLabel(row.reason)} · ${relativeTime(Date.parse(row.capturedAt))}` : `Version ${point}`;
   }
@@ -143,7 +158,7 @@
     if (next === undefined) return;
     event.preventDefault();
     picked = next;
-    chosenBase = null;
+    chosenBase = undefined;
     document.querySelector<HTMLElement>(`[data-history-point="${next}"]`)?.focus();
   }
 </script>
@@ -158,11 +173,9 @@
       <div class="flex shrink-0 items-center justify-between gap-3 border-b border-(--solus-tool-border) px-4 py-2.5">
         <Dialog.Title class="min-w-0 truncate font-medium text-(--solus-text-primary)">History of “{title}”</Dialog.Title>
         <div class="flex shrink-0 items-center gap-1.5">
-          {#if type === "doc" || type === "slides"}
-            <Button variant="ghost" size="xs" class="pointer-coarse:min-h-11" aria-pressed={sourceView} onclick={() => (sourceView = !sourceView)}>
-              {sourceView ? "Rendered" : "Markdown"}
-            </Button>
-          {/if}
+          <Button variant="ghost" size="xs" class="pointer-coarse:min-h-11" aria-pressed={sourceView} onclick={() => (sourceView = !sourceView)}>
+            {sourceView ? "Preview" : "Source diff"}
+          </Button>
           {#if canRestore}
             <Button variant="outline" size="xs" class="pointer-coarse:min-h-11" data-testid="restore-version" disabled={restoring} onclick={() => void restore()}>
               <RestoreIcon size={13} />
@@ -200,7 +213,7 @@
                 data-history-point={point}
                 class="flex w-full min-w-0 flex-col items-start gap-0.5 overflow-hidden rounded-lg px-2.5 py-1.5 text-left hover:bg-(--solus-surface-hover) focus-visible:outline-2 focus-visible:outline-(--solus-accent-border) pointer-coarse:min-h-11 {point === activePick ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)' : 'text-(--solus-text-secondary)'}"
                 aria-current={point === activePick}
-                onclick={() => { picked = point; chosenBase = null; }}
+                onclick={() => { picked = point; chosenBase = undefined; }}
               >
                 <span class="w-full truncate">{pointLabel(point)}</span>
                 {#if author}
@@ -229,16 +242,40 @@
                 {/each}
                 <option value="none">Nothing (empty)</option>
               </select>
+              {#if sourceView}
+                <select
+                  class="h-7 rounded-md border border-(--solus-tool-border) bg-transparent px-2 text-(--solus-text-primary) pointer-coarse:h-11"
+                  aria-label="Diff layout"
+                  bind:value={diffStyle}
+                >
+                  <option value="unified">Unified</option>
+                  <option value="split">Side by side</option>
+                </select>
+                <Button variant="ghost" size="xs" class="pointer-coarse:min-h-11" aria-pressed={tokenHighlight} onclick={() => (tokenHighlight = !tokenHighlight)}>Word highlights</Button>
+                {#if sourceDiff && !sourceDiff.error}
+                  <span class="ml-auto flex gap-2" aria-label={`${sourceDiff.additions} lines added, ${sourceDiff.deletions} lines removed`}>
+                    <span class="text-(--solus-diff-added-text)">+{sourceDiff.additions}</span>
+                    <span class="text-(--solus-diff-removed-text)">−{sourceDiff.deletions}</span>
+                  </span>
+                {/if}
+              {/if}
             </div>
           {/if}
 
           <div class="min-h-0 flex-1 overflow-auto p-4">
             {#if bodyError}
               <p class="text-(--solus-text-secondary)">Could not load this version: {bodyError}</p>
+              <Button variant="outline" size="xs" onclick={() => retry++}>Retry</Button>
             {:else if !shown}
               <p class="text-(--solus-text-tertiary)">{activePick === null && revisions ? "This work has no history yet." : "Loading…"}</p>
             {:else if shown.before === shown.after}
               <p class="text-(--solus-text-tertiary)">These versions are the same.</p>
+            {:else if sourceView}
+              {#if sourceDiff?.error}
+                <p class="text-(--solus-text-secondary)">Could not compare the source: {sourceDiff.error}</p>
+              {:else if sourceDiff?.file}
+                <Diff fileDiff={sourceDiff.file} {diffStyle} {tokenHighlight} collapseNoise={false} />
+              {/if}
             {:else if type === "diagram" && diagramDiff}
               <div class="flex h-full min-h-[24rem] flex-col gap-3">
                 <div class="min-h-0 flex-1 overflow-hidden rounded-xl border border-(--solus-tool-border)">
@@ -269,7 +306,7 @@
                   <div class="min-h-0 flex-1"><SandboxFrame html={shown.after} fillAvailable expandable={false} /></div>
                 </figure>
               </div>
-            {:else if sourceView || blocks.length === 0}
+            {:else if blocks.length === 0}
               <Diff oldFile={{ name: title, contents: shown.before }} newFile={{ name: title, contents: shown.after }} />
             {:else}
               <div class="flex flex-col gap-2">

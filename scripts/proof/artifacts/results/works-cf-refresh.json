@@ -1,0 +1,91 @@
+{
+  "mode": "cloud",
+  "snapshots": 4,
+  "completedCloudRepos": 4,
+  "controlPlaneRequests": 30,
+  "receipts": [
+    {
+      "type": "doc",
+      "commit": "f1aafe30fcc1c3c596505176e6bfcbd962be12e7",
+      "scratchBytes": 155648,
+      "elapsedMs": 699.5764160000001
+    },
+    {
+      "type": "diagram",
+      "commit": "e776e09baf17baa1558567bf4715dfc50f70831d",
+      "scratchBytes": 155648,
+      "elapsedMs": 601.0514170000001
+    },
+    {
+      "type": "slides",
+      "commit": "5d7fd68fb8a4317f5858ab72653b7c59737eb6e9",
+      "scratchBytes": 155648,
+      "elapsedMs": 655.22775
+    },
+    {
+      "type": "artifact",
+      "commit": "6da1f4136ad3736d20dbdc5b022745f726fa3c86",
+      "scratchBytes": 155648,
+      "elapsedMs": 665.6198340000001
+    },
+    {
+      "type": "cloud-doc",
+      "commit": "f1aafe30fcc1c3c596505176e6bfcbd962be12e7",
+      "scratchBytes": 155648,
+      "elapsedMs": 2185.666207999995
+    },
+    {
+      "type": "cloud-diagram",
+      "commit": "e776e09baf17baa1558567bf4715dfc50f70831d",
+      "scratchBytes": 155648,
+      "elapsedMs": 1856.2771250000078
+    },
+    {
+      "type": "cloud-slides",
+      "commit": "5d7fd68fb8a4317f5858ab72653b7c59737eb6e9",
+      "scratchBytes": 155648,
+      "elapsedMs": 1888.7999579999887
+    },
+    {
+      "type": "cloud-artifact",
+      "commit": "6da1f4136ad3736d20dbdc5b022745f726fa3c86",
+      "scratchBytes": 155648,
+      "elapsedMs": 1773.3115829999733
+    }
+  ],
+  "publicationReviewGap": {
+    "sourceReviewers": 1,
+    "importedReviewers": 0
+  },
+  "scale": [
+    {
+      "revisions": 1,
+      "historyBodyBytes": 131072,
+      "publication": {
+        "commit": "74fe7df2eff4d7b04e022e1b94b8c5ef45d1e2e3",
+        "scratchBytes": 212992,
+        "elapsedMs": 1336.7272079999966
+      },
+      "nextSave": {
+        "commit": "6fefc28158373124a95f3dbf3344f2b5ff67d1cb",
+        "scratchBytes": 245760,
+        "elapsedMs": 2672.580457999982
+      }
+    },
+    {
+      "revisions": 40,
+      "historyBodyBytes": 5242880,
+      "publication": {
+        "commit": "0d0f11ffbfc6d751f9880c21d6daf039f2f42589",
+        "scratchBytes": 4685824,
+        "elapsedMs": 4892.19308300002
+      },
+      "nextSave": {
+        "commit": "26a233788dcfe587662448c6c2ceb89237726375",
+        "scratchBytes": 253952,
+        "elapsedMs": 2983.0780830000003
+      }
+    }
+  ],
+  "cleanupErrors": []
+}

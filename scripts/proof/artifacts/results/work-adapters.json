@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-13",
+  "scope": "Work content adapters in the Solus worktree; no deployment",
+  "sqlite": {
+    "passed": 81,
+    "skipped": 1,
+    "files": 6
+  },
+  "postgres": {
+    "adapter_file": "passed",
+    "existing_work_files": 5,
+    "result": "all passed when run separately",
+    "adapter_skips": [
+      "separate SQLite source/destination fixture",
+      "real Cloudflare integration"
+    ]
+  },
+  "cloud": {
+    "passed": 1,
+    "expectations": 18,
+    "work_types": [
+      "doc",
+      "diagram",
+      "slides",
+      "artifact"
+    ],
+    "checks": [
+      "create",
+      "agent edit",
+      "archived revision HTTP read",
+      "restore",
+      "lost-response recovery with identical commit",
+      "delete with HTTP 404 verification"
+    ],
+    "remaining_default_namespace_repositories": [
+      "starter-repo"
+    ]
+  },
+  "lint": "passed on changed storage, live and upload files",
+  "types": {
+    "status": "blocked by unchanged dependencies",
+    "changed_storage_file_diagnostics": 0
+  },
+  "module_boundaries": {
+    "status": "failed on unchanged crossings",
+    "crossings": [
+      "admission/scope.ts -> data/sessions/session-lineage.ts",
+      "execution/sessions/background-session-title.ts -> transport/events/host-event-publisher.ts"
+    ]
+  },
+  "cleanup": {
+    "test_repositories": "removed",
+    "postgres_container": "removed",
+    "production_changes": false
+  },
+  "remaining": [
+    "shared sync-state UI",
+    "reviewer transfer gap",
+    "explicit data migration and projection repair jobs",
+    "managed code-repository provisioning adapters"
+  ]
+}

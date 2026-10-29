@@ -50,6 +50,7 @@ interface RoomClient {
 /** One work open live: its doc, and the clients that opened it. */
 interface Room {
   workId: string
+  bodyVersion: number
   organizationId: string
   type: LiveWorkType
   doc: Y.Doc
@@ -72,8 +73,8 @@ export interface WorkLiveManagerOptions {
  * The live docs of the works people edit together on this host
  * (docs/plans/work-review-and-live-editing.md, phase 3b). One `Y.Doc` in memory
  * for each work a client has open, and the room of those clients. A push is
- * applied, stored with its receipt, and only then acknowledged and relayed to
- * the room. The body in `works.content` is projected from the doc when edits
+ * applied and relayed from memory; the clients keep device copies until the
+ * host stores the doc when edits pause. The body in `works.content` is projected when edits
  * pause, and before any read (`flush`), so an agent reads what people see.
  *
  * A body written from outside (an agent's `update_work`, a restore, an API
@@ -108,7 +109,7 @@ export class WorkLiveManager {
     const type = work.type
     if (!isLiveWorkType(type) || work.mirroredDoc?.provider === 'gdrive') return { mode: 'unsupported' }
     return this.serial(request.workId, async () => {
-      const room = this.rooms.get(request.workId) ?? await this.load(work.id, work.organizationId, type, work.content)
+      const room = this.rooms.get(request.workId) ?? await this.load(work.id, work.organizationId, type, work.content, work.contentVersion)
       const schemaMatches = request.schemaVersion === liveSchemaVersion(room.type)
       const mode = input.canEdit && schemaMatches ? 'edit' : 'read'
       room.clients.set(clientId, { principal: input.principal ?? null, mode, awareness: room.clients.get(clientId)?.awareness ?? null })
@@ -212,10 +213,12 @@ export class WorkLiveManager {
     room.dirty = false
     this.cancelTimers(room)
     try {
-      await saveLiveDoc(room.organizationId, room.workId, { state: Y.encodeStateAsUpdate(room.doc), clientSeqs: room.clientSeqs })
+      await saveLiveDoc(room.organizationId, room.workId, { state: Y.encodeStateAsUpdate(room.doc), clientSeqs: room.clientSeqs,
+        lastAuthor: room.lastAuthor, bodyVersion: room.bodyVersion, needsProjection: true })
       const content = projectLiveDoc(room.type, room.doc)
       const work = await Work.byId(room.organizationId, room.workId)
       await work.applyLiveProjection({ content, author: room.lastAuthor })
+      room.bodyVersion = work.contentVersion
     } catch (error) {
       // Try again later. The room stays in memory until its doc is stored.
       this.markDirty(room)
@@ -226,10 +229,38 @@ export class WorkLiveManager {
     if (room.clients.size === 0 && this.rooms.get(workId) === room) this.drop(room)
   }
 
+  /** The archive writer also projects durable live state after a restart with no open room. */
+  async flushPersisted(workId: string): Promise<void> {
+    await this.serial(workId, async () => {
+      const room = this.rooms.get(workId)
+      if (room) {
+        await this.flush(workId)
+        if (room.dirty) throw new Error('Live edits could not be projected for archiving.')
+        return
+      }
+      const stored = await loadLiveDoc(workId)
+      if (!stored) return
+      const work = await Work.find(stored.organizationId, workId)
+      if (!work || !isLiveWorkType(work.type) || work.mirroredDoc?.provider === 'gdrive') return
+      const doc = new Y.Doc()
+      try {
+        Y.applyUpdate(doc, stored.state)
+        if (stored.bodyVersion !== undefined && stored.bodyVersion < work.contentVersion) {
+          // The body committed before the external-write callback could update the live state.
+          absorbIntoLiveDoc(work.type, doc, work.content, HOST_ORIGIN)
+          await saveLiveDoc(work.organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs: stored.clientSeqs,
+            lastAuthor: work.contentAuthor, bodyVersion: work.contentVersion, needsProjection: false })
+        } else if (stored.needsProjection) {
+          await work.applyLiveProjection({ content: projectLiveDoc(work.type, doc), author: stored.lastAuthor ?? null })
+        }
+      } finally { doc.destroy() }
+    })
+  }
+
   /**
    * Shutdown: write every body with pushes it does not have yet, after each work's
-   * operations in flight (a leaving client's write among them). The pushes are stored
-   * already; this keeps the body current for the process that comes next.
+   * operations in flight (a leaving client's write among them). This stores the
+   * pending pushes and keeps the body current for the process that comes next.
    */
   async flushAll(): Promise<void> {
     await Promise.all([...this.rooms.keys(), ...this.chains.keys()].map(workId => this.serial(workId, () => this.flush(workId))))
@@ -253,7 +284,7 @@ export class WorkLiveManager {
     }
     await afterDatabaseCommit(async () => {
       try {
-        await this.absorb(workId, content)
+        await this.absorb(workId, content, by)
       } catch (error) {
         log.error('work_live_absorb_failed', { workId, error: error instanceof Error ? error.message : String(error) })
       } finally {
@@ -287,13 +318,17 @@ export class WorkLiveManager {
   }
 
   /** Fold a body written from outside into the live doc, and tell the room. */
-  private async absorb(workId: string, content: string): Promise<void> {
+  private async absorb(workId: string, content: string, by: Attribution | null): Promise<void> {
     await this.serial(workId, async () => {
       const room = this.rooms.get(workId)
       if (room) {
         const updates = captureUpdates(room.doc, () => absorbIntoLiveDoc(room.type, room.doc, content, HOST_ORIGIN))
         if (updates.length === 0) return
-        await saveLiveDoc(room.organizationId, workId, { state: Y.encodeStateAsUpdate(room.doc), clientSeqs: room.clientSeqs })
+        const work = await Work.find(room.organizationId, workId)
+        if (!work) return
+        room.bodyVersion = work.contentVersion
+        await saveLiveDoc(room.organizationId, workId, { state: Y.encodeStateAsUpdate(room.doc), clientSeqs: room.clientSeqs,
+          lastAuthor: by, bodyVersion: room.bodyVersion, needsProjection: false })
         for (const update of updates) this.publish([...room.clients.keys()], 'workLive.update', { workId, update: bytesToBase64(update) })
         // The body is the one just written; its formatting stays until someone edits live.
         room.dirty = false
@@ -307,14 +342,14 @@ export class WorkLiveManager {
       const doc = new Y.Doc()
       Y.applyUpdate(doc, stored.state)
       absorbIntoLiveDoc(work.type, doc, content, HOST_ORIGIN)
-      await saveLiveDoc(stored.organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs: stored.clientSeqs })
+      await saveLiveDoc(stored.organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs: stored.clientSeqs, lastAuthor: by, bodyVersion: work.contentVersion, needsProjection: false })
     })
   }
 
   // ── Rooms ─────────────────────────────────────────────────────────────────
 
   /** The stored doc, or one the host seeds from the body: clients never seed. */
-  private async load(workId: string, organizationId: string, type: LiveWorkType, content: string): Promise<Room> {
+  private async load(workId: string, organizationId: string, type: LiveWorkType, content: string, bodyVersion: number): Promise<Room> {
     const stored = await loadLiveDoc(workId)
     let doc: Y.Doc
     let clientSeqs: Map<string, number>
@@ -322,13 +357,19 @@ export class WorkLiveManager {
       doc = new Y.Doc()
       Y.applyUpdate(doc, stored.state)
       clientSeqs = stored.clientSeqs
+      if (stored.bodyVersion !== undefined && stored.bodyVersion < bodyVersion) {
+        absorbIntoLiveDoc(type, doc, content, HOST_ORIGIN)
+        await saveLiveDoc(organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs, bodyVersion, needsProjection: false })
+        stored.needsProjection = false
+      }
     } else {
       doc = seedLiveDoc(type, content)
       clientSeqs = new Map()
-      await saveLiveDoc(organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs })
+      await saveLiveDoc(organizationId, workId, { state: Y.encodeStateAsUpdate(doc), clientSeqs, bodyVersion, needsProjection: false })
     }
-    const room: Room = { workId, organizationId, type, doc, clientSeqs, clients: new Map(), dirty: false, lastAuthor: null, cancelIdle: null, cancelMax: null }
+    const room: Room = { workId, bodyVersion, organizationId, type, doc, clientSeqs, clients: new Map(), dirty: stored?.needsProjection ?? false, lastAuthor: stored?.lastAuthor ?? null, cancelIdle: null, cancelMax: null }
     this.rooms.set(workId, room)
+    if (room.dirty) this.markDirty(room)
     return room
   }
 

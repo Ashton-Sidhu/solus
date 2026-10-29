@@ -29,6 +29,8 @@ export interface LabSolusApiOptions {
   port?: number
   /** Start the server in its own process group and do not wait for it at exit: `bun lab up` leaves it running. */
   longLived?: boolean
+  /** Storage configuration for this isolated service only. */
+  environment?: NodeJS.ProcessEnv
 }
 
 export interface LabSolusApi {
@@ -65,6 +67,7 @@ export async function bootLabSolusApi(options: LabSolusApiOptions): Promise<LabS
   assertTemporary(dataDir)
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    ...options.environment,
     SOLUS_DATA_DIR: dataDir,
     SOLUS_PORT: String(options.port ?? 0),
     SOLUS_NO_LAN_DISCOVERY: '1',

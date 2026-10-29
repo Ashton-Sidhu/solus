@@ -1,0 +1,31 @@
+{
+  "checks": [
+    {
+      "name": "Worker binding reads current and historical file content without a repository checkout",
+      "status": "pass",
+      "elapsedMs": 503.2689169999994
+    },
+    {
+      "name": "Worker binding returns immutable commit history",
+      "status": "pass",
+      "elapsedMs": 230.87433299999975
+    },
+    {
+      "name": "Worker binding forks a repository and removes the disposable fork",
+      "status": "pass",
+      "elapsedMs": 5364.029375
+    },
+    {
+      "name": "Worker binding revokes a token and Git refuses it",
+      "status": "pass",
+      "elapsedMs": 1815.7681250000005
+    },
+    {
+      "name": "the test Worker refuses unauthenticated content access",
+      "status": "pass",
+      "elapsedMs": 24.452665999999226
+    }
+  ],
+  "cleanupErrors": [],
+  "controlPlaneRequests": 2
+}

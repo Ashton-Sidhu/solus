@@ -246,7 +246,7 @@ describe('access for reviewers', () => {
 })
 
 describe('roles', () => {
-  const resources = (role: ResourceRole) => ({ roleFor: async (_principal: Principal, _resource: ShareResource) => role })
+  const resources = (role: ResourceRole) => ({ standingFor: async (_principal: Principal, _resource: ShareResource) => ({ role }) })
 
   test('a commenter comments and decides but cannot edit or request; a viewer only reads', async () => {
     const call = (method: Parameters<typeof access.assertRpcAccess>[0], role: ResourceRole) => access.assertRpcAccess(method, BOB, ['w1', {}], resources(role), false)

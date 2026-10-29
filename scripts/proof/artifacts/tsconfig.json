@@ -1,0 +1,10 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "types": ["bun-types"]
+  },
+  "include": ["process.ts", "cloud.ts", "repo-proof.ts", "work-store.ts", "fuse-proof.ts", "run-fuse-cloud.ts", "worker-proof.ts", "binding-worker.ts", "../../../.solus-local/artifacts-proof/results/worker/worker-configuration.d.ts"],
+  "exclude": []
+}

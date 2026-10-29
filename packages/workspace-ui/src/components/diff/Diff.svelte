@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { FileDiff, File as PierreFile } from "@pierre/diffs";
+  import { FileDiff, File as PierreFile, type FileDiffMetadata } from "@pierre/diffs";
   import { getSettingsContext } from "../../contexts";
   import { parsePatchMetadata } from "../../lib/pierre-diff";
   import { diffRenderOptions } from "../../lib/pierre-diff/options";
@@ -22,15 +22,19 @@
 
   interface Props {
     patch?: string;
+    /** A body comparison already parsed by the owning surface. */
+    fileDiff?: FileDiffMetadata;
     oldFile?: { name: string; contents: string };
     newFile?: { name: string; contents: string };
     /** Side by side or stacked. A card is stacked unless its surface offers the choice. */
     diffStyle?: "unified" | "split";
     /** Word-level highlighting inside a changed line. */
     tokenHighlight?: boolean;
+    /** Prose and markup can give meaning to whitespace. Keep those changes open. */
+    collapseNoise?: boolean;
   }
 
-  let { patch, oldFile, newFile, diffStyle = "unified", tokenHighlight = true }: Props = $props();
+  let { patch, fileDiff, oldFile, newFile, diffStyle = "unified", tokenHighlight = true, collapseNoise = true }: Props = $props();
 
   const theme = getSettingsContext();
 
@@ -43,9 +47,9 @@
 
   const hasFileContents = $derived(!!(oldFile && newFile));
   const mode = $derived<"file-only" | "diff" | "empty">(
-    newFile && !oldFile && !patch
+    newFile && !oldFile && !patch && !fileDiff
       ? "file-only"
-      : patch || hasFileContents
+      : patch || fileDiff || hasFileContents
         ? "diff"
         : "empty",
   );
@@ -54,11 +58,11 @@
   // identity. When this changes, we tear down and rebuild — otherwise we just
   // call render() with the new payload.
   const instanceKey = $derived(`${mode}|${hasFileContents}`);
-  const fileDiffMeta = $derived(patch ? parsePatchMetadata(patch) : null);
+  const fileDiffMeta = $derived(fileDiff ?? (patch ? parsePatchMetadata(patch) : null));
   const analyzedFiles = $derived(fileDiffMeta ? [fileDiffMeta] : []);
   const moveAnalysis = $derived(detectMovedBlocks(analyzedFiles));
   const noiseAnalysis = $derived(
-    fileDiffMeta ? analyzeDiffNoise(fileDiffMeta) : null,
+    fileDiffMeta && collapseNoise ? analyzeDiffNoise(fileDiffMeta) : null,
   );
   const movedSummary = $derived(
     fileDiffMeta ? moveAnalysis.byFile.get(fileDiffMeta.name) : undefined,
@@ -123,7 +127,7 @@
   function renderDiff() {
     if (!diffInstance || !container) return;
     try {
-      if (patch) {
+      if (patch || fileDiff) {
         if (!displayFileDiffMeta) return;
         diffInstance.render({ fileDiff: displayFileDiffMeta, containerWrapper: container });
       } else if (oldFile && newFile) {

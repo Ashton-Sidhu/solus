@@ -1,0 +1,83 @@
+{
+  "artifactFsCommit": "2b87a48691ef4ae82d391b7bbe4976c06c7fadf7",
+  "checks": [
+    {
+      "name": "FUSE: selected commit, full history, tags, executable files and source reads",
+      "status": "fail",
+      "detail": "git failed (128): fatal: Not a valid object name v1.0.0\n",
+      "elapsedMs": 29.738870000000134
+    },
+    {
+      "name": "FUSE: Git status and file search",
+      "status": "pass",
+      "elapsedMs": 1949.1960139999996
+    },
+    {
+      "name": "FUSE: dependencies and generated files remain usable",
+      "status": "pass",
+      "elapsedMs": 1255.083944
+    },
+    {
+      "name": "FUSE: commit a rename, deletion and new file, then read the committed tree",
+      "status": "pass",
+      "elapsedMs": 106.02299500000026
+    },
+    {
+      "name": "FUSE: linked worktree supports an independent branch",
+      "status": "pass",
+      "elapsedMs": 148.5716080000002
+    },
+    {
+      "name": "FUSE: dirty state survives daemon restart",
+      "status": "pass",
+      "elapsedMs": 265.4856829999999
+    }
+  ],
+  "samples": [
+    {
+      "phase": "mount-ready",
+      "baselineBytes": 17387520,
+      "artifactFsBytes": 323584,
+      "hydration": "repo=project state=mounted head=3f6cec434b7d6de65074b267e2a97432ffc69ef3 ref=main source_ref=refs/heads/main required_commit=none acquisition=not_required base_commit=3f6cec434b7d6de65074b267e2a97432ffc69ef3 remote_refresh=disabled ahead=0 behind=0 diverged=false last_fetch=never result=never prepare_error=none hydrated_blobs=0 hydrated_bytes=0 overlay_dirty=false"
+    },
+    {
+      "phase": "source-search-and-tests",
+      "baselineBytes": 17387520,
+      "artifactFsBytes": 19042304,
+      "hydration": "repo=project state=mounted head=3f6cec434b7d6de65074b267e2a97432ffc69ef3 ref=main source_ref=refs/heads/main required_commit=none acquisition=not_required base_commit=3f6cec434b7d6de65074b267e2a97432ffc69ef3 remote_refresh=disabled ahead=0 behind=0 diverged=false last_fetch=never result=never prepare_error=none hydrated_blobs=114 hydrated_bytes=8752347 overlay_dirty=false"
+    },
+    {
+      "phase": "dependencies-and-output",
+      "baselineBytes": 42582016,
+      "artifactFsBytes": 45113344,
+      "hydration": "repo=project state=mounted head=3f6cec434b7d6de65074b267e2a97432ffc69ef3 ref=main source_ref=refs/heads/main required_commit=none acquisition=not_required base_commit=3f6cec434b7d6de65074b267e2a97432ffc69ef3 remote_refresh=disabled ahead=0 behind=0 diverged=false last_fetch=never result=never prepare_error=none hydrated_blobs=114 hydrated_bytes=8752347 overlay_dirty=true"
+    },
+    {
+      "phase": "edited-and-restarted",
+      "baselineBytes": 42582016,
+      "artifactFsBytes": 44347392,
+      "hydration": "repo=project state=mounted head=2f99f7e7d295c56d8485ce30c441607c15b14b6a ref=main source_ref=refs/heads/main required_commit=none acquisition=not_required base_commit=2f99f7e7d295c56d8485ce30c441607c15b14b6a remote_refresh=disabled ahead=0 behind=0 diverged=false last_fetch=never result=never prepare_error=none hydrated_blobs=114 hydrated_bytes=8752347 overlay_dirty=true"
+    }
+  ],
+  "timings": [
+    {
+      "operation": "prepare",
+      "baselineMs": 96.73765699999967,
+      "artifactFsMs": 35.66571700000031
+    },
+    {
+      "operation": "status-clean",
+      "baselineMs": 30.511381999999685,
+      "artifactFsMs": 1868.631127
+    },
+    {
+      "operation": "source-search",
+      "artifactFsMs": 49.64717500000006
+    },
+    {
+      "operation": "commit",
+      "artifactFsMs": 25.08908799999972
+    }
+  ],
+  "transport": "file:// synthetic bare upstream; not the Artifacts service"
+}

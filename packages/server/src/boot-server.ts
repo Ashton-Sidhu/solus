@@ -1,3 +1,4 @@
+import { startWorkStorage } from './sync/works/work-storage-runtime'
 import { installWorkspaceToolOperations, type RemoteToolOperations } from './data/workspace/tool-context'
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
@@ -524,6 +525,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Works people edit live (work review plan, phase 3b): a room per open work;
   // its updates go to that room only, never to everyone with access.
   const workLive = new WorkLiveManager({ publish: (clientIds, type, payload) => { void events.publishToRoom({ kind: 'work', id: payload.workId }, clientIds, type, payload) } })
+  const workStorageRuntime = await startWorkStorage({ database: getDatabase, cloud: apiMode, flushLive: workId => workLive.flushPersisted(workId) })
   // Who is here (docs/plans/multiplayer-presence.md): one entry per connected
   // client, named from its principal at admission. The host room is one
   // organization's — the whole host, or each organization of the workspace
@@ -1853,6 +1855,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
         await new Promise<void>((resolve) => tunnelHttp.close(() => resolve()))
+        await workStorageRuntime.stop()
         await closeDatabase()
         lock?.release()
       })()

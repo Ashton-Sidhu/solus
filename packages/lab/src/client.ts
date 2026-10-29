@@ -93,7 +93,10 @@ export class LabClient {
 
   constructor(private readonly options: LabClientOptions) {
     this.persona = options.persona
-    this.api = new SolusApiClient(new SolusApiHttp({
+    this.api = new SolusApiClient(options.persona.kind === 'guest' ? {
+      contextKey: () => options.persona.id,
+      send: request => this.rpc('solusApiRequest', request),
+    } : new SolusApiHttp({
       baseUrl: () => options.hostUrl,
       contextKey: () => options.persona.id,
       acquireSource: async () => options.credentialFree ? (await options.localOwnerToken?.()) ?? null : this.grant(),
