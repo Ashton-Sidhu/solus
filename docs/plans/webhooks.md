@@ -201,7 +201,7 @@ New agent tools in the Solus toolbox (`execution/agents/tools/`), for Claude and
 | --- | --- |
 | `create_webhook`, `update_webhook`, `delete_webhook`, `rotate_webhook` | yes |
 | `list_webhooks`, `read_webhook_delivery`, `dry_run_webhook` | no |
-| `request_secret` | no (the user answers the card) |
+| `request_secret` (a Sessions tool that the webhook tools use) | no (the user answers the card) |
 
 **No sender presets (decided).** Solus has no catalog of senders. The agent knows how a sender such as GitHub, Linear, or Sentry signs its requests, its event names, and its payload shape. It writes the verification settings, filters, and templates itself. The editor UI has plain fields with no defaults. Before the agent asks for approval, it can call `dry_run_webhook` with a sample payload that it writes, to test its filters and templates.
 
@@ -209,7 +209,7 @@ Verification uses only the generic schemes in §3.7. No scheme or setting names 
 
 Approval uses the existing permission card, the same as `create_automation`. The result of `create_webhook` gives the URL and its mode. When the host has no URL, the tool tells the agent to ask the user to link the host or to set its public URL.
 
-`request_secret` shows a private card in the session. The user types the value, or declines. The server keeps the value and gives the agent a `secretRef`. The `secretRef` works once, only for the session that asked, and ends after 15 minutes. `create_webhook` and `update_webhook` accept `verification.secretRef` in place of a secret. The secret never appears in tool input, tool output, or the transcript. This uses the input-request flow (`execution/sessions/input-requests.ts`), as the MCP elicitation does (`integrations/gateway.ts`). Other tools can accept a `secretRef` later.
+`request_secret` is a session facility, not a webhook tool: a Sessions tool on every prompted run for Claude and Codex (`execution/agents/tools/secret-request-tool.ts`, mechanism in `execution/sessions/secret-requests.ts`), whether or not the host has webhooks. The webhook tools are its first users. It shows a private card in the session. The user types the value, or declines. The server keeps the value and gives the agent a `secretRef`. The `secretRef` works once, only for the session that asked, and ends after 15 minutes (`SECRET_REF_TTL_MS` in `contracts/agent-tools.ts`). The tool answers `{ status: 'saved', secretRef }`, `{ status: 'declined' }`, or `{ status: 'cancelled' }`. `create_webhook` and `update_webhook` accept `verification.secretRef` in place of a secret. The secret never appears in tool input, tool output, or the transcript. This uses the input-request flow (`execution/sessions/input-requests.ts`), as the MCP elicitation does (`integrations/gateway.ts`), but its answer comes through `secretRequestAnswer`, never `respondQuestion`. Any later tool that needs a credential adds a `secretRef` field; the shared runtime instructions state the rule once: "A secret: call `request_secret` yourself and pass its `secretRef` to the tool that needs it. Never ask for a secret in chat and never invent one."
 
 ### 3.7 Verification (decided: required by default, generic, no sender names)
 

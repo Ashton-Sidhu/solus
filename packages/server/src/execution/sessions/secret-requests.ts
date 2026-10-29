@@ -1,15 +1,17 @@
 import { randomBytes } from 'node:crypto'
-import { SECRET_REF_TTL_MS } from '@solus/contracts/webhooks'
+import { SECRET_REF_TTL_MS } from '@solus/contracts/agent-tools'
 import { createLogger } from '../../logger'
 import type { AgentToolContext } from '../agents/tools/agent-tool'
 
 const log = createLogger('SessionRuntime', 'secret-requests.ts')
 
 /**
- * Secret requests (docs/plans/webhooks.md §3.6): an agent asks the person for a
- * secret through a private card. The value never goes into the transcript, the
- * tool output, or the model; the agent gets a one-use `secretRef`. A secretRef
- * works once, only for the session that asked, and ends after 15 minutes.
+ * Secret requests, a session facility (docs/plans/webhooks.md §3.6): an agent asks
+ * the person for a secret — an API key, a signing secret, a password — through a
+ * private card. The value never goes into the transcript, the tool output, or the
+ * model; the agent gets a one-use `secretRef`. A secretRef works once, only for the
+ * session that asked, and ends after 15 minutes. A tool that needs a credential takes
+ * a `secretRef` field and calls `takeSecretRef`; the webhook tools are the first.
  *
  * The card is a `question_request` of kind `secret`, so it shows and closes like
  * any request a run waits on. Its answer does not use `respondQuestion`: that
@@ -35,22 +37,30 @@ function sweep(now: number): void {
   for (const [ref, stored] of refs) if (stored.expiresAt <= now) refs.delete(ref)
 }
 
-/**
- * Shows the card and waits for the person. Answers a `secretRef`, or null when
- * the person declined or the run stopped.
- */
-export async function requestSecret(context: AgentToolContext, request: { name: string; reason: string }): Promise<string | null> {
+/** What a secret request came to: a saved secret and its ref, a person who declined, or a run that stopped first. */
+export type SecretRequestOutcome =
+  | { status: 'saved'; secretRef: string }
+  | { status: 'declined' }
+  | { status: 'cancelled' }
+
+/** Shows the card and waits for the person, or for the run to stop. */
+export async function requestSecret(context: AgentToolContext, request: { name: string; reason: string }): Promise<SecretRequestOutcome> {
   const sessionId = context.sessionId()
   if (!sessionId) throw new Error('request_secret needs a session.')
   const questionId = `secret-${randomBytes(12).toString('hex')}`
+  let cancelled = false
   const value = await new Promise<string | null>((resolve) => {
     const finish = (answer: string | null) => {
       waiting.delete(questionId)
       resolve(answer)
     }
+    const cancel = () => {
+      cancelled = true
+      finish(null)
+    }
     waiting.set(questionId, { sessionId, resolve: finish })
-    if (context.abortSignal.aborted) return finish(null)
-    context.abortSignal.addEventListener('abort', () => finish(null), { once: true })
+    if (context.abortSignal.aborted) return cancel()
+    context.abortSignal.addEventListener('abort', cancel, { once: true })
     context.emit({
       type: 'question_request',
       questionId,
@@ -61,15 +71,15 @@ export async function requestSecret(context: AgentToolContext, request: { name: 
   })
   context.emit({ type: 'permission_resolved', questionId })
   if (value === null) {
-    log.info('secret_request_declined', { sessionId, questionId })
-    return null
+    log.info(cancelled ? 'secret_request_cancelled' : 'secret_request_declined', { sessionId, questionId })
+    return { status: cancelled ? 'cancelled' : 'declined' }
   }
   const now = Date.now()
   sweep(now)
   const ref = `secretref_${randomBytes(18).toString('base64url')}`
   refs.set(ref, { value, sessionId, expiresAt: now + SECRET_REF_TTL_MS })
   log.info('secret_request_answered', { sessionId, questionId })
-  return ref
+  return { status: 'saved', secretRef: ref }
 }
 
 /** The person's answer from the card: the value, or null to decline. False when the session is not waiting on that card. */

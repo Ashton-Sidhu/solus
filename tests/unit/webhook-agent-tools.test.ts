@@ -16,6 +16,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync }))
 let dataDir: string
 let tools: typeof import('@solus/server/execution/agents/tools/webhook-tools')
 let secretRequests: typeof import('@solus/server/execution/sessions/secret-requests')
+let secretTool: typeof import('@solus/server/execution/agents/tools/secret-request-tool')
 let secrets: typeof import('@solus/server/data/webhooks/webhook-secrets')
 /** The host's answer to "may this webhook start organization work here?"; a test sets a refusal. */
 let refusal: string | null = null
@@ -26,6 +27,7 @@ beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
   tools = await import('@solus/server/execution/agents/tools/webhook-tools')
   secretRequests = await import('@solus/server/execution/sessions/secret-requests')
+  secretTool = await import('@solus/server/execution/agents/tools/secret-request-tool')
   secrets = await import('@solus/server/data/webhooks/webhook-secrets')
   const { createWebhookService } = await import('@solus/server/execution/webhooks/webhook-service')
   const { createWebhookActionRunner } = await import('@solus/server/execution/webhooks/action-runner')
@@ -70,12 +72,12 @@ const actions = [{ id: 'review', type: 'send_to_session' as const, sessionId: 's
 describe('webhook agent tools', () => {
   test('changes need approval; reads and request_secret do not', () => {
     expect([tools.createWebhookAgentTool, tools.updateWebhookAgentTool, tools.deleteWebhookAgentTool, tools.rotateWebhookAgentTool].every((tool) => tool.requiresApproval)).toBe(true)
-    expect([tools.listWebhooksAgentTool, tools.readWebhookDeliveryAgentTool, tools.dryRunWebhookAgentTool, tools.requestSecretAgentTool].some((tool) => tool.requiresApproval)).toBe(false)
+    expect([tools.listWebhooksAgentTool, tools.readWebhookDeliveryAgentTool, tools.dryRunWebhookAgentTool, secretTool.requestSecretAgentTool].some((tool) => tool.requiresApproval)).toBe(false)
   })
 
   test('request_secret shows a private card; the secretRef creates the webhook and the value never reaches the agent', async () => {
     const events: NormalizedEvent[] = []
-    const asking = tools.requestSecretAgentTool.execute({ name: 'GitHub secret', reason: 'To check signatures.' }, context('session-a', events))
+    const asking = secretTool.requestSecretAgentTool.execute({ name: 'GitHub secret', reason: 'To check signatures.' }, context('session-a', events))
     await Promise.resolve()
     const card = events.find((event) => event.type === 'question_request')
     expect(card).toMatchObject({ type: 'question_request', kind: 'secret' })
@@ -87,7 +89,7 @@ describe('webhook agent tools', () => {
     expect(answer.text).not.toContain('typed-secret')
     expect(JSON.stringify(events)).not.toContain('typed-secret')
     expect(events.at(-1)).toEqual({ type: 'permission_resolved', questionId })
-    const secretRef = /secretRef: (\S+)/.exec(answer.text)![1]
+    const { secretRef } = JSON.parse(answer.text) as { status: 'saved'; secretRef: string }
 
     const created = await tools.createWebhookAgentTool.execute({ name: 'GitHub', verification: { ...hmac, secretRef }, actions }, context('session-a', []))
     expect(created.ok).toBe(true)
@@ -102,24 +104,24 @@ describe('webhook agent tools', () => {
 
   test('a declined card and a stopped run give no secret', async () => {
     const events: NormalizedEvent[] = []
-    const declined = tools.requestSecretAgentTool.execute({ name: 'x', reason: 'y' }, context('session-a', events))
+    const declined = secretTool.requestSecretAgentTool.execute({ name: 'x', reason: 'y' }, context('session-a', events))
     await Promise.resolve()
     const card = events[0]
     secretRequests.answerSecretRequest('session-a', card.type === 'question_request' ? card.questionId : '', null)
-    expect((await declined).ok).toBe(false)
+    expect(JSON.parse((await declined).text)).toEqual({ status: 'declined' })
     const abort = new AbortController()
-    const stopped = tools.requestSecretAgentTool.execute({ name: 'x', reason: 'y' }, context('session-a', [], abort))
+    const stopped = secretTool.requestSecretAgentTool.execute({ name: 'x', reason: 'y' }, context('session-a', [], abort))
     abort.abort()
-    expect((await stopped).ok).toBe(false)
+    expect(JSON.parse((await stopped).text)).toEqual({ status: 'cancelled' })
   })
 
   test('a secretRef belongs to the session that asked and ends after 15 minutes', async () => {
     const events: NormalizedEvent[] = []
-    const asking = tools.requestSecretAgentTool.execute({ name: 'x', reason: 'y' }, context('session-a', events))
+    const asking = secretTool.requestSecretAgentTool.execute({ name: 'x', reason: 'y' }, context('session-a', events))
     await Promise.resolve()
     const card = events[0]
     secretRequests.answerSecretRequest('session-a', card.type === 'question_request' ? card.questionId : '', 'v')
-    const ref = /secretRef: (\S+)/.exec((await asking).text)![1]
+    const ref = (JSON.parse((await asking).text) as { secretRef: string }).secretRef
     expect(secretRequests.takeSecretRef(ref, 'session-b')).toBeNull()
     expect(secretRequests.takeSecretRef(ref, 'session-a', Date.now() + 16 * 60 * 1000)).toBeNull()
   })
@@ -141,6 +143,17 @@ describe('webhook agent tools', () => {
     const answer = await tools.createWebhookAgentTool.execute({ name: 'Open', verification: { scheme: 'none', reason: 'This sender accepts only a URL, no headers.' }, actions }, context('session-a', []))
     expect(answer).toEqual({ ok: false, text: `create_webhook: ${refusal}` })
     refusal = null
+    expect((await tools.listWebhooksAgentTool.execute({}, context('session-a', []))).text).toBe('No webhooks exist on this host yet.')
+  })
+
+  test('the flat schema the model reads is still checked by the strict contract: a wrong input changes nothing', async () => {
+    // The advertised schema is flat to keep the tool list small (agent-tool-schema-size);
+    // the contract still refuses an hmac without its signed text, and an eleventh action.
+    const missing = await tools.createWebhookAgentTool.execute({ name: 'Bad', verification: { scheme: 'hmac', algorithm: 'sha256', secretRef: 'x' }, actions }, context('session-a', []))
+    expect(missing.ok).toBe(false)
+    expect(missing.text).toStartWith('create_webhook: Invalid arguments:')
+    const tooMany = await tools.dryRunWebhookAgentTool.execute({ actions: Array.from({ length: 11 }, (_, index) => ({ ...actions[0], id: `a${index}` })), sample: { body: '{}' } }, context('session-a', []))
+    expect(tooMany.ok).toBe(false)
     expect((await tools.listWebhooksAgentTool.execute({}, context('session-a', []))).text).toBe('No webhooks exist on this host yet.')
   })
 })

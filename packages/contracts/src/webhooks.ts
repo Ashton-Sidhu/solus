@@ -39,8 +39,6 @@ export const WEBHOOK_DELIVERIES_PER_MINUTE = 60
 export const WEBHOOK_DELIVERY_ID_TTL_MS = 25 * 60 * 60 * 1000
 /** How long a replay key is kept (plan §3.4 step 7). */
 export const WEBHOOK_REPLAY_KEY_TTL_MS = 7 * 24 * 60 * 60 * 1000
-/** A `request_secret` answer works once, for 15 minutes (plan §3.6). */
-export const SECRET_REF_TTL_MS = 15 * 60 * 1000
 
 /**
  * The `x-solus-hook-outcome` values. `accepted` and `duplicate` are `202`;

@@ -71,13 +71,13 @@ import { moveToWorktreeAgentTool, worktreeStatusAgentTool } from './worktree-too
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 import { organizeSessionAgentTool } from './session-organize-tool'
 import { backgroundWaitAgentTool } from './background-wait-tool'
+import { requestSecretAgentTool } from './secret-request-tool'
 import {
   createWebhookAgentTool,
   deleteWebhookAgentTool,
   dryRunWebhookAgentTool,
   listWebhooksAgentTool,
   readWebhookDeliveryAgentTool,
-  requestSecretAgentTool,
   rotateWebhookAgentTool,
   updateWebhookAgentTool,
 } from './webhook-tools'
@@ -117,7 +117,6 @@ export const solusToolbox = {
     list: listWebhooksAgentTool,
     readDelivery: readWebhookDeliveryAgentTool,
     dryRun: dryRunWebhookAgentTool,
-    requestSecret: requestSecretAgentTool,
   },
   connections: {
     status: connectionStatusAgentTool,
@@ -156,6 +155,7 @@ export const solusToolbox = {
     install: deviceInstallAgentTool,
   },
   sessions: {
+    requestSecret: requestSecretAgentTool,
     targets: listAgentTargetsAgentTool,
     search: searchSessionsAgentTool,
     read: readSessionAgentTool,
