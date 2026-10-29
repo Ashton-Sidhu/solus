@@ -145,4 +145,15 @@ describe('webhook agent tools', () => {
     refusal = null
     expect((await tools.listWebhooksAgentTool.execute({}, context('session-a', []))).text).toBe('No webhooks exist on this host yet.')
   })
+
+  test('the flat schema the model reads is still checked by the strict contract: a wrong input changes nothing', async () => {
+    // The advertised schema is flat to keep the tool list small (agent-tool-schema-size);
+    // the contract still refuses an hmac without its signed text, and an eleventh action.
+    const missing = await tools.createWebhookAgentTool.execute({ name: 'Bad', verification: { scheme: 'hmac', algorithm: 'sha256', secretRef: 'x' }, actions }, context('session-a', []))
+    expect(missing.ok).toBe(false)
+    expect(missing.text).toStartWith('create_webhook: Invalid arguments:')
+    const tooMany = await tools.dryRunWebhookAgentTool.execute({ actions: Array.from({ length: 11 }, (_, index) => ({ ...actions[0], id: `a${index}` })), sample: { body: '{}' } }, context('session-a', []))
+    expect(tooMany.ok).toBe(false)
+    expect((await tools.listWebhooksAgentTool.execute({}, context('session-a', []))).text).toBe('No webhooks exist on this host yet.')
+  })
 })

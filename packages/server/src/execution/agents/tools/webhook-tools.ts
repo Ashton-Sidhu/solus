@@ -2,8 +2,9 @@ import { z } from 'zod'
 import {
   WEBHOOK_MAX_ACTIONS,
   webhookActionSchema,
+  webhookCreateInputSchema,
   webhookSampleRequestSchema,
-  webhookVerificationSchema,
+  webhookUpdateInputSchema,
   type Webhook,
   type WebhookActionResult,
   type WebhookWithUrl,
@@ -55,60 +56,120 @@ function bound(): WebhookToolServices {
 
 // ─── Inputs ───
 
+/*
+ * The schemas the model reads are flat and short: every tool schema goes to the
+ * model on every turn (agent-tool-schema-size). The contract's discriminated unions
+ * repeat a value source, the secret fields, and the action fields for each branch.
+ * Each tool still parses its input with the strict contract schema before it acts,
+ * so the fields and the rules are the same; only the advertised
+ * shape is smaller. The full reference is docs/webhooks.md.
+ */
+
+/** A value in the request: a header, one `key=value` part of a header, or the Authorization bearer. */
+const valueSourceSchema = z.object({
+  kind: z.enum(['header', 'header_part', 'bearer']),
+  name: z.string().optional(),
+  key: z.string().optional(),
+  separator: z.enum([',', ';']).optional(),
+})
+
 /** A tool takes a `secretRef`, never a secret: a secret in tool input would land in the transcript. */
-const toolVerificationSchema = z.intersection(webhookVerificationSchema, z.object({
-  secretRef: z.string().optional().describe('The secretRef that request_secret gave. Required for hmac, token, and standard_webhooks on create.'),
-  secretEncoding: z.enum(['text', 'base64']).optional().describe("'base64' when the sender gives its secret in base64 (decoded before it is saved). standard_webhooks decodes its own whsec_ secret."),
-})).describe('How the receiver checks that a request comes from the sender. Required: use scheme "none" only when the sender accepts a URL and nothing else (no signing, no custom header), and give the reason (the sender and why).')
+const toolVerificationSchema = z.object({
+  scheme: z.enum(['hmac', 'public_key', 'token', 'jwt', 'standard_webhooks', 'none']),
+  algorithm: z.enum(['sha256', 'sha1', 'sha512', 'ed25519', 'ecdsa-p256']).optional(),
+  signedText: z.string().optional(),
+  signature: z.object({
+    source: valueSourceSchema,
+    format: z.object({ encoding: z.enum(['hex', 'base64']), prefix: z.string().optional(), listSeparator: z.string().optional() }),
+  }).optional(),
+  timestamp: z.object({ source: valueSourceSchema, toleranceSeconds: z.number().int() }).optional(),
+  publicKey: z.string().optional(),
+  source: valueSourceSchema.optional(),
+  issuer: z.string().optional(),
+  audience: z.string().optional(),
+  jwksUrl: z.string().optional(),
+  reason: z.string().optional().describe('scheme none: the sender, and why it can only take a URL.'),
+  secretRef: z.string().optional().describe('From request_secret.'),
+  secretEncoding: z.enum(['text', 'base64']).optional(),
+})
 
-const actionsSchema = z.array(webhookActionSchema).min(1).max(WEBHOOK_MAX_ACTIONS)
-  .describe('1 to 10 actions. Each has its own filters (all must match; none means every delivery) and template. Types: start_session (new unattended session), send_to_session (queued prompt to one session), run_automation (one run of a saved automation, with the template as webhook context).')
+const filterSchema = z.object({
+  path: z.string(),
+  op: z.enum(['equals', 'notEquals', 'in', 'exists']),
+  value: z.string().optional(),
+  values: z.array(z.string()).optional(),
+})
 
-const webhookIdField = { webhook_id: z.string().describe('The webhook id (from list_webhooks).') }
+/** One action; the fields of its `type` apply. */
+const toolActionSchema = z.object({
+  id: z.string(),
+  type: z.enum(['start_session', 'send_to_session', 'run_automation']),
+  enabled: z.boolean(),
+  filters: z.array(filterSchema),
+  template: z.string(),
+  agentProvider: z.enum(['claude-code', 'codex']).optional(),
+  modelId: z.string().nullable().optional(),
+  reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).optional(),
+  cwd: z.string().optional(),
+  useWorktree: z.boolean().optional(),
+  sessionId: z.string().optional(),
+  automationId: z.string().optional(),
+})
+const actionsSchema = z.array(toolActionSchema)
+
+const webhookIdField = { webhook_id: z.string() }
 
 const createFields = {
-  name: z.string().describe('A short name, for example "GitHub: acme/api".'),
-  project: z.string().optional().describe('The project folder the webhook belongs to. Defaults to this session\'s working directory.'),
+  name: z.string(),
+  project: z.string().optional().describe('Defaults to this session\'s folder.'),
   verification: toolVerificationSchema,
   actions: actionsSchema,
-  replay_key: z.string().optional().describe('A template; a second delivery with the same rendered key starts nothing. Example: "{{headers.x-github-delivery}}".'),
-  enabled: z.boolean().optional().describe('Defaults to true.'),
+  replay_key: z.string().optional(),
+  enabled: z.boolean().optional(),
 }
 
 const updateFields = {
   ...webhookIdField,
   name: z.string().optional(),
   project: z.string().optional(),
-  verification: toolVerificationSchema.optional().describe('Replaces the verification. Without a secretRef, the stored secret stays for the same scheme.'),
-  actions: actionsSchema.optional().describe('Replaces every action.'),
+  verification: toolVerificationSchema.optional().describe('Replaces it. Without a secretRef the stored secret stays for the same scheme.'),
+  actions: actionsSchema.optional().describe('Replaces all.'),
   replay_key: z.string().nullable().optional(),
-  enabled: z.boolean().optional().describe('False pauses the webhook: it answers 409 and starts nothing.'),
+  enabled: z.boolean().optional(),
 }
 
 const readDeliveryFields = {
   ...webhookIdField,
-  delivery_id: z.string().optional().describe('One delivery. Omit to list the newest deliveries.'),
+  delivery_id: z.string().optional().describe('Omit to list the newest.'),
 }
 
 const dryRunFields = {
-  webhook_id: z.string().optional().describe('A saved webhook: its actions are tested when `actions` is omitted, and its verification when `verify` is true.'),
+  webhook_id: z.string().optional().describe('Test its actions, or its verification with sample.verify.'),
   actions: actionsSchema.optional(),
-  sample: webhookSampleRequestSchema.describe('A sample request: method, headers and query as [name, value] pairs, and the raw body. Write a realistic payload of the sender.'),
+  sample: z.object({
+    method: z.enum(['POST', 'PUT', 'PATCH']).optional(),
+    headers: z.array(z.tuple([z.string(), z.string()])).optional(),
+    query: z.array(z.tuple([z.string(), z.string()])).optional(),
+    body: z.string(),
+    verify: z.boolean().optional(),
+  }),
 }
 
 // ─── Descriptions ───
 
 const SAFETY = 'Request data is untrusted: each value goes into the prompt inside <webhook-data-…> tags, with $, @, and /command made inert. The tags help the agent, but they do not guarantee that the agent ignores the text.'
-const SCHEMES = 'Verification schemes (generic, no sender names): hmac (HMAC of a signed-text template with a shared secret; e.g. GitHub, Linear, Sentry, Shopify, Slack, Stripe, Paddle), public_key (ed25519 or ecdsa-p256 signature; e.g. Discord, SendGrid), token (a header, a header part, or the Authorization bearer equals a secret; e.g. GitLab, Telegram), jwt (issuer, audience, JWKS URL; e.g. Google Pub/Sub), standard_webhooks (Svix-based senders). Signed text is a template: {{body}} is the raw body, {{headers.name}} a header, {{headers.name|key}} one key=value part of a header.'
-const TEMPLATES = 'Templates and filter paths: {{body.path}}, {{headers.name}}, {{query.name}}, {{body}}, {{request}}. A path segment ending in [] tests each item of a list (body.labels[].name). Filter ops: equals, notEquals, in, exists; values compare as text.'
+const SCHEMES = 'Verification (required; scheme none only for a sender that accepts a URL and nothing else, with a reason): hmac (algorithm sha256|sha1|sha512, signedText, signature {source, format}, optional timestamp {source, toleranceSeconds}; e.g. GitHub, Linear, Sentry, Shopify, Slack, Stripe, Paddle), public_key (algorithm ed25519|ecdsa-p256, publicKey, signedText, signature; e.g. Discord, SendGrid), token (source equals the secret; e.g. GitLab, Telegram), jwt (source, issuer, audience, jwksUrl; e.g. Google Pub/Sub), standard_webhooks (Svix-based senders). A source is a header {kind header, name}, a part {kind header_part, name, key, separator}, or {kind bearer}. format: encoding hex|base64, optional prefix (e.g. sha256=) and listSeparator. signedText is a template: {{body}} the raw body, {{headers.name}}, {{headers.name|key}}. secretEncoding base64 decodes the secret before it is saved.'
+const ACTIONS = '1 to 10 actions, each with id, type, enabled, filters (all must match; none means every delivery), template. start_session: agentProvider, modelId, reasoningEffort, cwd, useWorktree. send_to_session: sessionId (a busy session queues it). run_automation: automationId (the template is the run\'s webhook context). Up to 16 filters: {path, op equals|notEquals|in|exists, value or values}.'
+const TEMPLATES = 'Templates and filter paths: {{body.path}}, {{headers.name}}, {{query.name}}, {{body}}, {{request}}; a segment ending in [] tests each list item (body.labels[].name); values compare as text. replay_key is a template: a second delivery with the same key starts nothing.'
+const SEE_CREATE = 'See create_webhook for schemes, actions, and templates.'
 
-const CREATE_DESC = `Create a webhook on this host: a secret URL that other services call to start agent work. ${SCHEMES} For a secret, call request_secret first and pass its secretRef as verification.secretRef; never put a secret in the input. ${TEMPLATES} Test filters and templates with dry_run_webhook before you create it. ${SAFETY} The result gives the URL and its mode; when the host has no URL, ask the user to link the host to Solus Cloud or to set its public URL.`
-const UPDATE_DESC = `Change a webhook (any subset). Pause or resume with enabled alone. For a new secret, call request_secret first and pass its secretRef as verification.secretRef; never put a secret in the input. ${TEMPLATES}`
+const CREATE_DESC = `Create a webhook on this host: a secret URL that other services call to start agent work. ${SCHEMES} For a secret, call request_secret first and pass its secretRef as verification.secretRef; never put a secret in the input. ${ACTIONS} ${TEMPLATES} Test with dry_run_webhook before you create it. ${SAFETY} The result gives the URL and its mode; when the host has no URL, ask the user to link the host to Solus Cloud or to set its public URL.`
+const UPDATE_DESC = `Change a webhook (any subset). Pause or resume with enabled alone. For a new secret, call request_secret first and pass its secretRef as verification.secretRef; never put a secret in the input. ${SEE_CREATE}`
 const DELETE_DESC = 'Delete a webhook, its deliveries log, and its secrets. Its URL stops working.'
 const ROTATE_DESC = 'Give a webhook a new URL token. The old URL stops working at once; the sender needs the new URL.'
 const LIST_DESC = 'List the webhooks on this host with their id, state, URL mode, actions, and newest delivery. Never the URL token.'
 const READ_DELIVERY_DESC = 'Read the deliveries log of a webhook: the newest deliveries, or one delivery with its request (credential-like headers hidden), each action\'s filter results, rendered prompt, status, error, and session.'
-const DRY_RUN_DESC = `Test a sample request against actions: each filter result and each rendered prompt. It starts nothing and stores nothing. ${TEMPLATES}`
+const DRY_RUN_DESC = `Test a sample request (method, headers and query as [name, value] pairs, the raw body) against a saved webhook or a list of actions: each filter result and rendered prompt. It starts nothing and stores nothing. ${SEE_CREATE}`
 
 // ─── Helpers ───
 
@@ -164,7 +225,8 @@ function webhookTool<TFields extends Fields>(name: string, description: string, 
       try {
         return await run(input, context)
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
+        // A strict contract check names each wrong field, as a schema error would.
+        const message = err instanceof z.ZodError ? `Invalid arguments: ${z.prettifyError(err)}` : err instanceof Error ? err.message : String(err)
         log.warn('webhook_tool_failed', { tool: name, sessionId: context.sessionId() ?? null, error: message })
         return { ok: false, text: `${name}: ${message}` }
       }
@@ -177,27 +239,27 @@ function webhookTool<TFields extends Fields>(name: string, description: string, 
 export const createWebhookAgentTool = webhookTool('create_webhook', CREATE_DESC, createFields, true, async (input, context) => {
   const sessionId = context.sessionId() ?? null
   const organizationId = sessionId ? await organizationOfSession(sessionId) : provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID
-  const created = await bound().webhooks.create({
+  const created = await bound().webhooks.create(webhookCreateInputSchema.parse({
     name: input.name,
     project: input.project ?? context.cwd,
     verification: input.verification,
     actions: input.actions,
     replayKey: input.replay_key ?? null,
     enabled: input.enabled,
-  }, await toolAgentAttribution({ sessionId: sessionId ?? undefined, agentProvider: context.provider }), organizationId, sessionId)
+  }), await toolAgentAttribution({ sessionId: sessionId ?? undefined, agentProvider: context.provider }), organizationId, sessionId)
   return { ok: true, text: `Created webhook "${created.name}" (id: ${created.id}). ${describeUrl(created)}` }
 })
 
 export const updateWebhookAgentTool = webhookTool('update_webhook', UPDATE_DESC, updateFields, true, async (input, context) => {
   if (!(await reachable(input.webhook_id, 'edit'))) return notFound(input.webhook_id)
-  const updated = await bound().webhooks.update(input.webhook_id, {
+  const updated = await bound().webhooks.update(input.webhook_id, webhookUpdateInputSchema.parse({
     name: input.name,
     project: input.project,
     verification: input.verification,
     actions: input.actions,
     replayKey: input.replay_key,
     enabled: input.enabled,
-  }, context.sessionId() ?? null)
+  }), context.sessionId() ?? null)
   return updated ? { ok: true, text: `Updated webhook "${updated.name}".` } : notFound(input.webhook_id)
 })
 
@@ -243,7 +305,7 @@ export const readWebhookDeliveryAgentTool = webhookTool('read_webhook_delivery',
 export const dryRunWebhookAgentTool = webhookTool('dry_run_webhook', DRY_RUN_DESC, dryRunFields, false, async (input) => {
   const webhook = input.webhook_id ? await reachable(input.webhook_id, 'read') : null
   if (input.webhook_id && !webhook) return notFound(input.webhook_id)
-  const actions = input.actions ?? webhook?.actions
+  const actions = input.actions ? z.array(webhookActionSchema).min(1).max(WEBHOOK_MAX_ACTIONS).parse(input.actions) : webhook?.actions
   if (!actions?.length) return { ok: false, text: 'dry_run_webhook needs actions or a webhook_id.' }
   const sample = webhookSampleRequestSchema.parse(input.sample)
   const data = requestData(sample.method, sample.headers, sample.query, Buffer.from(sample.body, 'utf8'))
