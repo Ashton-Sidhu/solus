@@ -20,7 +20,10 @@ export const WEBHOOK_RECEIVED_AT_HEADER = 'x-solus-hook-received-at'
 export const WEBHOOK_PROOF_HEADER = 'x-solus-hook-proof'
 /** The receiver route on the host: `/hooks/<webhookId>/<token>`. */
 export const WEBHOOK_RECEIVER_PREFIX = '/hooks/'
-/** The origin of the cloud forwarder: `https://hooks.solus.sh/<hostId>/<webhookId>/<token>`. */
+/**
+ * The origin of the cloud forwarder. The Cloud URL is `https://hooks.solus.sh/<hostId>/<webhookId>?t=<token>`:
+ * the token is in the query, because the forwarder's Cloudflare logs record paths and redact query strings.
+ */
 export const WEBHOOK_CLOUD_ORIGIN = 'https://hooks.solus.sh'
 
 /** The forwarder sends only IDs and tokens of these forms; the receiver refuses any other as unknown. */
@@ -175,7 +178,7 @@ export type WebhookUrlMode = 'cloud' | 'direct' | 'none'
 /** A webhook's URL (plan §5). Only create, rotate, and the owner's read give it, because it holds the token. */
 export interface WebhookUrl {
   mode: WebhookUrlMode
-  /** `/hooks/<webhookId>/<token>`: the receiver path on the host. */
+  /** `/hooks/<webhookId>/<token>`: the receiver path on the host. The Direct URL ends with it; the Cloud URL has the token in its query instead. */
   path: string
   /** The full URL, or null when the host has no URL (mode `none`). */
   url: string | null

@@ -87,12 +87,43 @@ describe('webhook service', () => {
     const webhooks = service(state)
     const created = await webhooks.create(github, creator(), 'local')
     expect(created.url.mode).toBe('cloud')
-    expect(created.url.url).toStartWith(`https://hooks.solus.sh/host-1/${created.id}/`)
+    const token = secrets.readWebhookSecrets(created.id)!.token
+    // The Cloud URL has the token in the query only: the forwarder's logs record the path and redact the query.
+    expect(created.url.url).toBe(`https://hooks.solus.sh/host-1/${created.id}?t=${token}`)
+    expect(new URL(created.url.url!).pathname).not.toContain(token)
+    expect(new URL(created.url.url!).searchParams.get('t')).toBe(token)
     state.cloud = false
     expect((await webhooks.read(created.id))?.urlMode).toBe('direct')
     state.publicUrl = null
     const none = await webhooks.readWithUrl(created.id)
     expect(none?.url).toMatchObject({ mode: 'none', url: null })
+  })
+
+  test('the Direct URL keeps the token in the path; the receiver path is the same in both modes', async () => {
+    const state = { cloud: true, publicUrl: 'https://me.example.dev' }
+    const webhooks = service(state)
+    const created = await webhooks.create(github, creator(), 'local')
+    const token = secrets.readWebhookSecrets(created.id)!.token
+    state.cloud = false
+    const direct = await webhooks.readWithUrl(created.id)
+    expect(direct?.url).toEqual({ mode: 'direct', path: `/hooks/${created.id}/${token}`, url: `https://me.example.dev/hooks/${created.id}/${token}` })
+    expect(created.url.path).toBe(direct?.url.path)
+  })
+
+  test('a Cloud URL copied in the old form (token in the path) is marked as changed', async () => {
+    const { createHash } = await import('node:crypto')
+    const store = await import('@solus/server/data/webhooks/webhook-store')
+    const webhooks = service({ cloud: true, publicUrl: null })
+    const created = await webhooks.create(github, creator(), 'local')
+    const token = secrets.readWebhookSecrets(created.id)!.token
+    // What the owner copied before the token moved to the query.
+    const record = (await store.loadWebhook(created.id))!
+    record.copiedUrlHash = createHash('sha256').update(`https://hooks.solus.sh/host-1/${created.id}/${token}`).digest('hex')
+    await store.saveWebhook(record)
+    expect((await webhooks.read(created.id))?.urlChanged).toBe(true)
+    // Copying the new form clears the mark.
+    await webhooks.update(created.id, { copiedUrl: created.url.url! })
+    expect((await webhooks.read(created.id))?.urlChanged).toBe(false)
   })
 
   test('a URL that changed since the owner copied it is marked, and Rotate stops the old token', async () => {

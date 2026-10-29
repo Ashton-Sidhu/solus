@@ -32,20 +32,22 @@ The URL a webhook gives depends on the host:
 
 | Host | URL |
 | --- | --- |
-| Linked to Solus Cloud | `https://hooks.solus.sh/<hostId>/<webhookId>/<token>` (the cloud URL) |
-| Not linked, with a public URL | `<public URL>/hooks/<webhookId>/<token>` (the direct URL) |
+| Linked to Solus Cloud | `https://hooks.solus.sh/<hostId>/<webhookId>?t=<token>` (the Cloud URL) |
+| Not linked, with a public URL | `<public URL>/hooks/<webhookId>/<token>` (the Direct URL) |
 | Not linked, no public URL | No URL. Link the host to Solus Cloud, or set its public URL. |
 
 Set the public URL in host settings: **Public URL**. Use the address where you
 expose the host, for example a reverse proxy or an ngrok address.
 
+The Cloud URL has the token in its query (`?t=`), so the Solus Cloud logs redact it. The Direct URL has it in the path.
+
 The token in the URL is a credential. A list never shows it. Only the owner
 can read and copy the URL. **Rotate** makes a new token; the old URL stops
 working at once.
 
-When a host unlinks from Solus Cloud, its cloud URLs stop working. The unlink
+When a host unlinks from Solus Cloud, its Cloud URLs stop working. The unlink
 confirmation tells you how many webhooks use the cloud URL. The editor marks a
-URL that changed since you last copied it. Give the sender the new URL.
+URL that changed since you last copied it, also when the form of the Cloud URL changed (a Cloud URL copied before the token moved to the query is marked). Give the sender the new URL.
 
 ## Reachability
 
