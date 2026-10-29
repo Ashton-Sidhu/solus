@@ -16,10 +16,10 @@ Users want outside events to start agent work: a new pull request, a failed CI j
 
 - **Webhook**: a record on a host. It has a secret URL, request checks, and a list of actions. It is not a trigger of an automation.
 - **Receiver**: the route on the host that accepts a request for a webhook: `/hooks/<webhookId>/<token>`. The token is the credential.
-- **Forwarder**: the Solus Cloud Worker at `hooks.solus.sh`. It sends a request to the host's receiver. It does not know tokens and it does not run actions.
+- **Forwarder**: the part of the Solus Cloud Worker that serves `/hooks/*` on the Solus Cloud app's own origin. It sends a request to the host's receiver. It does not know tokens and it does not run actions.
 - **Inbox**: the forwarder's store of requests for one host while that host is offline.
 - **Held request**: a request in the inbox.
-- **Cloud URL**: `https://hooks.solus.sh/<hostId>/<webhookId>?t=<token>`. The URL of a webhook on a linked host. The token is in the query, not the path, because the Cloudflare logs of the forwarder record paths and redact query strings. The forwarder sends the token to the receiver in the path (`/hooks/<webhookId>/<token>`).
+- **Cloud URL**: `<Solus Cloud origin>/hooks/<hostId>/<webhookId>?t=<token>`, in production `https://app.solus.sh/hooks/<hostId>/<webhookId>?t=<token>`. The URL of a webhook on a linked host. The host builds it on the Solus Cloud origin it is registered with (its registration's directory URL, which the uplink also calls); no hostname is written into Solus. The token is in the query, not the path, because the Cloudflare logs of the forwarder record paths and redact query strings. The forwarder sends the token to the receiver in the path (`/hooks/<webhookId>/<token>`).
 - **Direct URL**: `<host public URL>/hooks/<webhookId>/<token>`. The receiver at the host's public URL.
 - **Host public URL**: a new host setting. The address where the user exposes the host (a reverse proxy, ngrok).
 - **Delivery**: one request that came to the receiver, and what Solus did with it.
@@ -171,7 +171,7 @@ Each step writes a `dev.log` entry with a stable name and the fields `webhookId`
 
 ### 3.4 Request handling (proposed)
 
-The receiver accepts `POST`, `PUT`, and `PATCH` on `/hooks/:webhookId/:token` (`transport/http.ts`). Not `GET`: no sender in §3.7 delivers by `GET`, and a `GET` URL with its token lands in more logs. The route must be added to the tunnel path allowlist (`http.ts`, the `offered` test in the tunnel middleware). Every answer has `x-solus-hook-outcome`. The URL token alone is not enough protection (decided), because a URL can leak into a proxy log, a screenshot, or a sender dashboard. The Cloud URL keeps the token in the query, so Cloudflare's logs of the forwarder redact it; the Direct URL keeps it in the path. A request must also pass verification (§3.7). The order of checks:
+The receiver accepts `POST`, `PUT`, and `PATCH` on `/hooks/:webhookId/:token` (`transport/http.ts`). Not `GET`: no sender in §3.7 delivers by `GET`, and a `GET` URL with its token lands in more logs. The route must be added to the tunnel path allowlist (`http.ts`, the `offered` test in the tunnel middleware). Every answer has `x-solus-hook-outcome`. The URL token alone is not enough protection (decided), because a URL can leak into a proxy log, a screenshot, or a sender dashboard. The Cloud URL (`<Solus Cloud origin>/hooks/<hostId>/<webhookId>?t=<token>`) keeps the token in the query, so Cloudflare's logs of the Solus Cloud Worker redact it; the Direct URL keeps it in the path. A request must also pass verification (§3.7). The order of checks:
 
 1. Body over 1 MiB → `413`.
 2. Unknown webhook or wrong token → `404`. The server compares the token in constant time. A wrong token and an unknown webhook get the same answer.

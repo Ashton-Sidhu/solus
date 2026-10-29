@@ -53,10 +53,10 @@ type Policy = import('@solus/contracts/uplink').OrganizationPolicy
 const OPEN: Policy = { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: false }
 
 /** A service whose save check is the real one of `turn-organization.ts`, over these policies and host category. */
-function service(state: { cloud: boolean; publicUrl: string | null }, overrides: Partial<import('@solus/server/execution/webhooks/webhook-service').WebhookServiceDeps> = {}, policies: { [organizationId: string]: Policy } = {}, category: 'personal' | 'self-hosted' | 'managed' = 'personal') {
+function service(state: { cloud: boolean; publicUrl: string | null; origin?: string }, overrides: Partial<import('@solus/server/execution/webhooks/webhook-service').WebhookServiceDeps> = {}, policies: { [organizationId: string]: Policy } = {}, category: 'personal' | 'self-hosted' | 'managed' = 'personal') {
   const organizations = { policyFor: (id: string) => id === 'local' ? null : policies[id] ?? OPEN }
   return serviceModule.createWebhookService({
-    urls: { hostId: () => 'host-1', cloudReady: () => state.cloud, publicUrl: () => state.publicUrl },
+    urls: { cloudHost: () => ({ hostId: 'host-1', origin: state.origin ?? 'https://app.example.test' }), cloudReady: () => state.cloud, publicUrl: () => state.publicUrl },
     isPausedByAdmin: () => false,
     organizationRefusal: (organizationId, work) => turnOrganization.unattendedOrganizationRefusal(organizationId, organizations, work, category)?.message ?? null,
     ...overrides,
@@ -88,8 +88,9 @@ describe('webhook service', () => {
     const created = await webhooks.create(github, creator(), 'local')
     expect(created.url.mode).toBe('cloud')
     const token = secrets.readWebhookSecrets(created.id)!.token
-    // The Cloud URL has the token in the query only: the forwarder's logs record the path and redact the query.
-    expect(created.url.url).toBe(`https://hooks.solus.sh/host-1/${created.id}?t=${token}`)
+    // The Cloud URL is on the Solus Cloud origin the host is registered with, with the token in the query only:
+    // the forwarder's logs record the path and redact the query.
+    expect(created.url.url).toBe(`https://app.example.test/hooks/host-1/${created.id}?t=${token}`)
     expect(new URL(created.url.url!).pathname).not.toContain(token)
     expect(new URL(created.url.url!).searchParams.get('t')).toBe(token)
     state.cloud = false
@@ -110,15 +111,27 @@ describe('webhook service', () => {
     expect(created.url.path).toBe(direct?.url.path)
   })
 
-  test('a Cloud URL copied in the old form (token in the path) is marked as changed', async () => {
+  test('a different Solus Cloud origin gives a different Cloud URL, and a copied one is marked as changed', async () => {
+    const state: { cloud: boolean; publicUrl: string | null; origin?: string } = { cloud: true, publicUrl: null, origin: 'https://cloud-a.example.test/' }
+    const webhooks = service(state)
+    const created = await webhooks.create(github, creator(), 'local')
+    const token = secrets.readWebhookSecrets(created.id)!.token
+    expect(created.url.url).toBe(`https://cloud-a.example.test/hooks/host-1/${created.id}?t=${token}`)
+    await webhooks.update(created.id, { copiedUrl: created.url.url! })
+    state.origin = 'https://cloud-b.example.test'
+    expect((await webhooks.readWithUrl(created.id))?.url.url).toBe(`https://cloud-b.example.test/hooks/host-1/${created.id}?t=${token}`)
+    expect((await webhooks.read(created.id))?.urlChanged).toBe(true)
+  })
+
+  test('a Cloud URL copied in an earlier form is marked as changed', async () => {
     const { createHash } = await import('node:crypto')
     const store = await import('@solus/server/data/webhooks/webhook-store')
     const webhooks = service({ cloud: true, publicUrl: null })
     const created = await webhooks.create(github, creator(), 'local')
     const token = secrets.readWebhookSecrets(created.id)!.token
-    // What the owner copied before the token moved to the query.
+    // What the owner copied in an earlier form: another hostname, with the token in the path.
     const record = (await store.loadWebhook(created.id))!
-    record.copiedUrlHash = createHash('sha256').update(`https://hooks.solus.sh/host-1/${created.id}/${token}`).digest('hex')
+    record.copiedUrlHash = createHash('sha256').update(`https://forwarder.example.test/host-1/${created.id}/${token}`).digest('hex')
     await store.saveWebhook(record)
     expect((await webhooks.read(created.id))?.urlChanged).toBe(true)
     // Copying the new form clears the mark.

@@ -18,13 +18,13 @@ export const WEBHOOK_DELIVERY_ID_HEADER = 'x-solus-hook-delivery-id'
 export const WEBHOOK_RECEIVED_AT_HEADER = 'x-solus-hook-received-at'
 /** HMAC-SHA256, with the forwarder secret, of `hostId.webhookId.deliveryId.receivedAt`, in lowercase hex (plan §2.5). */
 export const WEBHOOK_PROOF_HEADER = 'x-solus-hook-proof'
-/** The receiver route on the host: `/hooks/<webhookId>/<token>`. */
-export const WEBHOOK_RECEIVER_PREFIX = '/hooks/'
 /**
- * The origin of the cloud forwarder. The Cloud URL is `https://hooks.solus.sh/<hostId>/<webhookId>?t=<token>`:
- * the token is in the query, because the forwarder's Cloudflare logs record paths and redact query strings.
+ * The receiver route on the host: `/hooks/<webhookId>/<token>`. The Cloud URL uses the same
+ * prefix on the Solus Cloud origin the host is registered with:
+ * `<Solus Cloud origin>/hooks/<hostId>/<webhookId>?t=<token>`. Its token is in the query,
+ * because the Cloudflare logs record paths and redact query strings.
  */
-export const WEBHOOK_CLOUD_ORIGIN = 'https://hooks.solus.sh'
+export const WEBHOOK_RECEIVER_PREFIX = '/hooks/'
 
 /** The forwarder sends only IDs and tokens of these forms; the receiver refuses any other as unknown. */
 export const WEBHOOK_ID_PATTERN = /^[A-Za-z0-9._~-]{1,128}$/

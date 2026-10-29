@@ -32,7 +32,7 @@ beforeAll(async () => {
   const { HOST_ACTOR } = await import('@solus/server/admission/actor')
   tools.setWebhookToolServices({
     webhooks: createWebhookService({
-      urls: { hostId: () => 'host-1', cloudReady: () => false, publicUrl: () => null },
+      urls: { cloudHost: () => ({ hostId: 'host-1', origin: 'https://app.example.test' }), cloudReady: () => false, publicUrl: () => null },
       isPausedByAdmin: () => false,
       organizationRefusal: (organizationId, work) => refusal ?? (organizationId !== 'local' && work.unverified ? 'This organization does not allow unverified webhooks. Choose a verification scheme.' : null),
       takeSecretRef: secretRequests.takeSecretRef,
