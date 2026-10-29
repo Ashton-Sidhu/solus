@@ -101,8 +101,8 @@ describe('state and pause', () => {
 
 describe('Copy', () => {
   test('only the owner read with a URL can be copied', () => {
-    const withUrl: WebhookWithUrl = { ...webhook(), url: { mode: 'cloud', path: '/hooks/wh-1/t', url: 'https://hooks.solus.sh/h/wh-1/t' } }
-    expect(copyTarget(withUrl)).toEqual({ kind: 'url', url: 'https://hooks.solus.sh/h/wh-1/t' })
+    const withUrl: WebhookWithUrl = { ...webhook(), url: { mode: 'cloud', path: '/hooks/wh-1/t', url: 'https://hooks.solus.sh/h/wh-1?t=t' } }
+    expect(copyTarget(withUrl)).toEqual({ kind: 'url', url: 'https://hooks.solus.sh/h/wh-1?t=t' })
     expect(copyTarget({ ...withUrl, url: { mode: 'none', path: '/hooks/wh-1/t', url: null } })).toEqual({ kind: 'no_url' })
     expect(copyTarget(webhook())).toEqual({ kind: 'not_owner' })
     expect(copyTarget(null)).toEqual({ kind: 'missing' })
