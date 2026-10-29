@@ -85,12 +85,12 @@
 </script>
 
 <SettingsSection
-  label="Delegating sessions"
+  label="Mission mode"
   visible={["lead-model", "worker-model", "lead-instructions"].some(isVisible)}
 >
   <SettingsRow
-    label="Delegating model"
-    description="What a session that delegates starts on. Off uses the default for new sessions."
+    label="Mission mode model"
+    description="What a session in Mission mode starts on. Off uses the default for new sessions."
     visible={isVisible("lead-model")}
   >
     {#snippet control()}
@@ -110,7 +110,7 @@
         <Switch
           checked={theme.leadModel !== null}
           onCheckedChange={setLeadModelEnabled}
-          aria-label="Use a separate model for delegating sessions"
+          aria-label="Use a separate model for Mission mode sessions"
         />
       </div>
     {/snippet}
@@ -118,7 +118,7 @@
 
   <SettingsRow
     label="Default worker model"
-    description="What a delegating session starts its workers on when its instructions name none. Off lets it choose."
+    description="What a Mission mode session starts its workers on when its instructions name none. Off lets it choose."
     visible={isVisible("worker-model")}
   >
     {#snippet control()}
@@ -145,13 +145,13 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Delegation instructions"
-    description="Added after the built-in rules a delegating session follows."
+    label="Mission mode instructions"
+    description="Added after the built-in rules a Mission mode session follows."
     visible={isVisible("lead-instructions")}
   >
     {#snippet body()}
       <SettingsTextField
-        label="Delegation instructions"
+        label="Mission mode instructions"
         value={leadInstructionsDraft}
         onValueChange={(text) => (leadInstructionsDraft = text)}
         onBlur={commitLeadInstructions}

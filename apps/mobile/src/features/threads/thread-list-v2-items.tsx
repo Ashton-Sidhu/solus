@@ -13,6 +13,7 @@ import { Alert, Pressable, useWindowDimensions, View } from "react-native";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import { SymbolView } from "../../components/AppSymbol";
+import { LEAD_SYMBOL } from "../conversation/lib/lead-session";
 import { AppText as Text } from "../../components/AppText";
 import { ControlPillMenu } from "../../components/ControlPill";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
@@ -634,17 +635,32 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           </Text>
         )}
       </View>
-      <Text
-        className={cn(
-          "mt-1 text-base font-t3-medium",
-          selected
-            ? selectedThreadRowColors.foregroundClassName
-            : rowAppearance.foregroundClassName,
-        )}
-        numberOfLines={2}
-      >
-        {title}
-      </Text>
+      <View className="mt-1 flex-row items-start gap-1.5">
+        {record.isLead ? (
+          // The Mission mode glyph, the same as on the composer's button: this
+          // session plans the work and starts other sessions to do it.
+          <View className="pt-[3px]" accessibilityLabel="Mission mode session">
+            <SymbolView
+              name={LEAD_SYMBOL}
+              size={13}
+              tintColorClassName={
+                selected ? selectedThreadRowColors.iconTintClassName : rowAppearance.mutedIconTintClassName
+              }
+            />
+          </View>
+        ) : null}
+        <Text
+          className={cn(
+            "flex-1 text-base font-t3-medium",
+            selected
+              ? selectedThreadRowColors.foregroundClassName
+              : rowAppearance.foregroundClassName,
+          )}
+          numberOfLines={2}
+        >
+          {title}
+        </Text>
+      </View>
       <View className="mt-1 flex-row items-center gap-2">
         {record.branch || props.environmentLabel ? (
           /* "branch · host" share one truncating line. The host sits last so

@@ -541,6 +541,22 @@
      it. Colour is inherited from the row, so a receding row's title recedes
      with it rather than being tuned against it. -->
 {#snippet rowTitle()}
+  {#if task.isLead && !renamingRow}
+    <!-- The same glyph as the composer's Mission mode button and the count
+         of sessions a row started: one family for "this session starts
+         sessions". It breathes while the row's session works, as the count
+         does, in the pane's one cool tone for work in flight. -->
+    <span
+      class="flex shrink-0 items-center text-(--solus-text-tertiary) {task.attention === 'running'
+        ? 'text-(--solus-accent) animate-pulse [animation-duration:1.4s] motion-reduce:animate-none'
+        : ''}"
+      title="Mission mode: this session plans the work and starts other sessions to do it"
+      aria-label="Mission mode session"
+      role="img"
+    >
+      <StartedSessionsIcon size={13} onanimationstart={alignStatusAnimationPhase} />
+    </span>
+  {/if}
   {#if renamingRow}
     <SessionNameInput
       value={task.title}

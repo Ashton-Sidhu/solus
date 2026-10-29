@@ -11,8 +11,6 @@
   import RunOnPicker from "../servers/RunOnPicker.svelte";
   import { shouldShowRunOnPicker } from "../servers/run-on";
   import PermissionModePicker from "../pickers/PermissionModePicker.svelte";
-  import LeadToggle from "./LeadToggle.svelte";
-  import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
   import StatusBarControls from "../layout/StatusBarControls.svelte";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
@@ -35,9 +33,6 @@
      *  The destination cluster is addressed by it, so it names the draft's own
      *  project, host, and branch rather than the workspace defaults. */
     draftId?: string;
-    /** The session draft these controls compose for, when there is one: the
-     *  Lead toggle writes its choice on it. */
-    draft?: SessionDraft;
     /** A session draft's run and the model selection over it. */
     run?: RunConfig;
     onRun?: (next: RunConfig) => void;
@@ -61,7 +56,6 @@
     showDestination = true,
     tabId,
     draftId,
-    draft,
     isPrimary = false,
     run,
     onRun,
@@ -189,8 +183,7 @@
   <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
   <PermissionModePicker {tabId} {isPrimary} {run} {onRun} />
   <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
-  <SessionChip {tabId} {draftId} {isPrimary} bind:selection returnFocusOnClose class="border-0" />
-  <LeadToggle {tabId} {draft} {run} {onRun} {isPrimary} />
+  <SessionChip {tabId} {draftId} {isPrimary} effortAsIcon bind:selection returnFocusOnClose class="border-0" />
   {#if chatSourceId && chatRun}
     <!-- No button of its own: the chat's + menu opens this list above itself. -->
     <RunOnPicker

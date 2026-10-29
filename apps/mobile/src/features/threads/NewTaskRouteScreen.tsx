@@ -39,7 +39,7 @@ import { NativeStackScreenOptions } from "../../native/StackHeader";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
 import { conversationIdOf, type ConversationMeta, type ConversationStore } from "../conversation/conversation-store";
 import type { PickedFile } from "../conversation/lib/attachments";
-import { LeadSessionChoice } from "../conversation/lib/lead-session";
+import { LEAD_SYMBOL, LeadSessionChoice } from "../conversation/lib/lead-session";
 import { modelLabel, modelOptionsSummary, offersPlanToggle, PERMISSION_MODE_ICON, PERMISSION_MODE_TEXT } from "../conversation/lib/run-settings";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
@@ -497,8 +497,10 @@ function PlanModeToggle(props: {
 }
 
 /**
- * Makes the new session a lead, which coordinates workers and does not
- * implement. The choice goes with the first prompt and is fixed after it.
+ * Mission mode: makes the new session a lead, which plans the work, starts
+ * other sessions to do it, and reports back. The choice goes with the first
+ * prompt and is fixed after it. Selected, the control fills, as every selected
+ * inline control does.
  */
 function LeadToggle(props: {
   readonly disabled: boolean;
@@ -515,11 +517,11 @@ function LeadToggle(props: {
   };
   return (
     <ComposerInlineControl
-      accessibilityHint="Splits the work across other sessions and reports back, instead of doing it itself. Fixed once the session starts."
-      accessibilityLabel="Delegate work to other sessions"
+      accessibilityHint="Plans the work, starts other sessions to do it, and reports back. It does not do the work itself. Fixed once the session starts."
+      accessibilityLabel="Mission mode: plan the work and start other sessions to do it"
       disabled={props.disabled}
-      icon="person.2"
-      label="Delegate"
+      icon={LEAD_SYMBOL}
+      label="Mission mode"
       onPress={toggle}
       selected={props.meta.lead}
       showChevron={false}

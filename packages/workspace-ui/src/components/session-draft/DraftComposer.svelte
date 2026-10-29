@@ -5,7 +5,7 @@
   import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
   import type { PaneSurfaceProps } from "../ui/lib/pane-surface";
   import InputBar from "../input/InputBar.svelte";
-  import InputBarHeader from "../input/InputBarHeader.svelte";
+  import InputBarFooter from "../input/InputBarFooter.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
   import SeatNeededNotice from "../seats/SeatNeededNotice.svelte";
   import { cn } from "../../lib/utils";
@@ -92,18 +92,6 @@
   }
 </script>
 
-<!-- The same destination strip a pre-flight tab draws — project, where it
-     runs, branch, task — addressed by the draft's id. -->
-{#if !destinationFixed}
-  <InputBarHeader
-    {active}
-    sourceId={draft.id}
-    {paneId}
-    {projectPickerAnchor}
-    bind:projectPickerOpen
-  />
-{/if}
-
 {#if runHost(draft.run)}
   <!-- Before the first send, on a host that runs turns on the member's own
        seat: the seat this draft's agent still needs there. -->
@@ -152,7 +140,6 @@
         {spacious}
         showDestination={false}
         {isPrimary}
-        {draft}
         run={draft.run}
         onRun={(next) => draft.applyRun(next)}
         selection={modelSelection}
@@ -163,3 +150,17 @@
     {/snippet}
   </InputBar>
 </div>
+
+<!-- The same destination strip a pre-flight tab draws — project, where it
+     runs, branch — under the card, addressed by the draft's id, with the
+     Mission mode button at its end. -->
+{#if !destinationFixed}
+  <InputBarFooter
+    {active}
+    sourceId={draft.id}
+    {paneId}
+    {isPrimary}
+    {projectPickerAnchor}
+    bind:projectPickerOpen
+  />
+{/if}

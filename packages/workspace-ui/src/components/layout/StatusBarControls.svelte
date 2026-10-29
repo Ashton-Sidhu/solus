@@ -202,7 +202,7 @@
 <div class="relative flex min-w-0 items-center gap-2 text-workspace-chrome">
   <!-- Composer ladder, rung 4: the whole status cluster goes below 25rem. It is
        what the row reads, not what the row does — every fact here is also in the
-       input bar's header strip or the project panel.
+       input bar's footer strip or the project panel.
 
        `contents` rather than a flex box, so the wrapper does not swallow the
        row's gaps at the widths where nothing is hidden; `hidden` then takes the

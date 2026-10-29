@@ -37,6 +37,8 @@ export interface ListedSession {
   branch: string | null
   /** The person the session belongs to (docs/plans/access-model.md §2.2). */
   ownerKey: string
+  /** Started in Mission mode: a lead (docs/plans/lead-session.md). */
+  isLead?: boolean
   /** The reader's role on the session; absent on a host that is theirs. */
   role?: ResourceRole
   /** What its first history page is read with, so a click can ask for the
@@ -185,6 +187,7 @@ export class SessionListStore {
         opensWith: { provider: record.provider, projectPath: record.projectPath, cwd: record.cwd ?? '' },
         share: sessionShareOf(record),
       }
+      if (record.isLead) listed.isLead = true
       if (record.role) listed.role = record.role
       this.listedBySession.set(record.sessionId, keepEqual(listed, this.listedBySession.get(record.sessionId) ?? listed))
       this.writeState(record.sessionId, record.state)

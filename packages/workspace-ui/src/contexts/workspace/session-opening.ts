@@ -429,6 +429,7 @@ export class SessionOpening {
       session.titleCustom = !!meta.customTitle
       session.startedBy = meta.startedBy
       session.parentSessionId = parentSessionIdOf(meta)
+      if (meta.isLead) session.isLead = true
       session.organizationId = meta.organizationId ?? null
       if (shouldActivate) {
         if (this.workspace.settings.activeAgent !== provider) {
@@ -453,6 +454,7 @@ export class SessionOpening {
       session.titleCustom = !!meta.customTitle
       session.startedBy = meta.startedBy
       session.parentSessionId = parentSessionIdOf(meta)
+      if (meta.isLead) session.isLead = true
       session.organizationId = meta.organizationId ?? null
 
       if (!background && !intoTabId) {

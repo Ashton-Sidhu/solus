@@ -61,6 +61,17 @@ test('a session\'s record names the repository of its project', async () => {
   expect(listed.items.map((item) => item.id)).toEqual(['s-web'])
 })
 
+test('a record carries the Mission mode mark once the session is marked a lead', async () => {
+  // WHY: the mark lives in session_leads, not on the record row; a list that
+  // did not ask it could not show the glyph on the session's row.
+  const { getSessionRecord } = await import('@solus/server/data/sessions/session-records')
+  const { markSessionLead } = await import('@solus/server/data/sessions/lead-sessions')
+  const { ANY_ORGANIZATION } = await import('@solus/server/admission/principal')
+  expect((await getSessionRecord(ANY_ORGANIZATION, 's-web'))?.isLead).toBeUndefined()
+  await markSessionLead('s-web')
+  expect((await getSessionRecord(ANY_ORGANIZATION, 's-web'))?.isLead).toBe(true)
+})
+
 test('a machine refuses to search by repository rather than ignore the filter', async () => {
   // WHY: its index knows checkouts, not repositories; an ignored filter would
   // answer with every project's sessions as if they were this one's.

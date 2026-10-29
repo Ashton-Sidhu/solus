@@ -64,6 +64,8 @@ const recordRowSchema = z.object({
   delegation_depth: z.number().nullable(),
   delegation_intent: z.enum(['delegate', 'fire_and_forget']).nullable().catch(null),
   delegation_created_at: z.number().nullable(),
+  /** 1 when the session was started in Mission mode (`session_leads`). */
+  is_lead: z.coerce.number().optional(),
 })
 
 type RecordRow = z.infer<typeof recordRowSchema>
@@ -73,11 +75,15 @@ const RECORD_COLUMN_NAMES = [
   'status', 'model', 'reasoning_effort', 'parent_session_id', 'root_session_id', 'created_at', 'last_activity_at', 'size',
   'cwd', 'slug', 'is_worktree', 'branch', 'project_root', 'delegation_message_id', 'delegation_depth', 'delegation_intent', 'delegation_created_at',
 ]
-const RECORD_COLUMNS = sql.raw(RECORD_COLUMN_NAMES.join(', '))
+/** The lead mark lives in its own table (docs/plans/lead-session.md decision 4):
+ *  every record read asks it, so the list can mark a Mission mode session. */
+const LEAD_COLUMN = 'EXISTS(SELECT 1 FROM session_leads WHERE session_leads.session_id = session_records.session_id) AS is_lead'
+const RECORD_COLUMNS = sql.raw([...RECORD_COLUMN_NAMES, LEAD_COLUMN].join(', '))
 /** The record's columns, its shared state, and the reader's view, for a read
  *  that joins `session_states` and `session_views`. */
 const RECORD_WITH_STATE_COLUMNS = sql.raw([
   ...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`),
+  LEAD_COLUMN,
   'session_states.settled_at', 'session_states.settled_by',
   'session_views.archived_at', 'session_views.snoozed_until', 'session_views.snooze_note',
 ].join(', '))
@@ -151,7 +157,7 @@ function delegationFromRow(row: RecordRow): SessionRecordDelegation | null {
 }
 
 function recordFromRow(row: RecordRow): SessionRecord {
-  return {
+  const record: SessionRecord = {
     sessionId: row.session_id,
     organizationId: row.organization_id,
     publication: row.publication,
@@ -177,6 +183,8 @@ function recordFromRow(row: RecordRow): SessionRecord {
     projectRoot: row.project_root,
     delegation: delegationFromRow(row),
   }
+  if (row.is_lead === 1) record.isLead = true
+  return record
 }
 
 async function readRecord(db: Db, scope: RecordScope, sessionId: string): Promise<SessionRecord | null> {

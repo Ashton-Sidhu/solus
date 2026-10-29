@@ -225,7 +225,7 @@ export class SessionSidebarStore {
     const state = sessionListStore.stateFor(session.id)
     const isSettled = !!state?.settledAt
     const lifecycle = sessionRowLifecycle(state, attention, this.lifecycleNow)
-    return {
+    const row: SidebarTask = {
       id: tabId,
       key: tabId,
       title: sessionTitle(session),
@@ -250,6 +250,8 @@ export class SessionSidebarStore {
       linkedTask,
       share,
     }
+    if (session.isLead) row.isLead = true
+    return row
   }
 
   /**
@@ -264,7 +266,7 @@ export class SessionSidebarStore {
     const rowId = `session:${listed.sessionId}`
     const linkedTask = this.session.tasksStore.taskForSession(listed.sessionId)
     const share = listed.share
-    return {
+    const row: SidebarTask = {
       id: rowId,
       key: rowId,
       sessionId: listed.sessionId,
@@ -289,6 +291,8 @@ export class SessionSidebarStore {
       linkedTask: linkedTask ? { taskId: linkedTask.id, title: linkedTask.title } : undefined,
       share,
     }
+    if (listed.isLead) row.isLead = true
+    return row
   }
 
   /** Every sidebar row, unfiltered and unsorted — the rail's counts and the

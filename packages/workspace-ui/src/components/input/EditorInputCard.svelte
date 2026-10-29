@@ -5,7 +5,7 @@
   import { getWorkspaceContext } from "../../contexts";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import InputBar from "./InputBar.svelte";
-  import InputBarHeader from "./InputBarHeader.svelte";
+  import InputBarFooter from "./InputBarFooter.svelte";
   import InputToolbar from "./InputToolbar.svelte";
   import { sessionComposerMode, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
   import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
@@ -97,19 +97,6 @@
       <HostUnavailable serverId={graceHostId} variant="whisper" />
     {/if}
   <!--
-    Destination is only editable pre-flight, so the strip mounts for exactly
-    that long. `{#if}` beats the renderer's usual hide-don't-unmount rule here:
-    it flips once per session lifetime, and the alternative is keeping a
-    GitDropdown and a RunOnPicker alive for every tab forever. It sits above the
-    card rather than inside it: it describes the session about to start, not the
-    message being composed.
-  -->
-  {#if !started}
-    <!-- Raw `tabId`, not the active-resolved one: unset for the workspace dock,
-         which is what keeps it answering the global git-dropdown shortcut. -->
-    <InputBarHeader {active} sourceId={tabId} {paneId} />
-  {/if}
-  <!--
     One card, one hairline, one accent. The card sits flat on the page — a
     half-pixel outline and nothing behind it — so terracotta is spent on focus
     and on send, never on the resting border.
@@ -157,5 +144,18 @@
       {/snippet}
     </InputBar>
   </div>
+  <!--
+    Destination is only editable pre-flight, so the strip mounts for exactly
+    that long. `{#if}` beats the renderer's usual hide-don't-unmount rule here:
+    it flips once per session lifetime, and the alternative is keeping a
+    GitDropdown and a RunOnPicker alive for every tab forever. It sits under the
+    card rather than inside it: it describes the session about to start, not the
+    message being composed.
+  -->
+  {#if !started}
+    <!-- Raw `tabId`, not the active-resolved one: unset for the workspace dock,
+         which is what keeps it answering the global git-dropdown shortcut. -->
+    <InputBarFooter {active} sourceId={tabId} {paneId} {isPrimary} />
+  {/if}
   {/if}
 </div>

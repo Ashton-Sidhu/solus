@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ReasoningEffortIcon from "./ReasoningEffortIcon.svelte";
   import { untrack } from "svelte";
   import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
   import { solusToolsStore } from "../settings/solus-tools.store.svelte";
@@ -60,6 +61,9 @@
     /** Model-only settings still use the shared provider/model picker, but do
      *  not expose reasoning effort that their setting cannot persist. */
     modelOnly?: boolean;
+    /** Draw the reasoning effort as a glyph instead of its word: the composer
+     *  row, where every setting is an icon. */
+    effortAsIcon?: boolean;
     /** Offer Auto in a model-only picker. Only a setting whose value seeds a new
      *  session may: Auto routes a first prompt, so nothing already running can
      *  take it. */
@@ -90,6 +94,7 @@
     isPrimary = false,
     menuSide = "top",
     modelOnly = false,
+    effortAsIcon = false,
     allowAuto = false,
     allowFastMode = true,
     agents,
@@ -462,8 +467,17 @@
              the same as the permission chip beside it. -->
         <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly && !isAuto ? `${agentName} · ${modelLabel}` : modelLabel}</span>
         {#if !modelOnly && !isAuto}
-          <!-- Rung 2: the reasoning label is the first thing the chip can spend. -->
-          <span class="flex-shrink-0 text-(--solus-text-tertiary) @max-[31rem]/composer:hidden">{reasoningLabel}</span>
+          <!-- In a composer the effort is a glyph, its level in the filled
+               bars and its name in the chip's tooltip. Elsewhere, Settings
+               for one, the word stays: there is room, and nothing beside it
+               to read the bars against. -->
+          <span class="flex-shrink-0 text-(--solus-text-tertiary)" title={effortAsIcon ? reasoningLabel : undefined}>
+            {#if effortAsIcon}
+              <ReasoningEffortIcon effort={reasoningEffort} size={14} />
+            {:else}
+              {reasoningLabel}
+            {/if}
+          </span>
         {/if}
         <!-- ml-auto is inert while the chip shrink-wraps; it only bites when a
              call site sets a width floor, keeping the caret on the edge. -->

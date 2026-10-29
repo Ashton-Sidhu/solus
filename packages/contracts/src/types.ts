@@ -2548,6 +2548,9 @@ export interface SessionMeta {
   delegation?: SessionDelegation
   /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
   startedBy?: SessionOrigin
+  /** The session was started in Mission mode: it is a lead
+   *  (docs/plans/lead-session.md). The sidebar marks it. Absent when not. */
+  isLead?: boolean
   /** The organization of the session's record: `local` or an organization id
    *  (organization-scope §3). Absent when the host keeps no record of it. */
   organizationId?: string
@@ -2631,6 +2634,9 @@ export interface SessionRecord {
   projectRoot: string | null
   /** How the parent session started this one; null for a session nobody delegated. */
   delegation: SessionRecordDelegation | null
+  /** The session was started in Mission mode: it is a lead
+   *  (docs/plans/lead-session.md). The list marks it. Absent when not. */
+  isLead?: boolean
   /** Whether the session's work is finished (docs/plans/session-archive.md).
    *  Null when nothing settled it. */
   state?: SessionState | null
@@ -2655,7 +2661,7 @@ export type SessionRecordDelegation = Omit<SessionDelegation, 'parentSessionId' 
 
 /** `sessionRecordUpsert`: a field left out keeps the stored value; `lastActivityAt`
  *  is always the caller's. The organization is the caller's, never an argument. */
-export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'ownerKey' | 'state' | 'view' | 'listed' | 'pullRequests' | 'role' | 'sharedBy' | 'grantedAt'>> {
+export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'ownerKey' | 'state' | 'view' | 'listed' | 'pullRequests' | 'role' | 'sharedBy' | 'grantedAt' | 'isLead'>> {
   sessionId: string
   provider: AgentId
   projectPath: string

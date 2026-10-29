@@ -1,11 +1,13 @@
 # Lead session: a per-session opt-in
 
-Status: implemented, 2026-10-28. Desktop, web, and mobile.
+Status: implemented, 2026-10-28. Desktop, web, and mobile. Renamed to Mission
+mode in the UI and marked in the session list, 2026-10-29.
 
 A **lead session** coordinates workers and does not implement. A person chooses
 it in the composer before the first message. The choice is sent with the first
-prompt, fixed from then on, and shown nowhere after the session starts. It has
-nothing to do with tasks: a lead may or may not be linked to a task.
+prompt and fixed from then on. After the session starts, the only sign of it is
+the Mission mode glyph on its row in the session list. It has nothing to do
+with tasks: a lead may or may not be linked to a task.
 
 ## Vocabulary
 
@@ -14,18 +16,25 @@ nothing to do with tasks: a lead may or may not be linked to a task.
 - **worker** — a session a lead started with `start_session`. It is listed
   under the lead's row as a delegated session (`docs/plans/task-conversation.md`
   decision 6).
-- **Delegate** — the user-facing word, on the composer switch and in Settings
-  ("Delegating sessions"). A person reads "delegate work to other sessions";
-  "lead" means nothing to them. Code and docs keep `lead` for the record, the
-  contract, and the wake rule. Do not call it a mode or a role.
+- **Mission mode** — the user-facing name, on the composer's footer button, on
+  the session row's glyph, and in Settings ("Mission mode"). A person reads
+  "plan the work, start other sessions to do it, and report back"; "lead"
+  means nothing to them. Code and docs keep `lead` for the record, the
+  contract, and the wake rule. "Mode" here is the product name alone: it is
+  not a permission mode, and the UI keeps the two apart by place and by
+  control. Permissions are a menu of five modes in the composer card; Mission
+  mode is one on-or-off button in the footer under the card. Do not call it a
+  role. (Before 2026-10-29 the word was "Delegate".)
 
 ## Decisions
 
-1. **The choice is made before the first message.** The composer toolbar offers
-   the Lead toggle (`LeadToggle.svelte` in `components/input/`) to a draft and
-   to a tab with no message and no provider conversation (`canChooseLead`).
-   Once the session starts, the toggle is gone and nothing marks the session in
-   the UI. There is no way to turn a lead off.
+1. **The choice is made before the first message.** The composer footer, the
+   strip under the card that names the project, host, and branch
+   (`InputBarFooter.svelte`), offers the Mission mode button
+   (`LeadButton.svelte` in `components/input/`) to a draft and to a tab with no
+   message and no provider conversation (`canChooseLead`). The button is a
+   pressed-state button, filled while it is selected, not a switch. Once the
+   session starts, the button is gone. There is no way to turn a lead off.
 2. **Turning Lead on starts the session on the lead model.** When the person
    set **Lead model** in Settings → General, the run moves to it
    (`runForLead`); otherwise the run keeps its model. Turning it off changes no
@@ -38,6 +47,11 @@ nothing to do with tasks: a lead may or may not be linked to a task.
    holds one row per lead, written by `markSessionLead` in the run launcher
    when the first prompt of a new provider conversation says `isLead`. The mark
    is never removed. `isLeadSession` reads it, and remembers a hit.
+   Every session record read (`session-records.ts`) and every session
+   description (`describeSession`) carries the mark as `isLead`, so each client
+   can show it: the desktop and web sidebar row and the mobile thread row lead
+   with the Mission mode glyph (lucide `Network`, the org chart; the same glyph
+   as the count of sessions a row started), in accent while the session works.
 5. **Every run of a lead carries the lead contract.** The run launcher appends
    `formatLeadContract` (`data/sessions/lead-contract.ts`) to the system prompt
    after the task packet when there is one, with the person's **Lead
@@ -48,14 +62,21 @@ nothing to do with tasks: a lead may or may not be linked to a task.
 6. **The lead wake rule applies.** `orchestrateSessions(runtime, isLeadSession)`
    in `boot-server.ts`: a lead's reports are held until its last open message
    settles, and notices never reach its model (`docs/session-orchestration.md`).
-7. **Settings live in Settings → General, "Delegating sessions"**
-   (`LeadSessionsSection.svelte`): Delegating model, Default worker model,
-   Delegation instructions. The keys (`leadModel`, `workerModel`, `leadInstructions`) did
+7. **Settings live in Settings → General, "Mission mode"**
+   (`LeadSessionsSection.svelte`): Mission mode model, Default worker model,
+   Mission mode instructions. The keys (`leadModel`, `workerModel`, `leadInstructions`) did
    not change, so synced settings are kept.
 8. **Both providers.** Claude Code and Codex get the contract through the
    system prompt; nothing is provider-specific.
-9. **Mobile** offers the same toggle on a new thread and sends `isLead` with
-   the first prompt (`apps/mobile/`).
+9. **Mobile** offers the same button on a new thread, in its composer toolbar
+   row, with the same glyph (`LEAD_SYMBOL`), and sends `isLead` with the first
+   prompt (`apps/mobile/`).
+10. **Icons, not words, for the composer's other settings.** With the footer
+   under the card, the card's row is: add, the permission mode as its glyph
+   alone (Full access tinted amber, the only mode that never asks), the model
+   with its reasoning effort as four bars (`ReasoningEffortIcon.svelte`), then
+   dictate and send. Each glyph's words live in its tooltip and accessible
+   name.
 
 ## Verification
 

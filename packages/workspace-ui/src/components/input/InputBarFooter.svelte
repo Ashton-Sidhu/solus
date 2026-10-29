@@ -29,6 +29,7 @@
   import { Button } from "../ui/button";
   import { MiddleTruncate } from "../ui/middle-truncate";
   import ProjectChip from "./ProjectChip.svelte";
+  import LeadButton from "./LeadButton.svelte";
   import {
     shouldResetTaskForProjectChange,
     type TaskProjectScope,
@@ -49,11 +50,11 @@
   } from "../../contexts/workspace/run-location";
   interface Props {
     active: boolean;
-    /** The tab or draft this header describes. A draft has no tab, so the header
+    /** The tab or draft this footer describes. A draft has no tab, so the footer
      *  resolves its run through `runFor` and never assumes a session exists.
      *  Unset for the workspace dock, which follows the active conversation. */
     sourceId?: string;
-    /** The pane this pre-flight header sits in, so its run and task pickers can
+    /** The pane this pre-flight footer sits in, so its run and task pickers can
      *  answer the open shortcut aimed at that composer. Unset for the dock. */
     paneId?: string;
     /** Bound where a surface above this strip names the project as well — the
@@ -61,6 +62,9 @@
     projectPickerOpen?: boolean;
     /** An external project control that owns the open menu's visual position. */
     projectPickerAnchor?: HTMLElement | null;
+    /** The strip belongs to the workspace's own composer, so the Mission mode
+     *  button returns focus to it. */
+    isPrimary?: boolean;
   }
   let {
     active,
@@ -68,6 +72,7 @@
     paneId,
     projectPickerOpen = $bindable(false),
     projectPickerAnchor = null,
+    isPrimary = false,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -76,7 +81,7 @@
   const source = $derived(sourceId ?? session.activeTabId);
   // A source is a started conversation's tab or a draft that has yet to become
   // one; `sess` answers which. Both own the same `run`, which is all the chips
-  // below read, so the header describes either without branching on it.
+  // below read, so the footer describes either without branching on it.
   const sess = $derived(session.sessionFor(source));
   const draft = $derived(session.drafts.sessionDrafts.get(source));
   const run = $derived(session.runFor(source));
@@ -267,7 +272,7 @@
       );
     } else {
       // Retain the controller fallback for an incomplete restored run. Honour
-      // this header's source so a split pane cannot move the primary chat.
+      // this footer's source so a split pane cannot move the primary chat.
       await session.switchToWorktree(worktree.path, source);
     }
     settleOnDestination();
@@ -417,11 +422,15 @@
 {/snippet}
 
 {#if inChat}
-  <!-- No strip: its list still opens, from the + menu or the draft headline.
-       The host choice for a chat sits in the composer's own row. -->
+  <!-- No destination: its list still opens, from the + menu or the draft
+       headline. The host choice for a chat sits in the composer's own row. -->
   <div class="hidden">{@render projectChip()}</div>
-{:else}
-<div class="flex flex-wrap items-center gap-1.5 px-3.5 pb-2">
+{/if}
+<!-- The footer under the card: the destination, then the Mission mode button
+     at the end of the line. `/composer` is the card above, so the button's
+     own rung measures the same width the toolbar's ladder does. -->
+<div class="@container/composer flex flex-wrap items-center gap-1.5 px-3.5 pt-2">
+{#if !inChat}
   <!-- A sentence read left to right: which project, on which machine, from
        which branch, filed under which task. The project chip lists projects
        from every host; the Run on picker then says what each machine would use
@@ -480,9 +489,12 @@
       <TooltipUI.Content value={branchTooltip} />
     </TooltipUI.Root>
   {/if}
-
-</div>
 {/if}
+
+  <div class="ml-auto flex items-center">
+    <LeadButton tabId={sess ? source : undefined} {draft} {isPrimary} />
+  </div>
+</div>
 
 <!-- The composer is bottom-anchored, so the list opens over the transcript. -->
 {#if hasGitRepository}

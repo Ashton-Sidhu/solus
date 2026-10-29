@@ -58,8 +58,11 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
    *  (docs/plans/workspace-and-machines.md §6). The workspace service has only the record. */
   const withRecord = async (handlerCtx: HandlerCtx, sessionId: string, meta: SessionMeta | null): Promise<SessionMeta | null> => {
     const record = await getSessionRecord(recordScopeOf(handlerCtx.principal), sessionId)
-    if (meta) return record ? { ...meta, organizationId: record.organizationId, publication: record.publication } : meta
-    return isApiMode() && record ? sessionMetaFromRecord(record) : null
+    if (!meta) return isApiMode() && record ? sessionMetaFromRecord(record) : null
+    if (!record) return meta
+    const described: SessionMeta = { ...meta, organizationId: record.organizationId, publication: record.publication }
+    if (record.isLead) described.isLead = true
+    return described
   }
   const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> =>
     withRecord(handlerCtx, sessionId, await sessionRuntime.history.getSessionInfo(sessionId))
