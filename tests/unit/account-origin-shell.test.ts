@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import { accountOriginShell } from '../../apps/client/src/lib/account-origin'
 
-// docs/plans/instant-share-open.md: the account origin's shell names itself and carries
-// the provider's metadata; a host serves the same bundle with neither, so a page with
-// no marker is a host page and spends no request finding out.
+// docs/plans/fast-secure-startup.md, decision 3: the account origin's shell names itself
+// and, signed in, who is signed in, so the page mounts signed in with no request. A host
+// serves the same bundle with neither, so a page with no marker is a host page and
+// spends no request finding out.
 
 function page(elements: { [selector: string]: string | null }): Pick<Document, 'querySelector'> {
   return {
@@ -11,35 +12,35 @@ function page(elements: { [selector: string]: string | null }): Pick<Document, '
   }
 }
 
-const METADATA = {
-  issuer: 'https://app.solus.sh',
-  authorization_endpoint: 'https://app.solus.sh/api/auth/oauth2/authorize',
-  token_endpoint: 'https://app.solus.sh/api/auth/oauth2/token',
-  userinfo_endpoint: 'https://app.solus.sh/api/auth/oauth2/userinfo',
-  revocation_endpoint: 'https://app.solus.sh/api/auth/oauth2/revoke',
+const marker = { 'meta[name="solus-account-origin"]': '' }
+const SIGNED_IN = {
+  identity: { sub: 'user_bob', email: 'bob@example.test', email_verified: true, name: 'Bob', picture: null },
+  signedInAt: 1_700_000_000_000,
 }
 
 describe('the account origin shell', () => {
-  test('a shell with the marker is the account origin, with its metadata parsed', () => {
-    const shell = accountOriginShell(page({ 'meta[name="solus-account-origin"]': '', 'script#solus-oidc-discovery': JSON.stringify(METADATA) }))
-    expect(shell).toEqual({ discovery: METADATA })
+  test('a shell with the marker and an identity is the account origin, signed in as that person', () => {
+    const shell = accountOriginShell(page({ ...marker, 'script#solus-account-identity': JSON.stringify(SIGNED_IN) }))
+    expect(shell?.signedIn).toEqual({
+      identity: { sub: 'user_bob', email: 'bob@example.test', emailVerified: true, name: 'Bob', picture: null },
+      signedInAt: SIGNED_IN.signedInAt,
+    })
   })
 
   test('a shell with no marker is a host page', () => {
-    expect(accountOriginShell(page({ 'script#solus-oidc-discovery': '{"issuer":"x"}' }))).toBeNull()
+    expect(accountOriginShell(page({ 'script#solus-account-identity': JSON.stringify(SIGNED_IN) }))).toBeNull()
   })
 
-  test('missing, broken, or incomplete metadata still names the account origin; the sign-in reads the metadata itself', () => {
-    expect(accountOriginShell(page({ 'meta[name="solus-account-origin"]': '' }))).toEqual({ discovery: undefined })
-    expect(accountOriginShell(page({ 'meta[name="solus-account-origin"]': '', 'script#solus-oidc-discovery': '{not json' }))).toEqual({ discovery: undefined })
-    expect(accountOriginShell(page({ 'meta[name="solus-account-origin"]': '', 'script#solus-oidc-discovery': '{"issuer":"https://app.solus.sh"}' }))).toEqual({ discovery: undefined })
+  test('no identity, or a broken one, is a signed-out visitor (a guest on a share link)', () => {
+    expect(accountOriginShell(page(marker))?.signedIn).toBeUndefined()
+    expect(accountOriginShell(page({ ...marker, 'script#solus-account-identity': '{not json' }))?.signedIn).toBeUndefined()
+    expect(accountOriginShell(page({ ...marker, 'script#solus-account-identity': '{"identity":{"sub":""}}' }))?.signedIn).toBeUndefined()
   })
 
-  // §4.14: signed in, the shell also names the person's directory, so a fresh
-  // browser dials its hosts while the sign-in completes.
+  // instant-share-open.md §4.14: signed in, the shell also names the person's directory,
+  // so a fresh browser dials its hosts at once.
   test('a directory in the shell is parsed; a broken one is ignored', () => {
     const directory = { hosts: [], workspaces: [] }
-    const marker = { 'meta[name="solus-account-origin"]': '' }
     expect(accountOriginShell(page({ ...marker, 'script#solus-host-directory': JSON.stringify(directory) }))?.directory).toEqual(directory)
     expect(accountOriginShell(page({ ...marker, 'script#solus-host-directory': '{not json' }))?.directory).toBeUndefined()
     expect(accountOriginShell(page({ ...marker, 'script#solus-host-directory': '{"hosts":"x"}' }))?.directory).toBeUndefined()

@@ -12,7 +12,8 @@ import {
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import type { AccountState } from '@solus/contracts/account-types'
-import type { OAuthSession, ResourceRefusal } from './oauth-session'
+import type { ResourceRefusal } from './oauth-session'
+import type { WebTokenSession } from './web-token-session'
 import { dialableRoutes, mergeRoutes, routeForUrl, withReadRoutes, type HostRoute } from '@solus/contracts/host-routes'
 import type { SavedServer, SavedServerUplink } from './server-registry'
 
@@ -22,9 +23,10 @@ import type { SavedServer, SavedServerUplink } from './server-registry'
  * Two things a client does on behalf of the signed-in account: read the host
  * directory and get access tokens for one host or the Solus API. Where the account
  * sign-in lives decides how: on desktop the Electron main process holds it and
- * answers over the native bridge; on the cloud-served web client the page's own
- * `OAuthSession` does (docs/adr/0001-standard-authentication.md §3.2). Neither path
- * hands the refresh token to this module.
+ * answers over the native bridge; on the cloud-served web client the account origin
+ * holds it for the website session, and the page's `WebTokenSession` asks it for
+ * tokens (docs/plans/fast-secure-startup.md). Neither path hands a refresh token to
+ * this module.
  */
 
 export interface UplinkAccountSource {
@@ -49,21 +51,21 @@ export interface UplinkAccountSource {
 }
 
 /**
- * The web client served from the account origin: its `OAuthSession` gives an
+ * The web client served from the account origin: its `WebTokenSession` gives an
  * account-plane access token for each call, and the same origin serves `/v1`. The
- * account cookie is the website's own and is not sent. Every call names the origin
+ * cookie is not sent to `/v1`: the token is the credential there. Every call names the origin
  * explicitly so a bundle served by a host (which has no `/v1`) never mistakes a 404
  * for an empty directory.
  */
-export function oauthUplinkAccountSource(
+export function webUplinkAccountSource(
   origin: string,
-  session: Pick<OAuthSession, 'accessToken' | 'state'> & Partial<Pick<OAuthSession, 'refusal' | 'takeStartupDirectory'>>,
+  session: Pick<WebTokenSession, 'accessToken' | 'state'> & Partial<Pick<WebTokenSession, 'refusal' | 'takeStartupDirectory'>>,
   fetchImpl: typeof fetch = fetch,
 ): UplinkAccountSource {
-  const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
+  const call = async (path: string, init: RequestInit = {}, knownToken?: string): Promise<Response | null> => {
     // A write makes the login's directory old.
     if (init.method && init.method !== 'GET') session.takeStartupDirectory?.()
-    const token = await session.accessToken({ kind: 'account' })
+    const token = knownToken ?? await session.accessToken({ kind: 'account' })
     if (!token) return null
     try {
       return await fetchImpl(`${origin}${path}`, {
@@ -78,10 +80,12 @@ export function oauthUplinkAccountSource(
   }
   return {
     async listDirectory() {
-      // The first read after sign-in uses the directory the code grant returned.
+      // The first token answer of a website session carries the directory.
+      const token = await session.accessToken({ kind: 'account' })
+      if (!token) return null
       const startup = session.takeStartupDirectory?.()
       if (startup) return { directoryUrl: origin, ...startup }
-      const response = await call('/v1/hosts')
+      const response = await call('/v1/hosts', {}, token)
       if (!response?.ok) return null
       const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? { directoryUrl: origin, ...parsed.data } : null

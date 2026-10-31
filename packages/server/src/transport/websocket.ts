@@ -21,6 +21,7 @@ import type { TokenVerdict } from '../admission/access-tokens'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
 import { z } from 'zod'
+import { couldBeForgedByWebPage } from './web-page-requests'
 
 const log = createLogger('main', 'ws-transport')
 const STREAM_TTL_MS = 6 * 60_000
@@ -197,6 +198,12 @@ export function attachWebSocketTransport(
     // Tunnel traffic is loopback on the wire and the bind policy may be open on
     // loopback; neither may admit it. Only a credential does (the proxied-listener rule).
     if (socket.handshake.headers[VIA_TUNNEL_HEADER] === '1') {
+      refuse('unauthorized')
+      return
+    }
+    // A page on another site, or a DNS-rebound name, may open a socket to loopback
+    // too; network position and an open bind policy admit only what no page could forge.
+    if (couldBeForgedByWebPage(socket.handshake.headers)) {
       refuse('unauthorized')
       return
     }

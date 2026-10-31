@@ -46,6 +46,7 @@ import { hostDisplayName } from '../platform/host-display-name'
 import { hostIdentity } from '../host/host-identity'
 import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_OUTCOME_HEADER } from '@solus/contracts/webhooks'
 import type { WebhookReceiver } from '../execution/webhooks/receiver'
+import { couldBeForgedByWebPage } from './web-page-requests'
 
 const log = createLogger('main', 'http')
 
@@ -238,6 +239,8 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
    *  loopback on the wire and gets no relaxation of any kind. */
   const authRequiredFor = async (c: Ctx): Promise<boolean> => {
     if (viaTunnel(c)) return true
+    // A page on another site, or a DNS-rebound name, never acts without a credential.
+    if (couldBeForgedByWebPage({ host: c.req.header('host'), origin: c.req.header('origin') })) return true
     if (!(opts.requireAuth?.() ?? true)) return false
     if (!opts.isTrustedRequester) return true
     return !(await opts.isTrustedRequester(clientIp(c)))

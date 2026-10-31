@@ -12,6 +12,9 @@ const WORKSPACE_PRELOADS_END = '<!--/solus:workspace-preloads-->'
  * cost nothing to insert, unlike the runtime preload loop
  * (docs/benchmarks/web-load-2026-10-30.json).
  *
+ * The links ask for low priority (`fetchpriority="low"`): the entry script and the
+ * page's first token request go first (docs/plans/fast-secure-startup.md, step 3).
+ *
  * The markers let a server drop the block where a page opens no workspace: a
  * share link resolves before any app code loads (docs/plans/instant-share-open.md).
  */
@@ -45,8 +48,8 @@ export function workspaceStartupPreloads(roots: string[]): Plugin {
         }
         const isUnlisted = (fileName: string) => !html.includes(`"${base}${fileName}"`)
         const links = [
-          ...[...scripts].filter(isUnlisted).map((fileName) => `<link rel="modulepreload" crossorigin href="${base}${fileName}">`),
-          ...[...styles].filter(isUnlisted).map((fileName) => `<link rel="preload" as="style" crossorigin href="${base}${fileName}">`),
+          ...[...scripts].filter(isUnlisted).map((fileName) => `<link rel="modulepreload" fetchpriority="low" crossorigin href="${base}${fileName}">`),
+          ...[...styles].filter(isUnlisted).map((fileName) => `<link rel="preload" as="style" fetchpriority="low" crossorigin href="${base}${fileName}">`),
         ]
         return html.replace('</head>', `${WORKSPACE_PRELOADS_START}${links.join('')}${WORKSPACE_PRELOADS_END}</head>`)
       },

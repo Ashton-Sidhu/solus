@@ -657,6 +657,49 @@ export const accountResponseSchema = z.object({
 })
 export type AccountResponse = z.infer<typeof accountResponseSchema>
 
+/**
+ * The web client's tokens on the account origin (docs/plans/fast-secure-startup.md,
+ * decision 1). The page holds no refresh token: the account origin holds its grant for
+ * the website session, and this endpoint gives the page access tokens. It takes only the
+ * session cookie, and only from a page of the account origin (an exact `Origin`).
+ */
+export const WEB_TOKENS_PATH = '/api/web/tokens'
+/** The most hosts one request may name. */
+export const MAX_WEB_TOKEN_HOSTS = 64
+
+/** `POST /api/web/tokens`: the hosts the page wants tokens for. The token for our servers comes with every answer. */
+export const webTokensRequestSchema = z.object({
+  hostIds: z.array(z.string().min(1)).max(MAX_WEB_TOKEN_HOSTS),
+})
+export type WebTokensRequest = z.infer<typeof webTokensRequestSchema>
+
+/** One access token and its end (epoch ms). */
+const webTokenSchema = z.object({ token: z.string().min(1), expiresAt: z.number() })
+
+/** A host's token, or the reason the account plane gave none (`solus_refusal`, else the OAuth error code). */
+export const webHostTokenSchema = z.union([
+  webTokenSchema.extend({ hostId: z.string().min(1) }),
+  z.object({ hostId: z.string().min(1), refused: z.string().min(1) }),
+])
+
+/**
+ * What the sign-in read, in the first answer of a website session: the account, the
+ * settings, and the directory. Settings are decoded by their domain when used.
+ */
+export const webTokensStartupSchema = z.object({
+  account: accountResponseSchema,
+  settings: z.json(),
+  directory: directoryResponseSchema.optional().catch(undefined),
+})
+
+export const webTokensResponseSchema = z.object({
+  /** The token for both our servers (`aud: [account, api]`). */
+  serversToken: webTokenSchema,
+  hosts: z.array(webHostTokenSchema),
+  startup: webTokensStartupSchema.optional(),
+})
+export type WebTokensResponse = z.infer<typeof webTokensResponseSchema>
+
 /** The account that linked a personal or self-hosted host, as the control plane knows it. */
 export const hostOwnerIdentitySchema = z.object({
   userId: z.string().min(1),

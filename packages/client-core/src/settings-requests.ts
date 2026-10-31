@@ -12,7 +12,7 @@ import {
 import type { AccountSettingsResult, NativeSolusAPI, OrganizationSettingsResult, SettingsRequestFailure } from '@solus/contracts/host-api'
 import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
 import type { z } from 'zod'
-import type { OAuthSession } from './oauth-session'
+import type { WebTokenSession } from './web-token-session'
 
 export type { AccountSettingsResult, OrganizationSettingsResult, SettingsRequestFailure }
 
@@ -129,7 +129,7 @@ function refusal(status: number, parsed: z.ZodSafeParseResult<z.infer<typeof upl
  * account-plane access token for each call (docs/adr/0001-standard-authentication.md
  * §2.2); the website's cookie is not sent.
  */
-export function webSettingsRequests(origin: string, session: Pick<OAuthSession, 'accessToken' | 'takeStartupSettings'>, fetchImpl: typeof fetch = fetch): SettingsCloudRequests {
+export function webSettingsRequests(origin: string, session: Pick<WebTokenSession, 'accessToken' | 'takeStartupSettings'>, fetchImpl: typeof fetch = fetch): SettingsCloudRequests {
   return settingsCloudRequests(async (request) => {
     const token = await session.accessToken({ kind: 'account' })
     if (!token) return 'signed-out'

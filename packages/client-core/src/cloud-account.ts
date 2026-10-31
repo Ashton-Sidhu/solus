@@ -9,17 +9,17 @@ import {
 } from '@solus/contracts/uplink'
 import type { SeatProvider } from '@solus/contracts/seats'
 import { VAULT_PATH, vaultConnectionListSchema } from '@solus/contracts/vault'
-import type { OAuthSession } from './oauth-session'
+import type { WebTokenSession } from './web-token-session'
 
 /**
  * The signed-in Solus Cloud account, as cloud onboarding uses it
  * (docs/plans/cloud-onboarding.md). It exists only on the web client served at the
- * account origin: the page's `OAuthSession` is the credential (an account-plane
- * access token on each call) and the same origin serves `/v1`. The desktop app and a
+ * account origin: the page's `WebTokenSession` gives an account-plane access token for
+ * each call, and the same origin serves `/v1`. The desktop app and a
  * client paired to a machine have none, and so get the host onboarding flow.
  */
 /** The part of the page's sign-in that the account uses. */
-export type CloudAccountSession = Pick<OAuthSession, 'accessToken' | 'signOut' | 'state' | 'onChange' | 'takeStartupAccount' | 'takeStartupSettings' | 'takeStartupDirectory'>
+export type CloudAccountSession = Pick<WebTokenSession, 'accessToken' | 'signOut' | 'state' | 'onChange' | 'takeStartupAccount' | 'takeStartupSettings' | 'takeStartupDirectory'>
 
 export interface CloudAccount {
   /** The sign-in this account's calls use; its state is who is signed in. */
@@ -29,9 +29,8 @@ export interface CloudAccount {
   /** The agent seat logins (`seat:*` refs) in the account vault; null means the check failed. */
   readAgentSeats(): Promise<CloudAgentSeat[] | null>
   /**
-   * Ends this client grant (revocation), then the website's cookie session: on the
-   * account origin the web client and the website are one page, and the cookie would
-   * sign the page in again. False when the website did not confirm the cookie's end.
+   * Ends the website's cookie session, which is the web client's sign-in: the account
+   * origin revokes the grant it held for it. False when the website did not confirm it.
    */
   signOut(): Promise<boolean>
   /** Records that the account finished or skipped onboarding; false when the call failed. */
@@ -68,10 +67,10 @@ export interface CloudAgentSeat {
   updatedAt: number
 }
 
-export function oauthCloudAccount(origin: string, session: CloudAccountSession, fetchImpl: typeof fetch = fetch): CloudAccount {
-  const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
+export function webCloudAccount(origin: string, session: CloudAccountSession, fetchImpl: typeof fetch = fetch): CloudAccount {
+  const call = async (path: string, init: RequestInit = {}, knownToken?: string): Promise<Response | null> => {
     if (init.method && init.method !== 'GET') session.takeStartupAccount()
-    const token = await session.accessToken({ kind: 'account' })
+    const token = knownToken ?? await session.accessToken({ kind: 'account' })
     if (!token) return null
     const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
     if (init.body) headers.set('content-type', 'application/json')
@@ -91,9 +90,12 @@ export function oauthCloudAccount(origin: string, session: CloudAccountSession, 
     connectionsUrl: `${origin}/connections`,
     consoleUrl: origin,
     async readAccount() {
+      // The first token answer of a website session carries the account.
+      const token = await session.accessToken({ kind: 'account' })
+      if (!token) return null
       const startup = session.takeStartupAccount()
       if (startup) return startup
-      const response = await call('/v1/account')
+      const response = await call('/v1/account', {}, token)
       if (!response?.ok) return null
       const parsed = accountResponseSchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? parsed.data : null
@@ -107,19 +109,7 @@ export function oauthCloudAccount(origin: string, session: CloudAccountSession, 
         ? [{ provider: connection.ref.provider, connected: connection.status === 'connected', updatedAt: connection.updatedAt }]
         : [])
     },
-    async signOut() {
-      await session.signOut()
-      try {
-        const response = await fetchImpl(`${origin}/api/auth/sign-out`, {
-          method: 'POST',
-          credentials: 'same-origin',
-          signal: AbortSignal.timeout(15_000),
-        })
-        return response.ok
-      } catch {
-        return false
-      }
-    },
+    signOut: () => session.signOut(),
     async completeOnboarding() {
       const response = await call('/v1/account/onboarding', { method: 'POST' })
       return !!response?.ok
