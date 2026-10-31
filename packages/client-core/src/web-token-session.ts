@@ -1,30 +1,32 @@
 import type { AccountState } from '@solus/contracts/account-types'
 import type { AccountIdentity, TokenResource } from '@solus/contracts/auth/clients'
-import type { AccountSettingsResponse } from '@solus/contracts/settings'
-import { WEB_TOKENS_PATH, webTokensResponseSchema, type AccountResponse, type DirectoryResponse, type WebTokensRequest, type WebTokensResponse } from '@solus/contracts/uplink'
+import { WEB_TOKENS_PATH, webTokensResponseSchema, type WebTokensRequest, type WebTokensResponse } from '@solus/contracts/uplink'
 import type { ResourceRefusal } from './oauth-session'
 
 /**
- * The web client's sign-in on the account origin (docs/plans/fast-secure-startup.md,
- * decision 1; docs/adr/0001-standard-authentication.md §2.2). The page runs no OAuth flow
- * and holds no refresh token: the account origin holds the grant for the website
- * session, and `POST /api/web/tokens` gives the page access tokens, authenticated by the
- * session cookie alone. The shell says who is signed in, so the page is signed in from
- * its first line and never waits for a request to know it.
+ * The web client's sign-in on the account origin (docs/plans/web-session-tokens.md;
+ * docs/adr/0001-standard-authentication.md §2.2). The page runs no OAuth flow and holds
+ * no refresh token: `POST /api/web/tokens` signs access tokens from the website session,
+ * authenticated by the session cookie alone. The shell says who is signed in, so the
+ * page is signed in from its first line and never waits for a request to know it.
  *
- * One request carries every host the page asks for at once, beside the token for our
- * servers. Tokens are renewed shortly before they end. Each tab asks for its own: one
- * request is cheap, and the account origin keeps the servers token for the session, so
- * a tab costs no refresh.
+ * One holder per tab: the held tokens and their ends, one request in flight, and a
+ * refusal reason per host. A token is renewed only when it is asked for within a minute
+ * of its end; the host socket asks before its token ends. A 401 means the website
+ * session ended: the tab signs out and goes to the sign-in. A sign-out or a 401 in one
+ * tab signs out every tab of the origin (`SignOutChannel`).
  */
 
 /** A token is given out until this long before its end. */
 const RENEW_LEAD_MS = 60_000
-/** A late first reader reads current data instead of the sign-in's. */
-const STARTUP_MAX_AGE_MS = 30_000
 const REQUEST_TIMEOUT_MS = 15_000
+/** The `BroadcastChannel` every tab of the origin hears a sign-out on. */
+export const WEB_SIGN_OUT_CHANNEL = 'solus:web-sign-out'
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>
+
+/** The part of a `BroadcastChannel` the session uses: it tells the other tabs, and hears them. */
+export type SignOutChannel = Pick<BroadcastChannel, 'postMessage' | 'addEventListener'>
 
 export interface WebTokenSessionDeps {
   /** The account origin, which serves the page. */
@@ -36,8 +38,8 @@ export interface WebTokenSessionDeps {
   now: () => number
   /** The website has no session any more: the page leaves for the sign-in. */
   onSignedOut(): void
-  /** Runs `renew` after `delayMs` and gives its cancel. Defaults to `setTimeout`. */
-  schedule?: (renew: () => void, delayMs: number) => () => void
+  /** The other tabs of this origin; null where there is no `BroadcastChannel`. */
+  channel: SignOutChannel | null
 }
 
 interface HeldToken {
@@ -45,31 +47,24 @@ interface HeldToken {
   expiresAt: number
 }
 
-/** One request: the hosts it carries, and its end. */
-interface Batch {
-  hostIds: Set<string>
+/** The one request in flight: the hosts it asks for, and its end. */
+interface InFlight {
+  hostIds: ReadonlySet<string>
   done: Promise<void>
-  end: () => void
 }
-
-type Startup = NonNullable<WebTokensResponse['startup']>
 
 export class WebTokenSession {
   private current: AccountState
   private servers: HeldToken | null = null
   private readonly hosts = new Map<string, HeldToken>()
   private readonly refusals = new Map<string, ResourceRefusal>()
-  private running: Batch | null = null
-  private next: Batch | null = null
-  private startupAccount: AccountResponse | null = null
-  private startupSettings: Startup['settings'] | undefined
-  private startupDirectory: DirectoryResponse | null = null
-  private startupExpiresAt = 0
-  private cancelRenewal: (() => void) | null = null
+  private inFlight: InFlight | null = null
   private readonly listeners = new Set<(state: AccountState) => void>()
 
   constructor(private readonly deps: WebTokenSessionDeps) {
     this.current = this.signedIn(false)
+    // Another tab signed out, or its website session ended: so did this one's.
+    deps.channel?.addEventListener('message', () => this.endSession({ kind: 'signed-out' }))
   }
 
   state(): AccountState {
@@ -81,11 +76,9 @@ export class WebTokenSession {
     return () => this.listeners.delete(listener)
   }
 
-  /** The first request, at boot: the servers token and the shell's hosts together. */
+  /** The first request, at boot: the servers token and the shell's hosts together, sent now, before the workspace code is asked for. */
   start(hostIds: readonly string[]): void {
-    void this.join(hostIds)
-    // Now, not in a later turn: it goes before the workspace code is asked for.
-    this.launch()
+    void this.send(hostIds)
   }
 
   /**
@@ -100,11 +93,16 @@ export class WebTokenSession {
       if (hostId && this.hosts.get(hostId)?.token === options.refused) this.hosts.delete(hostId)
       if (!hostId && this.servers?.token === options.refused) this.servers = null
     }
-    const held = this.held(hostId)
-    if (held) return held
-    if (this.current.kind !== 'signed-in') return null
-    await this.join(hostId ? [hostId] : [])
-    return this.held(hostId)
+    for (;;) {
+      const held = this.held(hostId)
+      if (held) return held
+      if (this.current.kind !== 'signed-in') return null
+      const running = this.inFlight
+      // A request that asks for this token gives the answer, a refusal or no answer included.
+      if (!running) return this.send(hostId ? [hostId] : []).then(() => this.held(hostId))
+      await running.done
+      if (!hostId || running.hostIds.has(hostId)) return this.held(hostId)
+    }
   }
 
   /** Why the last answer gave no token for this host; null when it gave one, or did not answer. */
@@ -112,7 +110,7 @@ export class WebTokenSession {
     return resource.kind === 'host' ? this.refusals.get(resource.hostId) ?? null : null
   }
 
-  /** Ends the website session; the account origin then revokes the grant. False when the website did not confirm it. */
+  /** Ends the website session, and signs out every tab of the origin. False when the website did not confirm it. */
   async signOut(): Promise<boolean> {
     let isConfirmed = false
     try {
@@ -125,34 +123,8 @@ export class WebTokenSession {
     } catch {}
     this.clear()
     this.setState({ kind: 'signed-out' })
+    this.deps.channel?.postMessage('signed-out')
     return isConfirmed
-  }
-
-  /** One reader takes each part of the sign-in's data; it is there only in the first answer of a website session. */
-  takeStartupAccount(): AccountResponse | null {
-    const account = this.isStartupFresh() ? this.startupAccount : null
-    this.startupAccount = null
-    return account
-  }
-
-  takeStartupDirectory(): DirectoryResponse | null {
-    const directory = this.isStartupFresh() ? this.startupDirectory : null
-    this.startupDirectory = null
-    return directory
-  }
-
-  async takeStartupSettings(): Promise<AccountSettingsResponse | null> {
-    // A settings read at boot may come before the first answer, which carries them.
-    await (this.running ?? this.next)?.done
-    const raw = this.startupSettings
-    this.startupSettings = undefined
-    if (raw === undefined || !this.isStartupFresh()) return null
-    const { accountSettingsResponseSchema } = await import('@solus/contracts/settings')
-    return accountSettingsResponseSchema.parse(raw)
-  }
-
-  private isStartupFresh(): boolean {
-    return this.current.kind === 'signed-in' && this.deps.now() < this.startupExpiresAt
   }
 
   private held(hostId: string | null): string | null {
@@ -160,33 +132,13 @@ export class WebTokenSession {
     return token && token.expiresAt - RENEW_LEAD_MS > this.deps.now() ? token.token : null
   }
 
-  /** Waits for a request that carries these hosts: the running one when it does, else the next, which starts as soon as it may. */
-  private join(hostIds: readonly string[]): Promise<void> {
-    const running = this.running
-    if (running && hostIds.every((hostId) => running.hostIds.has(hostId))) return running.done
-    let next = this.next
-    if (!next) {
-      let end = () => {}
-      const done = new Promise<void>((resolve) => { end = resolve })
-      next = { hostIds: new Set(), done, end }
-      this.next = next
-      // Asks in the same turn are sent together.
-      if (!running) queueMicrotask(() => this.launch())
-    }
-    for (const hostId of hostIds) next.hostIds.add(hostId)
-    return next.done
-  }
-
-  private launch(): void {
-    const batch = this.next
-    if (!batch || this.running) return
-    this.next = null
-    this.running = batch
-    void this.request([...batch.hostIds]).finally(() => {
-      this.running = null
-      batch.end()
-      this.launch()
+  /** Sends one request; the caller has checked that none is in flight. */
+  private send(hostIds: readonly string[]): Promise<void> {
+    const done = this.request([...new Set(hostIds)]).finally(() => {
+      if (this.inFlight?.done === done) this.inFlight = null
     })
+    this.inFlight = { hostIds: new Set(hostIds), done }
+    return done
   }
 
   private async request(hostIds: string[]): Promise<void> {
@@ -207,7 +159,8 @@ export class WebTokenSession {
       return
     }
     if (response.status === 401) {
-      this.endSession()
+      this.endSession({ kind: 'invalid', reason: 'revoked' })
+      this.deps.channel?.postMessage('signed-out')
       return
     }
     const answer = response.ok ? webTokensResponseSchema.safeParse(await response.json().catch(() => null)) : null
@@ -219,7 +172,7 @@ export class WebTokenSession {
   }
 
   private apply(answer: WebTokensResponse): void {
-    const now = this.deps.now()
+    if (this.current.kind !== 'signed-in') return
     this.servers = answer.serversToken
     for (const host of answer.hosts) {
       if ('refused' in host) {
@@ -230,49 +183,21 @@ export class WebTokenSession {
         this.refusals.delete(host.hostId)
       }
     }
-    // Data for another person than the shell names is never applied.
-    if (answer.startup && answer.startup.account.userId === this.deps.identity.sub) {
-      this.startupAccount = answer.startup.account
-      this.startupSettings = answer.startup.settings
-      this.startupDirectory = answer.startup.directory ?? null
-      this.startupExpiresAt = now + STARTUP_MAX_AGE_MS
-    }
     this.markStale(false)
-    this.scheduleRenewal(now)
-  }
-
-  /** Renews every held token shortly before the first of them ends, so no dial waits for one. */
-  private scheduleRenewal(now: number): void {
-    this.cancelRenewal?.()
-    const ends = [this.servers, ...this.hosts.values()].flatMap((token) => (token ? [token.expiresAt] : []))
-    if (ends.length === 0) return
-    const delay = Math.max(0, Math.min(...ends) - RENEW_LEAD_MS - now)
-    const schedule = this.deps.schedule ?? ((renew, delayMs) => {
-      const timer = setTimeout(renew, delayMs)
-      return () => clearTimeout(timer)
-    })
-    this.cancelRenewal = schedule(() => {
-      this.cancelRenewal = null
-      void this.join([...this.hosts.keys()])
-    }, delay)
   }
 
   /** The website no longer has the session: signed out here too, and the page goes to the sign-in. */
-  private endSession(): void {
+  private endSession(state: AccountState): void {
+    if (this.current.kind !== 'signed-in') return
     this.clear()
-    this.setState({ kind: 'invalid', reason: 'revoked' })
+    this.setState(state)
     this.deps.onSignedOut()
   }
 
   private clear(): void {
-    this.cancelRenewal?.()
-    this.cancelRenewal = null
     this.servers = null
     this.hosts.clear()
     this.refusals.clear()
-    this.startupAccount = null
-    this.startupSettings = undefined
-    this.startupDirectory = null
   }
 
   private markStale(isStale: boolean): void {

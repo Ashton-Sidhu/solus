@@ -1,5 +1,5 @@
 import type { NativeSolusAPI } from '@solus/contracts/host-api'
-import type { DirectoryResponse, UplinkDirectory } from '@solus/contracts/uplink'
+import type { AccountResponse, DirectoryResponse, UplinkDirectory } from '@solus/contracts/uplink'
 import { configureCloudAccount, webCloudAccount, type CloudAccountSession } from './cloud-account'
 import type { AccountState } from '@solus/contracts/account-types'
 import { isSignedOutState, webUplinkAccountSource, type UplinkAccountSource } from './uplink-session'
@@ -59,22 +59,30 @@ export interface AccountOriginAdoption {
   directory: UplinkDirectory | null
 }
 
+/** What the account origin's shell carried for the first screen; each part is absent when its read failed. */
+export interface ShellStartup {
+  directory?: DirectoryResponse
+  account?: AccountResponse
+  /** The settings as JSON text, decoded at their first read (`takeShellSettings`). */
+  settingsJson?: string
+}
+
 /**
  * Web boot on the account origin, which its shell names (`accountOriginShell` in the
- * web client; docs/plans/fast-secure-startup.md): the origin becomes the account source
- * at once, so hosts dial now and their tokens come with the session's first answer.
- * The directory is the shell's when it carries one, with no request; else it is read
- * once here, with the first answer's directory or `GET /v1/hosts`. A page with no
- * session (a guest on a share link) is signed out.
+ * web client; docs/plans/web-session-tokens.md, decision 4): the origin becomes the
+ * account source at once, so hosts dial now and their tokens come with the first token
+ * answer. The first screen's directory, account, and settings are the shell's, read
+ * here once with no request; a part the shell did not carry is read from its account
+ * route. A page with no session (a guest on a share link) is signed out.
  */
-export async function adoptAccountOrigin(origin: string, session: CloudAccountSession | null, shellDirectory?: DirectoryResponse): Promise<AccountOriginAdoption> {
+export async function adoptAccountOrigin(origin: string, session: CloudAccountSession | null, shell: ShellStartup = {}): Promise<AccountOriginAdoption> {
   if (!session) {
     configureUplinkAccountSource(null)
     return { kind: 'signed-out', directory: null }
   }
   const source = webUplinkAccountSource(origin, session)
   configureUplinkAccountSource(source)
-  configureCloudAccount(webCloudAccount(origin, session))
-  startupDirectory = shellDirectory ? Promise.resolve({ directoryUrl: origin, ...shellDirectory }) : source.listDirectory()
+  configureCloudAccount(webCloudAccount(origin, session, fetch, shell.settingsJson), shell.account)
+  startupDirectory = shell.directory ? Promise.resolve({ directoryUrl: origin, ...shell.directory }) : source.listDirectory()
   return { kind: 'signed-in', directory: await startupDirectory }
 }

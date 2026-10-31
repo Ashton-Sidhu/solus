@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { WebTokenSession } from '@solus/client-core/web-token-session'
+import { WebTokenSession, type SignOutChannel } from '@solus/client-core/web-token-session'
 import { WEB_TOKENS_PATH } from '@solus/contracts/uplink'
 
-// docs/plans/fast-secure-startup.md, decision 1: the page on the account origin runs no
+// docs/plans/web-session-tokens.md, decision 5: the page on the account origin runs no
 // OAuth flow and holds no refresh token. It asks `POST /api/web/tokens` with its session
-// cookie, once at boot for every host at a time, and again shortly before the tokens end.
+// cookie: at boot for every host of the shell at once, and again only when a token is
+// asked for within a minute of its end. One request is in flight at a time; there is no
+// timer. A 401, or a sign-out in any tab, signs out every tab of the origin (decision 6).
 
 const ORIGIN = 'https://app.example'
 const HOUR = 3_600_000
@@ -14,13 +16,24 @@ interface Answer {
   hosts?: Array<{ hostId: string; refused?: string }>
 }
 
-function world(answers: Answer[] = []) {
+/** One `BroadcastChannel` name: what one tab posts, every other tab of the origin hears. */
+function broadcast() {
+  const listeners: Array<{ owner: object; listener: () => void }> = []
+  return (): SignOutChannel => {
+    const owner = {}
+    return {
+      postMessage: () => { for (const each of listeners) if (each.owner !== owner) each.listener() },
+      addEventListener: ((_type: string, listener: () => void) => { listeners.push({ owner, listener }) }) as SignOutChannel['addEventListener'],
+    }
+  }
+}
+
+function world(answers: Answer[] = [], channel: SignOutChannel | null = null) {
   let now = 1_000_000
   let serial = 0
   const requests: Array<{ url: string; init: RequestInit | undefined; hostIds: string[] }> = []
   const pending: Array<() => void> = []
   let isHeld = false
-  const timers: Array<{ renew: () => void; delayMs: number; isCancelled: boolean }> = []
   let signedOut = 0
   const fetchImpl = async (input: string | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input)
@@ -32,7 +45,7 @@ function world(answers: Answer[] = []) {
     if (answer.status) return Response.json({ error: 'unauthorized' }, { status: answer.status })
     serial += 1
     const hosts = (answer.hosts ?? hostIds.map((hostId) => ({ hostId }))).map((host) =>
-      host.refused ? { hostId: host.hostId, refused: host.refused } : { hostId: host.hostId, token: `host-${host.hostId}-${serial}`, expiresAt: now + 8 * HOUR })
+      host.refused ? { hostId: host.hostId, refused: host.refused } : { hostId: host.hostId, token: `host-${host.hostId}-${serial}`, expiresAt: now + HOUR })
     return Response.json({ serversToken: { token: `servers-${serial}`, expiresAt: now + 8 * HOUR }, hosts })
   }
   const session = new WebTokenSession({
@@ -42,14 +55,10 @@ function world(answers: Answer[] = []) {
     fetch: fetchImpl,
     now: () => now,
     onSignedOut: () => { signedOut += 1 },
-    schedule: (renew, delayMs) => {
-      const timer = { renew, delayMs, isCancelled: false }
-      timers.push(timer)
-      return () => { timer.isCancelled = true }
-    },
+    channel,
   })
   return {
-    session, requests, timers,
+    session, requests,
     tokenRequests: () => requests.filter((request) => request.url.endsWith(WEB_TOKENS_PATH)),
     advance: (ms: number) => { now += ms },
     hold: () => { isHeld = true },
@@ -71,11 +80,12 @@ describe('WebTokenSession', () => {
   })
 
   test('the boot request goes at once, with the cookie and every host of the shell, and nothing is written to storage', async () => {
-    // WHY: the first answer gives every dial its token; a refresh token in web storage is what this design removes.
+    // WHY: the first answer gives every dial its token, beside the workspace code; a
+    // refresh token in web storage is what this design removes.
     const w = world()
     w.session.start(['host-a', 'host-b'])
     expect(w.requests).toHaveLength(1)
-    expect(w.requests[0]!.init).toMatchObject({ method: 'POST', credentials: 'same-origin' })
+    expect(w.requests[0]!.init).toMatchObject({ method: 'POST', credentials: 'same-origin', cache: 'no-store' })
     expect(w.requests[0]!.hostIds).toEqual(['host-a', 'host-b'])
     expect(await w.session.accessToken({ kind: 'host', hostId: 'host-a' })).toBe('host-host-a-1')
     expect(await w.session.accessToken({ kind: 'host', hostId: 'host-b' })).toBe('host-host-b-1')
@@ -84,29 +94,32 @@ describe('WebTokenSession', () => {
     expect(writes).toEqual([])
   })
 
-  test('hosts asked for in one turn share one request; a host asked for during a request waits for the next one', async () => {
+  test('one request is in flight at a time: an ask it carries waits for it, any other ask follows it', async () => {
+    // WHY: two requests for one token would sign two tokens for nothing.
     const w = world()
     w.hold()
     w.session.start(['host-a'])
     const a = w.session.accessToken({ kind: 'host', hostId: 'host-a' })
+    const servers = w.session.accessToken({ kind: 'account' })
     const b = w.session.accessToken({ kind: 'host', hostId: 'host-b' })
-    const c = w.session.accessToken({ kind: 'host', hostId: 'host-c' })
+    expect(w.tokenRequests()).toHaveLength(1)
     w.release()
-    await a
-    w.release()
+    expect(await a).toBe('host-host-a-1')
+    expect(await servers).toBe('servers-1')
     expect(await b).toBe('host-host-b-2')
-    expect(await c).toBe('host-host-c-2')
-    expect(w.tokenRequests().map((request) => request.hostIds)).toEqual([['host-a'], ['host-b', 'host-c']])
+    expect(w.tokenRequests().map((request) => request.hostIds)).toEqual([['host-a'], ['host-b']])
   })
 
-  test('renews every held token shortly before the first one ends', async () => {
+  test('renews a token only when it is asked for within a minute of its end', async () => {
+    // WHY: no timer runs; the host socket asks before its token ends, so a renewal costs
+    // a request only for a token in use.
     const w = world()
     w.session.start(['host-a'])
-    await w.session.accessToken({ kind: 'host', hostId: 'host-a' })
-    const timer = w.timers.at(-1)!
-    expect(timer.delayMs).toBe(8 * HOUR - 60_000)
-    w.advance(timer.delayMs)
-    timer.renew()
+    expect(await w.session.accessToken({ kind: 'host', hostId: 'host-a' })).toBe('host-host-a-1')
+    w.advance(HOUR - 61_000)
+    expect(await w.session.accessToken({ kind: 'host', hostId: 'host-a' })).toBe('host-host-a-1')
+    expect(w.tokenRequests()).toHaveLength(1)
+    w.advance(2_000)
     expect(await w.session.accessToken({ kind: 'host', hostId: 'host-a' })).toBe('host-host-a-2')
     expect(w.tokenRequests().map((request) => request.hostIds)).toEqual([['host-a'], ['host-a']])
   })
@@ -137,6 +150,22 @@ describe('WebTokenSession', () => {
     expect(w.tokenRequests()).toHaveLength(1)
   })
 
+  test('a 401 in one tab signs every tab of the origin out', async () => {
+    // WHY: the website session is one for every tab; a tab that learned it ended tells the
+    // others, so none keeps showing a workspace it can no longer reach.
+    const channelOf = broadcast()
+    const first = world([{ status: 401 }], channelOf())
+    const second = world([], channelOf())
+    second.session.start([])
+    expect(await second.session.accessToken({ kind: 'account' })).toBe('servers-1')
+    first.session.start([])
+    await first.session.accessToken({ kind: 'account' })
+    expect(second.session.state()).toEqual({ kind: 'signed-out' })
+    expect(second.signedOutCount()).toBe(1)
+    expect(await second.session.accessToken({ kind: 'account' })).toBeNull()
+    expect(second.tokenRequests()).toHaveLength(1)
+  })
+
   test('no answer marks the sign-in stale and keeps it; the next ask tries again', async () => {
     const w = world([{ status: 503 }])
     w.session.start([])
@@ -146,14 +175,17 @@ describe('WebTokenSession', () => {
     expect(w.session.state()).toMatchObject({ kind: 'signed-in', isStale: false })
   })
 
-  test('sign-out ends the website session and drops every token', async () => {
-    const w = world()
+  test('sign-out ends the website session, drops every token, and signs out the other tabs', async () => {
+    const channelOf = broadcast()
+    const w = world([], channelOf())
+    const other = world([], channelOf())
     w.session.start([])
     await w.session.accessToken({ kind: 'account' })
     expect(await w.session.signOut()).toBe(true)
     expect(w.requests.at(-1)).toMatchObject({ url: `${ORIGIN}/api/auth/sign-out`, init: { method: 'POST', credentials: 'same-origin' } })
     expect(w.session.state()).toEqual({ kind: 'signed-out' })
     expect(await w.session.accessToken({ kind: 'account' })).toBeNull()
-    expect(w.timers.every((timer) => timer.isCancelled)).toBe(true)
+    expect(other.session.state()).toEqual({ kind: 'signed-out' })
+    expect(other.signedOutCount()).toBe(1)
   })
 })

@@ -47,3 +47,20 @@ describe('the account origin shell', () => {
     expect(accountOriginShell(page(marker))?.directory).toBeUndefined()
   })
 })
+
+// web-session-tokens.md, decision 4: signed in, the shell also carries the account and
+// the settings, so the page asks neither route at boot.
+describe('the first screen data in the shell', () => {
+  test('the account is parsed, and a broken one is ignored', () => {
+    const account = { userId: 'user_bob', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [], github: null }
+    expect(accountOriginShell(page({ ...marker, 'script#solus-account': JSON.stringify(account) }))?.account).toEqual(account)
+    expect(accountOriginShell(page({ ...marker, 'script#solus-account': '{"userId":""}' }))?.account).toBeUndefined()
+    expect(accountOriginShell(page(marker))?.account).toBeUndefined()
+  })
+
+  test('the settings are kept as their JSON text for their first read, which decodes them', () => {
+    const settings = JSON.stringify({ schemaVersion: 1, generation: 0, revision: null, settings: {}, updatedAt: null })
+    expect(accountOriginShell(page({ ...marker, 'script#solus-account-settings': settings }))?.settingsJson).toBe(settings)
+    expect(accountOriginShell(page(marker))?.settingsJson).toBeUndefined()
+  })
+})

@@ -26,9 +26,6 @@ function fakeSession(token: string | null = 'account-token') {
     signOut: async () => { signedOut = true; return true },
     state: () => ({ kind: 'signed-out' }),
     onChange: () => () => {},
-    takeStartupAccount: () => null,
-    takeStartupDirectory: () => null,
-    takeStartupSettings: async () => null,
   }
   return { session, asked, isSignedOut: () => signedOut }
 }

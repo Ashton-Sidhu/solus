@@ -74,11 +74,11 @@ standard exists.
    server) it uses local access only, as today. The CLI uses the device grant, and the
    grant gives OAuth tokens, never a session token.
    **Amended 2026-10-31** (docs/plans/fast-secure-startup.md, decision 1): the web
-   client on the account origin runs no OAuth flow and holds no refresh token. The
-   account origin holds the `solus-web` grant for the website session. This is the
-   backend for frontend of the IETF guidance for browser-based apps. The page gets its
-   access tokens from `POST /api/web/tokens`. Desktop and mobile keep their own
-   grant with PKCE.
+   client on the account origin runs no OAuth flow and holds no refresh token. Its
+   grant is the website session (docs/plans/web-session-tokens.md): the account origin
+   signs its access tokens from that session. This is the backend for frontend of the
+   IETF guidance for browser-based apps. The page gets its access tokens from
+   `POST /api/web/tokens`. Desktop and mobile keep their own grant with PKCE.
 2. **Identity is OIDC.** The ID token and `/userinfo` give `sub`, `email`,
    `email_verified`, `name`, and `picture`. Organizations are API data
    (`GET /v1/account`), not identity.
@@ -468,28 +468,31 @@ these decisions where the text above was not exact:
   endpoint over TLS, so it does not check the signature (OIDC Core §3.1.3.7, rule 6).
   It checks `iss`, `aud`, `exp`, and `nonce`. This keeps client-core free of a JWT
   library, which mobile cannot load as is.
-- **Web sign-in** (amended 2026-10-31, docs/plans/fast-secure-startup.md). This
-  replaces the grant in `localStorage` and the silent sign-in from the page. The page
-  keeps no grant and runs no OAuth flow.
+- **Web sign-in** (amended 2026-10-31, docs/plans/fast-secure-startup.md and
+  docs/plans/web-session-tokens.md). This replaces the grant in `localStorage` and the
+  silent sign-in from the page. The page keeps no grant and runs no OAuth flow.
   - The shell says who is signed in (`solus-account-identity`: `sub`, name, email,
-    picture). It carries no token. So the workspace mounts with no request.
+    picture) and carries the first screen's directory, account, and settings as JSON
+    data blocks. It carries no token. So the workspace mounts with no request, and the
+    page asks no account route at boot.
   - The page asks `POST /api/web/tokens` for the servers token and the tokens of its
     hosts, in one request. Only the session cookie authenticates it, and the `Origin`
-    must be the account origin. The answer is `no-store`.
-  - On the first request of a website session, the account origin runs the
-    authorization code with PKCE for `solus-web` in its own process, through the
-    provider's endpoints and with the request's cookie. The provider's rules, the claims
-    hooks, the startup data, and one grant for each sign-in stay the same. The refresh
-    token is kept in `web_grant`, sealed with the auth secret and bound to the session.
-  - The servers token is kept in the server process until five minutes before its
-    end. One refresh for each session runs at a time, so two tabs never spend one
-    refresh token. A host token is a new exchange each time, with its usual life.
-  - The end of the website session revokes the grant and deletes its row: sign-out,
-    the Devices page, a password reset, and expiry (the session's delete hook, and the
-    daily prune for a session that expired with no request). Then the endpoint answers
-    401, and the page goes to the sign-in. A guest of a share link stays a guest.
-  - Each tab asks for its own tokens. One request is cheap, and the server keeps the
-    servers token for the session.
+    must be the account origin. The answer is `no-store` and carries tokens only.
+  - The website session is the web grant. On every call, on any instance, the account
+    origin checks that the session row is alive and signs the servers token with the
+    provider's key and the claims the provider gives a `solus-web` token. Its
+    `grant_id` (and `sid`) is the session row's `id`, never the session's secret token.
+    Nothing is kept or written for the session, so instances share nothing.
+  - A host token is the token exchange (rule 3) of that servers token, run in the
+    server. It lasts one hour; desktop and mobile host tokens keep eight hours.
+  - The grant is alive while its session row exists and has not expired. The account
+    plane, the host token exchange, and the delegations check that one rule
+    (`liveGrant`). So a sign-out, the Devices page, a password reset, or expiry ends the
+    web grant at once. Then the endpoint answers 401, the page goes to the sign-in, and
+    every other tab of the origin signs out too (a `BroadcastChannel` message). A guest
+    of a share link stays a guest.
+  - Each tab holds its own tokens, with one request in flight, and asks again only when
+    a token is asked for within a minute of its end.
 
 - **The CLI keeps no sign-in.** `solus connect` signs in with the device grant, uses
   account-plane tokens for its two calls, and revokes the grant at the end.

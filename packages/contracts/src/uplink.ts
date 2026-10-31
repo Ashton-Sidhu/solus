@@ -658,10 +658,11 @@ export const accountResponseSchema = z.object({
 export type AccountResponse = z.infer<typeof accountResponseSchema>
 
 /**
- * The web client's tokens on the account origin (docs/plans/fast-secure-startup.md,
- * decision 1). The page holds no refresh token: the account origin holds its grant for
- * the website session, and this endpoint gives the page access tokens. It takes only the
- * session cookie, and only from a page of the account origin (an exact `Origin`).
+ * The web client's tokens on the account origin (docs/plans/web-session-tokens.md). The
+ * page holds no refresh token: the account origin signs its access tokens from the
+ * website session on every call. It takes only the session cookie, and only from a page
+ * of the account origin (an exact `Origin`). The answer carries tokens only: the first
+ * screen's data comes in the page HTML.
  */
 export const WEB_TOKENS_PATH = '/api/web/tokens'
 /** The most hosts one request may name. */
@@ -682,21 +683,10 @@ export const webHostTokenSchema = z.union([
   z.object({ hostId: z.string().min(1), refused: z.string().min(1) }),
 ])
 
-/**
- * What the sign-in read, in the first answer of a website session: the account, the
- * settings, and the directory. Settings are decoded by their domain when used.
- */
-export const webTokensStartupSchema = z.object({
-  account: accountResponseSchema,
-  settings: z.json(),
-  directory: directoryResponseSchema.optional().catch(undefined),
-})
-
 export const webTokensResponseSchema = z.object({
   /** The token for both our servers (`aud: [account, api]`). */
   serversToken: webTokenSchema,
   hosts: z.array(webHostTokenSchema),
-  startup: webTokensStartupSchema.optional(),
 })
 export type WebTokensResponse = z.infer<typeof webTokensResponseSchema>
 

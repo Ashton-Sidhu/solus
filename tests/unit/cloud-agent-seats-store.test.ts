@@ -9,7 +9,6 @@ test('cloud connections stay correct with no host status, survive an outage, and
   let seatReads = 0
   const session = {
     accessToken: async () => 'account-token', signOut: async () => true, state: () => ({ kind: 'signed-out' as const }), onChange: () => () => {},
-    takeStartupAccount: () => null, takeStartupDirectory: () => null, takeStartupSettings: async () => null,
   }
   const source = webCloudAccount('https://app.solus.sh', session, (async (input) => {
     if (String(input).endsWith('/v1/account')) return Response.json({ userId: 'ab', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [] })

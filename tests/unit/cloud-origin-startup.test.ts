@@ -4,7 +4,7 @@ import { adoptAccountOrigin, configureUplinkAccountSource, takeStartupDirectoryR
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { configureCloudAccount, startupAccountRead, type CloudAccountSession } from '@solus/client-core/cloud-account'
 import type { SavedServer } from '@solus/client-core/server-registry'
-import { DEFAULT_ORGANIZATION_POLICY, type DirectoryResponse } from '@solus/contracts/uplink'
+import { DEFAULT_ORGANIZATION_POLICY, type AccountResponse, type DirectoryResponse } from '@solus/contracts/uplink'
 import { WebTokenSession } from '@solus/client-core/web-token-session'
 
 // The web client's start on the account origin (docs/plans/fast-secure-startup.md). The
@@ -38,9 +38,6 @@ function session(isSignedIn: boolean): CloudAccountSession {
       ? { kind: 'signed-in', identity: { sub: 'u', email: 'a@b.co', emailVerified: true, name: null, picture: null }, consoleUrl: 'x', signedInAt: 1, isStale: false }
       : { kind: 'signed-out' },
     onChange: () => () => {},
-    takeStartupAccount: () => null,
-    takeStartupDirectory: () => null,
-    takeStartupSettings: async () => null,
   }
 }
 
@@ -70,14 +67,14 @@ const start = source.indexOf('async function adoptCloudDirectory(')
 const end = source.indexOf('async function bootFromCatalog(', start)
 const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(start, end))
 
-async function bootDirectory(origin: string, isSignedIn: boolean, options: { accountShell?: boolean; shellDirectory?: DirectoryResponse; webSession?: CloudAccountSession } = {}) {
+async function bootDirectory(origin: string, isSignedIn: boolean, options: { accountShell?: boolean; shellDirectory?: DirectoryResponse; shellAccount?: AccountResponse; webSession?: CloudAccountSession } = {}) {
   const state = { kind: 'unknown' }
   const saved: SavedServer[] = [{ id: 'paired', label: 'Paired host', url: 'https://paired.example', sessionToken: 'fixture', lastConnected: 1 }]
   const save = mock((servers: SavedServer[]) => { saved.splice(0, saved.length, ...servers) })
   const saveWorkspaces = mock((_workspaces: unknown[], _directoryUrl: string) => [])
   const answered = mock(() => {})
   const webSession = options.webSession ?? (isSignedIn ? session(true) : null)
-  const shell = options.accountShell === false ? null : { signedIn: undefined, directory: options.shellDirectory }
+  const shell = options.accountShell === false ? null : { signedIn: undefined, directory: options.shellDirectory, account: options.shellAccount, settingsJson: undefined }
   const boot = new Function('adoptAccountOrigin', 'accountShell', 'webSession', 'uplinkAccountSource', 'cloudOrigin',
     'location', 'loadServers', 'saveServers', 'mergeDirectoryIntoSaved', 'saveDirectoryWorkspaces', 'startupAccountRead', 'markDirectoryAnswered',
     `${compiled}\nreturn adoptCloudDirectory();`)
@@ -136,7 +133,7 @@ test('with the shell\'s directory, the hosts are saved while the first token ans
   const tokens = Promise.withResolvers<Response>()
   const webSession = new WebTokenSession({
     origin, identity: { sub: 'u', email: 'a@b.co', emailVerified: true, name: null, picture: null }, signedInAt: 1,
-    fetch: () => tokens.promise, now: () => 0, onSignedOut: () => {},
+    fetch: () => tokens.promise, now: () => 0, onSignedOut: () => {}, channel: null,
   })
   webSession.start([host.hostId])
   fetchSpy.mockImplementation(() => tokens.promise)
@@ -146,6 +143,18 @@ test('with the shell\'s directory, the hosts are saved while the first token ans
   expect(requestsTo(origin, '/v1/hosts')).toHaveLength(0)
   expect((await takeStartupDirectoryRead())?.hosts[0].label).toBe(host.label)
   tokens.resolve(Response.json({ error: 'unauthorized' }, { status: 401 }))
+})
+
+test('with the shell\'s directory and account, the boot asks neither route', async () => {
+  // WHY (web-session-tokens.md, decision 4): the first screen's data comes in the HTML,
+  // so a fresh login makes one request (its tokens) beside the workspace code.
+  const origin = nextOrigin()
+  const account: AccountResponse = { userId: 'u', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [], github: null }
+  fetchSpy.mockImplementation(async () => Response.json({ error: 'unexpected' }, { status: 500 }))
+  const { saved } = await bootDirectory(origin, true, { shellDirectory: { hosts: [host], workspaces: [workspace] } as DirectoryResponse, shellAccount: account })
+  expect(saved.some((server) => server.installationId === host.installationId)).toBe(true)
+  expect(await startupAccountRead()).toEqual(account)
+  expect(fetchSpy).not.toHaveBeenCalled()
 })
 
 test('a page whose shell does not name the account origin is a host page: it asks nothing and keeps the saved hosts', async () => {

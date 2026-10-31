@@ -8,6 +8,7 @@ import {
   type ManagedHostSpecRequest,
 } from '@solus/contracts/uplink'
 import type { SeatProvider } from '@solus/contracts/seats'
+import type { AccountSettingsResponse } from '@solus/contracts/settings'
 import { VAULT_PATH, vaultConnectionListSchema } from '@solus/contracts/vault'
 import type { WebTokenSession } from './web-token-session'
 
@@ -19,18 +20,23 @@ import type { WebTokenSession } from './web-token-session'
  * client paired to a machine have none, and so get the host onboarding flow.
  */
 /** The part of the page's sign-in that the account uses. */
-export type CloudAccountSession = Pick<WebTokenSession, 'accessToken' | 'signOut' | 'state' | 'onChange' | 'takeStartupAccount' | 'takeStartupSettings' | 'takeStartupDirectory'>
+export type CloudAccountSession = Pick<WebTokenSession, 'accessToken' | 'signOut' | 'state' | 'onChange'>
 
 export interface CloudAccount {
   /** The sign-in this account's calls use; its state is who is signed in. */
   readonly session: CloudAccountSession
   /** Null when signed out or the account origin could not be reached. */
   readAccount(): Promise<AccountResponse | null>
+  /**
+   * The settings the shell carried, for the first settings read: null after the first
+   * call, and for a write before it, which makes them old. Throws when they do not decode.
+   */
+  takeShellSettings(): Promise<AccountSettingsResponse | null>
   /** The agent seat logins (`seat:*` refs) in the account vault; null means the check failed. */
   readAgentSeats(): Promise<CloudAgentSeat[] | null>
   /**
-   * Ends the website's cookie session, which is the web client's sign-in: the account
-   * origin revokes the grant it held for it. False when the website did not confirm it.
+   * Ends the website's cookie session, which is the web client's grant: every token
+   * made from it ends with it. False when the website did not confirm it.
    */
   signOut(): Promise<boolean>
   /** Records that the account finished or skipped onboarding; false when the call failed. */
@@ -67,10 +73,15 @@ export interface CloudAgentSeat {
   updatedAt: number
 }
 
-export function webCloudAccount(origin: string, session: CloudAccountSession, fetchImpl: typeof fetch = fetch): CloudAccount {
-  const call = async (path: string, init: RequestInit = {}, knownToken?: string): Promise<Response | null> => {
-    if (init.method && init.method !== 'GET') session.takeStartupAccount()
-    const token = knownToken ?? await session.accessToken({ kind: 'account' })
+/**
+ * `shellSettingsJson` is the settings the account origin's shell carried for the first
+ * screen (docs/plans/web-session-tokens.md, decision 4), as JSON text: the settings
+ * schema loads with the workspace, not with the page's first code.
+ */
+export function webCloudAccount(origin: string, session: CloudAccountSession, fetchImpl: typeof fetch = fetch, shellSettingsJson?: string): CloudAccount {
+  let unreadShellSettings = shellSettingsJson
+  const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
+    const token = await session.accessToken({ kind: 'account' })
     if (!token) return null
     const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
     if (init.body) headers.set('content-type', 'application/json')
@@ -90,15 +101,17 @@ export function webCloudAccount(origin: string, session: CloudAccountSession, fe
     connectionsUrl: `${origin}/connections`,
     consoleUrl: origin,
     async readAccount() {
-      // The first token answer of a website session carries the account.
-      const token = await session.accessToken({ kind: 'account' })
-      if (!token) return null
-      const startup = session.takeStartupAccount()
-      if (startup) return startup
-      const response = await call('/v1/account', {}, token)
+      const response = await call('/v1/account')
       if (!response?.ok) return null
       const parsed = accountResponseSchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? parsed.data : null
+    },
+    async takeShellSettings() {
+      const json = unreadShellSettings
+      unreadShellSettings = undefined
+      if (json === undefined) return null
+      const { accountSettingsResponseSchema } = await import('@solus/contracts/settings')
+      return accountSettingsResponseSchema.parse(JSON.parse(json))
     },
     async readAgentSeats() {
       const response = await call(VAULT_PATH, { cache: 'no-store' })
@@ -150,13 +163,14 @@ let configured: CloudAccount | null = null
 let startupRead: Promise<AccountResponse | null> | null = null
 
 /**
- * Web boot records the account when the serving origin is the account origin and
- * the page is signed in, and starts reading it at once: whether onboarding is due must be known
- * before the workspace paints, or the draft composer flashes before it.
+ * Web boot records the account when the serving origin is the account origin and the
+ * page is signed in: whether onboarding is due must be known before the workspace
+ * paints, or the draft composer flashes before it. The shell's account answers that
+ * with no request; with none, the read starts at once.
  */
-export function configureCloudAccount(account: CloudAccount | null): void {
+export function configureCloudAccount(account: CloudAccount | null, shellAccount?: AccountResponse): void {
   configured = account
-  startupRead = account ? account.readAccount() : null
+  startupRead = account ? (shellAccount ? Promise.resolve(shellAccount) : account.readAccount()) : null
 }
 
 /** The account read web boot started; null when there is no cloud account. One answer, shared. */

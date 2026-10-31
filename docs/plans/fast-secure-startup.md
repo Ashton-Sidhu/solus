@@ -36,13 +36,13 @@ workspace code is 3.1 MB of JavaScript in about 150 modules, and Safari spends a
 2. **Hosts get short tokens from one same-origin endpoint.** Hosts are other machines
    and must never see the account cookie. `POST /api/web/tokens` (cookie only, exact
    `Origin` check, `no-store`) returns the token for our servers and one token for each
-   host the page names: audience bound to that host (RFC 8707). A host token keeps its
-   existing life (`ACCESS_TOKEN_TTL_SECONDS`, eight hours); a shorter one is a separate
-   change. The page asks at once, in parallel with its code, and again before the tokens
-   end. Tokens never appear in HTML.
+   host the page names: audience bound to that host (RFC 8707). A web host token lasts
+   one hour (`web-session-tokens.md`); native clients keep eight hours. The page asks at
+   once, in parallel with its code, and again when a token is asked for near its end.
+   Tokens never appear in HTML.
 3. **The HTML carries the first screen's non-secret data**: the directory (done, §4.14 of
-   `instant-share-open.md`) and who is signed in. The workspace mounts without waiting
-   for any request.
+   `instant-share-open.md`), who is signed in, the account, and the settings. The
+   workspace mounts without waiting for any request.
 4. **Trust by network position never applies to a web page.** A host trusts a loopback,
    tailnet, or opted-in LAN caller only when the request carries no `Origin`, or an
    `Origin` that is the request's own `Host`; and only when `Host` names this machine
@@ -66,13 +66,16 @@ Speed first. Each step lands with a measurement.
    path. solus-cloud: the endpoint, the shell's signed-in identity; the web client's
    `OAuthSession` and its startup-data cache go away. Measure: code exchange gone,
    `solus:host-ready`, first paint.
-   **Status: implemented, not measured** (2026-10-31). solus-cloud:
-   `auth/web-grants.ts`, `routes/api/web/tokens`, table `web_grant` (migration
-   `0017_web_grant`), the session delete hook, and the daily prune. The shell carries
-   `solus-account-identity` and no longer carries the provider metadata. Solus:
-   `client-core/web-token-session.ts`; `web-sign-in.ts` and the web parts of
-   `OAuthSession` are deleted. ADR 0001 is amended. The cookie flags stay Better Auth's
-   (`HttpOnly`, `Secure`, `SameSite=Lax`); the `__Host-` prefix comes with step 8.
+   **Status: implemented, not measured** (2026-10-31), then replaced by
+   `web-session-tokens.md`: the server keeps no grant for the session. solus-cloud:
+   `auth/web-tokens.ts` signs the tokens from the website session on every call, and
+   `auth/live-grants.ts` holds the one liveness rule; the `web_grant` table, its
+   migration, the session delete hook, and its prune step are gone. The shell carries
+   `solus-account-identity`, `solus-host-directory`, `solus-account`, and
+   `solus-account-settings`. Solus: `client-core/web-token-session.ts` holds tokens only;
+   `web-sign-in.ts` and the web parts of `OAuthSession` are deleted. ADR 0001 is
+   amended. The cookie flags stay Better Auth's (`HttpOnly`, `Secure`, `SameSite=Lax`);
+   the `__Host-` prefix comes with step 8.
 3. **Mount at once, code first.** The workspace mounts as soon as its code runs; the
    preload list yields to the entry script (`fetchpriority="low"`). Measure first paint.
    **Status: implemented, not measured** (2026-10-31). `startPage` sends the first token

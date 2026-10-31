@@ -18,7 +18,7 @@ import { adoptAccountOrigin } from '@solus/client-core/uplink-account'
 import { accountOriginShell } from './lib/account-origin'
 import type { HostRoute } from '@solus/contracts/host-routes'
 import { MAX_WEB_TOKEN_HOSTS } from '@solus/contracts/uplink'
-import { WebTokenSession } from '@solus/client-core/web-token-session'
+import { WEB_SIGN_OUT_CHANNEL, WebTokenSession } from '@solus/client-core/web-token-session'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { saveDirectoryWorkspaces } from '@solus/client-core/workspace-registry'
 import { pairTokenFromLocation } from './lib/connect'
@@ -76,8 +76,8 @@ const accountShell = accountOriginShell(document)
 /** A share link's page: a person signed out there stays, as a guest. */
 const isSharePath = (pathname: string) => /^\/(w|s|t)\//.test(pathname)
 /**
- * The page's sign-in on the account origin (docs/plans/fast-secure-startup.md): the
- * shell says who is signed in, and the account origin gives this page tokens for its
+ * The page's sign-in on the account origin (docs/plans/web-session-tokens.md): the
+ * shell says who is signed in, and the account origin signs this page's tokens from its
  * website session. Null on a host, and for a guest with no session.
  */
 const webSession = accountShell?.signedIn
@@ -87,11 +87,13 @@ const webSession = accountShell?.signedIn
     signedInAt: accountShell.signedIn.signedInAt,
     fetch: (input, init) => fetch(input, init),
     now: () => Date.now(),
-    // The website session ended (a sign-out elsewhere, the Devices page, expiry): sign in again and come back here.
+    // The website session ended (a sign-out in this or another tab, the Devices page, expiry):
+    // sign in again and come back here. A guest on a share link stays.
     onSignedOut: () => {
       const returnTo = `${location.pathname}${location.search}${location.hash}`
       if (!isSharePath(returnTo)) location.assign(`/sign-in?next=${encodeURIComponent(returnTo)}`)
     },
+    channel: new BroadcastChannel(WEB_SIGN_OUT_CHANNEL),
   })
   : null
 // The first host ready to answer: the load benchmark and field timing read this.
@@ -246,7 +248,7 @@ async function adoptCloudDirectory(): Promise<void> {
     cloudOrigin.kind = 'not-cloud'
     return
   }
-  const { kind, directory } = await adoptAccountOrigin(location.origin, webSession, accountShell.directory)
+  const { kind, directory } = await adoptAccountOrigin(location.origin, webSession, accountShell)
   cloudOrigin.kind = kind
   // Publish the directory as soon as it answers so hosts can connect. App's
   // onboarding cover already waits for the separate startup account read.
@@ -417,7 +419,7 @@ function linkShare(info: ConnectionsServerInfo, link: GuestLink): GuestShare | n
 
 async function startPage(): Promise<void> {
   // The first token request goes before any code loads: the servers token and every
-  // host of the shell's directory, in one request (docs/plans/fast-secure-startup.md).
+  // host of the shell's directory, in one request (docs/plans/web-session-tokens.md).
   webSession?.start(dialableHostIds())
   const bootPairToken = pairTokenFromLocation(location.href)
   if (bootPairToken) {
