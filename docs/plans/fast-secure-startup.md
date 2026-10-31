@@ -103,8 +103,16 @@ Speed first. Each step lands with a measurement.
    FCP: Chromium 5.35 s to 1.09 s, WebKit 5.06 s to 4.41 s; the code mark does not move
    (`docs/benchmarks/README.md`). WebKit paints only a "visually non-empty" page, and
    the frame is not one while the startup preloads load; it needs more than 200
-   characters of text or 1024 px² of inline SVG. What the frame shows to pass that is
-   open. Desktop is unchanged: it loads from disk and already paints its boot shell
+   characters of text or 1024 px² of inline SVG. The frame and the draft page now show the Solus mark
+   (40 px) above the headline. That did not move WebKit: measured on 2026-10-31
+   (`scripts/bench-web-load.ts` now records when the HTML's stylesheet arrives), both
+   engines wait for the 545 KB entry stylesheet, the startup preloads share its
+   bandwidth (it arrives at about 385 ms with them and 265–300 ms without, fast
+   profile), and WebKit paints only after it (418 ms). More text, an explicitly sized
+   mark, preloads in `<body>`, an `async` entry, and preloads inserted after the first
+   frame did not help; the last made WebKit's code arrive much later. Next: inline the
+   CSS the frame needs into the HTML and load the full stylesheet without blocking the
+   first paint, with the workspace mount waiting for it. Desktop is unchanged: it loads from disk and already paints its boot shell
    from the HTML.
 6. **A plain WebSocket protocol to hosts.** Replace socket.io: the token rides in the
    first message, so the CONNECT acknowledgement round trip goes, and about 90 KB leaves
