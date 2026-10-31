@@ -30,7 +30,7 @@ beforeAll(async () => {
   const { solusApiOpenApi } = await import('@solus/contracts/solus-api/openapi')
   // The bearer is admitted directly (docs/plans/simplify-auth-and-sync.md §4.2): `alice` stands for her API token.
   const admission = { socket: async () => null, bearer: async (bearer: string) => bearer === 'alice' ? { principal: alice.principal, home: alice.home, scopes: ['sessions:read' as const, 'sessions:write' as const] } : null }
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['session-records'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['session-records'], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
   app = new Hono().route('/v1', router)
   const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
   // As runner intake does for the session a runner reports: born owned by its person.

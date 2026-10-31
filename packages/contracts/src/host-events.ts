@@ -281,7 +281,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.organizationsChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's organizations, their policies, or its Insights opt-ins changed." },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
-const hostEventEnvelopeSchema = z.object({
+export const hostEventEnvelopeSchema = z.object({
   type: z.string(),
   payload: z.unknown(),
   occurredAt: z.number(),

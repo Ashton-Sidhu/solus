@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { createServer } from 'http'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { io, type Socket } from 'socket.io-client'
+import type { DialedHostSocket } from '@solus/client-core/host-socket'
 import type { TokenVerdict } from '@solus/server/admission/access-tokens'
 import { WsTransport, GRANT_RENEWAL_LEAD_MS, accessTokenEndsAt } from '@solus/client-core/ws-transport'
 import { hostAudience, type AccessTokenClaims } from '@solus/contracts/uplink'
-import { handshake } from './helpers/socket-handshake'
+import { dialTestSocket, handshake } from './helpers/socket-handshake'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
@@ -64,8 +64,14 @@ async function host() {
   return { url: `http://127.0.0.1:${address.port}`, transport }
 }
 
-function renew(socket: Socket, accessToken: string): Promise<{ result?: { expiresAt: number }; error?: { message: string } }> {
-  return new Promise((resolve) => socket.emit('rpc', crypto.randomUUID(), 'authRenew', [{ accessToken }], resolve))
+function renew(socket: DialedHostSocket, accessToken: string) {
+  return socket.call('authRenew', [{ accessToken }])
+}
+
+async function connect(url: string, accessToken: string): Promise<DialedHostSocket> {
+  const dialed = await dialTestSocket(url, handshake({ kind: 'access-token', token: accessToken }), cleanups)
+  if (!dialed.ok) throw new Error(dialed.message)
+  return dialed.socket
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -79,9 +85,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
 describe('authRenew on the host', () => {
   test('the next token of the same person keeps the socket open past the old end; another person or audience does not', async () => {
     const { url } = await host()
-    const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: handshake({ kind: 'access-token', token: jwt({ exp: (Date.now() + 400) / 1000 }) }) })
-    cleanups.push(() => socket.disconnect())
-    await waitFor(() => socket.connected)
+    const socket = await connect(url, jwt({ exp: (Date.now() + 400) / 1000 }))
 
     expect((await renew(socket, jwt({ sub: 'user_2' }))).error).toBeDefined()
     expect((await renew(socket, jwt({ aud: hostAudience('qrstuvwxyzabcdef') }))).error).toBeDefined()
@@ -89,16 +93,14 @@ describe('authRenew on the host', () => {
     expect((await renew(socket, next)).result).toEqual({ expiresAt: accessTokenEndsAt(next)! })
 
     await new Promise((resolve) => setTimeout(resolve, 700))
-    expect(socket.connected).toBe(true)
+    expect(socket.isOpen).toBe(true)
   })
 
   test('a refused renewal leaves the old end in place', async () => {
     const { url } = await host()
-    const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: handshake({ kind: 'access-token', token: jwt({ exp: (Date.now() + 300) / 1000 }) }) })
-    cleanups.push(() => socket.disconnect())
-    await waitFor(() => socket.connected)
+    const socket = await connect(url, jwt({ exp: (Date.now() + 300) / 1000 }))
     expect((await renew(socket, jwt({ sub: 'user_2' }))).error).toBeDefined()
-    await waitFor(() => !socket.connected)
+    await waitFor(() => !socket.isOpen)
   })
 })
 

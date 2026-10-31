@@ -1,5 +1,5 @@
 /**
- * The host side, as the Electron main process runs it: the real Socket.IO
+ * The host side, as the Electron main process runs it: the real host socket
  * transport, frame channel and device link, reading the stand-in hub.
  */
 import { createServer } from 'node:http'

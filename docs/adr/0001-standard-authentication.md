@@ -138,7 +138,7 @@ service-key path for connection credentials; guest grant JWTs (dead code).
 
 What stays: signed asset URLs, share links, local access (pairing and host session
 tokens), and the tunnel token. WebSocket tickets are gone (2026-10-23): a socket
-presents its one credential in the socket.io handshake, the socket's first message and
+presents its one credential in the `hello` of the host socket, the socket's first message and
 never a header or a URL — an access token, a pairing session token, or a share secret
 with the guest's name — and the server builds the principal from it directly
 (`admission/doors.ts`).

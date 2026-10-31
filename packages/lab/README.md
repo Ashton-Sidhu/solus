@@ -5,7 +5,7 @@ The Lab tests multiplayer without a room full of people (docs/plans/multiplayer-
 - an **issuer**: an in-process ES256 key with a JWKS endpoint on loopback, which mints the grant the Solus cloud would sign for each persona;
 - a **host**: the built standalone Solus server on a temporary data directory, linked to that issuer by a hand-written link record, so its proxied listener admits grants only and its verifier trusts only the Lab's key;
 - a **Solus API** for the run (`src/solus-api.ts`, SQLite), which every link the issuer issues names, so a host can admit organization work (plans/009-organization-vms.md §4). The personal host is shared with the organization and holds its key (`runnerOf`), so it acts for members; a host owner's connection names the organization;
-- one **LabClient** per persona, which walks the real admission path: a fresh grant per dial, exchanged at `/auth/ws-ticket` for a one-use ticket, then a Socket.IO connection with typed RPC and host events;
+- one **LabClient** per persona, which walks the real admission path: a fresh grant per dial, presented in the `hello` of a host socket (`@solus/contracts/host-socket`), with typed RPC and host events;
 - **scenarios**: scripted proofs, one file per exit test, run against a personal and a managed host.
 
 The host never sees `~/.solus`; the daemon refuses a data directory outside a temp location.

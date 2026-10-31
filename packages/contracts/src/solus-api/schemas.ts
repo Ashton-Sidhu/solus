@@ -74,7 +74,7 @@ export const workspaceCapabilitiesSchema = z.strictObject({
   mode: z.enum(['combined-host', 'solus-api']),
   apiVersion: z.string().max(32),
   capabilities: z.array(z.enum(['tasks', 'works', 'session-records', 'insights', 'notifications'])).max(5).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
-  events: z.strictObject({ transport: z.literal('socket.io'), relativePath: z.literal('/ws'), protocolVersion: z.number().int().min(1) }),
+  events: z.strictObject({ transport: z.literal('websocket'), relativePath: z.literal('/ws'), protocolVersion: z.number().int().min(1) }),
 }).meta({ description: 'Features supported by this deployment, not permission grants. Insights currently requires organization context. HTTP works without a connected event socket.' })
 export type WorkspaceCapabilities = z.infer<typeof workspaceCapabilitiesSchema>
 

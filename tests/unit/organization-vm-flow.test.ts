@@ -192,7 +192,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
   // is removed or regenerated. Rows sent again, and a role change that applies live, may not
   // end the guest reading the mirror.
   test('a mirror guest stays connected through rows sent again and a role change, and ends when the link is regenerated', async () => {
-    const { io } = await import('socket.io-client')
+    const { dialHostSocket } = await import('@solus/client-core/host-socket')
     const { hashLinkSecret } = await import('@solus/server/sharing/share-manager')
     const secret = 'mirror-link-secret-'.padEnd(43, 'x')
     let seq = 0
@@ -204,19 +204,20 @@ describe('an organization run on a VM, through the real Solus API', () => {
       expect(response.status).toBe(200)
     }
     await mirrorRows([{ role: 'viewer', linkSecretHash: hashLinkSecret(secret) }])
-    const guest = io(apiOrigin, { path: '/ws', transports: ['websocket'], reconnection: false, auth: handshake({ kind: 'share-secret', secret, guestId: 'maya-guest-0000001', displayName: 'Maya' }, 'mirror-guest-instance-1') })
-    const ended = new Promise<void>((resolve) => guest.once('disconnect', () => resolve()))
+    const dialed = await dialHostSocket(apiOrigin, handshake({ kind: 'share-secret', secret, guestId: 'maya-guest-0000001', displayName: 'Maya' }, 'mirror-guest-instance-1'))
+    if (!dialed.ok) throw new Error(dialed.message)
+    const guest = dialed.socket
+    const ended = new Promise<void>((resolve) => guest.onClose(() => resolve()))
     try {
-      await new Promise<void>((resolve, reject) => { guest.once('connect', () => resolve()); guest.once('connect_error', reject) })
       // A round trip after each change: the server ends a guest before it answers the change, so an answer proves she stayed.
-      const answers = () => new Promise<boolean>((resolve) => guest.timeout(5_000).emit('rpc', randomUUID(), 'connectionsGetServerInfo', [], (error: Error | null) => resolve(!error && guest.connected)))
+      const answers = () => guest.call('connectionsGetServerInfo', [], 5_000).then(() => guest.isOpen, () => false)
       await mirrorRows([{ role: 'viewer', linkSecretHash: hashLinkSecret(secret) }])
       expect(await answers()).toBe(true)
       await mirrorRows([{ role: 'editor', linkSecretHash: hashLinkSecret(secret) }])
       expect(await answers()).toBe(true)
       await mirrorRows([{ role: 'editor', linkSecretHash: hashLinkSecret('regenerated-secret-'.padEnd(43, 'y')) }])
       await ended
-      expect(guest.connected).toBe(false)
+      expect(guest.isOpen).toBe(false)
     } finally {
       guest.close()
     }

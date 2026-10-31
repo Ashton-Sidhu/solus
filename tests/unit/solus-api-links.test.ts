@@ -42,7 +42,7 @@ beforeAll(async () => {
   const { Hono } = await import('hono')
   const { createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
   const admission = { socket: async () => null, bearer: async (bearer: string) => bearer === 'alice' ? alice : null }
-  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: [], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const router = createSolusApiRouter({ admission, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: [], events: { transport: 'websocket', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
   app = new Hono().route('/v1', router)
   const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
   await upsertSessionRecord('A', { sessionId: 's1', provider: 'codex', projectPath: '-repo', runnerHostId: 'runner-A', lastActivityAt: Date.now() }, { organizationId: 'A', published: true, ownerKey: 'alice' })

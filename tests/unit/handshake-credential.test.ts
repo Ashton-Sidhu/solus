@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import { createServer } from 'http'
-import { Server, type Socket } from 'socket.io'
-import { socketHandshakeSchema, type HandshakeCredential } from '@solus/contracts/uplink'
+import { WebSocketServer } from 'ws'
+import { helloFrameSchema } from '@solus/contracts/host-socket'
+import type { HandshakeCredential } from '@solus/contracts/uplink'
 import { WsTransport, type GrantSource } from '@solus/client-core/ws-transport'
 import type { DialOutcome } from '@solus/client-core/host-supervisor'
 
@@ -12,7 +13,7 @@ import type { DialOutcome } from '@solus/client-core/host-supervisor'
 const cleanups: Array<() => void> = []
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
 
-/** A host that admits a handshake as `admits` says, and records every handshake and HTTP request. */
+/** A host that admits a hello as `admits` says, and records the handshake of every hello and every HTTP request. */
 async function host(admits: (credential: HandshakeCredential | undefined) => boolean = () => true) {
   const handshakes: unknown[] = []
   const httpRequests: string[] = []
@@ -20,15 +21,20 @@ async function host(admits: (credential: HandshakeCredential | undefined) => boo
     httpRequests.push(request.url ?? '')
     response.writeHead(404).end()
   })
-  const io = new Server(http, { path: '/ws', transports: ['websocket'] })
-  io.use((socket: Socket, next) => {
-    handshakes.push(socket.handshake.auth)
-    const handshake = socketHandshakeSchema.safeParse(socket.handshake.auth)
-    if (handshake.success && admits(handshake.data.credential)) return next()
-    next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
+  const sockets = new WebSocketServer({ server: http, path: '/ws' })
+  sockets.on('connection', (socket) => {
+    socket.once('message', (data) => {
+      const hello = helloFrameSchema.safeParse(JSON.parse(data.toString()))
+      if (!hello.success) return socket.close()
+      const { t: _t, v: _v, resume: _resume, ...handshake } = hello.data
+      handshakes.push(handshake)
+      if (admits(handshake.credential)) return socket.send(JSON.stringify({ t: 'welcome', epoch: 'e1', seq: 0, recovered: false }))
+      socket.send(JSON.stringify({ t: 'refused', code: 'UNAUTHORIZED', message: 'unauthorized' }))
+      socket.close(4001)
+    })
   })
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve))
-  cleanups.push(() => { io.close(); http.close() })
+  cleanups.push(() => { for (const socket of sockets.clients) socket.terminate(); sockets.close(); http.close() })
   const address = http.address()
   if (!address || typeof address === 'string') throw new Error('expected TCP address')
   return { url: `http://127.0.0.1:${address.port}`, handshakes, httpRequests }

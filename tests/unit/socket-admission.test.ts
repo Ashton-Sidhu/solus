@@ -4,10 +4,9 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { DatabaseSync } from './helpers/bun-sqlite'
-import { io, type Socket } from 'socket.io-client'
-import { type HandshakeCredential } from '@solus/contracts/uplink'
+import { type HandshakeCredential, type SocketHandshake } from '@solus/contracts/uplink'
 import type { ResolvedLinkShare } from '@solus/server/sharing/share-manager'
-import { fakeAccessTokens, handshake } from './helpers/socket-handshake'
+import { dialTestSocket, fakeAccessTokens, handshake } from './helpers/socket-handshake'
 
 // bun has no node:sqlite; the server modules' import chain reaches the db even though
 // these tests never open it, so everything that reaches it loads after the seam.
@@ -63,13 +62,9 @@ async function host() {
 }
 
 /** Dials once with this handshake; resolves with the connection or the refusal's message. */
-function dial(url: string, auth: object): Promise<{ connected: true; socket: Socket } | { connected: false; message: string }> {
-  const socket = io(url, { path: '/ws', transports: ['websocket'], reconnection: false, auth })
-  cleanups.push(() => socket.disconnect())
-  return new Promise((resolve) => {
-    socket.once('connect', () => resolve({ connected: true, socket }))
-    socket.once('connect_error', (error) => resolve({ connected: false, message: error.message }))
-  })
+async function dial(url: string, auth: SocketHandshake): Promise<{ connected: true } | { connected: false; message: string }> {
+  const dialed = await dialTestSocket(url, auth, cleanups)
+  return dialed.ok ? { connected: true } : { connected: false, message: dialed.message }
 }
 
 const principals = (transport: { sessions: Map<string, { principal: object }> }) => [...transport.sessions.values()].map((session) => session.principal)

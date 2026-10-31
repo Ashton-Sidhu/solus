@@ -4,8 +4,8 @@ import { createLogger } from '../logger'
 const log = createLogger('browser', 'browser-frame-channel.ts')
 
 /** How the transport delivers one frame to one client: the header as a plain
- *  object, the JPEG as raw bytes. Socket.IO ships the bytes as a binary wire
- *  frame; the header rides beside them. */
+ *  object, the JPEG as raw bytes. The host socket sends both in one binary
+ *  frame (`encodeBrowserFrame`). */
 export type BrowserFrameDelivery = (header: BrowserFrameHeader, data: Uint8Array) => void
 
 /**

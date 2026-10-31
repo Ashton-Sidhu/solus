@@ -116,10 +116,10 @@ async function waitFor<T>(read: () => T | null | undefined, what: string, timeou
 // in-page probes
 // ---------------------------------------------------------------------------
 
-/** Times every socket.io RPC the page sends: `42<ack>["rpc",id,method,...]` out, `43<ack>` (or a binary `46n-<ack>`) back. */
+/** Times every RPC the page sends on the host socket: `{"t":"rpc","id",...}` out, `{"t":"result","id",...}` back. */
 function installRpcProbe(): void {
-  type Probe = { rpcs: Map<string, { method: string; start: number; end?: number; bytesIn: number; bytesOut: number; text?: string }>; pendingBinary: string | null }
-  const probe: Probe = { rpcs: new Map(), pendingBinary: null }
+  type Probe = { rpcs: Map<string, { method: string; start: number; end?: number; bytesIn: number; bytesOut: number; text?: string }> }
+  const probe: Probe = { rpcs: new Map() }
   Reflect.set(window, '__rpcProbe', probe)
   const size = (data: unknown): number => typeof data === 'string' ? data.length : data instanceof ArrayBuffer ? data.byteLength : data instanceof Blob ? data.size : 0
   const Native = window.WebSocket
@@ -128,25 +128,20 @@ function installRpcProbe(): void {
       super(url, protocols)
       this.addEventListener('message', (event) => {
         const now = performance.now()
-        if (typeof event.data !== 'string') {
-          const rpc = probe.pendingBinary ? probe.rpcs.get(probe.pendingBinary) : undefined
-          if (rpc) { rpc.bytesIn += size(event.data); rpc.end = now }
-          return
-        }
-        const match = /^4([36])(?:(\d+)-)?(\d+)/.exec(event.data)
+        if (typeof event.data !== 'string') return
+        const match = /^\{"t":"result","id":"([^"]+)"/.exec(event.data)
         if (!match) return
-        const rpc = probe.rpcs.get(match[3])
+        const rpc = probe.rpcs.get(match[1])
         if (!rpc) return
         rpc.end = now
-        rpc.bytesIn += event.data.length
+        rpc.bytesIn += size(event.data)
         // The history reply is deflated on the wire; its text lets the run measure that.
         if (rpc.method === 'loadSessionPage') rpc.text = event.data
-        probe.pendingBinary = match[2] ? match[3] : null
       })
     }
     send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
       if (typeof data === 'string') {
-        const match = /^4[25](?:\d+-)?(\d+)\["rpc","[^"]*","([^"]+)"/.exec(data)
+        const match = /^\{"t":"rpc","id":"([^"]+)","method":"([^"]+)"/.exec(data)
         if (match) probe.rpcs.set(match[1], { method: match[2], start: performance.now(), bytesIn: 0, bytesOut: data.length })
       }
       super.send(data)

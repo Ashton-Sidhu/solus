@@ -794,7 +794,7 @@ if (isPairUrl) {
 
     // Loaded here rather than at module scope, and deliberately after the
     // window exists. `bootCore` reaches 279 of the main process's 342 eager
-    // modules and nearly every heavy dependency it has — socket.io, hono,
+    // modules and nearly every heavy dependency it has — ws, hono,
     // Octokit, google-auth-library, the Claude SDK — so a static import made
     // all of it evaluate before Electron was even ready, delaying the window
     // and therefore the renderer behind it. None of it is needed to open a
