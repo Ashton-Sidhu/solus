@@ -44,7 +44,8 @@ function world(answers: Answer[] = [], channel: SignOutChannel | null = null) {
     const answer = answers.shift() ?? {}
     if (answer.status) return Response.json({ error: 'unauthorized' }, { status: answer.status })
     serial += 1
-    const hosts = (answer.hosts ?? hostIds.map((hostId) => ({ hostId }))).map((host) =>
+    const asked: NonNullable<Answer['hosts']> = answer.hosts ?? hostIds.map((hostId) => ({ hostId }))
+    const hosts = asked.map((host) =>
       host.refused ? { hostId: host.hostId, refused: host.refused } : { hostId: host.hostId, token: `host-${host.hostId}-${serial}`, expiresAt: now + HOUR })
     return Response.json({ serversToken: { token: `servers-${serial}`, expiresAt: now + 8 * HOUR }, hosts })
   }
