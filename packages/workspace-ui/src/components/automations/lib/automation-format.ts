@@ -1,6 +1,6 @@
-import { Cron } from 'croner'
 import { SOLUS_WORKTREE_DIR, type AutomationRun, type AutomationRunPoint, type AutomationTrigger, type AutomationRunStatus } from '@solus/contracts/types'
 import { hostPathBaseName, joinHostPath } from '@solus/contracts/host-path'
+import { RUN_GRAPH_WINDOW } from '../../../contexts/automations/run-graph-window'
 
 // Pure formatting + trigger <-> builder-preset mapping for the Automations UI.
 // Kept out of the .svelte files so the cron math and human summaries are easy to
@@ -139,32 +139,6 @@ export function triggerSummary(trigger: AutomationTrigger): string {
       return `Every ${intervalLabel(trigger.everyMinutes)}`
     case 'cron':
       return cronSummary(trigger.expr)
-  }
-}
-
-/** The next `count` fire instants of a draft trigger, for the builder's schedule
- *  preview. Returns null for an invalid cron expression (doubling as instant
- *  client-side validation), and [] for triggers with nothing to preview
- *  (manual, or a one-time instant that already passed). */
-export function nextOccurrences(trigger: AutomationTrigger, count: number, from = new Date()): Date[] | null {
-  switch (trigger.type) {
-    case 'manual':
-      return []
-    case 'once': {
-      const at = Date.parse(trigger.runAt)
-      return Number.isFinite(at) && at > from.getTime() ? [new Date(at)] : []
-    }
-    case 'interval': {
-      const ms = Math.max(1, Math.floor(trigger.everyMinutes)) * 60_000
-      return Array.from({ length: count }, (_, i) => new Date(from.getTime() + (i + 1) * ms))
-    }
-    case 'cron': {
-      try {
-        return new Cron(trigger.expr).nextRuns(count, from)
-      } catch {
-        return null
-      }
-    }
   }
 }
 
@@ -328,9 +302,6 @@ export interface RunHealth {
   rateTone: SuccessRateTone
 }
 
-/** How many runs a run graph looks back over — wide enough to show a rhythm,
- *  narrow enough that one bad run still reads as one bad run. */
-export const RUN_GRAPH_WINDOW = 17
 /** A run that did what it was asked. */
 const CLEAN_STATUSES: AutomationRunStatus[] = ['succeeded']
 

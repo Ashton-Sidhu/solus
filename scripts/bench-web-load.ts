@@ -103,6 +103,8 @@ async function serve(files: Map<string, Served>, tls: Tls): Promise<{ server: Ht
   let send = bandwidthLimit(profile.megabitsPerSecond)
   const server = createSecureServer(tls)
   server.on('stream', (stream: ServerHttp2Stream, headers) => {
+    // A run ends at its mark and closes the page while later chunks still stream.
+    stream.on('error', () => {})
     const path = String(headers[':path'] ?? '/').split('?')[0]
     const file = files.get(path === '/' ? '/index.html' : path)
     setTimeout(() => {

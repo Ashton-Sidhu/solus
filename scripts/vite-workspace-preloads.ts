@@ -1,4 +1,5 @@
 import type { Plugin } from 'vite'
+import type { GetManualChunk } from 'rollup'
 
 const WORKSPACE_PRELOADS_START = '<!--solus:workspace-preloads-->'
 const WORKSPACE_PRELOADS_END = '<!--/solus:workspace-preloads-->'
@@ -51,5 +52,51 @@ export function workspaceStartupPreloads(roots: string[]): Plugin {
         return html.replace('</head>', `${WORKSPACE_PRELOADS_START}${links.join('')}${WORKSPACE_PRELOADS_END}</head>`)
       },
     },
+  }
+}
+
+/**
+ * Puts the workspace's own startup code in one chunk: every source module
+ * that the modules in `roots` reach through static imports, less what the
+ * entry itself reaches. The browser then opens the first screen with a few large files,
+ * not about a hundred small ones, which WebKit pays for per request.
+ *
+ * Use it with `onlyExplicitManualChunks`, so Rollup moves no other module
+ * into the chunk. The set is closed under static imports, and the entry's
+ * graph is outside it: the entry reaches the chunk only through its dynamic
+ * import, so no static cycle with the entry can form, and nothing that loads
+ * later joins the startup files.
+ */
+export function workspaceStartupChunk(roots: string[]): GetManualChunk {
+  let startup: Set<string> | null = null
+  return (id, { getModuleIds, getModuleInfo }) => {
+    if (!startup) {
+      const closure = (from: string[]) => {
+        const seen = new Set<string>()
+        const queue = [...from]
+        while (queue.length > 0) {
+          const next = queue.pop()!
+          if (seen.has(next)) continue
+          seen.add(next)
+          queue.push(...(getModuleInfo(next)?.importedIds ?? []))
+        }
+        return seen
+      }
+      const ids = [...getModuleIds()]
+      const entryGraph = closure(ids.filter((each) => getModuleInfo(each)?.isEntry))
+      const rootIds = roots.map((root) => {
+        const match = ids.find((each) => each.endsWith(root))
+        if (!match) throw new Error(`The startup module ${root} is missing from the build`)
+        return match
+      })
+      // Only our own source. A package barrel (`bits-ui`) names every module of
+      // the package, so a walk through it would claim modules that only later
+      // surfaces use; Rollup resolves those through the bindings it uses. Our
+      // modules declare no `sideEffects: false`, so Rollup keeps each one the
+      // walk reaches, and the walk is exact for them. Package code keeps its
+      // own chunks, and it never imports our modules, so no cycle forms.
+      startup = new Set([...closure(rootIds)].filter((each) => !entryGraph.has(each) && !each.startsWith('\0') && !each.includes('/node_modules/')))
+    }
+    return startup.has(id) ? 'workspace' : null
   }
 }

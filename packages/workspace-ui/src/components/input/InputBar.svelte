@@ -44,7 +44,7 @@
     parseAnnotationAttachmentId,
     removeMarkFromAttachment,
   } from "../browser/lib/annotation-attachment";
-  import PromptEditor from "../ui/PromptEditor.svelte";
+  import DeferredPromptEditor from "../ui/DeferredPromptEditor.svelte";
   import WaveformVisualizer from "./WaveformVisualizer.svelte";
   import RecordingControls from "./RecordingControls.svelte";
   import { dictation } from "../../lib/dictation.svelte";
@@ -303,7 +303,7 @@
     if (!active) frozenText = untrack(() => prompt.text);
   });
   const editorValue = $derived(active ? prompt.text : frozenText);
-  let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
+  let composerEl: ReturnType<typeof DeferredPromptEditor> | null = $state(null);
   // The draft route stays mounted while its draft id changes. The editor then
   // receives a different prompt object without an input event, so explicitly
   // retire any trigger state that belonged to the previous draft.
@@ -835,7 +835,7 @@
       class="[&_.cm-content]:min-w-0 [&_.cm-placeholder]:inline-block! [&_.cm-placeholder]:max-w-full [&_.cm-placeholder]:overflow-hidden [&_.cm-placeholder]:text-ellipsis [&_.cm-placeholder]:whitespace-nowrap [&_.cm-placeholder]:align-bottom"
       style:display={showWaveform ? "none" : null}
     >
-      <PromptEditor
+      <DeferredPromptEditor
         bind:this={composerEl}
         value={editorValue}
         onValueChange={handlePromptChange}
