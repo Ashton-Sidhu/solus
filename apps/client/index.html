@@ -42,7 +42,13 @@
         } catch (e) {}
       })()
     </script>
+    <script>
+      // The build writes the empty workspace into #root, and it paints before any
+      // code runs. A share link and a pairing link open another page: hide it there.
+      if (/^\/(?:[wst]\/|pair$)/.test(location.pathname)) document.documentElement.classList.add('solus-no-first-screen')
+    </script>
     <style>
+      html.solus-no-first-screen [data-first-screen] { display: none; }
       html, body, #root { height: 100%; margin: 0; }
       html:root, html:root body, html:root #root { background: #262522 !important; overscroll-behavior: none; }
       html:root.light, html:root.light body, html:root.light #root { background: #fffffd !important; }

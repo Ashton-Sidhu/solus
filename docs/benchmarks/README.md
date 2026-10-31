@@ -54,3 +54,20 @@ The largest cut is the prompt editor: CodeMirror, its Markdown, and the autocomp
 `workspaceStartupChunk` puts our own startup modules in one chunk; package code keeps Rollup's chunks, because a walk through a package barrel would claim modules that only later surfaces use. WebKit gains the most (local 161 ms to 131 ms). Chromium is 12 ms slower locally with one large chunk, so the desktop renderer, which is Chromium and loads from disk, keeps Rollup's chunks.
 
 The 400–600 KB target is not met. What remains is mostly the libraries the shell draws with (bits-ui, svelte, zod, tailwind-merge and tailwind-variants, lucide, paneforge, svelte-sonner, socket.io) and the workspace core (`WorkspaceContext`, the sidebar, the composer's chips). The tasks store (about 18 KB of output) and the pull request stores (about 55 KB) stay in the core: the sidebar reads both synchronously, and the gain does not pay for 35 changed call sites. `tests/unit/startup-import-graph.test.ts` holds the line: the deferred modules and packages, and a source budget per client.
+
+## The empty workspace in the HTML (fast-secure-startup step 5)
+
+The [results](web-first-screen-2026-10-31.json) compare the branch before and after step 5, 7 runs each, medians. `scripts/bench-web-load.ts` now also records first contentful paint (FCP) in the same run as the `solus:workspace-code` mark. The bench has no host, so both builds end on the hostless page; before step 5 that page, drawn after the workspace code, is the first content.
+
+| Profile | Engine | FCP before | FCP after | Code mark before | Code mark after |
+|---|---|---:|---:|---:|---:|
+| Slow | Chromium | 5352 ms | 1088 ms | 4471 ms | 4487 ms |
+| Slow | WebKit | 5056 ms | 4412 ms | 4417 ms | 4437 ms |
+| Fast | Chromium | 496 ms | 224 ms | 402 ms | 400 ms |
+| Fast | WebKit | 490 ms | 400 ms | 421 ms | 425 ms |
+| Local | Chromium | 176 ms | 124 ms | 146 ms | 148 ms |
+| Local | WebKit | 183 ms | 183 ms | 129 ms | 130 ms |
+
+Chromium paints the frame when the HTML and the entry CSS (545 KB raw, render-blocking) are in. The code mark does not move: the frame adds 8.6 KB of HTML and no script.
+
+WebKit paints a page only when it is "visually non-empty": more than 200 characters of text, or more than 1024 px² of inline SVG, or no script, style, or font load pending. The frame has about 100 characters and one 12 px icon, and the startup preloads in the HTML stay pending until about the code mark, so WebKit paints the frame just before the code runs. With every script held for 1 s, WebKit painted the frame as built at 11.1 s, without the preload block at 1.04 s, and with a 40 × 40 inline SVG or 300 more characters at 0.12 s. Safari gets the gain only when the first screen passes that gate; what the first screen shows to pass it is a product decision (`docs/plans/fast-secure-startup.md`, step 5).

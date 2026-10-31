@@ -46,6 +46,8 @@ for (const client of ['desktop', 'web'] as const) {
       globalThis: { setTimeout() {} },
       toasts: { dismiss() {}, error(message: string) { throw new Error(message) } },
       installServiceWorkerMessageBridge() {},
+      removeFirstScreen: () => null,
+      restoreFirstScreenDraft() {},
       touchLastConnected() {},
       setActiveServerId() {},
       isStaleBuildError: () => false,

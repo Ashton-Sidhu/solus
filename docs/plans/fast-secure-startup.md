@@ -89,6 +89,23 @@ Speed first. Each step lands with a measurement.
    renderer at build time into `index.html`; `hydrate` instead of `mount`. First paint at
    HTML arrival. The first-screen components must render without `window`; a test
    renders them on the server.
+   **Status: implemented and measured in Chromium; WebKit open** (2026-10-31). The
+   build renders `apps/client/src/shell/FirstScreen.svelte` with `svelte/server`
+   (`scripts/vite-workspace-first-screen.ts`) into `#root`: the real `SidePanel` with
+   `SessionSidebarSkeleton`, and the draft headline over a composer card with
+   `DeferredPromptEditor`'s plain field. Nothing in it belongs to a person. The scoped
+   styles of its components are inlined. The client does not hydrate it: `App` needs
+   its whole context graph and a host, which the build does not have. The workspace
+   replaces the frame in the same task as it mounts and takes the text and focus of
+   its field (`apps/client/src/lib/first-screen.ts`); every other page removes it
+   before it mounts. The page's inline script hides it on `/w/`, `/s/`, `/t/`, and
+   `/pair` before the first paint. `tests/unit/web-first-screen.test.ts`. Slow profile,
+   FCP: Chromium 5.35 s to 1.09 s, WebKit 5.06 s to 4.41 s; the code mark does not move
+   (`docs/benchmarks/README.md`). WebKit paints only a "visually non-empty" page, and
+   the frame is not one while the startup preloads load; it needs more than 200
+   characters of text or 1024 px² of inline SVG. What the frame shows to pass that is
+   open. Desktop is unchanged: it loads from disk and already paints its boot shell
+   from the HTML.
 6. **A plain WebSocket protocol to hosts.** Replace socket.io: the token rides in the
    first message, so the CONNECT acknowledgement round trip goes, and about 90 KB leaves
    the entry chunk. Server, desktop, web, and mobile change together.

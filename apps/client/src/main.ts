@@ -30,6 +30,7 @@ import { toasts } from '@solus/workspace-ui/lib/toasts'
 import { startScrollReveal } from '@solus/workspace-ui/lib/scroll-reveal'
 import WebToaster from './components/WebToaster.svelte'
 import { isStaleBuildError, reportStaleBuild } from './lib/stale-build'
+import { removeFirstScreen, restoreFirstScreenDraft } from './lib/first-screen'
 import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
 import { z } from 'zod'
@@ -169,7 +170,10 @@ async function connectToServer(target: SolusServerTarget, intent?: BootIntent): 
     // Saved tabs provide the loading state while history arrives in the background.
     const { default: App } = await loadWorkspaceApp()
     if (generation !== connectionGeneration) return
+    // The workspace takes the place of the frame the HTML painted, in this same task.
+    const firstScreenDraft = removeFirstScreen(root)
     solusApp = mount(App, { target: root })
+    restoreFirstScreenDraft(root, firstScreenDraft)
   } catch (error) {
     if (generation !== connectionGeneration) return
     if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
@@ -182,7 +186,9 @@ function bootHostlessHome(): void {
   toasts.dismiss()
   // Only a browser with no host shows this page, so only that path loads it.
   void import('./routes/HostlessHome.svelte').then(({ default: HostlessHome }) => {
-    if (generation === connectionGeneration) mount(HostlessHome, { target: root })
+    if (generation !== connectionGeneration) return
+    removeFirstScreen(root)
+    mount(HostlessHome, { target: root })
   })
 }
 
@@ -201,6 +207,7 @@ function offerAppOrPair(pairToken: string): void {
   const appLink = appPairLink(location.href)
   history.replaceState({}, '', '/')
   void import('./routes/PairInApp.svelte').then(({ default: PairInApp }) => {
+    removeFirstScreen(root)
     const page = mount(PairInApp, {
       target: root,
       props: {
@@ -320,6 +327,7 @@ async function bootGuest(link: GuestLink, opening: GuestOpening, signedIn: { nam
   if (opening.kind === 'failed') guestBoot.fail(opening.reason)
   else void loadGuestApp().catch(() => {})
   const { default: GuestLanding } = await import('./routes/GuestLanding.svelte')
+  removeFirstScreen(root)
   const landing = mount(GuestLanding, {
     target: root,
     props: { onContinue: (displayName: string) => void connectGuest(link, opening, displayName, () => void unmount(landing)) },
@@ -424,6 +432,7 @@ async function startPage(): Promise<void> {
   } else if (/^\/(w|s)\//.test(location.pathname)) {
     void import('./routes/GuestLanding.svelte').then(({ default: GuestLanding }) => {
       guestBoot.fail('This link is incomplete. Ask the sharer to copy it again.')
+      removeFirstScreen(root)
       mount(GuestLanding, { target: root, props: { onContinue: () => {} } })
     })
   } else {
