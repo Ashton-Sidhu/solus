@@ -5,7 +5,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { visibleInWindow } from '../../lib/organization-filter'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
-import { RUN_GRAPH_WINDOW } from '../../components/automations/lib/automation-format'
+import { RUN_GRAPH_WINDOW } from './run-graph-window'
 
 // Renderer-side cache + RPC wrapper for automations. Mirrors WorksStore: the UI
 // reads reactive state here and calls these methods, which forward to the same

@@ -29,8 +29,7 @@ import { localApi } from "@solus/client-core/local-api";
 import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
 import { notificationHubStore } from "@solus/workspace-ui/contexts/notifications/notification-hub.store.svelte";
 import { browserStore } from "@solus/workspace-ui/contexts/browser/browser.store.svelte";
-import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
-import { revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
+import { followDeviceRequests } from "@solus/workspace-ui/contexts/devices/device-feature";
 import { revealBrowserSurface } from "@solus/workspace-ui/components/browser/lib/surface-reveal";
 import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
 import { deliverRecording } from "@solus/workspace-ui/components/browser/lib/recording-actions";
@@ -306,8 +305,8 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
       // A device an agent opens is revealed beside its own conversation only.
-      devicesStore.onSurfaceRequested = (serverId, payload) => revealDeviceSurface(session, serverId, payload);
-      const unsubDevices = devicesStore.subscribe();
+      // Devices load on first use; their first event loads them (device-feature.ts).
+      const unsubDevices = followDeviceRequests(session);
       const unsubGuideStatus = pullRequests.guides.subscribe();
       // An agent can need an account before any surface that would show its
       // status has been opened, so the request is heard app-wide, not by the card.

@@ -15,7 +15,6 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
   import DraftComposer from "./DraftComposer.svelte";
-  import ConnectHostPage from "./ConnectHostPage.svelte";
   import { draftHostGate, type DraftHostGate, type GatedHost } from "./lib/host-gate";
   import { liveActivityClock } from "../../lib/shared-clock";
   import SolusTips from "../layout/SolusTips.svelte";
@@ -264,13 +263,16 @@
 
 {#snippet surface(current: SessionDraft)}
   {#if hostGate === "connect"}
-    <ConnectHostPage
-      hosts={gatedHosts}
-      draftText={current.prompt.text.trim()}
-      {surfaceVisible}
-      compact={isAside}
-      {now}
-    />
+    <!-- Only a draft whose host is not connected shows this page. -->
+    {#await import("./ConnectHostPage.svelte") then { default: ConnectHostPage }}
+      <ConnectHostPage
+        hosts={gatedHosts}
+        draftText={current.prompt.text.trim()}
+        {surfaceVisible}
+        compact={isAside}
+        {now}
+      />
+    {/await}
   {:else}
     {@render composer(current)}
   {/if}

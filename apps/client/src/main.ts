@@ -21,7 +21,6 @@ import { MAX_WEB_TOKEN_HOSTS } from '@solus/contracts/uplink'
 import { WebTokenSession } from '@solus/client-core/web-token-session'
 import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { saveDirectoryWorkspaces } from '@solus/client-core/workspace-registry'
-import HostlessHome from './routes/HostlessHome.svelte'
 import { pairTokenFromLocation } from './lib/connect'
 import { probeServingOrigin } from './lib/add-host'
 import { cloudOrigin } from './lib/cloud-origin.svelte'
@@ -179,9 +178,12 @@ async function connectToServer(target: SolusServerTarget, intent?: BootIntent): 
 }
 
 function bootHostlessHome(): void {
-  connectionGeneration += 1
+  const generation = ++connectionGeneration
   toasts.dismiss()
-  mount(HostlessHome, { target: root })
+  // Only a browser with no host shows this page, so only that path loads it.
+  void import('./routes/HostlessHome.svelte').then(({ default: HostlessHome }) => {
+    if (generation === connectionGeneration) mount(HostlessHome, { target: root })
+  })
 }
 
 installWindowSolusApi(createNoHostSolusApi())
